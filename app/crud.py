@@ -120,22 +120,35 @@ def get_sorted_page(db: Session, model: Type, *, date_field: str,
                     sort_dir: str = "desc", page: int = 1, limit: int = 50,
                     search=None, search_fields=None, filters=None,
                     nonempty_any=None) -> Tuple[List, int]:
-    """날짜 기반 정렬 + 페이지네이션.
-    2쿼리 방식: ①id+날짜필드만 가져와 Python 날짜 정렬 → ②해당 50건만 full 로딩.
-    raw_data 컬럼은 두 번째 쿼리에서도 지연 로딩."""
+    """날짜 기반 정렬 + 페이지네이션 (PostgreSQL 최적화).
+    ① id + 날짜 + 빈행검사 필드를 경량 쿼리로 가져와 Python 정렬
+    ② 해당 50건 IDs만 full 로딩 (raw_data 지연)
+    nonempty_any는 SQL OR 없이 Python에서 필터 → PostgreSQL seq scan 방지."""
     from app.excel_utils import parse_date_sort
     from sqlalchemy.orm import defer as defer_col
 
     date_col = getattr(model, date_field, None)
 
-    # ① 경량 쿼리: id + 날짜 필드만
-    if date_col is not None:
-        light_q = db.query(model.id, date_col).filter(model.deleted_at.is_(None))
-    else:
-        light_q = db.query(model.id, model.id).filter(model.deleted_at.is_(None))
+    # ① 경량 SELECT: id + 날짜필드 + nonempty_any 필드 (OR 없는 단순 쿼리)
+    select_cols = [model.id, date_col if date_col is not None else model.id]
+    nonempty_cols = []
+    for field in (nonempty_any or []):
+        col = getattr(model, field, None)
+        if col is not None:
+            select_cols.append(col)
+            nonempty_cols.append(field)
 
-    light_q = _apply_common_filters(light_q, model, search, search_fields, filters, nonempty_any)
-    all_rows = light_q.all()  # (id, date_str) 튜플 목록
+    light_q = db.query(*select_cols).filter(model.deleted_at.is_(None))
+    # search/filters만 적용 (nonempty OR 조건 제외)
+    light_q = _apply_common_filters(light_q, model, search, search_fields, filters, None)
+    all_rows = light_q.all()
+
+    # Python에서 빈 행 제거 (nonempty_any 필드 기준)
+    if nonempty_cols:
+        n_check = len(nonempty_cols)
+        # row: (id, date, check1, check2, ...) → check 컬럼은 인덱스 2부터
+        all_rows = [r for r in all_rows
+                    if any(r[2 + i] and str(r[2 + i]).strip() for i in range(n_check))]
 
     # Python 날짜 파싱 정렬
     reverse = (sort_dir == "desc")
@@ -147,7 +160,7 @@ def get_sorted_page(db: Session, model: Type, *, date_field: str,
     if not page_ids:
         return [], total
 
-    # ② 해당 페이지 IDs만 전체 컬럼 로딩 (raw_data 지연)
+    # ② 해당 IDs만 full 로딩 (raw_data 지연)
     items_q = db.query(model).filter(
         model.id.in_(page_ids),
         model.deleted_at.is_(None),
@@ -164,7 +177,8 @@ def get_region_vehicle_page(db: Session, model: Type, *, page: int = 1, limit: i
                              search=None, search_fields=None, filters=None,
                              nonempty_any=None) -> Tuple[List, int]:
     """지역(가나다) + 차량번호(자연정렬) 기반 페이지네이션.
-    2쿼리 방식: ①경량 필드만 가져와 Python 정렬 → ②해당 50건 full 로딩."""
+    ① id + region + vehicle_number 경량 쿼리 → Python 자연정렬
+    ② 50건 IDs full 로딩 (raw_data 지연)"""
     from sqlalchemy.orm import defer as defer_col
 
     def nat_key(s: str):
@@ -178,13 +192,14 @@ def get_region_vehicle_page(db: Session, model: Type, *, page: int = 1, limit: i
     else:
         light_q = db.query(model.id, model.id, model.id).filter(model.deleted_at.is_(None))
 
-    light_q = _apply_common_filters(light_q, model, search, search_fields, filters, nonempty_any)
+    # search/filters 적용 (nonempty OR 없음)
+    light_q = _apply_common_filters(light_q, model, search, search_fields, filters, None)
     all_rows = light_q.all()  # (id, region, vehicle_number)
 
-    # 빈 행 제거
+    # Python에서 빈 행 제거
     all_rows = [r for r in all_rows if (r[2] and str(r[2]).strip()) or (r[1] and str(r[1]).strip())]
 
-    # 자연 정렬: 지역(가나다) → 차량번호(자연)
+    # 자연 정렬: 지역(가나다) → 차량번호(자연정렬)
     all_rows.sort(key=lambda r: (r[1] or 'zzz', nat_key(r[2] or '')))
 
     total = len(all_rows)

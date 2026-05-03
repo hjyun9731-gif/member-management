@@ -1,4 +1,4 @@
-// ===== 강원도 개인소형화물협회 업무관리 시스템 v6 =====
+﻿// ===== 강원도 개인소형화물협회 업무관리 시스템 v6 =====
 
 const REGIONS = ['춘천시','원주시','강릉시','동해시','태백시','속초시','삼척시',
                  '홍천군','횡성군','영월군','평창군','정선군','철원군','화천군',
@@ -185,7 +185,7 @@ function dateOrderSel(id,val='desc'){
   </select>`;
 }
 
-function getSortParams(){}  // 하위 호환성 유지 (빈 함수)
+function getSortParams(){return {};}  // 하위 호환성 유지
 
 // ===== DETAIL VIEW (섹션별, no raw_data JSON) =====
 function buildDetailSections(sections){
@@ -351,7 +351,7 @@ async function renderCandidateSection(){
     const tw=document.getElementById('cTbl');
     if(!d.items.length){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">📋</div><p class="empty-txt">예정자가 없습니다.</p></div>`;return;}
     tw.innerHTML=`<div class="tbl-wrap"><table>
-      <thead><tr>${sortHeaders('cTbl',sk,hdrs,doSearch)}</tr></thead>
+      <thead><tr>${plainHeaders(hdrs)}</tr></thead>
       <tbody>${d.items.map(r=>`<tr>
         <td>${fv(r.region)}</td>
         <td>${fv(r.vehicle_number)}</td>
@@ -484,9 +484,11 @@ async function renderMember(category){
         ${rselflt(`${key}RegF`,f.region||'')}
         <select id="${key}MemF" class="fsel"><option value="">가입/미가입</option><option value="가입">가입</option><option value="미가입">미가입</option></select>
         <select id="${key}SortF" class="fsel">
-          <option value="default" ${(f.member_sort||'default')==='default'?'selected':''}>지역·차량번호순</option>
+          <option value="default" ${(!f.member_sort||f.member_sort==='default')?'selected':''}>지역+차량번호순</option>
           <option value="approval_desc" ${f.member_sort==='approval_desc'?'selected':''}>인가일자 최신순</option>
           <option value="approval_asc" ${f.member_sort==='approval_asc'?'selected':''}>인가일자 오래된순</option>
+          <option value="join_desc" ${f.member_sort==='join_desc'?'selected':''}>가입일자 최신순</option>
+          <option value="join_asc" ${f.member_sort==='join_asc'?'selected':''}>가입일자 오래된순</option>
         </select>
         <input class="srch" id="${key}Srch" placeholder="성명, 차량번호, 주소, 자격번호" value="${e_(f.search||'')}">
         <button class="btn bp btn-sm" id="${key}SrchBtn">조회</button>
@@ -708,7 +710,7 @@ async function renderTransferLedger(){
     const tw=document.getElementById('tlTbl');
     if(!d.items.length){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">📋</div><p class="empty-txt">데이터가 없습니다.</p></div>`;return;}
     tw.innerHTML=`<div class="tbl-wrap"><table>
-      <thead><tr>${sortHeaders('tlTbl',sk,hdrs,doSearch)}</tr></thead>
+      <thead><tr>${plainHeaders(hdrs)}</tr></thead>
       <tbody>${d.items.map(r=>`<tr>
         <td>${fv(r.seq_number)}</td>
         <td><strong>${fvDate(r.process_date,r.receipt_date)}</strong></td>
@@ -810,7 +812,7 @@ async function renderClosures(){
     const tw=document.getElementById('clTbl');
     if(!d.items.length){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">🚫</div><p class="empty-txt">데이터가 없습니다.</p></div>`;return;}
     tw.innerHTML=`<div class="tbl-wrap"><table>
-      <thead><tr>${sortHeaders('clTbl',sk,hdrs,doSearch)}</tr></thead>
+      <thead><tr>${plainHeaders(hdrs)}</tr></thead>
       <tbody>${d.items.map(r=>`<tr>
         <td><a class="click-link" onclick="viewClosure(${r.id});return false"><strong>${fv(r.management_number)}</strong></a></td>
         <td>${ctBadge(r.closure_type)}</td><td>${dtBadge(r.data_type)}</td>
@@ -901,7 +903,7 @@ async function renderChangeHistory(){
     const tw=document.getElementById('chTbl');
     if(!d.items.length){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">📝</div><p class="empty-txt">데이터가 없습니다.</p></div>`;return;}
     tw.innerHTML=`<div class="tbl-wrap"><table>
-      <thead><tr>${sortHeaders('chTbl',sk,hdrs,doSearch)}</tr></thead>
+      <thead><tr>${plainHeaders(hdrs)}</tr></thead>
       <tbody>${d.items.map(r=>`<tr>
         <td>${chBadge(r.change_type)}</td>
         <td>${fvDate(r.change_date,r.receipt_date)}</td>
@@ -1300,3 +1302,6 @@ document.addEventListener('DOMContentLoaded',()=>{
   }));
   navigate('members','candidates');
 });
+
+
+

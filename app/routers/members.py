@@ -82,7 +82,7 @@ async def list_members(
     registration_type: Optional[str] = Query(None),
     mgmt_prefix: Optional[str] = Query(None),
     status: Optional[str] = Query("active"),
-    member_sort: Optional[str] = Query("default"),  # default / approval_desc / approval_asc
+    member_sort: Optional[str] = Query("default"),  # default / approval_desc / approval_asc / join_desc / join_asc
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db), _=Depends(get_current_user),
@@ -94,7 +94,7 @@ async def list_members(
     nonempty = ["vehicle_number", "name"]
 
     if member_sort in ("approval_desc", "approval_asc"):
-        # 인가일자 기준 날짜 정렬 (2쿼리 방식, raw_data 미로딩)
+        # 인가일자 기준 날짜 정렬
         sort_dir = "desc" if member_sort == "approval_desc" else "asc"
         items, total = crud.get_sorted_page(
             db, models.LicenseHolder, date_field="approval_date", sort_dir=sort_dir,
@@ -102,8 +102,17 @@ async def list_members(
             search=search, search_fields=SEARCH, filters=filters,
             nonempty_any=nonempty,
         )
+    elif member_sort in ("join_desc", "join_asc"):
+        # 가입일자 기준 날짜 정렬
+        sort_dir = "desc" if member_sort == "join_desc" else "asc"
+        items, total = crud.get_sorted_page(
+            db, models.LicenseHolder, date_field="membership_date", sort_dir=sort_dir,
+            page=page, limit=limit,
+            search=search, search_fields=SEARCH, filters=filters,
+            nonempty_any=nonempty,
+        )
     else:
-        # 기본: 지역(가나다) + 차량번호(자연정렬) — 2쿼리 방식, raw_data 미로딩
+        # 기본: 지역(가나다) + 차량번호(자연정렬)
         items, total = crud.get_region_vehicle_page(
             db, models.LicenseHolder, page=page, limit=limit,
             search=search, search_fields=SEARCH, filters=filters,

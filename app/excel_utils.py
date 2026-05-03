@@ -105,7 +105,8 @@ def _normalize_region(val: str) -> str:
         if s.startswith(short): return full
     return val.strip()
 
-_VALID_FUELS = {'경유','휘발유','lpg','lp가스','전기','하이브리드','cng','lng','가스','디젤','천연가스'}
+_VALID_FUELS = {'경유','휘발유','lpg','lp가스','전기','하이브리드','cng','lng','가스','디젤','천연가스',
+               '엘피지','액화석유가스','bev','ev','electric','가솔린','gasoline','diesel'}
 
 def _is_valid_fuel(val: str) -> bool:
     """유종으로 유효한 값인지 검증. 차종 값("18,포터II...")이 들어가지 않게."""
