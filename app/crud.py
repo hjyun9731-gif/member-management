@@ -1,3 +1,4 @@
+import re
 from typing import Type, List, Optional, Tuple, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
@@ -83,6 +84,125 @@ def get_list(db: Session, model: Type, *, skip=0, limit=50,
     else:
         query = query.order_by(model.id.asc())
     return query.offset(skip).limit(limit).all(), total
+
+
+def _apply_common_filters(query, model, search, search_fields, filters, nonempty_any):
+    """공통 필터 적용 헬퍼"""
+    from sqlalchemy import and_
+    if search and search_fields:
+        conds = [getattr(model, f).ilike(f"%{search}%") for f in search_fields if hasattr(model, f)]
+        if conds:
+            query = query.filter(or_(*conds))
+    if filters:
+        for k, v in filters.items():
+            if v is None or v == "":
+                continue
+            if k == "management_number_prefix":
+                col = getattr(model, "management_number", None)
+                if col is not None:
+                    query = query.filter(col.like(f"{v}%"))
+                continue
+            col = getattr(model, k, None)
+            if col is not None:
+                query = query.filter(col == v)
+    if nonempty_any:
+        pairs = []
+        for field in nonempty_any:
+            col = getattr(model, field, None)
+            if col is not None:
+                pairs.append(and_(col.isnot(None), col != ''))
+        if pairs:
+            query = query.filter(or_(*pairs))
+    return query
+
+
+def get_sorted_page(db: Session, model: Type, *, date_field: str,
+                    sort_dir: str = "desc", page: int = 1, limit: int = 50,
+                    search=None, search_fields=None, filters=None,
+                    nonempty_any=None) -> Tuple[List, int]:
+    """날짜 기반 정렬 + 페이지네이션.
+    2쿼리 방식: ①id+날짜필드만 가져와 Python 날짜 정렬 → ②해당 50건만 full 로딩.
+    raw_data 컬럼은 두 번째 쿼리에서도 지연 로딩."""
+    from app.excel_utils import parse_date_sort
+    from sqlalchemy.orm import defer as defer_col
+
+    date_col = getattr(model, date_field, None)
+
+    # ① 경량 쿼리: id + 날짜 필드만
+    if date_col is not None:
+        light_q = db.query(model.id, date_col).filter(model.deleted_at.is_(None))
+    else:
+        light_q = db.query(model.id, model.id).filter(model.deleted_at.is_(None))
+
+    light_q = _apply_common_filters(light_q, model, search, search_fields, filters, nonempty_any)
+    all_rows = light_q.all()  # (id, date_str) 튜플 목록
+
+    # Python 날짜 파싱 정렬
+    reverse = (sort_dir == "desc")
+    all_rows.sort(key=lambda r: parse_date_sort(r[1] or ""), reverse=reverse)
+
+    total = len(all_rows)
+    page_ids = [r[0] for r in all_rows[(page - 1) * limit: page * limit]]
+
+    if not page_ids:
+        return [], total
+
+    # ② 해당 페이지 IDs만 전체 컬럼 로딩 (raw_data 지연)
+    items_q = db.query(model).filter(
+        model.id.in_(page_ids),
+        model.deleted_at.is_(None),
+    )
+    if hasattr(model, 'raw_data'):
+        items_q = items_q.options(defer_col(model.raw_data))
+
+    items = items_q.all()
+    items_by_id = {i.id: i for i in items}
+    return [items_by_id[pid] for pid in page_ids if pid in items_by_id], total
+
+
+def get_region_vehicle_page(db: Session, model: Type, *, page: int = 1, limit: int = 50,
+                             search=None, search_fields=None, filters=None,
+                             nonempty_any=None) -> Tuple[List, int]:
+    """지역(가나다) + 차량번호(자연정렬) 기반 페이지네이션.
+    2쿼리 방식: ①경량 필드만 가져와 Python 정렬 → ②해당 50건 full 로딩."""
+    from sqlalchemy.orm import defer as defer_col
+
+    def nat_key(s: str):
+        return [int(p) if p.isdigit() else p for p in re.split(r'(\d+)', s or '')]
+
+    region_col = getattr(model, 'region', None)
+    vehicle_col = getattr(model, 'vehicle_number', None)
+
+    if region_col is not None and vehicle_col is not None:
+        light_q = db.query(model.id, region_col, vehicle_col).filter(model.deleted_at.is_(None))
+    else:
+        light_q = db.query(model.id, model.id, model.id).filter(model.deleted_at.is_(None))
+
+    light_q = _apply_common_filters(light_q, model, search, search_fields, filters, nonempty_any)
+    all_rows = light_q.all()  # (id, region, vehicle_number)
+
+    # 빈 행 제거
+    all_rows = [r for r in all_rows if (r[2] and str(r[2]).strip()) or (r[1] and str(r[1]).strip())]
+
+    # 자연 정렬: 지역(가나다) → 차량번호(자연)
+    all_rows.sort(key=lambda r: (r[1] or 'zzz', nat_key(r[2] or '')))
+
+    total = len(all_rows)
+    page_ids = [r[0] for r in all_rows[(page - 1) * limit: page * limit]]
+
+    if not page_ids:
+        return [], total
+
+    items_q = db.query(model).filter(
+        model.id.in_(page_ids),
+        model.deleted_at.is_(None),
+    )
+    if hasattr(model, 'raw_data'):
+        items_q = items_q.options(defer_col(model.raw_data))
+
+    items = items_q.all()
+    items_by_id = {i.id: i for i in items}
+    return [items_by_id[pid] for pid in page_ids if pid in items_by_id], total
 
 
 def get_by_id(db: Session, model: Type, item_id: int):

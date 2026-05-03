@@ -111,12 +111,59 @@ def _is_valid_fuel(val: str) -> bool:
     """유종으로 유효한 값인지 검증. 차종 값("18,포터II...")이 들어가지 않게."""
     if not val or len(val) < 2: return False
     vl = val.lower().replace(' ','')
-    # 연식+차종 형식 제거 (예: "18,포터II내장탑차")
     if re.match(r'^\d{2}[,.]', val.strip()): return False
-    # 숫자로 시작하면 제외
     if re.match(r'^\d', val.strip()): return False
-    # 알려진 유종 포함 여부
     return any(f in vl for f in _VALID_FUELS)
+
+
+# ─────────────────────────────────────────────
+# 공통 유종 정규화 함수 (모든 라우터에서 사용)
+# ─────────────────────────────────────────────
+_VEH_NAMES = ['포터', '봉고', '트럭', '탑차', '냉동', '사다리', '픽업', '렉스턴', '트레일러']
+_BAD_FUEL_START = re.compile(r'^[\d\.\,]')
+
+
+def normalize_fuel(fuel: str) -> str:
+    """유종 표준화: LPG/전기/경유/휘발유/기타 중 하나로 반환.
+    빈값이거나 차종명이면 빈 문자열('')을 반환한다."""
+    if not fuel:
+        return ''
+    f = str(fuel).strip()
+    if not f or f in ('.', '-', 'nan', 'None', 'NaN', '#N/A'):
+        return ''
+    # 숫자·연식 시작 또는 차종명 → 제외
+    if _BAD_FUEL_START.match(f):
+        return ''
+    if any(vn in f for vn in _VEH_NAMES):
+        return ''
+    fl = f.lower().replace(' ', '').replace('　', '')
+    # 정확한 단어 매칭 우선
+    if fl in ('lpg', 'lp', 'lp가스', '엘피지', '액화석유가스', '가스'):
+        return 'LPG'
+    if fl in ('전기', 'ev', 'bev', 'electric', '전기차'):
+        return '전기'
+    if fl in ('경유', '디젤', 'diesel'):
+        return '경유'
+    if fl in ('휘발유', '가솔린', 'gasoline', 'petrol', '가솔'):
+        return '휘발유'
+    # 부분 포함 매칭
+    if 'lpg' in fl or '엘피지' in fl or '액화석유' in fl:
+        return 'LPG'
+    if 'lp가스' in fl or ('가스' in fl and '가솔린' not in fl):
+        return 'LPG'
+    if '전기' in fl:
+        return '전기'
+    if 'ev' in fl:
+        return '전기'
+    if '경유' in fl or '디젤' in fl or 'diesel' in fl:
+        return '경유'
+    if '휘발유' in fl or '가솔린' in fl or 'gasoline' in fl:
+        return '휘발유'
+    if '하이브리드' in fl or 'hybrid' in fl:
+        return '기타'
+    if 'cng' in fl or 'lng' in fl or '천연가스' in fl:
+        return 'LPG'
+    return '기타'
 
 
 def _is_valid_company(val: str) -> bool:

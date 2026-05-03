@@ -44,14 +44,13 @@ async def list_closures(
     db: Session = Depends(get_db), _=Depends(get_current_user),
 ):
     filters = {"region": region, "closure_type": closure_type, "data_type": data_type}
-    sort_dir = "desc" if date_order == "desc" else "asc"
-    items_raw, total = crud.get_list(
-        db, models.Closure, skip=(page - 1) * limit, limit=limit,
+    items, total = crud.get_sorted_page(
+        db, models.Closure,
+        date_field="closure_date", sort_dir=date_order or "desc",
+        page=page, limit=limit,
         search=search, search_fields=SEARCH, filters=filters,
-        sort_by="id", sort_dir=sort_dir,
         nonempty_any=["vehicle_number", "name"],
     )
-    items = [i for i in items_raw]
     pages = max(1, (total + limit - 1) // limit)
     return {"items": [_fmt(i) for i in items], "total": total,
             "page": page, "pages": pages, "limit": limit}

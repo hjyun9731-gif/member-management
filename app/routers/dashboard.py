@@ -12,6 +12,7 @@ from sqlalchemy import func
 from app.database import get_db
 from app.auth import get_current_user
 from app import models, crud
+from app.excel_utils import normalize_fuel
 
 router = APIRouter()
 
@@ -53,30 +54,10 @@ def classify_vt(vt: str) -> str:
     return '기타'
 
 
-_FUEL_INVALID_RE = re.compile(r'^[\d\.\,]|포터|봉고|트럭|탑차|냉동|사다리|픽업|렉스턴|트레일러')
-_FUEL_MAP = [
-    ('전기',  ['전기', '일렉트릭', 'electric', 'ev']),
-    ('경유',  ['경유', '디젤', 'diesel']),
-    ('LPG',  ['lpg', 'lp가스', '엘피지', '가스', 'cng', 'lng', '천연가스']),
-    ('휘발유', ['휘발유', '가솔린', 'gasoline', 'petrol']),
-]
-
-
 def _normalize_fuel_stat(fuel: str) -> Optional[str]:
-    if not fuel:
-        return None
-    f = str(fuel).strip()
-    if not f or f in ('.', '-', 'nan', 'None', 'NaN'):
-        return None
-    if _FUEL_INVALID_RE.search(f):
-        return None
-    fl = f.lower().replace(' ', '')
-    if '하이브리드' in fl:
-        return '기타'
-    for label, keywords in _FUEL_MAP:
-        if any(kw in fl for kw in keywords):
-            return label
-    return '기타'
+    """공통 normalize_fuel 래퍼 - 빈 값이면 None 반환 (통계 집계 제외용)"""
+    result = normalize_fuel(fuel)
+    return result if result else None
 
 
 def ext_veh_year(vt: str) -> Optional[int]:

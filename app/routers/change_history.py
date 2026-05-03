@@ -78,16 +78,14 @@ async def list_changes(
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db), _=Depends(get_current_user),
 ):
-    # DB 레벨 페이지네이션 (raw_data 접근 없음)
-    sort_dir = "desc" if date_order == "desc" else "asc"
-    items_raw, total = crud.get_list(
-        db, models.ChangeHistory, skip=(page - 1) * limit, limit=limit,
+    items, total = crud.get_sorted_page(
+        db, models.ChangeHistory,
+        date_field="change_date", sort_dir=date_order or "desc",
+        page=page, limit=limit,
         search=search, search_fields=SEARCH,
         filters={"region": region, "change_type": change_type},
-        sort_by="id", sort_dir=sort_dir,
         nonempty_any=["vehicle_number", "name", "after_value"],
     )
-    items = [i for i in items_raw]
     pages = max(1, (total + limit - 1) // limit)
     return {"items": [_fmt(i) for i in items], "total": total,
             "page": page, "pages": pages, "limit": limit}

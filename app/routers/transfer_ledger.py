@@ -38,21 +38,20 @@ def _fmt(t):
 async def list_transfers(
     search: Optional[str] = Query(None),
     region: Optional[str] = Query(None),
-    date_order: Optional[str] = Query("desc"),
+    date_order: Optional[str] = Query("desc"),  # desc=최신순, asc=오래된순
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db), _=Depends(get_current_user),
 ):
-    # DB 레벨 페이지네이션 (id DESC ≈ 최신 업로드순, 빠름)
-    sort_dir = "desc" if date_order == "desc" else "asc"
-    items_raw, total = crud.get_list(
-        db, models.TransferLedger, skip=(page - 1) * limit, limit=limit,
+    # 2쿼리 방식: ①처리일자+id만 가져와 날짜 정렬 → ②50건 full 로딩 (raw_data 제외)
+    items, total = crud.get_sorted_page(
+        db, models.TransferLedger,
+        date_field="process_date", sort_dir=date_order or "desc",
+        page=page, limit=limit,
         search=search, search_fields=SEARCH, filters={"region": region},
-        sort_by="id", sort_dir=sort_dir,
         nonempty_any=["vehicle_number", "transferee"],
     )
-    items = [_fmt(i) for i in items_raw]
-    return {"items": items, "total": total,
+    return {"items": [_fmt(i) for i in items], "total": total,
             "page": page, "pages": max(1, (total + limit - 1) // limit), "limit": limit}
 
 

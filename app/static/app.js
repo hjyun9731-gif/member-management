@@ -483,7 +483,11 @@ async function renderMember(category){
       <div class="frow">
         ${rselflt(`${key}RegF`,f.region||'')}
         <select id="${key}MemF" class="fsel"><option value="">가입/미가입</option><option value="가입">가입</option><option value="미가입">미가입</option></select>
-        <span class="fsel" style="background:var(--c-bg);color:var(--c-text-4);font-size:11px;display:flex;align-items:center;padding:0 10px;border:1px solid var(--c-border);border-radius:6px">지역순 · 차량번호순</span>
+        <select id="${key}SortF" class="fsel">
+          <option value="default" ${(f.member_sort||'default')==='default'?'selected':''}>지역·차량번호순</option>
+          <option value="approval_desc" ${f.member_sort==='approval_desc'?'selected':''}>인가일자 최신순</option>
+          <option value="approval_asc" ${f.member_sort==='approval_asc'?'selected':''}>인가일자 오래된순</option>
+        </select>
         <input class="srch" id="${key}Srch" placeholder="성명, 차량번호, 주소, 자격번호" value="${e_(f.search||'')}">
         <button class="btn bp btn-sm" id="${key}SrchBtn">조회</button>
         <button class="btn bo btn-sm" id="${key}RstBtn">초기화</button>
@@ -499,7 +503,7 @@ async function renderMember(category){
   ];
 
   const doSearch=async(pg=1)=>{
-    ST.fl[key]={category,region:document.getElementById(`${key}RegF`).value,membership_status:document.getElementById(`${key}MemF`).value,search:document.getElementById(`${key}Srch`).value.trim()};
+    ST.fl[key]={category,region:document.getElementById(`${key}RegF`).value,membership_status:document.getElementById(`${key}MemF`).value,member_sort:document.getElementById(`${key}SortF`).value,search:document.getElementById(`${key}Srch`).value.trim()};
     const q=new URLSearchParams({page:pg,limit:50,...Object.fromEntries(Object.entries(ST.fl[key]).filter(([,v])=>v))});
     const d=await api('GET',`/api/members?${q}`).catch(()=>null);if(!d)return;
     document.getElementById('mCnt').textContent=`${d.total.toLocaleString()}건`;

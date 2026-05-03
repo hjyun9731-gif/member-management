@@ -9,26 +9,7 @@ import datetime
 from app.database import get_db
 from app.auth import get_current_user, require_admin
 from app import models, crud
-from app.excel_utils import records_to_excel, parse_date_sort
-
-_FUEL_VALID = {'전기', '경유', 'LPG', '휘발유', '기타'}
-_FUEL_BAD_RE = re.compile(r'^[\d\.\,]|포터|봉고|트럭|탑차|냉동|사다리|픽업|렉스턴', re.I)
-
-def _normalize_fuel(fuel: str) -> str:
-    if not fuel:
-        return ""
-    f = str(fuel).strip()
-    if not f or f in ('.', '-', 'nan', 'None'):
-        return ""
-    if _FUEL_BAD_RE.search(f):
-        return ""
-    fl = f.lower().replace(' ', '')
-    if '전기' in fl: return '전기'
-    if '경유' in fl or '디젤' in fl: return '경유'
-    if 'lpg' in fl or 'lp가스' in fl or '엘피지' in fl or '가스' in fl: return 'LPG'
-    if '휘발유' in fl or '가솔린' in fl: return '휘발유'
-    if '하이브리드' in fl: return '기타'
-    return f
+from app.excel_utils import records_to_excel, normalize_fuel
 
 router = APIRouter()
 
@@ -65,7 +46,7 @@ def _fmt(m):
         "certificate_number": m.certificate_number or "",
         "driver_license_number": m.driver_license_number or "",
         "vehicle_type": m.vehicle_type or "",
-        "fuel_type": _normalize_fuel(m.fuel_type or ""),
+        "fuel_type": normalize_fuel(m.fuel_type or ""),
         "business_number": m.business_number or "",
         "affiliated_company": m.affiliated_company or "",
         "resident_number": m.resident_number or "",
@@ -92,11 +73,6 @@ async def next_transfer_number(db: Session = Depends(get_db), _=Depends(get_curr
     return {"next_number": crud.get_next_transfer_member_number(db)}
 
 
-def _nat_key(s: str):
-    """차량번호 자연 정렬 키: 숫자 부분을 정수로 비교"""
-    return [int(p) if p.isdigit() else p for p in re.split(r'(\d+)', s or '')]
-
-
 @router.get("")
 async def list_members(
     search: Optional[str] = Query(None),
@@ -106,6 +82,7 @@ async def list_members(
     registration_type: Optional[str] = Query(None),
     mgmt_prefix: Optional[str] = Query(None),
     status: Optional[str] = Query("active"),
+    member_sort: Optional[str] = Query("default"),  # default / approval_desc / approval_asc
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db), _=Depends(get_current_user),
@@ -114,19 +91,25 @@ async def list_members(
                "membership_status": membership_status, "status": status,
                "registration_type": registration_type,
                "management_number_prefix": mgmt_prefix}
-    # 전체 매칭 레코드 (지역+차량번호 자연정렬 필요)
-    all_items, _ = crud.get_list(
-        db, models.LicenseHolder, skip=0, limit=99999,
-        search=search, search_fields=SEARCH, filters=filters,
-    )
-    # 빈 행 제거
-    all_items = [i for i in all_items
-                 if (i.vehicle_number and i.vehicle_number.strip()) or (i.name and i.name.strip())]
-    # 기본 정렬: 1차 지역(가나다) → 2차 차량번호(자연 정렬)
-    all_items.sort(key=lambda m: (m.region or 'zzz', _nat_key(m.vehicle_number or '')))
-    total = len(all_items)
-    start = (page - 1) * limit
-    items = all_items[start:start + limit]
+    nonempty = ["vehicle_number", "name"]
+
+    if member_sort in ("approval_desc", "approval_asc"):
+        # 인가일자 기준 날짜 정렬 (2쿼리 방식, raw_data 미로딩)
+        sort_dir = "desc" if member_sort == "approval_desc" else "asc"
+        items, total = crud.get_sorted_page(
+            db, models.LicenseHolder, date_field="approval_date", sort_dir=sort_dir,
+            page=page, limit=limit,
+            search=search, search_fields=SEARCH, filters=filters,
+            nonempty_any=nonempty,
+        )
+    else:
+        # 기본: 지역(가나다) + 차량번호(자연정렬) — 2쿼리 방식, raw_data 미로딩
+        items, total = crud.get_region_vehicle_page(
+            db, models.LicenseHolder, page=page, limit=limit,
+            search=search, search_fields=SEARCH, filters=filters,
+            nonempty_any=nonempty,
+        )
+
     pages = max(1, (total + limit - 1) // limit)
     return {"items": [_fmt(i) for i in items], "total": total,
             "page": page, "pages": pages, "limit": limit}
