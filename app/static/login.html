@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>로그인 - 강원도 개인소형화물협회</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Malgun Gothic', '맑은 고딕', sans-serif;
+      background: #1565C0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .login-wrap {
+      width: 100%;
+      max-width: 420px;
+      padding: 20px;
+    }
+    .login-card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 48px 40px 40px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    }
+    .login-logo {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+    .login-logo .logo-icon {
+      font-size: 48px;
+      display: block;
+      margin-bottom: 12px;
+    }
+    .login-logo h1 {
+      font-size: 18px;
+      font-weight: 700;
+      color: #1565C0;
+      line-height: 1.5;
+    }
+    .login-logo p {
+      font-size: 13px;
+      color: #757575;
+      margin-top: 6px;
+    }
+    .form-group {
+      margin-bottom: 18px;
+    }
+    .form-group label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: #424242;
+      margin-bottom: 6px;
+    }
+    .form-group input {
+      width: 100%;
+      padding: 11px 14px;
+      border: 1.5px solid #E0E0E0;
+      border-radius: 8px;
+      font-size: 15px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color .2s;
+    }
+    .form-group input:focus {
+      border-color: #1565C0;
+    }
+    .btn-login {
+      width: 100%;
+      padding: 13px;
+      background: #1565C0;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 8px;
+      font-family: inherit;
+      transition: background .2s;
+    }
+    .btn-login:hover { background: #0D47A1; }
+    .error-msg {
+      color: #C62828;
+      font-size: 13px;
+      text-align: center;
+      margin-top: 12px;
+      min-height: 18px;
+    }
+    .login-info {
+      margin-top: 24px;
+      padding: 12px;
+      background: #E3F2FD;
+      border-radius: 8px;
+      font-size: 12px;
+      color: #1565C0;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="login-logo">
+        <span class="logo-icon">🚛</span>
+        <h1>강원도 개인소형화물협회<br>회원관리 시스템</h1>
+        <p>Gangwon Province Individual Small Freight Association</p>
+      </div>
+      <form id="loginForm">
+        <div class="form-group">
+          <label for="username">아이디</label>
+          <input type="text" id="username" placeholder="아이디를 입력하세요" autocomplete="username" autofocus>
+        </div>
+        <div class="form-group">
+          <label for="password">비밀번호</label>
+          <input type="password" id="password" placeholder="비밀번호를 입력하세요" autocomplete="current-password">
+        </div>
+        <button type="submit" class="btn-login" id="loginBtn">로그인</button>
+        <div class="error-msg" id="errorMsg"></div>
+      </form>
+      <div class="login-info">
+        기본 관리자: admin / admin1234
+      </div>
+    </div>
+  </div>
+  <script>
+    if (localStorage.getItem('authToken')) {
+      window.location.href = '/';
+    }
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('loginBtn');
+      const errEl = document.getElementById('errorMsg');
+      errEl.textContent = '';
+      btn.disabled = true;
+      btn.textContent = '로그인 중...';
+      const fd = new FormData();
+      fd.append('username', document.getElementById('username').value.trim());
+      fd.append('password', document.getElementById('password').value);
+      try {
+        const res = await fetch('/api/auth/login', { method: 'POST', body: fd });
+        if (res.ok) {
+          const data = await res.json();
+          localStorage.setItem('authToken', data.access_token);
+          localStorage.setItem('userRole', data.role);
+          localStorage.setItem('userName', data.username);
+          localStorage.setItem('userFullName', data.full_name || data.username);
+          window.location.href = '/';
+        } else {
+          const err = await res.json();
+          errEl.textContent = err.detail || '로그인에 실패했습니다.';
+          btn.disabled = false;
+          btn.textContent = '로그인';
+        }
+      } catch (ex) {
+        errEl.textContent = '서버에 연결할 수 없습니다.';
+        btn.disabled = false;
+        btn.textContent = '로그인';
+      }
+    });
+  </script>
+</body>
+</html>

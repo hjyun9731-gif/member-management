@@ -1,0 +1,201 @@
+from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, JSON
+from sqlalchemy.sql import func
+from app.database import Base
+
+
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String(50), unique=True, index=True, nullable=False)
+    password_hash = Column(String(255), nullable=False)
+    role = Column(String(20), default="staff")
+    full_name = Column(String(100))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class LicenseHolder(Base):
+    """개인회원 / 택배회원 통합 테이블"""
+    __tablename__ = "license_holders"
+    id = Column(Integer, primary_key=True, index=True)
+    management_number = Column(String(50), index=True)   # 신YY-N / 양YY-N
+    registration_type = Column(String(20))               # 신규 / 양도양수 / 엑셀업로드
+    status = Column(String(20), default="active")        # active / closed
+    region = Column(String(50), index=True)
+    vehicle_number = Column(String(50), index=True)
+    name = Column(String(100), index=True)
+    category = Column(String(20), index=True)            # 개인 / 택배 (차량번호 "배"로 자동판단)
+    company_name = Column(String(200))
+    address = Column(Text)
+    phone = Column(String(50))
+    mobile = Column(String(50))
+    membership_status = Column(String(20))               # 가입 / 미가입
+    membership_date = Column(String(50))
+    approval_date = Column(String(50))
+    certificate_issue_date = Column(String(50))
+    certificate_number = Column(String(100))
+    permit_number = Column(String(100))
+    driver_license_number = Column(String(100))
+    vehicle_type = Column(String(50))
+    fuel_type = Column(String(30))
+    business_number = Column(String(50))
+    affiliated_company = Column(String(200))
+    resident_number = Column(String(30))
+    memo = Column(Text)
+    candidate_id = Column(Integer, nullable=True)        # FK → candidates
+    transfer_ledger_id = Column(Integer, nullable=True)  # FK → transfer_ledger
+    closure_id = Column(Integer, nullable=True)          # FK → closures (폐업 시)
+    raw_data = Column(JSON)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class Candidate(Base):
+    """예정자 (신규등록 대기자)"""
+    __tablename__ = "candidates"
+    id = Column(Integer, primary_key=True, index=True)
+    region = Column(String(50), index=True)
+    vehicle_number = Column(String(50), index=True)
+    name = Column(String(100), index=True)
+    resident_number = Column(String(30))
+    address = Column(Text)
+    phone = Column(String(50))
+    mobile = Column(String(50))
+    certificate_issue_date = Column(String(50))
+    certificate_number = Column(String(100))
+    driver_license_number = Column(String(100))
+    vehicle_type = Column(String(50))
+    fuel_type = Column(String(30))
+    business_number = Column(String(50))
+    affiliated_company = Column(String(200))
+    memo = Column(Text)
+    is_registered = Column(Boolean, default=False)
+    member_id = Column(Integer, nullable=True)
+    raw_data = Column(JSON)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class TransferLedger(Base):
+    """양도양수대장 (인허가/변경)"""
+    __tablename__ = "transfer_ledger"
+    id = Column(Integer, primary_key=True, index=True)
+    seq_number = Column(String(50), index=True)          # 번호
+    receipt_date = Column(String(50))                    # 접수일자
+    region = Column(String(50), index=True)              # 지역별
+    vehicle_number = Column(String(50), index=True)      # 차량번호
+    transferor = Column(String(100), index=True)         # 양도자
+    transferee = Column(String(100), index=True)         # 양수자
+    resident_number = Column(String(30))
+    address = Column(Text)
+    phone = Column(String(50))
+    mobile = Column(String(50))
+    approval_date = Column(String(50))                   # 인가일자
+    membership_date = Column(String(50))                 # 가입일자
+    certificate_issue_date = Column(String(50))          # 자격증명발급일자
+    certificate_number = Column(String(100))             # 자격증명발급번호
+    process_date = Column(String(50))                    # 처리일자 (양도양수 기준날짜)
+    ledger_update = Column(String(100))                  # 장부정리
+    driver_license_number = Column(String(100))          # 운전면허번호
+    computer_report = Column(String(100))                # 전산보고
+    memo = Column(Text)                                  # 비고
+    management_number = Column(String(50))               # 양YY-N (회원등록 시 부여)
+    member_id = Column(Integer, nullable=True)           # 회원등록 완료 시 연결
+    raw_data = Column(JSON)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class Closure(Base):
+    """폐지현황 (폐업/양도/이관)"""
+    __tablename__ = "closures"
+    id = Column(Integer, primary_key=True, index=True)
+    management_number = Column(String(50), index=True)   # 폐-80 / 양-28 / 이-4
+    closure_type = Column(String(20), index=True)        # 폐업 / 양도 / 이관
+    data_type = Column(String(20), default="신규자료")   # 신규자료 / 이전자료
+    region = Column(String(50), index=True)
+    vehicle_number = Column(String(50), index=True)
+    name = Column(String(100), index=True)
+    company_name = Column(String(200))
+    closure_date = Column(String(50))
+    approval_date = Column(String(50))
+    reason = Column(Text)
+    memo = Column(Text)
+    member_id = Column(Integer, nullable=True)
+    raw_data = Column(JSON)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class ChangeHistory(Base):
+    """변경이력대장"""
+    __tablename__ = "change_history"
+    id = Column(Integer, primary_key=True, index=True)
+    change_type = Column(String(50), index=True)         # 주소지변경/상호변경/...
+    region = Column(String(50), index=True)
+    vehicle_number = Column(String(50), index=True)
+    name = Column(String(100), index=True)
+    before_value = Column(Text)
+    after_value = Column(Text)
+    change_date = Column(String(50))
+    receipt_date = Column(String(50))                    # 접수/신고일자 (change_date 없을 때 표시용)
+    memo = Column(Text)
+    member_id = Column(Integer, nullable=True)
+    raw_data = Column(JSON)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class AllocationCount(Base):
+    """부과대수 (보고/집계용)"""
+    __tablename__ = "allocation_counts"
+    id = Column(Integer, primary_key=True, index=True)
+    year = Column(Integer, index=True)
+    month = Column(Integer, index=True)
+    association_join = Column(Integer, default=0)        # 협회가입
+    transfer_in = Column(Integer, default=0)             # 양도
+    other_region = Column(Integer, default=0)            # 타도
+    closed = Column(Integer, default=0)                  # 폐지
+    withdrawn = Column(Integer, default=0)               # 탈퇴
+    delivery_new = Column(Integer, default=0)            # 택배신규
+    mgmt_fee_closed = Column(Integer, default=0)         # 관리비폐지
+    over_70 = Column(Integer, default=0)                 # 70세
+    base_count = Column(Integer, default=0)              # 협회기본대수
+    total_count = Column(Integer, default=0)             # 총부과대수
+    delivery_mgmt = Column(Integer, default=0)           # n월 택배관리
+    memo = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class UploadHistory(Base):
+    __tablename__ = "upload_histories"
+    id = Column(Integer, primary_key=True, index=True)
+    file_type = Column(String(100))
+    filename = Column(String(255))
+    total_count = Column(Integer, default=0)
+    success_count = Column(Integer, default=0)
+    duplicate_count = Column(Integer, default=0)
+    error_count = Column(Integer, default=0)
+    uploaded_by = Column(String(50))
+    error_details = Column(JSON)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class MonthlyReportEntry(Base):
+    __tablename__ = "monthly_report_entries"
+    id = Column(Integer, primary_key=True, index=True)
+    year = Column(Integer, index=True)
+    month = Column(Integer, index=True)
+    document_number = Column(String(100))
+    execution_date = Column(String(50))
+    memo = Column(Text)
+    custom_data = Column(JSON)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())

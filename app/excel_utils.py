@@ -1,0 +1,611 @@
+"""
+엑셀 처리 유틸리티 v4.0
+- 양도양수대장: 29개 연도별 시트 전부 처리 (예정자/택배예정자 제외)
+- 모든 파일: 줄바꿈/공백 컬럼명 정규화
+- 지역 정규화: '춘천' → '춘천시'
+- 성명 정규화: '이 종 일' → '이종일'
+- 날짜 연도 추출: data_year 자동 설정
+"""
+import re, io, logging
+import pandas as pd
+import numpy as np
+from typing import List, Dict, Tuple, Optional
+
+logger = logging.getLogger(__name__)
+
+# ─────────────────────────────────────────────
+# 정규화 함수
+# ─────────────────────────────────────────────
+
+def _nc(col: str) -> str:
+    s = str(col).replace('\n','').replace('\r','').replace('\t','')
+    s = re.sub(r'\s+', '', s).replace('．', '.').replace('․', '.').strip()
+    return s
+
+def normalize_name(s: str) -> str:
+    if not s: return s
+    t = s.strip()
+    if re.match(r'^[가-힣ㄱ-ㅎ](\s[가-힣ㄱ-ㅎ])+$', t):
+        return t.replace(' ', '')
+    return t
+
+def _cv(v) -> str:
+    if v is None: return ''
+    if isinstance(v, float) and (np.isnan(v) or np.isinf(v)): return ''
+    s = str(v).strip()
+    if s.lower() in ('nan','none','null','nat','#n/a','n/a'): return ''
+    return s.replace('\n',' ').replace('\r',' ').strip()
+
+def parse_date_sort(date_str: str):
+    """날짜 문자열 → datetime (정렬용). 파싱 실패 시 datetime.min 반환."""
+    from datetime import datetime
+    if not date_str:
+        return datetime.min
+    s = str(date_str).strip().rstrip('.')
+    # 4자리 연도: 2024.04.02 / 2024-04-02 / 2024. 4. 2
+    m = re.search(r'(19[0-9]{2}|20[0-2][0-9])\s*[\.\-/]\s*(\d{1,2})\s*[\.\-/]\s*(\d{1,2})', s)
+    if m:
+        try:
+            return datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        except ValueError:
+            pass
+    # 2자리 연도: 24.04.02 / 99.12.30 / 16. 6.28
+    m = re.search(r'^(\d{2})\s*[\.\-/]\s*(\d{1,2})\s*[\.\-/]\s*(\d{1,2})', s)
+    if m:
+        yy = int(m.group(1))
+        year = 2000 + yy if yy <= 30 else 1900 + yy
+        try:
+            return datetime(year, int(m.group(2)), int(m.group(3)))
+        except ValueError:
+            pass
+    return datetime.min
+
+
+def extract_year(date_str: str) -> Optional[int]:
+    """날짜 문자열에서 연도 추출. '14. 7. 8.' → 2014, '99.12.30.' → 1999"""
+    if not date_str: return None
+    s = str(date_str).strip()
+    m = re.search(r'(19[0-9]{2}|20[0-2][0-9])', s)
+    if m: return int(m.group())
+    m = re.match(r'^(\d{2})\s*[\.\-/년]', s)
+    if m:
+        yy = int(m.group(1))
+        return (2000 + yy) if yy <= 30 else (1900 + yy)
+    return None
+
+def extract_sheet_year(sheet_name: str) -> Optional[int]:
+    """시트 이름에서 연도 추출. '2000년도' → 2000, '00년' → 2000"""
+    m = re.search(r'(19[0-9]{2}|20[0-2][0-9])', sheet_name)
+    if m: return int(m.group())
+    m = re.search(r'^(\d{2})년', sheet_name)
+    if m:
+        yy = int(m.group(1))
+        return (2000 + yy) if yy <= 30 else (1900 + yy)
+    return None
+
+# ─────────────────────────────────────────────
+# 지역 정규화
+# ─────────────────────────────────────────────
+
+_REGION_MAP = {
+    "춘천":"춘천시","원주":"원주시","강릉":"강릉시","동해":"동해시",
+    "태백":"태백시","속초":"속초시","삼척":"삼척시","홍천":"홍천군",
+    "횡성":"횡성군","영월":"영월군","평창":"평창군","정선":"정선군",
+    "철원":"철원군","화천":"화천군","양구":"양구군","인제":"인제군",
+    "고성":"고성군","양양":"양양군",
+}
+_REGION_FULL = set(_REGION_MAP.values())
+
+def _normalize_region(val: str) -> str:
+    if not val: return val
+    s = val.strip().replace(' ','')
+    if s in _REGION_FULL: return s
+    if s in _REGION_MAP: return _REGION_MAP[s]
+    for short, full in _REGION_MAP.items():
+        if s.startswith(short): return full
+    return val.strip()
+
+_VALID_FUELS = {'경유','휘발유','lpg','lp가스','전기','하이브리드','cng','lng','가스','디젤','천연가스'}
+
+def _is_valid_fuel(val: str) -> bool:
+    """유종으로 유효한 값인지 검증. 차종 값("18,포터II...")이 들어가지 않게."""
+    if not val or len(val) < 2: return False
+    vl = val.lower().replace(' ','')
+    # 연식+차종 형식 제거 (예: "18,포터II내장탑차")
+    if re.match(r'^\d{2}[,.]', val.strip()): return False
+    # 숫자로 시작하면 제외
+    if re.match(r'^\d', val.strip()): return False
+    # 알려진 유종 포함 여부
+    return any(f in vl for f in _VALID_FUELS)
+
+
+def _is_valid_company(val: str) -> bool:
+    if not val or len(val) < 2 or len(val) > 40: return False
+    if re.search(r'\d{2}\s*\.\s*\d{1,2}\s*\.', val): return False
+    if re.match(r'^\d', val): return False
+    if re.search(r'[동리로길][0-9\s\-]', val): return False
+    return True
+
+# ─────────────────────────────────────────────
+# 컬럼 매핑 사전
+# ─────────────────────────────────────────────
+
+_CM = {
+    '지역':'region','지역별':'region','시군별':'region','시.군별':'region',
+    '관할':'region','관할지역':'region',
+    '차량번호':'vehicle_number','자동차번호':'vehicle_number',
+    '자동차등록번호':'vehicle_number','등록번호':'vehicle_number',
+    '성명':'name','이름':'name','대표자':'name','차주명':'name',
+    '대표자명':'name','기사성명':'name','운전자명':'name',
+    '상호':'company_name','회사명':'company_name','상호명':'company_name',
+    '주소':'address','주소지':'address','소재지':'address',
+    '전화번호':'phone','전화':'phone','연락처':'phone',
+    '핸드폰':'mobile','휴대폰':'mobile','휴대전화':'mobile',
+    '휴대전화번호':'mobile','모바일':'mobile',
+    '인가일자':'approval_date','허가일자':'approval_date','인가일':'approval_date',
+    '자격증명발급일자':'certificate_issue_date',
+    '자격증명발급일':'certificate_issue_date',
+    '자격발급일':'certificate_issue_date',
+    '자격증명발급번호':'certificate_number',
+    '자격번호':'certificate_number','자격증번호':'certificate_number',
+    '허가번호':'permit_number',
+    '운전면허번호':'driver_license_number',
+    '운전면허증번호':'driver_license_number',
+    '운전면허':'driver_license_number','면허번호':'driver_license_number',
+    '차종':'vehicle_type',
+    '유종':'fuel_type','연료':'fuel_type',
+    '사업자등록번호':'business_number','사업자번호':'business_number',
+    '소속업체':'affiliated_company','택배사':'affiliated_company',
+    '가입일자':'membership_date','가입일':'membership_date',
+    '주민등록번호':'resident_number','주민번호':'resident_number',
+    '비고':'memo',
+    '가입여부':'membership_status','가입/미가입':'membership_status',
+    '회원구분':'membership_status',
+    '개인/택배':'category',
+    '관리번호':'management_number',
+    '가입년도':'_skip','인가년도':'_skip','인가월':'_skip',
+}
+
+_TM = {
+    **_CM,
+    '번호':'seq_number',
+    '접수일자':'receipt_date','접수일':'receipt_date',
+    '양도자':'transferor','양도인':'transferor',
+    '양수자':'transferee','양수인':'transferee',
+    '장부정리':'ledger_update',
+    '전산보고':'computer_report',
+    '처리일자':'process_date','처리일':'process_date',
+}
+
+_CLM = {
+    **_CM,
+    '번호':'management_number',
+    '접수일자':'receipt_date',
+    '처리구분':'closure_type','폐지구분':'closure_type',
+    '데이터구분':'data_type','자료구분':'data_type',
+    '처리일자':'closure_date','폐지일자':'closure_date',
+    '사유':'reason',
+    '이름':'name',
+    '휴대폰':'mobile',
+    '이전정보보기':'_skip','현재정보보기':'_skip',
+}
+
+_CHM = {
+    **_CM,
+    '번호':'seq_number',
+    '접수일자':'receipt_date','신고일자':'receipt_date','등록일자':'receipt_date',
+    '내용':'_change_content',
+    '변경내용':'_change_content','변경사항':'_change_content',
+    '변경유형':'change_type','구분':'change_type','변경종류':'change_type',
+    '변경전':'before_value','변경 전':'before_value','이전주소':'before_value',
+    '변경전주소':'before_value','변경전내용':'before_value','이전내용':'before_value',
+    '이전':'before_value',
+    '변경후':'after_value','변경 후':'after_value','현재주소':'after_value',
+    '변경후주소':'after_value','변경후내용':'after_value','현재내용':'after_value',
+    '현재':'after_value','변경된내용':'after_value',
+    '변경일자':'change_date','처리일자':'change_date','변경일':'change_date',
+    '인가일자':'change_date',
+}
+
+_ALM = {
+    '연도':'year','년도':'year','월':'month',
+    '협회가입':'association_join','양도':'transfer_in',
+    '타도':'other_region','폐지':'closed','탈퇴':'withdrawn',
+    '택배신규':'delivery_new','관리비폐지':'mgmt_fee_closed',
+    '70세':'over_70','협회기본대수':'base_count',
+    '총부과대수':'total_count','택배관리':'delivery_mgmt',
+}
+
+FILE_MAPPINGS = {
+    '면허자현황': _CM,
+    '양도양수대장': _TM,
+    '폐지현황': _CLM,
+    '이전폐지현황': _CLM,
+    '변경이력대장': _CHM,
+    '주소지변경대장': _CHM,
+    '변경등록대장': _CHM,
+    '부과대수': _ALM,
+}
+
+# 예정자 관련 시트 제외 패턴
+_SKIP_SHEET_PATTERNS = ['예정자', '택배예정자', 'summary', '요약', '집계']
+
+# 이전폐지현황 시트명 → closure_type
+_SHEET_CTYPE = {
+    '타도이관':'이관','양도':'양도','폐지':'폐업',
+    '사망':'사망','말소,기타':'말소','말소기타':'말소',
+    '자격증취소자':'기타',
+}
+
+# 성명 계열 필드
+_NAME_FIELDS = {'name','transferor','transferee'}
+
+# ─────────────────────────────────────────────
+# 변경이력 자동 분류
+# ─────────────────────────────────────────────
+
+_CK = {
+    '주소지변경':['주소변경','주소지변경','주소'],
+    '상호변경':['상호변경'],
+    '구조변경':['구조변경'],
+    '전속계약 업체변경':['업체변경','전속계약','소속업체변경'],
+    '등록이관':['등록이관','이관등록'],
+    '이전전출':['이전전출','이전','전출'],
+    '대표자변경':['대표자변경'],
+    '성명변경':['성명변경','이름변경'],
+    '번호변경':['번호변경','차량번호변경'],
+}
+
+def _detect_ctype(active_cols, row):
+    active_vals = {c: row.get(c,'') for c in active_cols if row.get(c,'').strip()}
+    hay = (' '.join(active_vals.keys()) + ' ' + ' '.join(active_vals.values())).lower()
+    for ct, kws in _CK.items():
+        if any(kw.lower() in hay for kw in kws): return ct
+    return '기타'
+
+def _parse_change_text(text: str):
+    text = text.strip().replace('\r','')
+    ct, bv, av = '기타', '', ''
+    lines = [l.strip() for l in text.split('\n') if l.strip()]
+    first = lines[0] if lines else text
+    for _ct, kws in _CK.items():
+        if any(kw.lower() in first.lower() for kw in kws): ct = _ct; break
+    m = re.search(r'(.+?)\s*[-→>]+\s*(.+)', text)
+    if m: bv, av = m.group(1).strip(), m.group(2).strip()
+    elif len(lines) > 1: bv = '\n'.join(lines[1:])
+    return ct, bv, av
+
+# ─────────────────────────────────────────────
+# 헤더 행 자동 감지
+# ─────────────────────────────────────────────
+
+def _find_header(df_raw, mapping):
+    known = {_nc(k) for k in mapping}
+    best, best_score = 0, 0
+    for i in range(min(8, len(df_raw))):
+        vals = [_nc(str(v)) for v in df_raw.iloc[i]
+                if str(v).strip() not in ('','nan','None')]
+        score = sum(1 for v in vals if v in known)
+        if score > best_score: best_score, best = score, i
+    return best if best_score >= 1 else 0
+
+def _read_df(content: bytes, mapping: dict, sheet=0) -> pd.DataFrame:
+    raw = pd.read_excel(io.BytesIO(content), engine='openpyxl', header=None, dtype=str, sheet_name=sheet)
+    hrow = _find_header(raw, mapping)
+    df = pd.read_excel(io.BytesIO(content), engine='openpyxl', header=hrow, dtype=str, sheet_name=sheet)
+    df = df.fillna('')
+    df.columns = [str(c) for c in df.columns]
+    return df
+
+def _col_map(df, mapping):
+    mapped, unmapped = {}, []
+    for col in df.columns:
+        nk = _nc(col)
+        if nk in mapping: mapped[col] = mapping[nk]
+        else:
+            found = any((mk in nk or nk in mk) and len(nk) > 1 for mk in mapping
+                        if (mapped.__setitem__(col, mapping[mk]) or True) and False)
+            if not found:
+                for mk, mv in mapping.items():
+                    if mk and len(nk) > 1 and (mk in nk or nk in mk):
+                        mapped[col] = mv; found = True; break
+            if not found: unmapped.append(col)
+    return mapped, unmapped
+
+def _df_to_records(df, mapping, file_type='', extra=None):
+    cmap, _ = _col_map(df, mapping)
+    cols = df.columns.tolist()
+    records = []
+    for _, row in df.iterrows():
+        rec, raw = {}, {}
+        for col in cols:
+            orig = _cv(row.get(col,''))
+            raw[col] = orig
+            if col not in cmap: continue
+            field = cmap[col]
+            if field == '_skip': continue
+            if field.startswith('_'): rec[field] = orig; continue
+            if field in rec and rec[field]: continue
+            if field in _NAME_FIELDS:
+                rec[field] = normalize_name(orig)
+            elif field == 'region':
+                rec[field] = _normalize_region(orig)
+            elif field == 'affiliated_company':
+                if _is_valid_company(orig): rec[field] = orig
+            elif field == 'fuel_type':
+                # 유종 검증: 차종 값("18,포터II...")이 들어가지 않게
+                if orig and _is_valid_fuel(orig):
+                    rec[field] = orig
+            else:
+                rec[field] = orig
+
+        if file_type in ('변경이력대장','주소지변경대장','변경등록대장'):
+            ct_text = rec.pop('_change_content','')
+            if ct_text:
+                ct, bv, av = _parse_change_text(ct_text)
+                rec.setdefault('change_type', ct)
+                rec.setdefault('before_value', bv)
+                rec.setdefault('after_value', av)
+            if file_type == '주소지변경대장':
+                rec['change_type'] = '주소지변경'
+                if rec.get('before_value') and not rec.get('after_value'):
+                    rec['after_value'] = rec['before_value']
+                    rec['before_value'] = ''
+            elif not rec.get('change_type'):
+                active = [c for c in cols if raw.get(c,'').strip()]
+                rec['change_type'] = _detect_ctype(active, raw)
+            # 처리일자(change_date) 없으면 접수일자(receipt_date)로 대체
+            if not rec.get('change_date') and rec.get('receipt_date'):
+                rec['change_date'] = rec['receipt_date']
+
+        if extra:
+            for k, v in extra.items():
+                rec.setdefault(k, v)
+        rec['raw_data'] = raw
+        records.append(rec)
+    return records
+
+# ─────────────────────────────────────────────
+# 공개 API
+# ─────────────────────────────────────────────
+
+def excel_to_records(content: bytes, file_type: str,
+                     preview: bool = False, preview_n: int = 10):
+    mapping = FILE_MAPPINGS.get(file_type, _CM)
+
+    # 면허자현황: 개인/택배 시트
+    if file_type == '면허자현황':
+        recs, cmap, un = _read_member_sheets(content, preview, preview_n)
+        return recs, cmap, un, []
+
+    # 양도양수대장: 연도별 시트 ALL
+    if file_type == '양도양수대장':
+        recs, cmap, un = _read_transfer_all_sheets(content, preview, preview_n)
+        return recs, cmap, un, []
+
+    # 이전폐지현황: 폐지유형별 시트
+    if file_type == '이전폐지현황':
+        recs, cmap, un = _read_prev_closure_sheets(content, preview, preview_n)
+        return recs, cmap, un, []
+
+    # 변경이력대장/주소지변경대장/변경등록대장: 연도별 멀티시트 ALL
+    if file_type in ('변경이력대장', '주소지변경대장', '변경등록대장'):
+        recs, cmap, un, slogs = _read_change_all_sheets(content, file_type, mapping, preview, preview_n)
+        return recs, cmap, un, slogs
+
+    # 단일 시트
+    df = _read_df(content, mapping)
+    cmap, unmapped = _col_map(df, mapping)
+    if preview: df = df.head(preview_n)
+    records = _df_to_records(df, mapping, file_type)
+    return records, cmap, unmapped, []
+
+
+def _should_skip_sheet(sheet_name: str) -> bool:
+    return any(p.lower() in sheet_name.lower() for p in _SKIP_SHEET_PATTERNS)
+
+
+def _read_transfer_all_sheets(content: bytes, preview: bool, preview_n: int):
+    """양도양수대장: 2000년도~2026년도 시트 ALL 읽기 (예정자 제외)"""
+    import warnings; warnings.filterwarnings('ignore')
+    xl = pd.ExcelFile(io.BytesIO(content), engine='openpyxl')
+    all_rec, all_cmap, all_un = [], {}, []
+
+    for sheet in xl.sheet_names:
+        if _should_skip_sheet(sheet):
+            logger.info(f"[양도양수대장] SKIP 시트: {sheet}")
+            continue
+        sheet_year = extract_sheet_year(sheet)
+        try:
+            df = _read_df(content, _TM, sheet)
+            if preview: df = df.head(preview_n)
+            cmap, un = _col_map(df, _TM)
+            all_cmap.update(cmap)
+            for u in un:
+                if u not in all_un: all_un.append(u)
+            extra = {'sheet_year': sheet_year, 'data_year': sheet_year}
+            recs = _df_to_records(df, _TM, '양도양수대장', extra)
+            # data_year 보완: receipt_date에서도 추출
+            for r in recs:
+                if not r.get('data_year'):
+                    rd = r.get('receipt_date','') or r.get('approval_date','')
+                    y = extract_year(rd)
+                    if y: r['data_year'] = y
+            logger.info(f"[양도양수대장] 시트 '{sheet}': {len(recs)}행 (연도={sheet_year})")
+            all_rec.extend(recs)
+        except Exception as e:
+            logger.error(f"[양도양수대장] 시트 '{sheet}' 오류: {e}")
+            continue
+
+    logger.info(f"[양도양수대장] 전체 합계: {len(all_rec)}행")
+    return all_rec, all_cmap, all_un
+
+
+def _read_member_sheets(content: bytes, preview: bool, preview_n: int):
+    import warnings; warnings.filterwarnings('ignore')
+    xl = pd.ExcelFile(io.BytesIO(content), engine='openpyxl')
+    targets = [s for s in xl.sheet_names if s in ('개인','택배')]
+    if not targets: targets = xl.sheet_names[:1]
+    all_rec, all_cmap, all_un = [], {}, []
+    for sheet in targets:
+        try:
+            df = _read_df(content, _CM, sheet)
+            if preview: df = df.head(preview_n)
+            cmap, un = _col_map(df, _CM)
+            all_cmap.update(cmap)
+            for u in un:
+                if u not in all_un: all_un.append(u)
+            recs = _df_to_records(df, _CM, '면허자현황')
+            for r in recs:
+                y = extract_year(r.get('approval_date',''))
+                if y: r['data_year'] = y
+            logger.info(f"[면허자현황] 시트 '{sheet}': {len(recs)}행")
+            all_rec.extend(recs)
+        except Exception as e:
+            logger.error(f"[면허자현황] 시트 '{sheet}' 오류: {e}")
+    return all_rec, all_cmap, all_un
+
+
+def _read_prev_closure_sheets(content: bytes, preview: bool, preview_n: int):
+    import warnings; warnings.filterwarnings('ignore')
+    xl = pd.ExcelFile(io.BytesIO(content), engine='openpyxl')
+    all_rec, all_cmap, all_un = [], {}, []
+    for sheet in xl.sheet_names:
+        ct = _SHEET_CTYPE.get(sheet, '기타')
+        try:
+            df = _read_df(content, _CLM, sheet)
+            if len(df) == 0: continue
+            if preview: df = df.head(preview_n)
+            cmap, un = _col_map(df, _CLM)
+            all_cmap.update(cmap)
+            for u in un:
+                if u not in all_un: all_un.append(u)
+            extra = {'closure_type': ct, 'data_type': '이전자료'}
+            recs = _df_to_records(df, _CLM, '이전폐지현황', extra)
+            for r in recs:
+                y = extract_year(r.get('closure_date',''))
+                if y: r['data_year'] = y
+            logger.info(f"[이전폐지현황] 시트 '{sheet}': {len(recs)}행 (구분={ct})")
+            all_rec.extend(recs)
+        except Exception as e:
+            logger.error(f"[이전폐지현황] 시트 '{sheet}' 오류: {e}")
+    return all_rec, all_cmap, all_un
+
+
+def _read_change_all_sheets(content: bytes, file_type: str, mapping: dict,
+                             preview: bool, preview_n: int):
+    """변경이력대장/주소지변경대장/변경등록대장: 모든 시트 전부 읽기
+    - 예정자/택배예정자 시트만 제외
+    - 숨김 시트 포함 (openpyxl read_only=False로 처리)
+    - 헤더행 최대 20행까지 탐색
+    - 시트별 처리 건수/헤더위치/매핑컬럼/오류 로그 출력
+    """
+    import warnings; warnings.filterwarnings('ignore')
+    xl = pd.ExcelFile(io.BytesIO(content), engine='openpyxl')
+    all_rec, all_cmap, all_un, sheet_logs = [], {}, [], []
+    total_sheets = len(xl.sheet_names)
+    logger.info(f"[{file_type}] 총 시트 수: {total_sheets}")
+
+    for sheet in xl.sheet_names:
+        if _should_skip_sheet(sheet):
+            logger.info(f"[{file_type}] SKIP 시트: {sheet}")
+            sheet_logs.append({'sheet': sheet, 'count': 0, 'status': 'skip'})
+            continue
+
+        sheet_year = extract_sheet_year(sheet)
+        try:
+            # 헤더 최대 20행까지 탐색
+            raw = pd.read_excel(io.BytesIO(content), engine='openpyxl',
+                                header=None, dtype=str, sheet_name=sheet)
+            if len(raw) == 0:
+                sheet_logs.append({'sheet': sheet, 'count': 0, 'status': 'empty'})
+                logger.info(f"[{file_type}] 시트 '{sheet}': 빈 시트")
+                continue
+
+            known = {_nc(k) for k in mapping}
+            best_row, best_score = 0, 0
+            for i in range(min(20, len(raw))):
+                vals = [_nc(str(v)) for v in raw.iloc[i] if str(v).strip() not in ('', 'nan', 'None')]
+                score = sum(1 for v in vals if v in known)
+                if score > best_score:
+                    best_score, best_row = score, i
+
+            hrow = best_row if best_score >= 1 else 0
+            df = pd.read_excel(io.BytesIO(content), engine='openpyxl',
+                               header=hrow, dtype=str, sheet_name=sheet)
+            df = df.fillna('')
+            df.columns = [str(c) for c in df.columns]
+
+            # 데이터 행 존재 여부 확인
+            data_rows = df[df.apply(lambda r: any(str(v).strip() not in ('', 'nan') for v in r), axis=1)]
+            if len(data_rows) == 0:
+                sheet_logs.append({'sheet': sheet, 'count': 0, 'status': 'no_data'})
+                logger.info(f"[{file_type}] 시트 '{sheet}': 데이터 행 없음")
+                continue
+
+            if preview:
+                df = df.head(preview_n)
+
+            cmap, un = _col_map(df, mapping)
+            all_cmap.update(cmap)
+            for u in un:
+                if u not in all_un:
+                    all_un.append(u)
+
+            extra = {'sheet_year': sheet_year}
+            if file_type == '주소지변경대장':
+                extra['change_type'] = '주소지변경'
+
+            recs = _df_to_records(df, mapping, file_type, extra)
+            valid_recs = [r for r in recs
+                          if r.get('vehicle_number') or r.get('name') or
+                             r.get('after_value') or r.get('before_value')]
+
+            mapped_cols = [f"{k}→{v}" for k, v in cmap.items() if v not in ('_skip',)][:8]
+            log_msg = (f"[{file_type}] 시트 '{sheet}' (연도={sheet_year}): "
+                       f"헤더={hrow}행, 매핑={len(cmap)}컬럼, 유효={len(valid_recs)}건")
+            logger.info(log_msg)
+            sheet_logs.append({
+                'sheet': sheet, 'year': sheet_year, 'count': len(valid_recs),
+                'header_row': hrow, 'mapped': len(cmap), 'status': 'ok',
+                'mapped_cols': ', '.join(mapped_cols)
+            })
+            all_rec.extend(recs)
+
+        except Exception as e:
+            err_msg = str(e)[:80]
+            logger.error(f"[{file_type}] 시트 '{sheet}' 오류: {err_msg}")
+            sheet_logs.append({'sheet': sheet, 'count': 0, 'status': f'error: {err_msg}'})
+            continue
+
+    # 아무 결과도 없으면 첫 번째 시트 단일 처리 시도
+    if not all_rec and xl.sheet_names:
+        first = xl.sheet_names[0]
+        try:
+            df = _read_df(content, mapping, first)
+            if preview:
+                df = df.head(preview_n)
+            cmap, un = _col_map(df, mapping)
+            extra = {}
+            if file_type == '주소지변경대장':
+                extra['change_type'] = '주소지변경'
+            all_rec = _df_to_records(df, mapping, file_type, extra)
+            all_cmap = cmap; all_un = un
+            sheet_logs.append({'sheet': f'{first}(단독)', 'count': len(all_rec), 'status': 'ok'})
+            logger.info(f"[{file_type}] 단독시트 처리: {len(all_rec)}행")
+        except Exception as e:
+            logger.error(f"[{file_type}] 단독시트 처리 오류: {e}")
+
+    logger.info(f"[{file_type}] 전체 합계: {len(all_rec)}행 / {len(sheet_logs)}시트 처리")
+    return all_rec, all_cmap, all_un, sheet_logs
+
+
+def records_to_excel(records: list, exclude: list = None) -> bytes:
+    if not records: return b''
+    ex = set(exclude or ['raw_data','deleted_at','data_year'])
+    rows = [{k: v for k, v in r.items() if k not in ex} for r in records]
+    df = pd.DataFrame(rows)
+    out = io.BytesIO()
+    with pd.ExcelWriter(out, engine='openpyxl') as w:
+        df.to_excel(w, index=False)
+    return out.getvalue()

@@ -1,0 +1,1298 @@
+// ===== 강원도 개인소형화물협회 업무관리 시스템 v6 =====
+
+const REGIONS = ['춘천시','원주시','강릉시','동해시','태백시','속초시','삼척시',
+                 '홍천군','횡성군','영월군','평창군','정선군','철원군','화천군',
+                 '양구군','인제군','고성군','양양군'];
+const CLOSURE_TYPES = ['폐업','양도','이관','사망','말소','기타'];
+const CHANGE_TYPES = ['주소지변경','상호변경','구조변경','전속계약 업체변경','등록이관','이전전출','대표자변경','성명변경','번호변경','변동변경','기타'];
+const FUEL_TYPES = ['경유','휘발유','LPG','전기','하이브리드','CNG','기타'];
+const VEH_TYPES = ['1톤','1톤미만','카고형','밴형','특장차','냉동차','기타'];
+
+const CATS = {
+  members: {label:'회원관리',   tabs:[{id:'candidates',label:'예정자/양도양수'},{id:'individual',label:'개인회원'},{id:'delivery',label:'택배회원'}]},
+  permits: {label:'인허가/변경', tabs:[{id:'new-registrations',label:'신규등록대장'},{id:'transfer-ledger',label:'양도양수대장'},{id:'closures',label:'폐지현황'},{id:'change-history',label:'변경이력대장'}]},
+  reports: {label:'보고/집계',   tabs:[{id:'dashboard',label:'회원대시보드'},{id:'monthly-report',label:'월례보고서'}]},
+  excel:   {label:'엑셀 업로드', tabs:[{id:'upload',label:'파일 업로드'},{id:'history',label:'업로드 이력'},{id:'errors',label:'오류 확인'}]},
+};
+
+const ST = {
+  cat:'members', sub:'candidates',
+  user:{role:localStorage.getItem('userRole'),name:localStorage.getItem('userName'),full:localStorage.getItem('userFullName')},
+  fl:{}, inner:{},
+  reportYear:new Date().getFullYear(), reportMonth:new Date().getMonth()+1,
+  sort:{},   // {pageKey: {field, dir}}
+};
+
+// ===== API =====
+async function api(method,url,body=null,isForm=false){
+  const opts={method,headers:{Authorization:`Bearer ${localStorage.getItem('authToken')}`}};
+  if(body&&!isForm){opts.headers['Content-Type']='application/json';opts.body=JSON.stringify(body);}
+  else if(body&&isForm) opts.body=body;
+  let res;
+  try{res=await fetch(url,opts);}
+  catch{toast('서버 연결 오류','err');throw new Error('net');}
+  if(res.status===401){logout();return null;}
+  if(!res.ok){
+    const e=await res.json().catch(()=>({detail:'오류'}));
+    const msg=Array.isArray(e.detail)?e.detail.map(x=>x.msg).join(', '):(e.detail||'오류');
+    toast(msg,'err');throw new Error(msg);
+  }
+  return res.headers.get('content-type')?.includes('json')?res.json():res;
+}
+async function dl(url,fn){
+  try{
+    const r=await fetch(url,{headers:{Authorization:`Bearer ${localStorage.getItem('authToken')}`}});
+    if(!r.ok){toast('다운로드 실패','err');return;}
+    const b=await r.blob(),a=Object.assign(document.createElement('a'),{href:URL.createObjectURL(b),download:fn});
+    a.click();URL.revokeObjectURL(a.href);
+  }catch{toast('다운로드 오류','err');}
+}
+function logout(){['authToken','userRole','userName','userFullName'].forEach(k=>localStorage.removeItem(k));window.location.href='/login';}
+function isAdmin(){return ST.user.role==='admin';}
+
+// ===== TOAST =====
+function toast(msg,type='ok'){
+  const c=document.getElementById('toastBox'),t=document.createElement('div');
+  t.className=`toast toast-${type}`;t.textContent=msg;c.appendChild(t);
+  setTimeout(()=>{t.classList.add('fade');setTimeout(()=>t.remove(),280);},3500);
+}
+
+// ===== MODAL =====
+let _mr=null;
+function openModal(title,body,footer='',cls=''){
+  document.getElementById('modalTitle').textContent=title;
+  document.getElementById('modalBd').innerHTML=body;
+  document.getElementById('modalFt').innerHTML=footer;
+  document.getElementById('modal').className='modal '+cls;
+  document.getElementById('modalBg').style.display='flex';
+}
+function closeModal(){document.getElementById('modalBg').style.display='none';if(_mr){_mr(false);_mr=null;}}
+function cfm(msg){
+  return new Promise(r=>{
+    _mr=r;
+    openModal('확인',`<p style="font-size:13.5px;padding:4px 0;color:var(--c-text-2)">${msg}</p>`,
+      `<button class="btn br btn-sm" id="_cy">확인</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mxs');
+    document.getElementById('_cy').onclick=()=>{r(true);_mr=null;closeModal();};
+  });
+}
+
+// ===== VALUE HELPERS =====
+const e_=v=>v==null?'':String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const fv=v=>{
+  if(v==null||v==='')return '-';
+  const s=String(v).trim();
+  return(s===''||s==='nan'||s==='None'||s==='null'||s==='NaN')?'-':s;
+};
+function fvDate(d1,d2){
+  const v1=fv(d1),v2=fv(d2);
+  return v1!=='-'?v1:(v2!=='-'?v2:'-');
+}
+function catBadge(c){return c==='개인'?`<span class="badge b-pri">개인</span>`:c==='택배'?`<span class="badge b-yellow">택배</span>`:`<span class="badge b-gray">${e_(c)||'-'}</span>`;}
+function memBadge(s){return s==='가입'?`<span class="badge b-sky">가입</span>`:s==='미가입'?`<span class="badge b-pink">미가입</span>`:`<span class="badge b-gray">${fv(s)}</span>`;}
+function dtBadge(d){return d==='이전자료'?`<span class="badge b-purple">이전</span>`:`<span class="badge b-pri">신규</span>`;}
+function ctBadge(t){const m={'폐업':'b-danger','양도':'b-warn','이관':'b-purple','사망':'b-gray','말소':'b-gray'};return `<span class="badge ${m[t]||'b-gray'}">${t||'-'}</span>`;}
+function chBadge(t){const m={'주소지변경':'b-sky','상호변경':'b-pri','구조변경':'b-teal','전속계약 업체변경':'b-yellow','등록이관':'b-purple','이전전출':'b-pink','대표자변경':'b-warn','성명변경':'b-pri','번호변경':'b-teal'};return `<span class="badge ${m[t]||'b-gray'}" style="font-size:10px">${t||'-'}</span>`;}
+
+// FORM HELPERS
+function rsel(name,sel=''){return `<select name="${name}" class="fc"><option value="">선택</option>${REGIONS.map(r=>`<option value="${r}" ${r===sel?'selected':''}>${r}</option>`).join('')}</select>`;}
+function rselflt(id,sel=''){return `<select id="${id}" class="fsel"><option value="">전체 지역</option>${REGIONS.map(r=>`<option value="${r}" ${r===sel?'selected':''}>${r}</option>`).join('')}</select>`;}
+function ssel(name,opts,sel=''){return `<select name="${name}" class="fc">${opts.map(o=>`<option value="${o}" ${o===sel?'selected':''}>${o}</option>`).join('')}</select>`;}
+function fi(name,label,val='',req=false){return `<div class="fi"><label>${label}${req?'<span class="req">*</span>':''}</label><input class="fc" name="${name}" value="${e_(val)}" ${req?'required':''}></div>`;}
+function fri(name,label,opts,sel=''){return `<div class="fi"><label>${label}</label><select name="${name}" class="fc">${opts.map(o=>`<option value="${o}" ${o===sel?'selected':''}>${o}</option>`).join('')}</select></div>`;}
+function fta(name,label,val='',cls=''){return `<div class="fi ${cls}"><label>${label}</label><textarea name="${name}" class="fc">${e_(val)}</textarea></div>`;}
+function fph(name,label,val=''){return `<div class="fi"><label>${label}</label><input class="fc fmt-phone" name="${name}" value="${e_(val)}" placeholder="010-0000-0000" inputmode="numeric" maxlength="13"></div>`;}
+function frn(name,label,val=''){return `<div class="fi"><label>${label}</label><input class="fc fmt-resident" name="${name}" value="${e_(val)}" placeholder="000000-0000000" inputmode="numeric" maxlength="14"></div>`;}
+
+// 전화번호 자동 하이픈 포맷
+function _autoPhone(v){
+  const d=v.replace(/\D/g,'').slice(0,11);
+  if(!d)return '';
+  if(d.startsWith('02')){
+    if(d.length<=2)return d;
+    if(d.length<=5)return `${d.slice(0,2)}-${d.slice(2)}`;
+    if(d.length<=9)return `${d.slice(0,2)}-${d.slice(2,-4)}-${d.slice(-4)}`;
+    return `${d.slice(0,2)}-${d.slice(2,6)}-${d.slice(6,10)}`;
+  }
+  if(d.length<=3)return d;
+  if(d.length<=6)return `${d.slice(0,3)}-${d.slice(3)}`;
+  if(d.length<=10)return `${d.slice(0,3)}-${d.slice(3,6)}-${d.slice(6)}`;
+  return `${d.slice(0,3)}-${d.slice(3,7)}-${d.slice(7)}`;
+}
+// 주민등록번호 자동 하이픈 포맷
+function _autoResident(v){
+  const d=v.replace(/\D/g,'').slice(0,13);
+  return d.length<=6?d:`${d.slice(0,6)}-${d.slice(6)}`;
+}
+// 입력 포맷 이벤트 바인딩
+function _bindFmt(scope){
+  const s=typeof scope==='string'?document.getElementById(scope):scope;
+  if(!s)return;
+  s.querySelectorAll('.fmt-phone').forEach(el=>{
+    el.addEventListener('input',function(){
+      const p=this.selectionStart,old=this.value;
+      this.value=_autoPhone(this.value);
+      const diff=this.value.length-old.length;
+      try{this.setSelectionRange(p+diff,p+diff);}catch(e){}
+    });
+  });
+  s.querySelectorAll('.fmt-resident').forEach(el=>{
+    el.addEventListener('input',function(){
+      const p=this.selectionStart,old=this.value;
+      this.value=_autoResident(this.value);
+      const diff=this.value.length-old.length;
+      try{this.setSelectionRange(p+diff,p+diff);}catch(e){}
+    });
+  });
+}
+// 저장 전 유효성 검사
+function _validateFmt(form){
+  const mobile=(form.querySelector('[name="mobile"]')||{}).value||'';
+  const resident=(form.querySelector('[name="resident_number"]')||{}).value||'';
+  if(mobile&&!/^\d{2,3}-\d{3,4}-\d{4}$/.test(mobile)){
+    toast('핸드폰 형식을 확인해주세요 (예: 010-1234-5678)','warn');return false;
+  }
+  if(resident&&!/^\d{6}-\d{7}$/.test(resident)){
+    toast('주민등록번호 형식을 확인해주세요 (예: 000000-0000000)','warn');return false;
+  }
+  return true;
+}
+
+// PAGINATION
+function pgn(data,onPage){
+  const {total,page,pages,limit}=data;
+  const from=total?(page-1)*limit+1:0,to=Math.min(page*limit,total);
+  let nums='';
+  for(let i=Math.max(1,page-2);i<=Math.min(pages,page+2);i++)
+    nums+=`<button class="pgn-btn ${i===page?'on':''}" data-p="${i}">${i}</button>`;
+  return `<div class="pgn"><span>총 <strong>${total.toLocaleString()}</strong>건 (${from}–${to})</span>
+    <div class="pgn-btns"><button class="pgn-btn" data-p="${page-1}" ${page<=1?'disabled':''}>‹</button>${nums}
+    <button class="pgn-btn" data-p="${page+1}" ${page>=pages?'disabled':''}>›</button></div></div>`;
+}
+function bindPgn(wid,fn){document.getElementById(wid)?.querySelectorAll('.pgn-btn:not([disabled])').forEach(b=>b.addEventListener('click',()=>fn(+b.dataset.p)));}
+
+// ===== SORTING (날짜 기반 최신순/오래된순만 지원) =====
+function plainHeaders(headers){
+  return headers.map(({label,noSort})=>
+    `<th class="${noSort?'no-sort':''}">${label}</th>`
+  ).join('');
+}
+
+// 날짜 정렬 셀렉트 HTML
+function dateOrderSel(id,val='desc'){
+  return `<select id="${id}" class="fsel" style="min-width:90px">
+    <option value="desc" ${val==='desc'?'selected':''}>최신순</option>
+    <option value="asc" ${val==='asc'?'selected':''}>오래된순</option>
+  </select>`;
+}
+
+function getSortParams(){}  // 하위 호환성 유지 (빈 함수)
+
+// ===== DETAIL VIEW (섹션별, no raw_data JSON) =====
+function buildDetailSections(sections){
+  return `<div class="dtl-sections">${sections.map(sec=>{
+    const visFields=sec.fields.filter(([,v])=>v&&fv(v)!=='-');
+    if(!visFields.length) return '';
+    return `<div class="dtl-sec">
+      <div class="dtl-sec-hd">${sec.title}</div>
+      <div class="dtl-grid">${visFields.map(([l,v,full])=>`
+        <div class="dtl-item ${full?'full':''}">
+          <div class="dtl-lbl">${l}</div>
+          <div class="dtl-val${l==='관리번호'||l==='자격증번호'?' mono':''}">${e_(fv(v))}</div>
+        </div>`).join('')}
+      </div>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+function extractRehasaSections(raw){
+  if(!raw) return [];
+  const rehasa=Object.entries(raw).filter(([k])=>k.includes('재허가')).filter(([,v])=>v&&v.trim()).map(([k,v])=>[k,v]);
+  const edu=Object.entries(raw).filter(([k])=>k.includes('교육')||k.includes('점검')||k.includes('서면')||k.includes('일제')).filter(([,v])=>v&&v.trim()).map(([k,v])=>[k,v]);
+  return {rehasa,edu};
+}
+
+window.viewMember=async(id)=>{
+  const r=await api('GET',`/api/members/${id}`).catch(()=>null);if(!r)return;
+  const raw=r.raw_data||{};
+  const {rehasa,edu}=extractRehasaSections(raw);
+
+  // raw_data에서 공문주소/대리인 등 추가 필드 탐색
+  const rawAddr=raw['공문 주소']||raw['공문주소']||raw['서류주소']||'';
+  const rawAgent=raw['대리인']||raw['위임인']||'';
+  const rawStruct=raw['구조변경']||raw['구조']||'';
+  const rawCompChg=raw['전속업체 변경']||raw['업체변경']||'';
+  const rawMemo2=raw['비고2 ']||raw['비고2']||raw['비고 2']||'';
+  const rawMemo3=raw['비고3']||raw['비고 3']||'';
+  const rawTelMemo=raw['전화 메모']||raw['전화메모']||raw['연락메모']||'';
+
+  const sections=[
+    {title:'기본 정보',fields:[['관리번호',r.management_number],['지역',r.region],['차량번호',r.vehicle_number],['성명',r.name],['개인/택배',r.category],['가입여부',r.membership_status]]},
+    {title:'연락처 / 주소',fields:[['전화번호',r.phone],['핸드폰',r.mobile],['주소',r.address,true],['공문주소',rawAddr,true],['대리인',rawAgent]]},
+    {title:'인허가 정보',fields:[['인가일자',r.approval_date],['가입일자',r.membership_date],['자격증발급일자',r.certificate_issue_date],['자격증발급번호',r.certificate_number],['운전면허번호',r.driver_license_number],['주민등록번호',r.resident_number],['사업자번호',r.business_number]]},
+    {title:'차량 정보',fields:[['차종',r.vehicle_type],['유종',r.fuel_type],['소속업체',r.affiliated_company],['구조변경',rawStruct,true],['전속업체 변경',rawCompChg,true]]},
+    ...(rehasa.length?[{title:'재허가 이력',fields:rehasa}]:[]),
+    ...(edu.length?[{title:'교육 / 점검',fields:edu}]:[]),
+    {title:'비고 / 메모',fields:[['비고',r.memo,true],['전화메모',rawTelMemo,true],['비고2',rawMemo2,true],['비고3',rawMemo3,true]]},
+  ];
+  openModal('회원 상세정보',buildDetailSections(sections),
+    `<button class="btn bp btn-sm" onclick="editMember(${id});closeModal()">수정</button><button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
+};
+
+window.viewTransfer=async(id)=>{
+  const r=await api('GET',`/api/transfer-ledger/${id}`).catch(()=>null);if(!r)return;
+  const sections=[
+    {title:'기본 정보',fields:[['번호',r.seq_number],['접수일자',r.receipt_date],['처리일자',r.process_date],['지역',r.region],['차량번호',r.vehicle_number]]},
+    {title:'양도자 / 양수자',fields:[['양도자',r.transferor],['양수자',r.transferee],['주민등록번호',r.resident_number],['전화번호',r.phone],['핸드폰',r.mobile],['주소',r.address,true]]},
+    {title:'인허가 정보',fields:[['인가일자',r.approval_date],['가입일자',r.membership_date],['자격증발급일자',r.certificate_issue_date],['자격증발급번호',r.certificate_number],['운전면허번호',r.driver_license_number]]},
+    {title:'행정 정보',fields:[['장부정리',r.ledger_update],['전산보고',r.computer_report],['비고',r.memo,true]]},
+  ];
+  openModal('양도양수 상세정보',buildDetailSections(sections),
+    `<button class="btn bp btn-sm" onclick="editTransfer(${id});closeModal()">수정</button><button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
+};
+
+window.viewClosure=async(id)=>{
+  const r=await api('GET',`/api/closures/${id}`).catch(()=>null);if(!r)return;
+  const sections=[
+    {title:'기본 정보',fields:[['관리번호',r.management_number],['처리구분',r.closure_type],['자료구분',r.data_type],['지역',r.region]]},
+    {title:'차량 / 성명',fields:[['차량번호',r.vehicle_number],['성명',r.name],['상호',r.company_name],['인가일자',r.approval_date]]},
+    {title:'처리 정보',fields:[['처리일자',r.closure_date],['사유',r.reason,true],['비고',r.memo,true]]},
+  ];
+  openModal('폐지현황 상세정보',buildDetailSections(sections),
+    `<button class="btn bp btn-sm" onclick="editClosure(${id});closeModal()">수정</button><button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
+};
+
+window.viewChange=async(id)=>{
+  const r=await api('GET',`/api/change-history/${id}`).catch(()=>null);if(!r)return;
+  const sections=[
+    {title:'기본 정보',fields:[['변경유형',r.change_type],['처리일자',fvDate(r.change_date,r.receipt_date)],['지역',r.region],['차량번호',r.vehicle_number],['성명',r.name]]},
+    {title:'변경 내용',fields:[['변경 전',r.before_value,true],['변경 후',r.after_value,true],['비고',r.memo,true]]},
+  ];
+  openModal('변경이력 상세정보',buildDetailSections(sections),
+    `<button class="btn bp btn-sm" onclick="editChange(${id});closeModal()">수정</button><button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'msm');
+};
+
+// ===== NAVIGATION =====
+function navigate(cat,sub){
+  ST.cat=cat;ST.sub=sub;
+  document.querySelectorAll('.cat-btn').forEach(b=>b.classList.toggle('active',b.dataset.cat===cat));
+  const tabs=CATS[cat]?.tabs||[];
+  document.getElementById('subBar').innerHTML=tabs.map(t=>
+    `<button class="sub-tab ${t.id===sub?'active':''}" data-sub="${t.id}">${t.label}</button>`).join('');
+  document.querySelectorAll('.sub-tab').forEach(b=>b.addEventListener('click',()=>navigate(ST.cat,b.dataset.sub)));
+  document.getElementById('content').innerHTML=`<div class="loading-box"><div class="spin"></div><p>로딩 중...</p></div>`;
+  ({
+    candidates:renderCandidates, individual:()=>renderMember('개인'), delivery:()=>renderMember('택배'),
+    'new-registrations':renderNewRegistrations,
+    'transfer-ledger':renderTransferLedger, closures:renderClosures, 'change-history':renderChangeHistory,
+    dashboard:renderDashboard, 'monthly-report':renderMonthlyReport,
+    upload:renderUpload, history:renderUploadHistory, errors:renderUploadErrors,
+  }[sub]||(() => document.getElementById('content').innerHTML='<p style="padding:20px">준비 중</p>'))();
+}
+
+// ===== CANDIDATES =====
+async function renderCandidates(){
+  const inner=ST.inner.candidates||'candidate';
+  document.getElementById('content').innerHTML=`
+    <div class="inner-tab-bar">
+      <button class="inner-tab ${inner==='candidate'?'active':''}" id="itCand">📋 예정자</button>
+      <button class="inner-tab ${inner==='transfer'?'active':''}" id="itTrans">🔄 양도양수 등록</button>
+    </div>
+    <div id="innerContent"></div>`;
+  document.getElementById('itCand').onclick=()=>{ST.inner.candidates='candidate';renderCandidates();};
+  document.getElementById('itTrans').onclick=()=>{ST.inner.candidates='transfer';renderCandidates();};
+  if(inner==='candidate') await renderCandidateSection();
+  else await renderTransferSection();
+}
+
+async function renderCandidateSection(){
+  const f=ST.fl.cand||{};
+  document.getElementById('innerContent').innerHTML=`
+    <div class="card">
+      <div class="card-hd"><div class="card-hd-l"><span class="card-ico">✏️</span><span class="card-ttl">예정자 입력</span></div></div>
+      <div class="card-bd"><form id="candForm"><div class="fg">
+        <div class="fi"><label>지역</label>${rsel('region','')}</div>
+        ${fi('vehicle_number','차량번호')} ${fi('name','성명')}
+        ${frn('resident_number','주민등록번호')}
+        ${fi('phone','전화번호')} ${fph('mobile','핸드폰')}
+        <div class="fi cs2"><label>주소</label><input class="fc" name="address"></div>
+        ${fi('certificate_issue_date','자격증발급일자')} ${fi('certificate_number','자격증발급번호')}
+        ${fi('driver_license_number','운전면허번호')}
+        <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" placeholder="예: 22,포터Ⅱ내장탑차 / 봉고 / 냉동탑차"></div>
+        ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),'')}
+        ${fi('business_number','사업자번호')} ${fi('affiliated_company','소속업체')}
+        ${fta('memo','비고','','cs4')}
+      </div>
+      <div class="flex gap-8 mt8" style="justify-content:flex-end">
+        <button type="button" class="btn bo btn-sm" onclick="document.getElementById('candForm').reset()">초기화</button>
+        <button type="button" class="btn bg btn-sm" id="candSaveBtn">+ 저장</button>
+      </div></form></div>
+    </div>
+    <div class="card">
+      <div class="card-hd"><div class="card-hd-l"><span class="card-ico">📂</span><span class="card-ttl">예정자 목록</span><span class="cnt" id="cCnt">0건</span></div></div>
+      <div class="frow">
+        ${rselflt('cRegF',f.region||'')}
+        <input class="srch" id="cSrch" placeholder="성명, 차량번호, 전화번호" value="${e_(f.search||'')}">
+        <button class="btn bp btn-sm" id="cSrchBtn">조회</button>
+        <button class="btn bo btn-sm" id="cRstBtn">초기화</button>
+      </div>
+      <div id="cTbl"><div class="loading-box"><div class="spin"></div></div></div>
+    </div>`;
+
+  // 포맷 이벤트 바인딩 (폼 렌더 후)
+  setTimeout(()=>_bindFmt('candForm'),0);
+
+  const sk='cand';
+  const hdrs=[{field:'region',label:'지역'},{field:'vehicle_number',label:'차량번호'},{field:'name',label:'성명'},{field:'phone',label:'전화번호'},{field:'mobile',label:'핸드폰'},{field:'vehicle_type',label:'차종'},{field:'certificate_number',label:'자격증번호'},{field:'affiliated_company',label:'소속업체'},{field:'memo',label:'비고'},{label:'관리',noSort:true}];
+  const doSearch=async(pg=1)=>{
+    ST.fl.cand={region:document.getElementById('cRegF').value,search:document.getElementById('cSrch').value.trim()};
+    const q=new URLSearchParams({page:pg,limit:50,...getSortParams(sk),...Object.fromEntries(Object.entries(ST.fl.cand).filter(([,v])=>v))});
+    const d=await api('GET',`/api/candidates?${q}`).catch(()=>null);if(!d)return;
+    document.getElementById('cCnt').textContent=`${d.total}건`;
+    const tw=document.getElementById('cTbl');
+    if(!d.items.length){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">📋</div><p class="empty-txt">예정자가 없습니다.</p></div>`;return;}
+    tw.innerHTML=`<div class="tbl-wrap"><table>
+      <thead><tr>${sortHeaders('cTbl',sk,hdrs,doSearch)}</tr></thead>
+      <tbody>${d.items.map(r=>`<tr>
+        <td>${fv(r.region)}</td>
+        <td>${fv(r.vehicle_number)}</td>
+        <td><a class="click-link" onclick="editCandidate(${r.id});return false">${fv(r.name)}</a></td>
+        <td>${fv(r.phone)}</td><td>${fv(r.mobile)}</td>
+        <td>${fv(r.vehicle_type)}</td>
+        <td>${fv(r.certificate_number)}</td><td>${fv(r.affiliated_company)}</td><td title="${e_(r.memo)}">${fv(r.memo)}</td>
+        <td class="td-act">
+          <button class="btn bp btn-xs" onclick="editCandidate(${r.id})">수정</button>
+          <button class="btn-check" onclick="registerCandidate(${r.id},'${e_(r.vehicle_number)}','${e_(r.name)}')">✅ 등록</button>
+          <button class="btn br btn-xs" onclick="deleteCandidate(${r.id})">삭제</button>
+        </td></tr>`).join('')}</tbody>
+    </table></div>${pgn(d,doSearch)}`;
+    bindPgn('cTbl',doSearch);
+  };
+  document.getElementById('cSrchBtn').onclick=()=>doSearch(1);
+  document.getElementById('cSrch').onkeydown=e=>{if(e.key==='Enter')doSearch(1);};
+  document.getElementById('cRstBtn').onclick=()=>{ST.fl.cand={};renderCandidateSection();};
+  document.getElementById('candSaveBtn').onclick=async()=>{
+    const form=document.getElementById('candForm');
+    if(!_validateFmt(form))return;
+    const fd=Object.fromEntries(new FormData(form));
+    const r=await api('POST','/api/candidates',fd).catch(()=>null);
+    if(r){toast('예정자 저장 완료');form.reset();doSearch(1);}
+  };
+  await doSearch(1);
+}
+
+window.editCandidate=async(id)=>{
+  const r=await api('GET',`/api/candidates/${id}`).catch(()=>null);if(!r)return;
+  openModal('예정자 수정',`<form id="cEditForm"><div class="fg">
+    <div class="fi"><label>지역</label>${rsel('region',r.region||'')}</div>
+    ${fi('vehicle_number','차량번호',r.vehicle_number||'')} ${fi('name','성명',r.name||'')}
+    ${frn('resident_number','주민등록번호',r.resident_number||'')}
+    ${fi('phone','전화번호',r.phone||'')} ${fph('mobile','핸드폰',r.mobile||'')}
+    <div class="fi cs2"><label>주소</label><input class="fc" name="address" value="${e_(r.address||'')}"></div>
+    ${fi('certificate_issue_date','자격증발급일자',r.certificate_issue_date||'')} ${fi('certificate_number','자격증발급번호',r.certificate_number||'')}
+    ${fi('driver_license_number','운전면허번호',r.driver_license_number||'')}
+    <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||'')}" placeholder="예: 22,포터Ⅱ내장탑차 / 봉고 / 냉동탑차"></div>
+    ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),r.fuel_type||'')}
+    ${fi('business_number','사업자번호',r.business_number||'')} ${fi('affiliated_company','소속업체',r.affiliated_company||'')}
+    ${fta('memo','비고',r.memo||'','cs4')}
+  </div></form>`,
+  `<button class="btn bg btn-sm" id="_ceSave">저장</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
+  setTimeout(()=>_bindFmt(document.getElementById('cEditForm')),0);
+  document.getElementById('_ceSave').onclick=async()=>{
+    const form=document.getElementById('cEditForm');
+    if(!_validateFmt(form))return;
+    const fd=Object.fromEntries(new FormData(form));
+    const res=await api('PUT',`/api/candidates/${id}`,fd).catch(()=>null);
+    if(res){toast('수정되었습니다.');closeModal();renderCandidateSection();}
+  };
+};
+
+window.registerCandidate=async(cid,vn,name)=>{
+  const nn=await api('GET','/api/members/next-new-number').catch(()=>null);
+  openModal('신규등록 처리',`
+    <div class="info-box">차량번호: <strong>${e_(vn)}</strong> / 성명: <strong>${e_(name)}</strong>
+    → ${vn.includes('배')?'택배회원':'개인회원'}으로 등록됩니다.</div>
+    <div class="fg2 mt8">
+      <div class="fi"><label>인가일자 <span class="req">*</span></label><input class="fc" id="regApprDate" placeholder="예: 2026-01-01"></div>
+      <div class="fi"><label>관리번호</label><input class="fc" id="regMgmtNum" value="${e_(nn?.next_number||'')}"></div>
+    </div>`,
+    `<button class="btn bg btn-sm" id="_rC">등록 완료</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'msm');
+  document.getElementById('_rC').onclick=async()=>{
+    const ad=document.getElementById('regApprDate').value.trim();
+    if(!ad){toast('인가일자를 입력하세요','warn');return;}
+    const r=await api('POST',`/api/candidates/${cid}/register`,{approval_date:ad,management_number:document.getElementById('regMgmtNum').value.trim()}).catch(()=>null);
+    if(r){toast(`${r.category}회원 등록 완료 (${r.management_number})`);closeModal();renderCandidateSection();}
+  };
+};
+window.deleteCandidate=async(cid)=>{
+  if(!await cfm('이 예정자를 삭제하시겠습니까?'))return;
+  await api('DELETE',`/api/candidates/${cid}`);toast('삭제');renderCandidateSection();
+};
+
+async function renderTransferSection(){
+  document.getElementById('innerContent').innerHTML=`
+    <div class="card">
+      <div class="card-hd"><div class="card-hd-l"><span class="card-ico">✏️</span><span class="card-ttl">양도양수 등록 (타 지역→강원도 전입)</span></div></div>
+      <div class="card-bd"><form id="trSecForm"><div class="fg">
+        <div class="fi"><label>지역</label>${rsel('region','')}</div>
+        ${fi('vehicle_number','차량번호')} ${fi('name','양수자(성명)')} ${fi('resident_number','주민등록번호')}
+        ${fi('phone','전화번호')} ${fi('mobile','핸드폰')}
+        <div class="fi cs2"><label>주소</label><input class="fc" name="address"></div>
+        ${fi('approval_date','인가일자')}
+        <div class="fi cs3"><label>양도정보 (예: 경기→강원 이전전입)</label><input class="fc" name="memo"></div>
+        ${fi('certificate_issue_date','자격증발급일자')} ${fi('certificate_number','자격증발급번호')}
+        ${fi('driver_license_number','운전면허번호')}
+        ${fri('vehicle_type','차종',[''].concat(VEH_TYPES),'')}
+        ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),'')}
+        ${fi('business_number','사업자번호')} ${fi('affiliated_company','소속업체')}
+      </div>
+      <div class="flex gap-8 mt8" style="justify-content:flex-end">
+        <button type="button" class="btn bo btn-sm" onclick="document.getElementById('trSecForm').reset()">초기화</button>
+        <button type="button" class="btn bg btn-sm" id="trSecSave">+ 저장</button>
+      </div></form></div>
+    </div>`;
+  document.getElementById('trSecSave').onclick=async()=>{
+    const fd=Object.fromEntries(new FormData(document.getElementById('trSecForm')));
+    if(!fd.vehicle_number){toast('차량번호를 입력하세요','warn');return;}
+    const nn=await api('GET','/api/members/next-transfer-number').catch(()=>null);
+    const tl={receipt_date:new Date().toISOString().slice(0,10),region:fd.region||'',vehicle_number:fd.vehicle_number,
+      transferor:'',transferee:fd.name,resident_number:fd.resident_number,address:fd.address,
+      phone:fd.phone,mobile:fd.mobile,approval_date:fd.approval_date,
+      certificate_issue_date:fd.certificate_issue_date,certificate_number:fd.certificate_number,
+      driver_license_number:fd.driver_license_number,memo:fd.memo};
+    const trRec=await api('POST','/api/transfer-ledger',tl).catch(()=>null);
+    if(!trRec)return;
+    const mr=await api('POST',`/api/transfer-ledger/${trRec.id}/register-member`,{management_number:nn?.next_number||''}).catch(()=>null);
+    if(mr){toast(`${mr.category}회원 등록 완료 (${mr.management_number})`);document.getElementById('trSecForm').reset();}
+  };
+}
+
+// ===== MEMBER (개인/택배) =====
+async function renderMember(category){
+  const key=category==='개인'?'individual':'delivery';
+  const f=ST.fl[key]||{};
+  document.getElementById('content').innerHTML=`
+    <div class="card">
+      <div class="card-hd">
+        <div class="card-hd-l"><span class="card-ico">${category==='개인'?'👤':'🚚'}</span>
+          <span class="card-ttl">${category}회원</span><span class="cnt" id="mCnt">0건</span></div>
+        <div class="flex gap-8">
+          <button class="btn bg btn-sm" id="mAddBtn">+ 등록</button>
+          <button class="btn bxl btn-sm" id="mXlBtn">엑셀 다운로드</button>
+        </div>
+      </div>
+      <div class="frow">
+        ${rselflt(`${key}RegF`,f.region||'')}
+        <select id="${key}MemF" class="fsel"><option value="">가입/미가입</option><option value="가입">가입</option><option value="미가입">미가입</option></select>
+        <span class="fsel" style="background:var(--c-bg);color:var(--c-text-4);font-size:11px;display:flex;align-items:center;padding:0 10px;border:1px solid var(--c-border);border-radius:6px">지역순 · 차량번호순</span>
+        <input class="srch" id="${key}Srch" placeholder="성명, 차량번호, 주소, 자격번호" value="${e_(f.search||'')}">
+        <button class="btn bp btn-sm" id="${key}SrchBtn">조회</button>
+        <button class="btn bo btn-sm" id="${key}RstBtn">초기화</button>
+      </div>
+      <div id="${key}Tbl"><div class="loading-box"><div class="spin"></div></div></div>
+    </div>`;
+
+  const hdrs=[
+    {label:'관리번호'},{label:'지역'},{label:'차량번호'},{label:'성명'},
+    {label:'핸드폰'},{label:'인가일자'},{label:'가입'},{label:'가입일자'},
+    {label:'자격증명발급일자'},{label:'자격증명발급번호'},
+    {label:'차종'},{label:'유종'},{label:'주소'},{label:'비고'},{label:'관리',noSort:true}
+  ];
+
+  const doSearch=async(pg=1)=>{
+    ST.fl[key]={category,region:document.getElementById(`${key}RegF`).value,membership_status:document.getElementById(`${key}MemF`).value,search:document.getElementById(`${key}Srch`).value.trim()};
+    const q=new URLSearchParams({page:pg,limit:50,...Object.fromEntries(Object.entries(ST.fl[key]).filter(([,v])=>v))});
+    const d=await api('GET',`/api/members?${q}`).catch(()=>null);if(!d)return;
+    document.getElementById('mCnt').textContent=`${d.total.toLocaleString()}건`;
+    const tw=document.getElementById(`${key}Tbl`);
+    if(!d.items.length){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">${category==='개인'?'👤':'🚚'}</div><p class="empty-txt">데이터가 없습니다.</p></div>`;return;}
+    tw.innerHTML=`<div class="tbl-wrap"><table>
+      <thead><tr>${plainHeaders(hdrs)}</tr></thead>
+      <tbody>${d.items.map(r=>`<tr>
+        <td><a class="tbl-link" onclick="viewMember(${r.id});return false">${fv(r.management_number)}</a></td>
+        <td>${fv(r.region)}</td>
+        <td><a class="tbl-link" onclick="viewMember(${r.id});return false">${fv(r.vehicle_number)}</a></td>
+        <td><a class="tbl-link" onclick="viewMember(${r.id});return false">${fv(r.name)}</a></td>
+        <td>${fv(r.mobile)}</td>
+        <td>${fv(r.approval_date)}</td>
+        <td>${memBadge(r.membership_status)}</td>
+        <td>${fv(r.membership_date)}</td>
+        <td>${fv(r.certificate_issue_date)}</td>
+        <td>${fv(r.certificate_number)}</td>
+        <td title="${e_(r.vehicle_type)}">${fv(r.vehicle_type)}</td>
+        <td>${fv(r.fuel_type)}</td>
+        <td title="${e_(r.address)}">${fv(r.address)}</td>
+        <td title="${e_(r.memo)}">${fv(r.memo)}</td>
+        <td class="td-act">
+          <button class="btn bp btn-xs" onclick="editMember(${r.id})">수정</button>
+          <button class="btn br btn-xs" onclick="closeMember(${r.id},'${e_(r.name)}','${e_(r.vehicle_number)}')">폐업</button>
+        </td></tr>`).join('')}</tbody>
+    </table></div>${pgn(d,doSearch)}`;
+    bindPgn(`${key}Tbl`,doSearch);
+  };
+  document.getElementById(`${key}SrchBtn`).onclick=()=>doSearch(1);
+  document.getElementById(`${key}Srch`).onkeydown=e=>{if(e.key==='Enter')doSearch(1);};
+  document.getElementById(`${key}RstBtn`).onclick=()=>{ST.fl[key]={};renderMember(category);};
+  document.getElementById('mAddBtn').onclick=()=>editMember(null,category);
+  document.getElementById('mXlBtn').onclick=()=>{
+    const q=new URLSearchParams({category,...Object.fromEntries(Object.entries(ST.fl[key]||{}).filter(([k,v])=>v&&k!=='category'))});
+    dl(`/api/members/export/excel?${q}`,`${category}회원.xlsx`);
+  };
+  await doSearch(1);
+}
+
+window.editMember=async(id,defaultCat='개인')=>{
+  let r={management_number:'',region:'',vehicle_number:'',name:'',company_name:'',address:'',phone:'',mobile:'',category:defaultCat,membership_status:'가입',membership_date:'',approval_date:'',certificate_issue_date:'',certificate_number:'',driver_license_number:'',vehicle_type:'',fuel_type:'',business_number:'',affiliated_company:'',resident_number:'',memo:''};
+  if(id){r=await api('GET',`/api/members/${id}`).catch(()=>null);if(!r)return;}
+  openModal(id?'회원 수정':'회원 등록',`<form id="mForm"><div class="fg">
+    ${fi('management_number','관리번호',r.management_number||'')}
+    <div class="fi"><label>지역</label>${rsel('region',r.region||'')}</div>
+    ${fi('vehicle_number','차량번호',r.vehicle_number||'',true)} ${fi('name','성명',r.name||'',true)}
+    ${fi('phone','전화번호',r.phone||'')} ${fph('mobile','핸드폰',r.mobile||'')}
+    <div class="fi cs2"><label>주소</label><input class="fc" name="address" value="${e_(r.address||'')}"></div>
+    ${fri('membership_status','가입여부',['가입','미가입'],r.membership_status||'가입')}
+    ${fi('membership_date','가입일자',r.membership_date||'')} ${fi('approval_date','인가일자',r.approval_date||'')}
+    ${fi('certificate_issue_date','자격증발급일자',r.certificate_issue_date||'')} ${fi('certificate_number','자격증발급번호',r.certificate_number||'')}
+    ${fi('driver_license_number','운전면허번호',r.driver_license_number||'')}
+    <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||'')}" placeholder="예: 22,포터Ⅱ내장탑차 / 봉고 / 냉동탑차"></div>
+    ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),r.fuel_type||'')}
+    ${fi('affiliated_company','소속업체',r.affiliated_company||'')} ${frn('resident_number','주민등록번호',r.resident_number||'')}
+    ${fta('memo','비고',r.memo||'','cs4')}
+  </div></form>`,
+  `<button class="btn bg btn-sm" id="_mSave">${id?'저장':'등록'}</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
+  setTimeout(()=>_bindFmt(document.getElementById('mForm')),0);
+  document.getElementById('_mSave').onclick=async()=>{
+    const form=document.getElementById('mForm');
+    if(!form.checkValidity()){form.reportValidity();return;}
+    if(!_validateFmt(form))return;
+    const fd=Object.fromEntries(new FormData(form));
+    if(!id)fd.category=fd.vehicle_number?.includes('배')?'택배':'개인';
+    const res=await api(id?'PUT':'POST',id?`/api/members/${id}`:'/api/members',fd).catch(()=>null);
+    if(res){toast(id?'수정되었습니다.':'등록되었습니다.');closeModal();navigate(ST.cat,ST.sub);}
+  };
+};
+
+window.closeMember=async(id,name,vn)=>{
+  openModal('폐업 처리',`
+    <p class="warn-box" style="margin-bottom:10px"><strong>${e_(name)}</strong> (${e_(vn)}) 처리 방식을 선택하세요.</p>
+    <div class="close-choices">
+      <button class="close-choice" data-type="폐업"><strong>폐업</strong><span>사업 폐업 (폐-N)</span></button>
+      <button class="close-choice" data-type="양도"><strong>양도</strong><span>타인 양도 (양-N)</span></button>
+      <button class="close-choice" data-type="이관"><strong>이관</strong><span>타 지역 이관 (이-N)</span></button>
+    </div>`,`<button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'msm');
+  document.querySelectorAll('.close-choice').forEach(btn=>{
+    btn.onclick=async()=>{
+      const ct=btn.dataset.type;
+      const nn=await api('GET',`/api/closures/next-number/${encodeURIComponent(ct)}`).catch(()=>null);
+      openModal(`${ct} 처리`,`
+        <div class="fg2">
+          <div class="fi"><label>처리일자 <span class="req">*</span></label><input class="fc" id="clDate" placeholder="2026-01-01"></div>
+          <div class="fi"><label>관리번호</label><input class="fc" id="clMgmt" value="${e_(nn?.next_number||'')}"></div>
+        </div>
+        <div class="fi mt8"><label>사유</label><input class="fc" id="clReason"></div>`,
+        `<button class="btn br btn-sm" id="_clC">${ct} 처리</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'msm');
+      document.getElementById('_clC').onclick=async()=>{
+        const cd=document.getElementById('clDate').value.trim();
+        if(!cd){toast('처리일자를 입력하세요','warn');return;}
+        const res=await api('POST',`/api/members/${id}/close`,{closure_type:ct,closure_date:cd,management_number:document.getElementById('clMgmt').value.trim(),reason:document.getElementById('clReason').value.trim()}).catch(()=>null);
+        if(res){toast(`${ct} 처리 완료 (${res.management_number})`);closeModal();navigate(ST.cat,ST.sub);}
+      };
+    };
+  });
+};
+
+// ===== 신규등록대장 =====
+async function renderNewRegistrations(){
+  const f=ST.fl.nr||{};
+  document.getElementById('content').innerHTML=`
+    <div class="card">
+      <div class="card-hd">
+        <div class="card-hd-l"><span class="card-ico">📋</span><span class="card-ttl">신규등록대장</span><span class="cnt" id="nrCnt">0건</span>
+          <span class="badge b-sky" style="font-size:10px;margin-left:6px">인가일자 기준</span></div>
+        <div class="flex gap-8">
+          <button class="btn bxl btn-sm" id="nrXlBtn">엑셀 다운로드</button>
+        </div>
+      </div>
+      <div class="frow">
+        ${rselflt('nrRegF',f.region||'')}
+        <select id="nrCatF" class="fsel"><option value="">개인+택배</option><option value="개인">개인</option><option value="택배">택배</option></select>
+        ${dateOrderSel('nrDateF',f.date_order||'desc')}
+        <input class="srch" id="nrSrch" placeholder="성명, 차량번호, 주소, 자격번호" value="${e_(f.search||'')}">
+        <button class="btn bp btn-sm" id="nrSrchBtn">조회</button>
+        <button class="btn bo btn-sm" id="nrRstBtn">초기화</button>
+      </div>
+      <div id="nrTbl"><div class="loading-box"><div class="spin"></div></div></div>
+    </div>`;
+
+  const hdrs=[
+    {label:'관리번호'},{label:'지역'},{label:'차량번호'},{label:'성명'},
+    {label:'구분'},{label:'가입'},{label:'핸드폰'},{label:'인가일자'},{label:'가입일자'},
+    {label:'자격증명발급일자'},{label:'자격증명발급번호'},{label:'차종'},{label:'유종'},
+    {label:'주소'},{label:'비고'},{label:'관리',noSort:true}
+  ];
+
+  const doSearch=async(pg=1)=>{
+    ST.fl.nr={
+      region:document.getElementById('nrRegF').value,
+      category:document.getElementById('nrCatF').value,
+      date_order:document.getElementById('nrDateF').value,
+      search:document.getElementById('nrSrch').value.trim()
+    };
+    const q=new URLSearchParams({page:pg,limit:50,mgmt_prefix:'신',...Object.fromEntries(Object.entries(ST.fl.nr).filter(([,v])=>v))});
+    const d=await api('GET',`/api/members?${q}`).catch(()=>null);if(!d)return;
+    document.getElementById('nrCnt').textContent=`${d.total.toLocaleString()}건`;
+    const tw=document.getElementById('nrTbl');
+    if(!d.items.length){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">📋</div><p class="empty-txt">신규등록 데이터가 없습니다.</p></div>`;return;}
+    tw.innerHTML=`<div class="tbl-wrap"><table>
+      <thead><tr>${plainHeaders(hdrs)}</tr></thead>
+      <tbody>${d.items.map(r=>`<tr>
+        <td><a class="tbl-link" onclick="viewMember(${r.id});return false">${fv(r.management_number)}</a></td>
+        <td>${fv(r.region)}</td>
+        <td><a class="tbl-link" onclick="viewMember(${r.id});return false">${fv(r.vehicle_number)}</a></td>
+        <td><a class="tbl-link" onclick="viewMember(${r.id});return false">${fv(r.name)}</a></td>
+        <td>${catBadge(r.category)}</td><td>${memBadge(r.membership_status)}</td>
+        <td>${fv(r.mobile)}</td>
+        <td><strong>${fv(r.approval_date)}</strong></td><td>${fv(r.membership_date)}</td>
+        <td>${fv(r.certificate_issue_date)}</td><td>${fv(r.certificate_number)}</td>
+        <td title="${e_(r.vehicle_type)}">${fv(r.vehicle_type)}</td><td>${fv(r.fuel_type)}</td>
+        <td title="${e_(r.address)}">${fv(r.address)}</td>
+        <td title="${e_(r.memo)}">${fv(r.memo)}</td>
+        <td class="td-act">
+          <button class="btn bp btn-xs" onclick="editMember(${r.id})">수정</button>
+        </td></tr>`).join('')}</tbody>
+    </table></div>${pgn(d,doSearch)}`;
+    bindPgn('nrTbl',doSearch);
+  };
+  document.getElementById('nrSrchBtn').onclick=()=>doSearch(1);
+  document.getElementById('nrSrch').onkeydown=e=>{if(e.key==='Enter')doSearch(1);};
+  document.getElementById('nrRstBtn').onclick=()=>{ST.fl.nr={};renderNewRegistrations();};
+  document.getElementById('nrXlBtn').onclick=()=>{
+    const q=new URLSearchParams({mgmt_prefix:'신',sort_by:'approval_date',sort_dir:'desc',...Object.fromEntries(Object.entries(ST.fl.nr||{}).filter(([,v])=>v))});
+    dl(`/api/members/export/excel?${q}`,'신규등록대장.xlsx');
+  };
+  await doSearch(1);
+}
+
+// ===== TRANSFER LEDGER =====
+async function renderTransferLedger(){
+  const f=ST.fl.tl||{};
+  document.getElementById('content').innerHTML=`
+    <div class="card">
+      <div class="card-hd">
+        <div class="card-hd-l"><span class="card-ico">📋</span><span class="card-ttl">양도양수대장</span><span class="cnt" id="tlCnt">0건</span></div>
+        <div class="flex gap-8">
+          <button class="btn bg btn-sm" id="tlAddBtn">+ 등록</button>
+          <button class="btn bxl btn-sm" id="tlXlBtn">엑셀 다운로드</button>
+        </div>
+      </div>
+      <div class="frow">
+        ${rselflt('tlRegF',f.region||'')}
+        ${dateOrderSel('tlDateF',f.date_order||'desc')}
+        <input class="srch" id="tlSrch" placeholder="양도자, 양수자, 차량번호" value="${e_(f.search||'')}">
+        <button class="btn bp btn-sm" id="tlSrchBtn">조회</button>
+        <button class="btn bo btn-sm" id="tlRstBtn">초기화</button>
+      </div>
+      <div id="tlTbl"><div class="loading-box"><div class="spin"></div></div></div>
+    </div>`;
+
+  const hdrs=[{label:'번호'},{label:'처리일자'},{label:'접수일자'},{label:'지역'},{label:'차량번호'},{label:'양도자'},{label:'양수자'},{label:'전화번호'},{label:'핸드폰'},{label:'인가일자'},{label:'가입일자'},{label:'자격증발급일자'},{label:'자격증번호'},{label:'장부정리'},{label:'전산보고'},{label:'비고'},{label:'관리',noSort:true}];
+
+  const doSearch=async(pg=1)=>{
+    ST.fl.tl={region:document.getElementById('tlRegF').value,date_order:document.getElementById('tlDateF').value,search:document.getElementById('tlSrch').value.trim()};
+    const q=new URLSearchParams({page:pg,limit:50,...Object.fromEntries(Object.entries(ST.fl.tl).filter(([,v])=>v))});
+    const d=await api('GET',`/api/transfer-ledger?${q}`).catch(()=>null);if(!d)return;
+    document.getElementById('tlCnt').textContent=`${d.total.toLocaleString()}건`;
+    const tw=document.getElementById('tlTbl');
+    if(!d.items.length){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">📋</div><p class="empty-txt">데이터가 없습니다.</p></div>`;return;}
+    tw.innerHTML=`<div class="tbl-wrap"><table>
+      <thead><tr>${sortHeaders('tlTbl',sk,hdrs,doSearch)}</tr></thead>
+      <tbody>${d.items.map(r=>`<tr>
+        <td>${fv(r.seq_number)}</td>
+        <td><strong>${fvDate(r.process_date,r.receipt_date)}</strong></td>
+        <td>${fv(r.receipt_date)}</td><td>${fv(r.region)}</td>
+        <td><a class="click-link" onclick="viewTransfer(${r.id});return false">${fv(r.vehicle_number)}</a></td>
+        <td>${fv(r.transferor)}</td>
+        <td><a class="click-link" onclick="viewTransfer(${r.id});return false"><strong>${fv(r.transferee)}</strong></a></td>
+        <td>${fv(r.phone)}</td><td>${fv(r.mobile)}</td>
+        <td>${fv(r.approval_date)}</td><td>${fv(r.membership_date)}</td>
+        <td>${fv(r.certificate_issue_date)}</td><td>${fv(r.certificate_number)}</td>
+        <td>${fv(r.ledger_update)}</td><td>${fv(r.computer_report)}</td>
+        <td title="${e_(r.memo)}">${fv(r.memo)}</td>
+        <td class="td-act">
+          <button class="btn bp btn-xs" onclick="editTransfer(${r.id})">수정</button>
+          ${!r.member_id?`<button class="btn bg btn-xs" onclick="registerTransferMember(${r.id})">회원등록</button>`:`<span class="badge b-teal" style="font-size:10px">등록완료</span>`}
+          ${isAdmin()?`<button class="btn br btn-xs" onclick="deleteTransfer(${r.id})">삭제</button>`:''}
+        </td></tr>`).join('')}</tbody>
+    </table></div>${pgn(d,doSearch)}`;
+    bindPgn('tlTbl',doSearch);
+  };
+  document.getElementById('tlSrchBtn').onclick=()=>doSearch(1);
+  document.getElementById('tlSrch').onkeydown=e=>{if(e.key==='Enter')doSearch(1);};
+  document.getElementById('tlRstBtn').onclick=()=>{ST.fl.tl={};renderTransferLedger();};
+  document.getElementById('tlAddBtn').onclick=()=>editTransfer(null);
+  document.getElementById('tlXlBtn').onclick=()=>{
+    const q=new URLSearchParams(Object.fromEntries(Object.entries(ST.fl.tl||{}).filter(([,v])=>v)));
+    dl(`/api/transfer-ledger/export/excel?${q}`,'양도양수대장.xlsx');
+  };
+  await doSearch(1);
+}
+
+window.editTransfer=async(id)=>{
+  let r={seq_number:'',receipt_date:'',region:'',vehicle_number:'',transferor:'',transferee:'',resident_number:'',address:'',phone:'',mobile:'',approval_date:'',membership_date:'',certificate_issue_date:'',certificate_number:'',ledger_update:'',driver_license_number:'',computer_report:'',memo:''};
+  if(id){r=await api('GET',`/api/transfer-ledger/${id}`).catch(()=>null);if(!r)return;}
+  openModal(id?'양도양수 수정':'양도양수 등록',`<form id="tlForm"><div class="fg">
+    ${fi('seq_number','번호',r.seq_number||'')} ${fi('receipt_date','접수일자',r.receipt_date||'')}
+    <div class="fi"><label>지역</label>${rsel('region',r.region||'')}</div>
+    ${fi('vehicle_number','차량번호',r.vehicle_number||'',true)}
+    ${fi('transferor','양도자',r.transferor||'')} ${fi('transferee','양수자',r.transferee||'')}
+    ${fi('resident_number','주민등록번호',r.resident_number||'')}
+    <div class="fi cs2"><label>주소</label><input class="fc" name="address" value="${e_(r.address||'')}"></div>
+    ${fi('phone','전화번호',r.phone||'')} ${fi('mobile','핸드폰',r.mobile||'')}
+    ${fi('approval_date','인가일자',r.approval_date||'')} ${fi('membership_date','가입일자',r.membership_date||'')}
+    ${fi('certificate_issue_date','자격증발급일자',r.certificate_issue_date||'')} ${fi('certificate_number','자격증발급번호',r.certificate_number||'')}
+    ${fi('ledger_update','장부정리',r.ledger_update||'')} ${fi('driver_license_number','운전면허번호',r.driver_license_number||'')} ${fi('computer_report','전산보고',r.computer_report||'')}
+    ${fta('memo','비고',r.memo||'','cs4')}
+  </div></form>`,
+  `<button class="btn bg btn-sm" id="_tlS">${id?'저장':'등록'}</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
+  document.getElementById('_tlS').onclick=async()=>{
+    const form=document.getElementById('tlForm');if(!form.checkValidity()){form.reportValidity();return;}
+    const fd=Object.fromEntries(new FormData(form));
+    const res=await api(id?'PUT':'POST',id?`/api/transfer-ledger/${id}`:'/api/transfer-ledger',fd).catch(()=>null);
+    if(res){toast(id?'수정':'등록');closeModal();renderTransferLedger();}
+  };
+};
+window.registerTransferMember=async(tid)=>{
+  const nn=await api('GET','/api/transfer-ledger/next-number').catch(()=>null);
+  openModal('회원등록',`<div class="info-box">양수자 정보를 기준으로 회원 등록합니다.</div>
+    <div class="fi mt8"><label>관리번호</label><input class="fc" id="_tMgmt" value="${e_(nn?.next_number||'')}"></div>`,
+    `<button class="btn bg btn-sm" id="_tC">회원등록</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'msm');
+  document.getElementById('_tC').onclick=async()=>{
+    const r=await api('POST',`/api/transfer-ledger/${tid}/register-member`,{management_number:document.getElementById('_tMgmt').value.trim()}).catch(()=>null);
+    if(r){toast(`${r.category}회원 등록 완료`);closeModal();renderTransferLedger();}
+  };
+};
+window.deleteTransfer=async(id)=>{if(!await cfm('삭제?'))return;await api('DELETE',`/api/transfer-ledger/${id}`);toast('삭제');renderTransferLedger();};
+
+// ===== CLOSURES =====
+async function renderClosures(){
+  const f=ST.fl.cl||{};
+  document.getElementById('content').innerHTML=`
+    <div class="card">
+      <div class="card-hd">
+        <div class="card-hd-l"><span class="card-ico">🚫</span><span class="card-ttl">폐지현황</span><span class="cnt" id="clCnt">0건</span></div>
+        <div class="flex gap-8">
+          <button class="btn bg btn-sm" id="clAddBtn">+ 등록</button>
+          <button class="btn bxl btn-sm" id="clXlBtn">엑셀 다운로드</button>
+        </div>
+      </div>
+      <div class="frow">
+        ${rselflt('clRegF',f.region||'')}
+        <select id="clTypF" class="fsel"><option value="">전체 구분</option>${CLOSURE_TYPES.map(t=>`<option value="${t}">${t}</option>`).join('')}</select>
+        <select id="clDtF" class="fsel"><option value="">신규+이전</option><option value="신규자료">신규자료</option><option value="이전자료">이전자료</option></select>
+        <input class="srch" id="clSrch" placeholder="관리번호, 성명, 차량번호" value="${e_(f.search||'')}">
+        <button class="btn bp btn-sm" id="clSrchBtn">조회</button>
+        <button class="btn bo btn-sm" id="clRstBtn">초기화</button>
+      </div>
+      <div id="clTbl"><div class="loading-box"><div class="spin"></div></div></div>
+    </div>`;
+
+  const sk='cl';
+  const hdrs=[{field:'management_number',label:'관리번호'},{field:'closure_type',label:'구분'},{field:'data_type',label:'자료'},{field:'region',label:'지역'},{field:'vehicle_number',label:'차량번호'},{field:'name',label:'성명'},{field:'closure_date',label:'처리일자'},{field:'approval_date',label:'인가일자'},{field:'reason',label:'사유'},{field:'memo',label:'비고'},{label:'관리',noSort:true}];
+
+  const doSearch=async(pg=1)=>{
+    ST.fl.cl={region:document.getElementById('clRegF').value,closure_type:document.getElementById('clTypF').value,data_type:document.getElementById('clDtF').value,search:document.getElementById('clSrch').value.trim()};
+    const q=new URLSearchParams({page:pg,limit:50,...getSortParams(sk),...Object.fromEntries(Object.entries(ST.fl.cl).filter(([,v])=>v))});
+    const d=await api('GET',`/api/closures?${q}`).catch(()=>null);if(!d)return;
+    document.getElementById('clCnt').textContent=`${d.total.toLocaleString()}건`;
+    const tw=document.getElementById('clTbl');
+    if(!d.items.length){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">🚫</div><p class="empty-txt">데이터가 없습니다.</p></div>`;return;}
+    tw.innerHTML=`<div class="tbl-wrap"><table>
+      <thead><tr>${sortHeaders('clTbl',sk,hdrs,doSearch)}</tr></thead>
+      <tbody>${d.items.map(r=>`<tr>
+        <td><a class="click-link" onclick="viewClosure(${r.id});return false"><strong>${fv(r.management_number)}</strong></a></td>
+        <td>${ctBadge(r.closure_type)}</td><td>${dtBadge(r.data_type)}</td>
+        <td>${fv(r.region)}</td>
+        <td><a class="click-link" onclick="viewClosure(${r.id});return false">${fv(r.vehicle_number)}</a></td>
+        <td><a class="click-link" onclick="viewClosure(${r.id});return false">${fv(r.name)}</a></td>
+        <td>${fv(r.closure_date)}</td><td>${fv(r.approval_date)}</td>
+        <td title="${e_(r.reason)}">${fv(r.reason)}</td>
+        <td title="${e_(r.memo)}">${fv(r.memo)}</td>
+        <td class="td-act">
+          <button class="btn bp btn-xs" onclick="editClosure(${r.id})">수정</button>
+          ${isAdmin()?`<button class="btn br btn-xs" onclick="deleteClosure(${r.id})">삭제</button>`:''}
+        </td></tr>`).join('')}</tbody>
+    </table></div>${pgn(d,doSearch)}`;
+    bindPgn('clTbl',doSearch);
+  };
+  document.getElementById('clSrchBtn').onclick=()=>doSearch(1);
+  document.getElementById('clSrch').onkeydown=e=>{if(e.key==='Enter')doSearch(1);};
+  document.getElementById('clRstBtn').onclick=()=>{ST.fl.cl={};renderClosures();};
+  document.getElementById('clAddBtn').onclick=()=>editClosure(null);
+  document.getElementById('clXlBtn').onclick=()=>{
+    const q=new URLSearchParams(Object.fromEntries(Object.entries(ST.fl.cl||{}).filter(([,v])=>v)));
+    dl(`/api/closures/export/excel?${q}`,'폐지현황.xlsx');
+  };
+  await doSearch(1);
+}
+
+window.editClosure=async(id)=>{
+  let r={management_number:'',closure_type:'폐업',data_type:'신규자료',region:'',vehicle_number:'',name:'',company_name:'',closure_date:'',approval_date:'',reason:'',memo:''};
+  if(id){r=await api('GET',`/api/closures/${id}`).catch(()=>null);if(!r)return;}
+  if(!id){const nn=await api('GET',`/api/closures/next-number/폐업`).catch(()=>null);if(nn)r.management_number=nn.next_number;}
+  openModal(id?'폐지 수정':'폐지 등록',`<form id="clForm"><div class="fg">
+    ${fi('management_number','관리번호',r.management_number||'')}
+    <div class="fi"><label>처리구분</label>${ssel('closure_type',CLOSURE_TYPES,r.closure_type||'폐업')}</div>
+    <div class="fi"><label>자료구분</label>${ssel('data_type',['신규자료','이전자료'],r.data_type||'신규자료')}</div>
+    <div class="fi"><label>지역</label>${rsel('region',r.region||'')}</div>
+    ${fi('vehicle_number','차량번호',r.vehicle_number||'',true)} ${fi('name','성명',r.name||'')} ${fi('company_name','상호',r.company_name||'')}
+    ${fi('closure_date','처리일자',r.closure_date||'')} ${fi('approval_date','인가일자',r.approval_date||'')}
+    <div class="fi cs2"><label>사유</label><input class="fc" name="reason" value="${e_(r.reason||'')}"></div>
+    ${fta('memo','비고',r.memo||'','cs4')}
+  </div></form>`,
+  `<button class="btn bg btn-sm" id="_clS">${id?'저장':'등록'}</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`);
+  if(!id){
+    document.querySelector('[name=closure_type]').onchange=async e=>{
+      const nn=await api('GET',`/api/closures/next-number/${encodeURIComponent(e.target.value)}`).catch(()=>null);
+      if(nn)document.querySelector('[name=management_number]').value=nn.next_number;
+    };
+  }
+  document.getElementById('_clS').onclick=async()=>{
+    const form=document.getElementById('clForm');if(!form.checkValidity()){form.reportValidity();return;}
+    const fd=Object.fromEntries(new FormData(form));
+    const res=await api(id?'PUT':'POST',id?`/api/closures/${id}`:'/api/closures',fd).catch(()=>null);
+    if(res){toast(id?'수정':'등록');closeModal();renderClosures();}
+  };
+};
+window.deleteClosure=async(id)=>{if(!await cfm('삭제?'))return;await api('DELETE',`/api/closures/${id}`);toast('삭제');renderClosures();};
+
+// ===== CHANGE HISTORY =====
+async function renderChangeHistory(){
+  const f=ST.fl.ch||{};
+  document.getElementById('content').innerHTML=`
+    <div class="card">
+      <div class="card-hd">
+        <div class="card-hd-l"><span class="card-ico">📝</span><span class="card-ttl">변경이력대장</span><span class="cnt" id="chCnt">0건</span></div>
+        <div class="flex gap-8">
+          <button class="btn bg btn-sm" id="chAddBtn">+ 등록</button>
+          <button class="btn bxl btn-sm" id="chXlBtn">엑셀 다운로드</button>
+        </div>
+      </div>
+      <div class="frow">
+        ${rselflt('chRegF',f.region||'')}
+        <select id="chTypF" class="fsel"><option value="">전체 유형</option>${CHANGE_TYPES.map(t=>`<option value="${t}">${t}</option>`).join('')}</select>
+        <input class="srch" id="chSrch" placeholder="성명, 차량번호, 변경 전/후" value="${e_(f.search||'')}">
+        <button class="btn bp btn-sm" id="chSrchBtn">조회</button>
+        <button class="btn bo btn-sm" id="chRstBtn">초기화</button>
+      </div>
+      <div id="chTbl"><div class="loading-box"><div class="spin"></div></div></div>
+    </div>`;
+
+  const sk='ch';
+  const hdrs=[{field:'change_type',label:'변경유형'},{field:'change_date',label:'처리일자'},{field:'region',label:'지역'},{field:'vehicle_number',label:'차량번호'},{field:'name',label:'성명'},{field:'before_value',label:'변경 전'},{field:'after_value',label:'변경 후'},{field:'memo',label:'비고'},{label:'관리',noSort:true}];
+
+  const doSearch=async(pg=1)=>{
+    ST.fl.ch={region:document.getElementById('chRegF').value,change_type:document.getElementById('chTypF').value,search:document.getElementById('chSrch').value.trim()};
+    const q=new URLSearchParams({page:pg,limit:50,...getSortParams(sk),...Object.fromEntries(Object.entries(ST.fl.ch).filter(([,v])=>v))});
+    const d=await api('GET',`/api/change-history?${q}`).catch(()=>null);if(!d)return;
+    document.getElementById('chCnt').textContent=`${d.total.toLocaleString()}건`;
+    const tw=document.getElementById('chTbl');
+    if(!d.items.length){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">📝</div><p class="empty-txt">데이터가 없습니다.</p></div>`;return;}
+    tw.innerHTML=`<div class="tbl-wrap"><table>
+      <thead><tr>${sortHeaders('chTbl',sk,hdrs,doSearch)}</tr></thead>
+      <tbody>${d.items.map(r=>`<tr>
+        <td>${chBadge(r.change_type)}</td>
+        <td>${fvDate(r.change_date,r.receipt_date)}</td>
+        <td>${fv(r.region)}</td>
+        <td><a class="click-link" onclick="viewChange(${r.id});return false">${fv(r.vehicle_number)}</a></td>
+        <td><a class="click-link" onclick="viewChange(${r.id});return false">${fv(r.name)}</a></td>
+        <td title="${e_(r.before_value)}" style="max-width:160px;overflow:hidden;text-overflow:ellipsis">${fv(r.before_value)}</td>
+        <td title="${e_(r.after_value)}" style="max-width:160px;overflow:hidden;text-overflow:ellipsis">${fv(r.after_value)}</td>
+        <td title="${e_(r.memo)}">${fv(r.memo)}</td>
+        <td class="td-act">
+          <button class="btn bp btn-xs" onclick="editChange(${r.id})">수정</button>
+          ${isAdmin()?`<button class="btn br btn-xs" onclick="deleteChange(${r.id})">삭제</button>`:''}
+        </td></tr>`).join('')}</tbody>
+    </table></div>${pgn(d,doSearch)}`;
+    bindPgn('chTbl',doSearch);
+  };
+  document.getElementById('chSrchBtn').onclick=()=>doSearch(1);
+  document.getElementById('chSrch').onkeydown=e=>{if(e.key==='Enter')doSearch(1);};
+  document.getElementById('chRstBtn').onclick=()=>{ST.fl.ch={};renderChangeHistory();};
+  document.getElementById('chAddBtn').onclick=()=>editChange(null);
+  document.getElementById('chXlBtn').onclick=()=>{
+    const q=new URLSearchParams(Object.fromEntries(Object.entries(ST.fl.ch||{}).filter(([,v])=>v)));
+    dl(`/api/change-history/export/excel?${q}`,'변경이력대장.xlsx');
+  };
+  await doSearch(1);
+}
+
+window.editChange=async(id)=>{
+  let r={change_type:'주소지변경',region:'',vehicle_number:'',name:'',before_value:'',after_value:'',change_date:'',memo:''};
+  if(id){r=await api('GET',`/api/change-history/${id}`).catch(()=>null);if(!r)return;}
+  openModal(id?'변경이력 수정':'변경이력 등록',`<form id="chForm"><div class="fg">
+    <div class="fi"><label>변경유형</label>${ssel('change_type',CHANGE_TYPES,r.change_type||'주소지변경')}</div>
+    <div class="fi"><label>지역</label>${rsel('region',r.region||'')}</div>
+    ${fi('vehicle_number','차량번호',r.vehicle_number||'',true)} ${fi('name','성명',r.name||'')}
+    <div class="fi cs2"><label>변경 전</label><input class="fc" name="before_value" value="${e_(r.before_value||'')}"></div>
+    <div class="fi cs2"><label>변경 후</label><input class="fc" name="after_value" value="${e_(r.after_value||'')}"></div>
+    ${fi('change_date','처리일자',r.change_date||'')}
+    ${fta('memo','비고',r.memo||'','cs3')}
+  </div></form>`,
+  `<button class="btn bg btn-sm" id="_chS">${id?'저장':'등록'}</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`);
+  document.getElementById('_chS').onclick=async()=>{
+    const res=await api(id?'PUT':'POST',id?`/api/change-history/${id}`:'/api/change-history',Object.fromEntries(new FormData(document.getElementById('chForm')))).catch(()=>null);
+    if(res){toast(id?'수정':'등록');closeModal();renderChangeHistory();}
+  };
+};
+window.deleteChange=async(id)=>{if(!await cfm('삭제?'))return;await api('DELETE',`/api/change-history/${id}`);toast('삭제');renderChangeHistory();};
+
+// ===== DASHBOARD =====
+async function renderDashboard(){
+  document.getElementById('content').innerHTML=`<div class="loading-box"><div class="spin"></div><p>통계 자동 계산 중...</p></div>`;
+  const [full,reg,activity,byYear,recent]=await Promise.all([
+    api('GET','/api/dashboard/full-stats'),
+    api('GET','/api/dashboard/regional'),
+    api('GET','/api/dashboard/stats'),
+    api('GET','/api/dashboard/activity-by-year'),
+    api('GET','/api/dashboard/recent-by-type'),
+  ]).catch(()=>[null,null,null,null,null]);
+  if(!full||!reg)return;
+  const s=full.summary;const alloc=full.allocation||{};
+
+  document.getElementById('content').innerHTML=`
+    <div class="stat-grid">
+      <div class="stat-card" onclick="navigate('members','individual')"><div class="stat-lbl">총 사업자</div><div class="stat-val">${s.total.toLocaleString()}</div></div>
+      <div class="stat-card sky"><div class="stat-lbl">협회 가입</div><div class="stat-val">${s.joined.toLocaleString()}</div></div>
+      <div class="stat-card pink"><div class="stat-lbl">미가입</div><div class="stat-val">${s.not_joined.toLocaleString()}</div></div>
+      <div class="stat-card"><div class="stat-lbl">개인회원</div><div class="stat-val">${s.individual.toLocaleString()}</div></div>
+      <div class="stat-card yellow"><div class="stat-lbl">택배회원</div><div class="stat-val">${s.delivery.toLocaleString()}</div></div>
+      <div class="stat-card gray"><div class="stat-lbl">택배 취업신고</div><div class="stat-val">${s.delivery_employed.toLocaleString()}</div><div class="stat-sub">미신고 ${s.delivery_unemployed}</div></div>
+    </div>
+
+    <div class="grid2">
+      <div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">📍</span><span class="card-ttl">지역별 현황</span></div></div>
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>지역</th><th>전체</th><th>가입</th><th>미가입</th><th>개인</th><th>택배</th></tr></thead>
+          <tbody>${(reg||[]).filter(r=>r.total>0).map(r=>`<tr>
+            <td><strong>${r.region}</strong></td>
+            <td><a class="click-link" onclick="navigate('members','individual');return false">${r.total.toLocaleString()}</a></td>
+            <td style="color:var(--c-sky)">${r.joined}</td><td style="color:var(--c-pink)">${r.not_joined}</td>
+            <td>${r.individual}</td><td>${r.delivery}</td>
+          </tr>`).join('')||'<tr><td colspan="6" style="text-align:center;padding:16px;color:var(--c-text-4)">데이터 없음</td></tr>'}</tbody>
+        </table></div>
+      </div>
+
+      <div>
+        <div class="card" style="margin-bottom:12px"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">🚗</span><span class="card-ttl">차종별</span></div></div>
+          <div class="tbl-wrap"><table><thead><tr><th>차종</th><th>대수</th></tr></thead>
+            <tbody>${(full.vehicle_types||[]).slice(0,8).map(r=>`<tr><td>${r.type}</td><td>${r.count}</td></tr>`).join('')||'<tr><td colspan="2" style="text-align:center;padding:10px;color:var(--c-text-4)">데이터 없음</td></tr>'}</tbody>
+          </table></div></div>
+        <div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">⛽</span><span class="card-ttl">유종별</span></div></div>
+          <div class="tbl-wrap"><table><thead><tr><th>유종</th><th>대수</th></tr></thead>
+            <tbody>${(full.fuel_types||[]).slice(0,6).map(r=>`<tr><td>${r.type}</td><td>${r.count}</td></tr>`).join('')||'<tr><td colspan="2" style="text-align:center;padding:10px;color:var(--c-text-4)">데이터 없음</td></tr>'}</tbody>
+          </table></div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-hd"><div class="card-hd-l"><span class="card-ico">📊</span><span class="card-ttl">부과대수 자동 파악</span><span class="badge b-teal" style="font-size:10px;margin-left:6px">자동 계산</span></div></div>
+      <div class="card-bd">
+        <div class="alloc-grid">
+          ${[['협회가입',alloc['협회가입']],['양도',alloc['양도']],['타도(이관)',alloc['타도(이관)']],['폐지',alloc['폐지']],['탈퇴',alloc['탈퇴']],['택배신규',alloc['택배신규']],['관리비폐지',alloc['관리비폐지']],['70세',alloc['70세']],['협회기본대수',alloc['협회기본대수']],['총부과대수',alloc['총부과대수']],['택배관리',alloc['택배관리']]].map(([l,v])=>`
+          <div class="alloc-card"><div class="alloc-lbl">${l}</div>
+            ${v===null||v===undefined?`<div class="alloc-na">확인 필요</div>`:`<div class="alloc-val">${Number(v).toLocaleString()}</div>`}
+          </div>`).join('')}
+        </div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">👥</span><span class="card-ttl">연령대별</span></div></div>
+        <div class="tbl-wrap"><table><thead><tr><th>연령대</th><th>인원</th></tr></thead>
+          <tbody>${Object.entries(full.age_groups||{}).map(([k,v])=>`<tr><td>${k}</td><td>${v}</td></tr>`).join('')}</tbody>
+        </table></div>
+      </div>
+      <div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">📈</span><span class="card-ttl">연도별 변동 (최근 10년)</span></div></div>
+        <div class="tbl-wrap"><table><thead><tr><th>연도</th><th>신규</th><th>양도양수</th><th>폐지</th><th>변경</th></tr></thead>
+          <tbody>${(byYear||[]).slice(-10).reverse().map(r=>`<tr><td><strong>${r.year}</strong></td><td>${r.new||0}</td><td>${r.transfer||0}</td><td>${r.closure||0}</td><td>${r.change||0}</td></tr>`).join('')||'<tr><td colspan="5" style="text-align:center;padding:14px;color:var(--c-text-4)">데이터 없음</td></tr>'}</tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">🆕</span><span class="card-ttl">최근 신규등록</span><span class="badge b-pri" style="font-size:10px;margin-left:4px">인가일자 기준</span></div></div>
+        <div class="tbl-wrap"><table><thead><tr><th>지역</th><th>차량번호</th><th>성명</th><th>인가일자</th></tr></thead>
+          <tbody>${(recent?.new_members||[]).map(r=>`<tr><td>${fv(r.region)}</td><td>${fv(r.vehicle_number)}</td><td>${fv(r.name)}</td><td>${fv(r.approval_date)}</td></tr>`).join('')||'<tr><td colspan="4" style="text-align:center;padding:12px;color:var(--c-text-4)">없음</td></tr>'}</tbody>
+        </table></div></div>
+      <div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">🚫</span><span class="card-ttl">최근 폐지처리</span><span class="badge b-pink" style="font-size:10px;margin-left:4px">처리일자 기준</span></div></div>
+        <div class="tbl-wrap"><table><thead><tr><th>관리번호</th><th>지역</th><th>차량번호</th><th>성명</th><th>구분</th></tr></thead>
+          <tbody>${(recent?.closures||[]).map(r=>`<tr><td>${fv(r.management_number)}</td><td>${fv(r.region)}</td><td>${fv(r.vehicle_number)}</td><td>${fv(r.name)}</td><td>${ctBadge(r.closure_type)}</td></tr>`).join('')||'<tr><td colspan="5" style="text-align:center;padding:12px;color:var(--c-text-4)">없음</td></tr>'}</tbody>
+        </table></div></div>
+    </div>`;
+}
+
+// ===== MONTHLY REPORT =====
+async function renderMonthlyReport(){
+  const y=ST.reportYear,m=ST.reportMonth;
+  document.getElementById('content').innerHTML=`<div class="loading-box"><div class="spin"></div><p>월례보고서 자동 계산 중...</p></div>`;
+  const d=await api('GET',`/api/dashboard/monthly-report-auto?year=${y}&month=${m}`).catch(()=>null);
+  if(!d){document.getElementById('content').innerHTML=`<div class="empty-box"><div class="empty-ico">📄</div><p class="empty-txt">계산 실패</p></div>`;return;}
+
+  const ms=d.member_stats||{},ts=d.taxi_stats||{},aw=d.admin_work||{},act=d.month_activity||{};
+  const ageG=d.age_groups||{},vAge=d.vehicle_age||{};
+
+  function numOrNA(v){return v===null||v===undefined?`<span class="rpt-na">확인 필요</span>`:`<strong>${Number(v).toLocaleString()}</strong>`;}
+
+  document.getElementById('content').innerHTML=`
+    <div class="card">
+      <div class="rpt-nav">
+        <button class="btn bo btn-sm" onclick="ST.reportMonth--;if(ST.reportMonth<1){ST.reportMonth=12;ST.reportYear--;}renderMonthlyReport()">◀ 이전</button>
+        <span class="rpt-period">${y}년 ${m}월</span>
+        <button class="btn bo btn-sm" onclick="ST.reportMonth++;if(ST.reportMonth>12){ST.reportMonth=1;ST.reportYear++;}renderMonthlyReport()">다음 ▶</button>
+        <span style="font-size:11px;color:var(--c-text-4);margin-left:8px">신규→인가일자 / 나머지→처리일자 기준 자동 계산</span>
+        <button class="btn bxl btn-sm" style="margin-left:auto" onclick="dl('/api/reports/monthly/export?year=${y}&month=${m}','월례보고서_${y}_${String(m).padStart(2,'0')}.xlsx')">엑셀</button>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">📊</span><span class="card-ttl">1. 사업자수 및 차량대수</span></div></div>
+        <div class="card-bd">
+          <div class="rpt-sec"><table class="rpt-tbl">
+            <thead><tr><th>구분</th><th>총 허가</th><th>협회 가입</th><th>미가입</th></tr></thead>
+            <tbody>
+              <tr><td class="rl">개인(사업자)</td><td>${ms.individual||0}</td><td>-</td><td>-</td></tr>
+              <tr><td class="rl">택배(차량)</td><td>${ms.delivery||0}</td><td>-</td><td>-</td></tr>
+              <tr class="total-row"><td class="rl">합계</td><td>${ms.total||0}</td><td>${ms.joined||0}</td><td>${ms.not_joined||0}</td></tr>
+            </tbody></table></div>
+          <div class="rpt-sec"><div class="rpt-sec-ttl">1-1. 택배 차량대수</div>
+            <table class="rpt-tbl"><thead><tr><th>허가대수</th><th>취업신고</th><th>미신고</th></tr></thead>
+              <tbody><tr><td>${ts.total_delivery||0}</td><td>${ts.employed||0}</td><td>${ts.unemployed||0}</td></tr></tbody>
+            </table></div>
+        </div>
+      </div>
+      <div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">🚗</span><span class="card-ttl">2. 유형별 차량대수</span></div></div>
+        <div class="card-bd"><table class="rpt-tbl">
+          <thead><tr><th>차종</th><th>대수</th></tr></thead>
+          <tbody>${(d.vehicle_types||[]).map(r=>`<tr><td class="rl">${r.type}</td><td>${r.count}</td></tr>`).join('')||'<tr><td colspan="2">데이터 없음</td></tr>'}</tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">👥</span><span class="card-ttl">3. 연령대별 사업자</span></div></div>
+        <div class="card-bd"><table class="rpt-tbl">
+          <thead><tr><th>연령대</th><th>인원</th></tr></thead>
+          <tbody>${Object.entries(ageG).map(([k,v])=>`<tr><td class="rl">${k}</td><td>${v}</td></tr>`).join('')}</tbody>
+        </table></div>
+      </div>
+      <div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">🔢</span><span class="card-ttl">4. 연식별 차량대수</span></div></div>
+        <div class="card-bd"><table class="rpt-tbl">
+          <thead><tr><th>연식</th><th>대수</th></tr></thead>
+          <tbody>${Object.entries(vAge).length?Object.entries(vAge).map(([k,v])=>`<tr><td class="rl">${k}</td><td>${v}</td></tr>`).join(''):'<tr><td colspan="2" class="rpt-na" style="padding:8px">연식 정보 없음</td></tr>'}</tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">📋</span><span class="card-ttl">5. 지정·위탁업무 처리현황</span><span class="badge b-yellow" style="font-size:10px;margin-left:4px">처리일자 기준</span></div></div>
+      <div class="card-bd">
+        <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:12px">
+          <div class="stat-card sky"><div class="stat-lbl">신규등록</div><div class="stat-val">${act.new_registrations||0}</div><div class="stat-sub">인가일자 기준</div></div>
+          <div class="stat-card"><div class="stat-lbl">양도양수</div><div class="stat-val">${act.transfers||0}</div></div>
+          <div class="stat-card red"><div class="stat-lbl">폐지</div><div class="stat-val">${act.closures||0}</div></div>
+          <div class="stat-card purple"><div class="stat-lbl">변경이력</div><div class="stat-val">${act.changes||0}</div></div>
+        </div>
+        <table class="rpt-tbl"><thead><tr><th>업무 구분</th><th>당월 처리</th></tr></thead>
+          <tbody>${Object.entries(aw).map(([k,v])=>`<tr><td class="rl">${k}</td><td>${numOrNA(v)}</td></tr>`).join('')}</tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">📚</span><span class="card-ttl">6. 교육실시 현황</span></div></div>
+        <div class="card-bd"><p class="rpt-na" style="padding:16px;text-align:center">확인 필요 (시스템 미연동)</p></div>
+      </div>
+      <div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">🚨</span><span class="card-ttl">7. 자가용 단속실적</span></div></div>
+        <div class="card-bd"><p class="rpt-na" style="padding:16px;text-align:center">확인 필요 (시스템 미연동)</p></div>
+      </div>
+    </div>
+
+    ${act.new_registrations>0||act.closures>0?`<div class="grid2">
+      ${act.new_registrations>0?`<div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">📋</span><span class="card-ttl">${y}년 ${m}월 신규등록 목록</span></div></div>
+        <div class="tbl-wrap"><table><thead><tr><th>지역</th><th>차량번호</th><th>성명</th><th>인가일자</th></tr></thead>
+          <tbody>${(d.month_new_list||[]).map(r=>`<tr><td>${fv(r.region)}</td><td>${fv(r.vehicle_number)}</td><td>${fv(r.name)}</td><td>${fv(r.approval_date)}</td></tr>`).join('')}</tbody></table></div></div>`:''}
+      ${act.closures>0?`<div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">🚫</span><span class="card-ttl">${y}년 ${m}월 폐지 목록</span></div></div>
+        <div class="tbl-wrap"><table><thead><tr><th>관리번호</th><th>지역</th><th>차량번호</th><th>성명</th><th>구분</th></tr></thead>
+          <tbody>${(d.month_closure_list||[]).map(r=>`<tr><td>${fv(r.management_number)}</td><td>${fv(r.region)}</td><td>${fv(r.vehicle_number)}</td><td>${fv(r.name)}</td><td>${ctBadge(r.closure_type)}</td></tr>`).join('')}</tbody></table></div></div>`:''}
+    </div>`:''}`;
+}
+
+// ===== EXCEL UPLOAD =====
+async function renderUpload(){
+  document.getElementById('content').innerHTML=`
+    <div class="grid2">
+      <div class="card">
+        <div class="card-hd">
+          <div class="card-hd-l"><span class="card-ico">📤</span><span class="card-ttl">파일 업로드</span></div>
+          ${isAdmin()?`<button class="btn br btn-sm" id="resetAllBtn">🗑 데이터 초기화</button>`:''}
+        </div>
+        <div class="card-bd">
+          <div class="fi" style="margin-bottom:10px">
+            <label>파일 종류 <span class="req">*</span></label>
+            <select id="ftSel" class="fc" style="margin-top:3px">
+              <option value="">-- 파일 종류를 선택하세요 --</option>
+              <option value="면허자현황">면허자현황 (강원도전체면허자현황.xlsm) — 개인/택배 시트</option>
+              <option value="양도양수대장">양도양수대장 — 2000~2026년 전체 시트 (예정자 제외)</option>
+              <option value="폐지현황">폐지현황 (사용)</option>
+              <option value="이전폐지현황">이전 폐지현황 — 유형별 시트</option>
+              <option value="주소지변경대장">주소지변경대장 → 변경이력으로 저장</option>
+              <option value="변경이력대장">변경등록대장 → 변경이력으로 저장</option>
+              <option value="부과대수">부과대수</option>
+            </select>
+          </div>
+          <div class="fi" style="margin-bottom:12px">
+            <label>중복 처리</label>
+            <select id="dupSel" class="fc" style="margin-top:3px">
+              <option value="skip">건너뛰기</option>
+              <option value="overwrite">덮어쓰기</option>
+              <option value="add">새로 추가</option>
+            </select>
+          </div>
+          <div class="upzone" id="upZone">
+            <div class="upzone-ico">📁</div>
+            <div class="upzone-txt">클릭하거나 파일을 드래그하세요</div>
+            <div class="upzone-hint">.xlsx / .xls / .xlsm</div>
+            <div class="upzone-fn" id="selFn"></div>
+          </div>
+          <input type="file" id="upFile" accept=".xlsx,.xls,.xlsm" style="display:none">
+          <div class="flex gap-8 mt8">
+            <button class="btn bo wf btn-sm" id="prvBtn" disabled>🔍 미리보기</button>
+            <button class="btn bp wf btn-sm" id="upBtn" disabled>✅ 업로드 확정</button>
+          </div>
+          <div id="upResult"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-hd"><div class="card-hd-l"><span class="card-ico">📊</span><span class="card-ttl">최근 업로드 이력</span></div></div>
+        <div id="upHist"><div class="loading-box"><div class="spin"></div></div></div>
+      </div>
+    </div>
+    <div id="prvWrap" style="margin-top:12px"></div>`;
+
+  let selFile=null;
+  const loadHist=async()=>{
+    const d=await api('GET','/api/dashboard/upload-history').catch(()=>null);
+    const hw=document.getElementById('upHist');
+    if(!d||!d.length){hw.innerHTML=`<div class="empty-box"><div class="empty-ico">📂</div><p class="empty-txt">이력 없음</p></div>`;return;}
+    hw.innerHTML=`<div class="tbl-wrap"><table><thead><tr><th>파일종류</th><th>파일명</th><th>전체</th><th>성공</th><th>오류</th><th>일시</th></tr></thead>
+      <tbody>${d.slice(0,15).map(h=>`<tr>
+        <td>${h.file_type||'-'}</td>
+        <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis" title="${e_(h.filename)}">${h.filename||'-'}</td>
+        <td>${h.total_count}</td>
+        <td style="color:var(--c-pri);font-weight:700">${h.success_count}</td>
+        <td style="color:var(--c-danger)">${h.error_count}</td>
+        <td>${h.created_at||'-'}</td>
+      </tr>`).join('')}</tbody></table></div>`;
+  };
+
+  if(isAdmin()&&document.getElementById('resetAllBtn')){
+    document.getElementById('resetAllBtn').onclick=async()=>{
+      if(!await cfm('⚠️ 모든 업로드 데이터를 삭제합니다.\n이 작업은 되돌릴 수 없습니다.'))return;
+      const r=await api('DELETE','/api/admin/reset-all').catch(()=>null);
+      if(r){toast('초기화 완료','info');loadHist();}
+    };
+  }
+
+  const uz=document.getElementById('upZone'),fi_=document.getElementById('upFile');
+  uz.onclick=()=>fi_.click();
+  uz.ondragover=e=>{e.preventDefault();uz.classList.add('over');};
+  uz.ondragleave=()=>uz.classList.remove('over');
+  uz.ondrop=e=>{e.preventDefault();uz.classList.remove('over');const f=e.dataTransfer.files[0];if(f){selFile=f;document.getElementById('selFn').textContent=f.name;document.getElementById('prvBtn').disabled=false;document.getElementById('upBtn').disabled=false;}};
+  fi_.onchange=()=>{selFile=fi_.files[0];if(selFile){document.getElementById('selFn').textContent=selFile.name;document.getElementById('prvBtn').disabled=false;document.getElementById('upBtn').disabled=false;}};
+
+  document.getElementById('prvBtn').onclick=async()=>{
+    const ft=document.getElementById('ftSel').value;
+    if(!ft){toast('파일 종류를 선택하세요','warn');return;}
+    if(!selFile){toast('파일을 선택하세요','warn');return;}
+    const fd=new FormData();fd.append('file_type',ft);fd.append('file',selFile);
+    document.getElementById('prvBtn').disabled=true;document.getElementById('prvBtn').textContent='분석 중...';
+    const d=await api('POST','/api/excel/preview',fd,true).catch(()=>null);
+    document.getElementById('prvBtn').disabled=false;document.getElementById('prvBtn').textContent='🔍 미리보기';
+    if(!d)return;
+    const rows=d.preview_rows||[];
+    const skipF=new Set(['raw_data','deleted_at','_sheet','_change_content','_raw_approval','data_year']);
+    const keys=rows.length?Object.keys(rows[0]).filter(k=>!skipF.has(k)&&!k.startsWith('_')):[];
+    const mapped=Object.entries(d.col_mapping||{}).slice(0,15).map(([k,v])=>`<span class="tag tag-pri">${e_(k)}→${e_(v)}</span>`).join('');
+    document.getElementById('prvWrap').innerHTML=`<div class="card">
+      <div class="card-hd"><div class="card-hd-l"><span class="card-ico">👁</span><span class="card-ttl">미리보기 (${rows.length}행 | ${e_(d.file_type)})</span></div></div>
+      <div class="card-bd">
+        <div class="info-box" style="font-size:11px"><strong>인식된 컬럼:</strong> ${mapped}
+        ${d.unmapped_columns?.length?`<br><span style="color:var(--c-warn)">raw_data 저장: ${d.unmapped_columns.slice(0,6).join(', ')}${d.unmapped_columns.length>6?` 외 ${d.unmapped_columns.length-6}개`:''}</span>`:''}</div>
+        ${rows.length?`<div class="tbl-wrap"><table><thead><tr>${keys.map(k=>`<th>${e_(k)}</th>`).join('')}</tr></thead>
+          <tbody>${rows.map(r=>`<tr>${keys.map(k=>`<td>${fv(r[k])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`:'<p style="padding:10px;color:var(--c-text-4)">미리보기 없음</p>'}
+      </div></div>`;
+  };
+
+  document.getElementById('upBtn').onclick=async()=>{
+    const ft=document.getElementById('ftSel').value;
+    if(!ft){toast('파일 종류를 선택하세요','warn');return;}
+    if(!selFile){toast('파일을 선택하세요','warn');return;}
+    if(!await cfm(`"${ft}" 파일을 업로드합니다.\n※ 양도양수대장은 2000~2026년 전체 시트를 처리합니다.`))return;
+    const fd=new FormData();fd.append('file_type',ft);fd.append('duplicate_handling',document.getElementById('dupSel').value);fd.append('file',selFile);
+    document.getElementById('upBtn').disabled=true;document.getElementById('upBtn').textContent='업로드 중...';
+    const d=await api('POST','/api/excel/upload',fd,true).catch(()=>null);
+    document.getElementById('upBtn').disabled=false;document.getElementById('upBtn').textContent='✅ 업로드 확정';
+    if(!d)return;
+    toast(`완료: 성공 ${(d.success||0).toLocaleString()}건`);
+    const isMember=(d.file_type==='면허자현황');
+    document.getElementById('upResult').innerHTML=`<div class="res-box">
+      <div class="res-row"><span class="res-lbl">파일 종류</span><span class="res-val">${e_(d.file_type||ft)}</span></div>
+      <div class="res-row"><span class="res-lbl">전체 행수</span><span class="res-val">${(d.total||0).toLocaleString()}</span></div>
+      <div class="res-row"><span class="res-lbl">저장 성공</span><span class="res-val rv-ok">${(d.success||0).toLocaleString()}</span></div>
+      ${isMember?`<div class="res-row"><span class="res-lbl">개인회원</span><span class="res-val" style="color:var(--c-pri)">${d.individual_count||0}</span></div>`:''}
+      ${isMember?`<div class="res-row"><span class="res-lbl">택배회원</span><span class="res-val" style="color:var(--c-yellow)">${d.delivery_count||0}</span></div>`:''}
+      <div class="res-row"><span class="res-lbl">중복 처리</span><span class="res-val rv-warn">${d.duplicates||0}</span></div>
+      <div class="res-row"><span class="res-lbl">실패</span><span class="res-val rv-err">${d.errors||0}</span></div>
+      ${d.sheet_logs?.length?`<hr class="div"><p style="font-size:11px;color:var(--c-text-3);font-weight:600">시트별 처리 현황:</p><div class="tbl-wrap" style="margin-top:4px"><table style="font-size:11px"><thead><tr><th>시트명</th><th>처리건수</th><th>상태</th></tr></thead><tbody>${d.sheet_logs.map(s=>`<tr><td>${e_(s.sheet)}</td><td>${s.count||0}</td><td style="color:${s.status==='ok'?'var(--c-success)':s.status==='skip'||s.status==='empty'?'var(--c-text-4)':'var(--c-danger)'}">${s.status||'-'}</td></tr>`).join('')}</tbody></table></div>`:''}
+      ${d.error_details?.length?`<hr class="div"><p style="font-size:11px;color:var(--c-danger);font-weight:600">실패 상세:</p>${d.error_details.slice(0,10).map(e=>`<div class="res-row"><span class="res-lbl">${e.row}행</span><span class="res-val rv-err" style="font-size:11px">${e_(e.error)}</span></div>`).join('')}`:''}
+    </div>`;
+    loadHist();
+  };
+  await loadHist();
+}
+
+async function renderUploadHistory(){
+  document.getElementById('content').innerHTML=`<div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">📊</span><span class="card-ttl">업로드 이력</span></div></div><div id="histTbl"><div class="loading-box"><div class="spin"></div></div></div></div>`;
+  const d=await api('GET','/api/dashboard/upload-history').catch(()=>null);
+  const tw=document.getElementById('histTbl');
+  if(!d||!d.length){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">📂</div><p class="empty-txt">이력이 없습니다.</p></div>`;return;}
+  tw.innerHTML=`<div class="tbl-wrap"><table><thead><tr><th>파일종류</th><th>파일명</th><th>전체</th><th>성공</th><th>중복</th><th>오류</th><th>업로더</th><th>일시</th></tr></thead>
+    <tbody>${d.map(h=>`<tr><td>${h.file_type||'-'}</td><td>${h.filename||'-'}</td>
+      <td>${h.total_count}</td><td style="color:var(--c-pri);font-weight:700">${h.success_count}</td>
+      <td style="color:var(--c-warn)">${h.duplicate_count}</td><td style="color:var(--c-danger)">${h.error_count}</td>
+      <td>${h.uploaded_by||'-'}</td><td>${h.created_at||'-'}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
+async function renderUploadErrors(){
+  document.getElementById('content').innerHTML=`<div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">⚠️</span><span class="card-ttl">오류 확인</span></div></div><div id="errTbl"><div class="loading-box"><div class="spin"></div></div></div></div>`;
+  const d=await api('GET','/api/dashboard/upload-history').catch(()=>null);
+  const tw=document.getElementById('errTbl');
+  const withErr=(d||[]).filter(h=>h.error_count>0&&h.error_details?.length);
+  if(!withErr.length){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">✅</div><p class="empty-txt">오류 없음</p></div>`;return;}
+  tw.innerHTML=withErr.map(h=>`<div style="margin-bottom:14px">
+    <p style="font-size:13px;font-weight:600;color:var(--c-danger);margin-bottom:6px">⚠️ ${h.file_type} — ${h.filename}</p>
+    <div class="tbl-wrap"><table><thead><tr><th>행</th><th>오류</th></tr></thead>
+      <tbody>${(h.error_details||[]).map(e=>`<tr><td>${e.row}</td><td style="color:var(--c-danger)">${e_(e.error)}</td></tr>`).join('')}</tbody>
+    </table></div></div>`).join('');
+}
+
+// ===== INIT =====
+document.addEventListener('DOMContentLoaded',()=>{
+  if(!localStorage.getItem('authToken')){window.location.href='/login';return;}
+  document.getElementById('hUser').textContent=`${ST.user.full||ST.user.name} (${ST.user.role==='admin'?'관리자':'직원'})`;
+  document.getElementById('logoutBtn').onclick=()=>{if(window.confirm('로그아웃 하시겠습니까?'))logout();};
+  document.getElementById('modalX').onclick=closeModal;
+  document.getElementById('modalBg').addEventListener('click',e=>{if(e.target===document.getElementById('modalBg'))closeModal();});
+  document.querySelectorAll('.cat-btn').forEach(b=>b.addEventListener('click',()=>{
+    navigate(b.dataset.cat,CATS[b.dataset.cat]?.tabs[0]?.id);
+  }));
+  navigate('members','candidates');
+});

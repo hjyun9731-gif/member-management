@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>강원도 개인소형화물협회 업무관리 시스템</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header class="hdr">
+  <div class="hdr-brand">
+    <span class="hdr-icon">🚛</span>
+    <div>
+      <div class="hdr-title">강원도 개인소형화물협회</div>
+      <div class="hdr-sub">업무관리 시스템</div>
+    </div>
+  </div>
+
+  <nav class="cat-nav" id="catNav">
+    <button class="cat-btn" data-cat="members">회원관리</button>
+    <button class="cat-btn" data-cat="permits">인허가/변경</button>
+    <button class="cat-btn" data-cat="reports">보고/집계</button>
+    <button class="cat-btn" data-cat="excel">엑셀 업로드</button>
+  </nav>
+
+  <div class="hdr-right">
+    <span class="hdr-user" id="hUser"></span>
+    <button class="btn-logout" id="logoutBtn">로그아웃</button>
+  </div>
+</header>
+
+<div class="sub-bar" id="subBar"></div>
+
+<main class="content" id="content">
+  <div class="loading-box"><div class="spin"></div><p>로딩 중...</p></div>
+</main>
+
+<div class="modal-bg" id="modalBg" style="display:none">
+  <div class="modal" id="modal">
+    <div class="modal-hd"><h3 id="modalTitle"></h3><button class="modal-x" id="modalX">×</button></div>
+    <div class="modal-bd" id="modalBd"></div>
+    <div class="modal-ft" id="modalFt"></div>
+  </div>
+</div>
+
+<div class="toast-box" id="toastBox"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
