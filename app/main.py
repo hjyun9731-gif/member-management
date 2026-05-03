@@ -53,6 +53,11 @@ async def startup():
     db = SessionLocal()
     try:
         create_default_admin(db)
+        # 양도자/양수자 역추출 마이그레이션 (비어있는 레코드에만 적용)
+        from app.routers.transfer_ledger import backfill_transfer_names
+        backfill_transfer_names(db)
+    except Exception as e:
+        logger.warning(f"startup migration 오류 (무시): {e}")
     finally:
         db.close()
 

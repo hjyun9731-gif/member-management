@@ -219,10 +219,14 @@ _TM = {
     '번호':'seq_number',
     '접수일자':'receipt_date','접수일':'receipt_date',
     '양도자':'transferor','양도인':'transferor',
+    '양도자성명':'transferor','양도인성명':'transferor','양도자명':'transferor',
+    '성명(양도)':'transferor','양도(자)성명':'transferor',
     '양수자':'transferee','양수인':'transferee',
+    '양수자성명':'transferee','양수인성명':'transferee','양수자명':'transferee',
+    '성명(양수)':'transferee','양수(자)성명':'transferee',
     '장부정리':'ledger_update',
     '전산보고':'computer_report',
-    '처리일자':'process_date','처리일':'process_date',
+    '처리일자':'process_date','처리일':'process_date','인가일자':'process_date',
 }
 
 _CLM = {

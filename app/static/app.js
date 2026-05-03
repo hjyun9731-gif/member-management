@@ -240,11 +240,17 @@ window.viewMember=async(id)=>{
 
 window.viewTransfer=async(id)=>{
   const r=await api('GET',`/api/transfer-ledger/${id}`).catch(()=>null);if(!r)return;
+  const raw=r.raw_data||{};
+  // raw_data에서 추가 업무 필드 추출
+  const rawExtra=Object.entries(raw)
+    .filter(([k,v])=>v&&fv(v)!=='-'&&!['id','seq_number','region','vehicle_number','transferor','transferee','receipt_date','process_date','approval_date','membership_date','certificate_issue_date','certificate_number','driver_license_number','ledger_update','computer_report','memo','resident_number','phone','mobile','address','management_number','허가번호'].includes(k))
+    .slice(0,20);
   const sections=[
-    {title:'기본 정보',fields:[['번호',r.seq_number],['접수일자',r.receipt_date],['처리일자',r.process_date],['지역',r.region],['차량번호',r.vehicle_number]]},
+    {title:'기본 정보',fields:[['번호',r.seq_number],['처리일자',r.process_date],['접수일자',r.receipt_date],['지역',r.region],['차량번호',r.vehicle_number]]},
     {title:'양도자 / 양수자',fields:[['양도자',r.transferor],['양수자',r.transferee],['주민등록번호',r.resident_number],['전화번호',r.phone],['핸드폰',r.mobile],['주소',r.address,true]]},
     {title:'인허가 정보',fields:[['인가일자',r.approval_date],['가입일자',r.membership_date],['자격증발급일자',r.certificate_issue_date],['자격증발급번호',r.certificate_number],['운전면허번호',r.driver_license_number]]},
     {title:'행정 정보',fields:[['장부정리',r.ledger_update],['전산보고',r.computer_report],['비고',r.memo,true]]},
+    ...(rawExtra.length?[{title:'원본 엑셀 데이터',fields:rawExtra.map(([k,v])=>[k,v,false])}]:[]),
   ];
   openModal('양도양수 상세정보',buildDetailSections(sections),
     `<button class="btn bp btn-sm" onclick="editTransfer(${id});closeModal()">수정</button><button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
@@ -684,7 +690,8 @@ async function renderTransferLedger(){
   document.getElementById('content').innerHTML=`
     <div class="card">
       <div class="card-hd">
-        <div class="card-hd-l"><span class="card-ico">📋</span><span class="card-ttl">양도양수대장</span><span class="cnt" id="tlCnt">0건</span></div>
+        <div class="card-hd-l"><span class="card-ico">📋</span><span class="card-ttl">양도양수대장</span><span class="cnt" id="tlCnt">0건</span>
+          <span class="badge b-sky" style="font-size:10px;margin-left:6px">처리일자 기준</span></div>
         <div class="flex gap-8">
           <button class="btn bg btn-sm" id="tlAddBtn">+ 등록</button>
           <button class="btn bxl btn-sm" id="tlXlBtn">엑셀 다운로드</button>
@@ -700,33 +707,46 @@ async function renderTransferLedger(){
       <div id="tlTbl"><div class="loading-box"><div class="spin"></div></div></div>
     </div>`;
 
-  const hdrs=[{label:'번호'},{label:'처리일자'},{label:'접수일자'},{label:'지역'},{label:'차량번호'},{label:'양도자'},{label:'양수자'},{label:'전화번호'},{label:'핸드폰'},{label:'인가일자'},{label:'가입일자'},{label:'자격증발급일자'},{label:'자격증번호'},{label:'장부정리'},{label:'전산보고'},{label:'비고'},{label:'관리',noSort:true}];
+  // 요구사항 컬럼 순서 고정
+  const hdrs=[
+    {label:'번호'},{label:'처리일자'},{label:'접수일자'},{label:'지역'},
+    {label:'차량번호'},{label:'양도자'},{label:'양수자'},{label:'핸드폰'},
+    {label:'인가일자'},{label:'가입일자'},{label:'자격증명발급일자'},{label:'자격증명발급번호'},
+    {label:'장부정리'},{label:'전산보고'},{label:'비고'},{label:'관리',noSort:true}
+  ];
 
   const doSearch=async(pg=1)=>{
     ST.fl.tl={region:document.getElementById('tlRegF').value,date_order:document.getElementById('tlDateF').value,search:document.getElementById('tlSrch').value.trim()};
     const q=new URLSearchParams({page:pg,limit:50,...Object.fromEntries(Object.entries(ST.fl.tl).filter(([,v])=>v))});
-    const d=await api('GET',`/api/transfer-ledger?${q}`).catch(()=>null);if(!d)return;
-    document.getElementById('tlCnt').textContent=`${d.total.toLocaleString()}건`;
     const tw=document.getElementById('tlTbl');
+    let d=null;
+    try{d=await Promise.race([api('GET',`/api/transfer-ledger?${q}`),new Promise((_,r)=>setTimeout(()=>r(new Error('timeout')),8000))]);}
+    catch(e){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">⚠️</div><p class="empty-txt">데이터 조회 실패. 새로고침 해주세요.</p></div>`;return;}
+    if(!d){return;}
+    document.getElementById('tlCnt').textContent=`${d.total.toLocaleString()}건`;
     if(!d.items.length){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">📋</div><p class="empty-txt">데이터가 없습니다.</p></div>`;return;}
     tw.innerHTML=`<div class="tbl-wrap"><table>
       <thead><tr>${plainHeaders(hdrs)}</tr></thead>
       <tbody>${d.items.map(r=>`<tr>
         <td>${fv(r.seq_number)}</td>
-        <td><strong>${fvDate(r.process_date,r.receipt_date)}</strong></td>
-        <td>${fv(r.receipt_date)}</td><td>${fv(r.region)}</td>
-        <td><a class="click-link" onclick="viewTransfer(${r.id});return false">${fv(r.vehicle_number)}</a></td>
-        <td>${fv(r.transferor)}</td>
-        <td><a class="click-link" onclick="viewTransfer(${r.id});return false"><strong>${fv(r.transferee)}</strong></a></td>
-        <td>${fv(r.phone)}</td><td>${fv(r.mobile)}</td>
-        <td>${fv(r.approval_date)}</td><td>${fv(r.membership_date)}</td>
-        <td>${fv(r.certificate_issue_date)}</td><td>${fv(r.certificate_number)}</td>
-        <td>${fv(r.ledger_update)}</td><td>${fv(r.computer_report)}</td>
+        <td><strong>${fv(r.process_date)||fv(r.receipt_date)}</strong></td>
+        <td>${fv(r.receipt_date)}</td>
+        <td>${fv(r.region)}</td>
+        <td><a class="tbl-link" onclick="viewTransfer(${r.id});return false">${fv(r.vehicle_number)}</a></td>
+        <td><a class="tbl-link" onclick="viewTransfer(${r.id});return false">${fv(r.transferor)}</a></td>
+        <td><a class="tbl-link" onclick="viewTransfer(${r.id});return false">${fv(r.transferee)}</a></td>
+        <td>${fv(r.mobile)||fv(r.phone)}</td>
+        <td>${fv(r.approval_date)}</td>
+        <td>${fv(r.membership_date)}</td>
+        <td>${fv(r.certificate_issue_date)}</td>
+        <td>${fv(r.certificate_number)}</td>
+        <td>${fv(r.ledger_update)}</td>
+        <td>${fv(r.computer_report)}</td>
         <td title="${e_(r.memo)}">${fv(r.memo)}</td>
-        <td class="td-act">
-          <button class="btn bp btn-xs" onclick="editTransfer(${r.id})">수정</button>
-          ${!r.member_id?`<button class="btn bg btn-xs" onclick="registerTransferMember(${r.id})">회원등록</button>`:`<span class="badge b-teal" style="font-size:10px">등록완료</span>`}
-          ${isAdmin()?`<button class="btn br btn-xs" onclick="deleteTransfer(${r.id})">삭제</button>`:''}
+        <td class="td-act" style="white-space:nowrap;min-width:120px">
+          <button class="btn bp btn-xs" onclick="editTransfer(${r.id})" title="수정">수정</button>
+          ${!r.member_id?`<button class="btn bo btn-xs" onclick="registerTransferMember(${r.id})" title="회원 상세 등록">회원상세</button>`:`<span class="badge b-teal" style="font-size:10px">등록완료</span>`}
+          ${isAdmin()?`<button class="btn br btn-xs" onclick="deleteTransfer(${r.id})" title="삭제">삭제</button>`:''}
         </td></tr>`).join('')}</tbody>
     </table></div>${pgn(d,doSearch)}`;
     bindPgn('tlTbl',doSearch);

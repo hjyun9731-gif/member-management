@@ -1,49 +1,197 @@
+import re
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import Optional
 from pydantic import BaseModel
 import io
+import logging
 
 from app.database import get_db
 from app.auth import get_current_user, require_admin
 from app import models, crud
 from app.excel_utils import records_to_excel, parse_date_sort
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 SEARCH = ["transferor", "transferee", "vehicle_number", "region",
           "memo", "certificate_number", "seq_number", "management_number"]
 
+# 양도자/양수자 raw_data 후보 컬럼명
+_TRANSFEROR_KEYS = ['양도자', '양도인', '양도자성명', '양도인성명', '양도자명',
+                    '성명(양도)', '양도(자)성명', '양도자 성명', '양도인 성명']
+_TRANSFEREE_KEYS = ['양수자', '양수인', '양수자성명', '양수인성명', '양수자명',
+                    '성명(양수)', '양수(자)성명', '양수자 성명', '양수인 성명']
 
+
+# ─────────────────────────────────────────────
+# 날짜 정제 함수
+# ─────────────────────────────────────────────
+_DATE_RE = re.compile(
+    r'^(\d{4}[\.\-/]\d{1,2}[\.\-/]\d{1,2})'       # 4자리 연도
+    r'|'
+    r'^(\d{2}\s*[\.\-/]\s*\d{1,2}\s*[\.\-/]\s*\d{1,2})'  # 2자리 연도
+)
+
+
+def _clean_date(s: str) -> str:
+    """날짜+텍스트 혼합에서 날짜만 추출 (표시용).
+    예: '25.09.03. 경기여주->강릉' → '25.09.03'"""
+    if not s:
+        return ''
+    s = str(s).strip()
+    m = _DATE_RE.match(s)
+    if m:
+        date_part = (m.group(1) or m.group(2) or '').replace(' ', '').rstrip('.')
+        return date_part
+    return s
+
+
+def _extract_memo(s: str) -> str:
+    """날짜+텍스트 혼합에서 메모 부분만 추출.
+    예: '25.09.03. 경기여주->강릉' → '경기여주->강릉'"""
+    if not s:
+        return ''
+    s = str(s).strip()
+    cleaned = _DATE_RE.sub('', s).lstrip('.').strip()
+    return cleaned if cleaned != s else ''
+
+
+def _raw_get(raw: dict, keys: list) -> str:
+    """raw_data에서 후보 컬럼명으로 값 검색"""
+    for k in keys:
+        v = raw.get(k, '') or ''
+        if str(v).strip() and str(v).strip() not in ('nan', 'None', 'NaN', '-'):
+            return str(v).strip()
+    return ''
+
+
+# ─────────────────────────────────────────────
+# 포맷 함수
+# ─────────────────────────────────────────────
 def _fmt(t):
-    # raw_data 접근 없음 (목록 성능 최적화 - backfill된 process_date 직접 사용)
+    """목록용 - raw_data 접근 없음 (성능 최적화)"""
+    raw_pd = t.process_date or ''
+    raw_rd = t.receipt_date or ''
+
+    # 날짜 정제: 날짜+메모 혼합 셀에서 날짜만 추출
+    clean_pd = _clean_date(raw_pd)
+    clean_rd = _clean_date(raw_rd)
+
+    # 날짜 셀에서 추출된 메모 → 기존 memo에 병합
+    pd_memo = _extract_memo(raw_pd)
+    rd_memo = _extract_memo(raw_rd)
+    existing_memo = t.memo or ''
+    extra = [m for m in [pd_memo, rd_memo] if m and m not in existing_memo]
+    combined_memo = ' | '.join([existing_memo] + extra) if extra else existing_memo
+
     return {
-        "id": t.id, "seq_number": t.seq_number or "", "receipt_date": t.receipt_date or "",
-        "process_date": t.process_date or "",
-        "region": t.region or "", "vehicle_number": t.vehicle_number or "",
-        "transferor": t.transferor or "", "transferee": t.transferee or "",
-        "resident_number": t.resident_number or "", "address": t.address or "",
-        "phone": t.phone or "", "mobile": t.mobile or "",
-        "approval_date": t.approval_date or "", "membership_date": t.membership_date or "",
-        "certificate_issue_date": t.certificate_issue_date or "", "certificate_number": t.certificate_number or "",
-        "ledger_update": t.ledger_update or "", "driver_license_number": t.driver_license_number or "",
-        "computer_report": t.computer_report or "", "memo": t.memo or "",
-        "management_number": t.management_number or "", "member_id": t.member_id,
+        "id": t.id,
+        "seq_number": t.seq_number or "",
+        "receipt_date": clean_rd,
+        "process_date": clean_pd,
+        "region": t.region or "",
+        "vehicle_number": t.vehicle_number or "",
+        "transferor": t.transferor or "",
+        "transferee": t.transferee or "",
+        "resident_number": t.resident_number or "",
+        "address": t.address or "",
+        "phone": t.phone or "",
+        "mobile": t.mobile or "",
+        "approval_date": t.approval_date or "",
+        "membership_date": t.membership_date or "",
+        "certificate_issue_date": t.certificate_issue_date or "",
+        "certificate_number": t.certificate_number or "",
+        "ledger_update": t.ledger_update or "",
+        "driver_license_number": t.driver_license_number or "",
+        "computer_report": t.computer_report or "",
+        "memo": combined_memo,
+        "management_number": t.management_number or "",
+        "member_id": t.member_id,
         "created_at": str(t.created_at)[:16] if t.created_at else None,
     }
 
 
+def _fmt_detail(t):
+    """상세보기용 - raw_data 포함"""
+    d = _fmt(t)
+    raw = t.raw_data if isinstance(t.raw_data, dict) else {}
+    # raw_data에서 transferor/transferee fallback
+    if not d["transferor"]:
+        d["transferor"] = _raw_get(raw, _TRANSFEROR_KEYS)
+    if not d["transferee"]:
+        d["transferee"] = _raw_get(raw, _TRANSFEREE_KEYS)
+    # raw_data 정제 (Unnamed, 허가번호 제외)
+    d["raw_data"] = {k: v for k, v in raw.items()
+                     if k and not str(k).startswith('Unnamed') and k not in ('허가번호',)}
+    return d
+
+
+# ─────────────────────────────────────────────
+# 시작 시 양도자/양수자 역추출 마이그레이션
+# ─────────────────────────────────────────────
+def backfill_transfer_names(db: Session):
+    """raw_data에서 비어있는 양도자/양수자 채우기 (일회성, 서버 시작 시 실행)"""
+    from sqlalchemy import or_
+    empty_count = db.query(models.TransferLedger).filter(
+        models.TransferLedger.deleted_at.is_(None),
+        models.TransferLedger.raw_data.isnot(None),
+        or_(
+            models.TransferLedger.transferor == None,
+            models.TransferLedger.transferor == '',
+            models.TransferLedger.transferee == None,
+            models.TransferLedger.transferee == '',
+        ),
+    ).count()
+
+    if empty_count == 0:
+        return
+
+    logger.info(f"양도자/양수자 역추출 마이그레이션 시작: {empty_count}건")
+    records = db.query(models.TransferLedger).filter(
+        models.TransferLedger.deleted_at.is_(None),
+        models.TransferLedger.raw_data.isnot(None),
+    ).all()
+
+    updated = 0
+    for t in records:
+        if (t.transferor and t.transferee):
+            continue
+        raw = t.raw_data if isinstance(t.raw_data, dict) else {}
+        if not raw:
+            continue
+        changed = False
+        if not t.transferor:
+            v = _raw_get(raw, _TRANSFEROR_KEYS)
+            if v:
+                t.transferor = v
+                changed = True
+        if not t.transferee:
+            v = _raw_get(raw, _TRANSFEREE_KEYS)
+            if v:
+                t.transferee = v
+                changed = True
+        if changed:
+            updated += 1
+
+    if updated:
+        db.commit()
+    logger.info(f"양도자/양수자 역추출 완료: {updated}건 업데이트")
+
+
+# ─────────────────────────────────────────────
+# API 엔드포인트
+# ─────────────────────────────────────────────
 @router.get("")
 async def list_transfers(
     search: Optional[str] = Query(None),
     region: Optional[str] = Query(None),
-    date_order: Optional[str] = Query("desc"),  # desc=최신순, asc=오래된순
+    date_order: Optional[str] = Query("desc"),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db), _=Depends(get_current_user),
 ):
-    # 2쿼리 방식: ①처리일자+id만 가져와 날짜 정렬 → ②50건 full 로딩 (raw_data 제외)
     items, total = crud.get_sorted_page(
         db, models.TransferLedger,
         date_field="process_date", sort_dir=date_order or "desc",
@@ -76,7 +224,7 @@ async def get_transfer(tid: int, db: Session = Depends(get_db), _=Depends(get_cu
     t = crud.get_by_id(db, models.TransferLedger, tid)
     if not t:
         raise HTTPException(404, "양도양수 기록을 찾을 수 없습니다.")
-    return _fmt(t)
+    return _fmt_detail(t)  # 상세보기: raw_data 포함
 
 
 @router.post("")
