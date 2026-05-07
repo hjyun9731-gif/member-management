@@ -10,7 +10,7 @@ const VEH_TYPES = ['1톤','1톤미만','카고형','밴형','특장차','냉동�
 
 const CATS = {
   members: {label:'회원관리',   tabs:[{id:'candidates',label:'예정자/양도양수'},{id:'individual',label:'개인회원'},{id:'delivery',label:'택배회원'}]},
-  permits: {label:'인허가/변경', tabs:[{id:'new-registrations',label:'신규등록대장'},{id:'transfer-ledger',label:'양도양수대장'},{id:'closures',label:'폐지현황'},{id:'change-history',label:'변경이력대장'}]},
+  permits: {label:'인허가/변경', tabs:[{id:'new-registrations',label:'신규등록대장'},{id:'transfer-ledger',label:'양도양수대장'},{id:'closures',label:'폐업현황'},{id:'change-history',label:'변경이력대장'}]},
   reports: {label:'보고/집계',   tabs:[{id:'dashboard',label:'회원대시보드'},{id:'monthly-report',label:'월례보고서'}]},
   excel:   {label:'엑셀 업로드', tabs:[{id:'upload',label:'파일 업로드'},{id:'history',label:'업로드 이력'},{id:'errors',label:'오류 확인'}]},
 };
@@ -282,7 +282,7 @@ window.viewClosure=async(id)=>{
     {title:'차량 / 성명',fields:[['차량번호',r.vehicle_number],['성명',r.name],['상호',r.company_name],['인가일자',r.approval_date]]},
     {title:'처리 정보',fields:[['처리일자',r.closure_date],['사유',r.reason,true],['비고',r.memo,true]]},
   ];
-  openModal('폐지현황 상세정보',buildDetailSections(sections),
+  openModal('폐업현황 상세정보',buildDetailSections(sections),
     `<button class="btn bp btn-sm" onclick="editClosure(${id});closeModal()">수정</button><button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
 };
 
@@ -638,8 +638,10 @@ window.editMember=async(id,defaultCat='개인')=>{
     try{
       const res=await api(id?'PUT':'POST',id?`/api/members/${id}`:'/api/members',fd);
       if(res){toast(id?'수정되었습니다.':'등록되었습니다.');closeModal();navigate(ST.cat,ST.sub);}
-    }catch(e){/* api()에서 toast 표시됨 */}
-    finally{btn.disabled=false; btn.textContent=id?'저장':'등록';}
+    }catch(e){
+      console.error('회원 저장 오류:', e, '전송 데이터:', fd);
+      toast('저장 실패: '+((e&&e.message)||'서버 오류'),'err');
+    }finally{btn.disabled=false; btn.textContent=id?'저장':'등록';}
   };
 };
 
@@ -864,7 +866,7 @@ async function renderClosures(){
   document.getElementById('content').innerHTML=`
     <div class="card">
       <div class="card-hd">
-        <div class="card-hd-l"><span class="card-ico">🚫</span><span class="card-ttl">폐지현황</span><span class="cnt" id="clCnt">0건</span></div>
+        <div class="card-hd-l"><span class="card-ico">🚫</span><span class="card-ttl">폐업현황</span><span class="cnt" id="clCnt">0건</span></div>
         <div class="flex gap-8">
           <button class="btn bg btn-sm" id="clAddBtn">+ 등록</button>
           <button class="btn bxl btn-sm" id="clXlBtn">엑셀 다운로드</button>
@@ -915,7 +917,7 @@ async function renderClosures(){
   document.getElementById('clAddBtn').onclick=()=>editClosure(null);
   document.getElementById('clXlBtn').onclick=()=>{
     const q=new URLSearchParams(Object.fromEntries(Object.entries(ST.fl.cl||{}).filter(([,v])=>v)));
-    dl(`/api/closures/export/excel?${q}`,'폐지현황.xlsx');
+    dl(`/api/closures/export/excel?${q}`,'폐업현황.xlsx');
   };
   await doSearch(1);
 }

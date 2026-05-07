@@ -209,6 +209,10 @@ _ALLOWED_UPDATE_FIELDS = {
 @router.put("/{mid}")
 async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
                          current_user=Depends(get_current_user)):
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"PUT /api/members/{mid} 요청: {list(data.keys())}")
+
     m = crud.get_by_id(db, models.LicenseHolder, mid)
     if not m:
         raise HTTPException(404, "회원을 찾을 수 없습니다.")
@@ -218,6 +222,7 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
 
     # 허용 필드만 필터링
     filtered_data = {k: v for k, v in data.items() if k in _ALLOWED_UPDATE_FIELDS}
+    logger.info(f"PUT /api/members/{mid} 저장 필드: {list(filtered_data.keys())}")
 
     # 새로 추가된 컬럼이 실제 DB에 없을 경우 안전하게 제거
     _new_cols = {"reapproval_date", "official_address", "agent_name",
@@ -225,6 +230,7 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
     for col in list(_new_cols):
         if col in filtered_data and not hasattr(m, col):
             filtered_data.pop(col)
+            logger.warning(f"컬럼 {col} 없어서 제거됨")
 
     # 변경 전 값 스냅샷
     before_snap = {f: getattr(m, f, "") or "" for f in _AUTO_CHANGE_FIELDS}
@@ -233,8 +239,8 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
     for k, v in filtered_data.items():
         try:
             setattr(m, k, v)
-        except Exception:
-            pass  # 컬럼이 없으면 스킵
+        except Exception as ex:
+            logger.warning(f"setattr {k}={v} 실패: {ex}")
 
     m.updated_at = datetime.datetime.utcnow()
 
@@ -257,15 +263,17 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
                     member_id=mid,
                 )
                 db.add(ch)
-            except Exception:
-                pass  # 변경이력 저장 실패해도 회원 수정은 계속
+            except Exception as ex:
+                logger.warning(f"변경이력 저장 실패: {ex}")
 
     try:
         db.commit()
         db.refresh(m)
+        logger.info(f"PUT /api/members/{mid} 저장 성공")
     except Exception as e:
         db.rollback()
-        raise HTTPException(500, f"저장 오류: {str(e)}")
+        logger.error(f"PUT /api/members/{mid} DB 저장 실패: {e}")
+        raise HTTPException(500, f"DB 저장 오류: {str(e)}")
 
     return _fmt(m)
 
