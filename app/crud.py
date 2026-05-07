@@ -2,7 +2,7 @@ import re
 from typing import Type, List, Optional, Tuple, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app import models
 
@@ -286,14 +286,14 @@ def update_item(db: Session, db_item, data: dict):
     for k, v in data.items():
         if hasattr(db_item, k):
             setattr(db_item, k, v)
-    db_item.updated_at = datetime.datetime.now(datetime.timezone.utc)
+    db_item.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(db_item)
     return db_item
 
 
 def soft_delete(db: Session, db_item):
-    db_item.deleted_at = datetime.datetime.now(datetime.timezone.utc)
+    db_item.deleted_at = datetime.now(timezone.utc)
     db.commit()
 
 

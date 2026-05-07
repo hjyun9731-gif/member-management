@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 import io, re, pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.database import get_db
 from app.auth import get_current_user
@@ -113,13 +113,13 @@ async def save_entry(year: int = Query(...), month: int = Query(...),
     entry = db.query(models.MonthlyReportEntry).filter(
         models.MonthlyReportEntry.year == year, models.MonthlyReportEntry.month == month
     ).first()
-    from datetime import datetime
+    from datetime import datetime, timezone
     if entry:
         entry.document_number = data.get("document_number", "")
         entry.execution_date = data.get("execution_date", "")
         entry.memo = data.get("memo", "")
         entry.custom_data = data.get("custom_data", {})
-        entry.updated_at = datetime.datetime.now(datetime.timezone.utc)
+        entry.updated_at = datetime.now(timezone.utc)
     else:
         entry = models.MonthlyReportEntry(year=year, month=month,
             document_number=data.get("document_number", ""),

@@ -187,20 +187,72 @@ def backfill_transfer_names(db: Session):
 async def list_transfers(
     search: Optional[str] = Query(None),
     region: Optional[str] = Query(None),
-    date_order: Optional[str] = Query("desc"),
+    date_order: Optional[str] = Query("desc"),   # desc/asc/mgmt_desc/mgmt_asc
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db), _=Depends(get_current_user),
 ):
-    items, total = crud.get_sorted_page(
-        db, models.TransferLedger,
-        date_field="process_date", sort_dir=date_order or "desc",
-        page=page, limit=limit,
-        search=search, search_fields=SEARCH, filters={"region": region},
-        nonempty_any=["vehicle_number", "transferee"],
-    )
+    from app.excel_utils import mgmt_sort_key, parse_date_sort
+    from sqlalchemy.orm import defer
+
+    base_q = (db.query(models.TransferLedger)
+              .filter(models.TransferLedger.deleted_at.is_(None))
+              .options(defer(models.TransferLedger.raw_data)))
+    if region:
+        base_q = base_q.filter(models.TransferLedger.region == region)
+    if search:
+        from sqlalchemy import or_
+        conds = [getattr(models.TransferLedger, f).ilike(f"%{search}%")
+                 for f in SEARCH if hasattr(models.TransferLedger, f)]
+        if conds:
+            base_q = base_q.filter(or_(*conds))
+
+    # 빈 행 제외 (차량번호 또는 양수자 있는 행만)
+    from sqlalchemy import or_ as _or
+    base_q = base_q.filter(_or(
+        models.TransferLedger.vehicle_number.isnot(None),
+        models.TransferLedger.transferee.isnot(None),
+    ))
+
+    # 정렬: mgmt_desc/mgmt_asc → 관리번호 자연정렬, 나머지 → 접수일자 기준
+    if date_order in ("mgmt_desc", "mgmt_asc"):
+        all_rows = base_q.with_entities(
+            models.TransferLedger.id, models.TransferLedger.management_number).all()
+        reverse = date_order == "mgmt_desc"
+        all_rows.sort(key=lambda r: mgmt_sort_key(str(r[1] or '')), reverse=reverse)
+    else:
+        # 1순위: 접수일자(receipt_date), 없으면 처리일자(process_date)
+        all_rows = base_q.with_entities(
+            models.TransferLedger.id,
+            models.TransferLedger.receipt_date,
+            models.TransferLedger.process_date).all()
+        reverse = (date_order or "desc") == "desc"
+
+        def sort_key(r):
+            # 접수일자 우선, 없으면 처리일자
+            d = parse_date_sort(r[1] or '') 
+            from datetime import datetime
+            if d == datetime.min:
+                d = parse_date_sort(r[2] or '')
+            return d
+
+        all_rows.sort(key=sort_key, reverse=reverse)
+
+    total = len(all_rows)
+    page_ids = [r[0] for r in all_rows[(page-1)*limit: page*limit]]
+    if page_ids:
+        items = db.query(models.TransferLedger).filter(
+            models.TransferLedger.id.in_(page_ids),
+            models.TransferLedger.deleted_at.is_(None),
+        ).options(defer(models.TransferLedger.raw_data)).all()
+        items_by_id = {i.id: i for i in items}
+        items = [items_by_id[pid] for pid in page_ids if pid in items_by_id]
+    else:
+        items = []
+
+    pages = max(1, (total + limit - 1) // limit)
     return {"items": [_fmt(i) for i in items], "total": total,
-            "page": page, "pages": max(1, (total + limit - 1) // limit), "limit": limit}
+            "page": page, "pages": pages, "limit": limit}
 
 
 @router.get("/next-number")
