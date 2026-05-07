@@ -50,6 +50,7 @@ class LicenseHolder(Base):
     agent_name = Column(String(100))                 # 대리인 성명
     agent_resident_number = Column(String(30))       # 대리인 주민등록번호
     agent_mobile = Column(String(50))                # 대리인 핸드폰번호
+    upload_id = Column(Integer, nullable=True)        # 업로드 이력 ID (개별 삭제용)
     candidate_id = Column(Integer, nullable=True)        # FK → candidates
     transfer_ledger_id = Column(Integer, nullable=True)  # FK → transfer_ledger
     closure_id = Column(Integer, nullable=True)          # FK → closures (폐업 시)
@@ -111,6 +112,7 @@ class TransferLedger(Base):
     memo = Column(Text)                                  # 비고
     management_number = Column(String(50))               # 양YY-N (회원등록 시 부여)
     member_id = Column(Integer, nullable=True)           # 회원등록 완료 시 연결
+    upload_id = Column(Integer, nullable=True)     # 업로드 이력 ID
     raw_data = Column(JSON)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -133,6 +135,7 @@ class Closure(Base):
     reason = Column(Text)
     memo = Column(Text)
     member_id = Column(Integer, nullable=True)
+    upload_id = Column(Integer, nullable=True)     # 업로드 이력 ID
     raw_data = Column(JSON)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -153,6 +156,7 @@ class ChangeHistory(Base):
     receipt_date = Column(String(50))                    # 접수/신고일자 (change_date 없을 때 표시용)
     memo = Column(Text)
     member_id = Column(Integer, nullable=True)
+    upload_id = Column(Integer, nullable=True)     # 업로드 이력 ID
     raw_data = Column(JSON)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

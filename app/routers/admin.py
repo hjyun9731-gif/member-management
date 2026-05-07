@@ -222,3 +222,47 @@ async def fix_transfer_dates(
         "total": len(rows),
         "message": f"날짜 보정 완료: {fixed}건 수정 (접수일자→receipt_date, 인가일자→approval_date)"
     }
+
+
+@router.delete("/upload/{history_id}")
+async def delete_upload(
+    history_id: int,
+    db: Session = Depends(get_db),
+    _=Depends(require_admin),
+):
+    """특정 업로드 이력의 데이터만 삭제 (다른 업로드 데이터 유지)."""
+    from datetime import datetime, timezone
+    hist = db.query(models.UploadHistory).filter(
+        models.UploadHistory.id == history_id
+    ).first()
+    if not hist:
+        raise HTTPException(status_code=404, detail="업로드 이력을 찾을 수 없습니다.")
+
+    deleted = {}
+    for model, label in [
+        (models.LicenseHolder, "면허자현황"),
+        (models.TransferLedger, "양도양수대장"),
+        (models.Closure, "폐지현황"),
+        (models.ChangeHistory, "변경이력대장"),
+    ]:
+        if not hasattr(model, 'upload_id'):
+            continue
+        rows = db.query(model).filter(
+            model.upload_id == history_id,
+            model.deleted_at.is_(None),
+        ).all()
+        now = datetime.now(timezone.utc)
+        for row in rows:
+            row.deleted_at = now
+        deleted[label] = len(rows)
+
+    # 이력도 삭제 처리
+    db.delete(hist)
+    db.commit()
+
+    total = sum(deleted.values())
+    return {
+        "deleted_total": total,
+        "deleted_by_type": deleted,
+        "message": f"업로드 이력 #{history_id} 삭제 완료: 총 {total}건",
+    }

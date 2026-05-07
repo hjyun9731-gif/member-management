@@ -1285,15 +1285,24 @@ async function renderUpload(){
     const d=await api('GET','/api/dashboard/upload-history').catch(()=>null);
     const hw=document.getElementById('upHist');
     if(!d||!d.length){hw.innerHTML=`<div class="empty-box"><div class="empty-ico">📂</div><p class="empty-txt">이력 없음</p></div>`;return;}
-    hw.innerHTML=`<div class="tbl-wrap"><table><thead><tr><th>파일종류</th><th>파일명</th><th>전체</th><th>성공</th><th>오류</th><th>일시</th></tr></thead>
-      <tbody>${d.slice(0,15).map(h=>`<tr>
-        <td>${h.file_type||'-'}</td>
-        <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis" title="${e_(h.filename)}">${h.filename||'-'}</td>
-        <td>${h.total_count}</td>
-        <td style="color:var(--c-pri);font-weight:700">${h.success_count}</td>
-        <td style="color:var(--c-danger)">${h.error_count}</td>
-        <td>${h.created_at||'-'}</td>
+    const adminMode=isAdmin();
+    hw.innerHTML=`<div class="tbl-wrap"><table><thead><tr><th>파일종류</th><th>파일명</th><th>전체</th><th>성공</th><th>오류</th><th>일시</th>${adminMode?'<th>삭제</th>':''}</tr></thead>
+      <tbody>${d.slice(0,30).map(h=>`<tr>
+        <td><span class="badge b-sky" style="font-size:11px">${e_(h.file_type||'-')}</span></td>
+        <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis" title="${e_(h.filename)}">${e_(h.filename||'-')}</td>
+        <td>${(h.total_count||0).toLocaleString()}</td>
+        <td style="color:var(--c-pri);font-weight:700">${(h.success_count||0).toLocaleString()}</td>
+        <td style="color:${h.error_count>0?'var(--c-danger)':'var(--c-text-4)'}">${h.error_count||0}</td>
+        <td style="font-size:11px;color:var(--c-text-3)">${(h.created_at||'-').slice(0,16)}</td>
+        ${adminMode?`<td><button class="btn br btn-xs" onclick="deleteUpload(${h.id},'${e_(h.file_type)}',${h.success_count})">삭제</button></td>`:''}
       </tr>`).join('')}</tbody></table></div>`;
+  };
+  window.deleteUpload=async(histId,fileType,cnt)=>{
+    if(!await cfm(`업로드 이력 #${histId} (${fileType}) 을 삭제합니다.\n저장된 데이터 약 ${cnt}건이 삭제됩니다.\n다른 업로드 데이터는 유지됩니다.\n\n계속하시겠습니까?`))return;
+    try{
+      const r=await api('DELETE',`/api/admin/upload/${histId}`);
+      if(r){toast(`삭제 완료: ${r.deleted_total}건 제거`,'info');loadHist();}
+    }catch(e){}
   };
 
   if(isAdmin()&&document.getElementById('resetAllBtn')){

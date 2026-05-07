@@ -43,29 +43,37 @@ def _run_migrations():
         existing_cols = set()
 
     new_cols = [
-        ("reapproval_date",       "VARCHAR(50)"),
-        ("official_address",      "TEXT"),
-        ("agent_name",            "VARCHAR(100)"),
-        ("agent_resident_number", "VARCHAR(30)"),
-        ("agent_mobile",          "VARCHAR(50)"),
+        ("reapproval_date",       "license_holders",  "VARCHAR(50)"),
+        ("official_address",      "license_holders",  "TEXT"),
+        ("agent_name",            "license_holders",  "VARCHAR(100)"),
+        ("agent_resident_number", "license_holders",  "VARCHAR(30)"),
+        ("agent_mobile",          "license_holders",  "VARCHAR(50)"),
+        ("upload_id",             "license_holders",  "INTEGER"),
+        ("upload_id",             "transfer_ledger",  "INTEGER"),
+        ("upload_id",             "closures",         "INTEGER"),
+        ("upload_id",             "change_history",   "INTEGER"),
     ]
 
-    for col_name, col_type in new_cols:
-        if col_name in existing_cols:
+    for col_name, table_name, col_type in new_cols:
+        # 각 테이블별 실제 컬럼 체크
+        try:
+            tbl_cols = {c["name"] for c in inspector.get_columns(table_name)}
+        except Exception:
+            tbl_cols = set()
+        if col_name in tbl_cols:
             continue  # 이미 있는 컬럼 스킵
-        # 컬럼별로 독립 트랜잭션
+        # 컬럼별 독립 트랜잭션
         try:
             with engine.begin() as conn:
                 if is_sqlite:
                     conn.execute(text(
-                        f"ALTER TABLE license_holders ADD COLUMN {col_name} {col_type}"))
+                        f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_type}"))
                 else:
-                    # PostgreSQL: IF NOT EXISTS (오류 방지)
                     conn.execute(text(
-                        f"ALTER TABLE license_holders ADD COLUMN IF NOT EXISTS {col_name} {col_type}"))
-            logger.info(f"마이그레이션 완료: license_holders.{col_name} 추가")
+                        f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {col_name} {col_type}"))
+            logger.info(f"마이그레이션 완료: {table_name}.{col_name} 추가")
         except Exception as e:
-            logger.warning(f"마이그레이션 스킵 ({col_name}): {e}")
+            logger.warning(f"마이그레이션 스킵 ({table_name}.{col_name}): {e}")
 
 try:
     _run_migrations()
