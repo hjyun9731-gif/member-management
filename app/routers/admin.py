@@ -167,3 +167,58 @@ async def backfill_transfer_management_numbers(
         "total": len(rows),
         "message": f"management_number 채우기 완료: {updated}건 업데이트"
     }
+
+
+@router.post("/fix-transfer-dates")
+async def fix_transfer_dates(
+    db: Session = Depends(get_db), _=Depends(require_admin)
+):
+    """기존 TransferLedger 데이터의 날짜 보정:
+    raw_data의 원본 엑셀 값(접수일자, 인가일자)을 읽어서
+    receipt_date / approval_date로 정확히 저장.
+    처리일자(process_date) 개념 제거.
+    """
+    import re
+
+    def _clean(v):
+        if not v: return None
+        s = str(v).strip().rstrip('.')
+        return s if s and s.lower() not in ('nan','none','nat','') else None
+
+    rows = db.query(models.TransferLedger).filter(
+        models.TransferLedger.deleted_at.is_(None)
+    ).all()
+
+    fixed = skipped = 0
+    for r in rows:
+        if not isinstance(r.raw_data, dict):
+            skipped += 1
+            continue
+
+        rd = r.raw_data
+        # 접수일자: raw_data에서 정규화된 키 탐색
+        receipt = _clean(rd.get('접수일자') or rd.get('접수\n일자') or rd.get('접수 일자'))
+        approval = _clean(rd.get('인가일자') or rd.get('인가\n일자') or rd.get('인가 일자'))
+
+        changed = False
+        if receipt and r.receipt_date != receipt:
+            r.receipt_date = receipt
+            changed = True
+        if approval and r.approval_date != approval:
+            r.approval_date = approval
+            changed = True
+        # process_date는 clear (양도양수에 처리일자 없음)
+        if r.process_date:
+            r.process_date = None
+            changed = True
+
+        if changed:
+            fixed += 1
+
+    db.commit()
+    return {
+        "fixed": fixed,
+        "skipped": skipped,
+        "total": len(rows),
+        "message": f"날짜 보정 완료: {fixed}건 수정 (접수일자→receipt_date, 인가일자→approval_date)"
+    }

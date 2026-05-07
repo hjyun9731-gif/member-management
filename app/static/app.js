@@ -1235,7 +1235,7 @@ async function renderUpload(){
       <div class="card">
         <div class="card-hd">
           <div class="card-hd-l"><span class="card-ico">📤</span><span class="card-ttl">파일 업로드</span></div>
-          ${isAdmin()?`<button class="btn br btn-sm" id="resetAllBtn">🗑 데이터 초기화</button><button class="btn bo btn-sm" id="backfillMgmtBtn" style="margin-left:6px">🔧 양도양수 관리번호 재생성</button>`:''}
+          ${isAdmin()?`<button class="btn br btn-sm" id="resetAllBtn">🗑 데이터 초기화</button><button class="btn bo btn-sm" id="backfillMgmtBtn" style="margin-left:6px">🔧 양도양수 관리번호 재생성</button><button class="btn bo btn-sm" id="fixDatesBtn" style="margin-left:6px">📅 양도양수 날짜 보정</button>`:''}
         </div>
         <div class="card-bd">
           <div class="fi" style="margin-bottom:10px">
@@ -1329,6 +1329,22 @@ async function renderUpload(){
         }
       }catch(e){}
       btn.disabled=false;btn.textContent='🔧 양도양수 관리번호 재생성';
+    };
+  }
+
+  if(isAdmin()&&document.getElementById('fixDatesBtn')){
+    document.getElementById('fixDatesBtn').onclick=async()=>{
+      if(!await cfm('양도양수대장 날짜를 보정합니다.\n(raw_data 기준으로 접수일자/인가일자 재저장)\n계속하시겠습니까?'))return;
+      const btn=document.getElementById('fixDatesBtn');
+      btn.disabled=true;btn.textContent='처리 중...';
+      try{
+        const r=await api('POST','/api/admin/fix-transfer-dates');
+        if(r){toast(`날짜 보정 완료: ${r.fixed}건`,'info');
+          const res=document.getElementById('upResult');
+          if(res){res.insertAdjacentHTML('beforeend',`<div style="margin-top:8px;padding:10px;background:var(--c-bg-2);border-radius:8px;font-size:13px">📅 날짜 보정: <strong>${r.fixed}건</strong> 수정 / ${r.skipped}건 스킵</div>`);}
+        }
+      }catch(e){}
+      btn.disabled=false;btn.textContent='📅 양도양수 날짜 보정';
     };
   }
 
