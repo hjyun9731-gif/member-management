@@ -670,7 +670,12 @@ async function renderNewRegistrations(){
       <div class="frow">
         ${rselflt('nrRegF',f.region||'')}
         <select id="nrCatF" class="fsel"><option value="">개인+택배</option><option value="개인">개인</option><option value="택배">택배</option></select>
-        ${dateOrderSel('nrDateF',f.date_order||'desc')}
+        <select id="nrDateF" class="fsel" style="min-width:120px">
+        <option value="mgmt_desc" ${(f.member_sort||'mgmt_desc')==='mgmt_desc'?'selected':''}>관리번호 최신순</option>
+        <option value="mgmt_asc" ${f.member_sort==='mgmt_asc'?'selected':''}>관리번호 오래된순</option>
+        <option value="approval_desc" ${f.member_sort==='approval_desc'?'selected':''}>인가일자 최신순</option>
+        <option value="approval_asc" ${f.member_sort==='approval_asc'?'selected':''}>인가일자 오래된순</option>
+      </select>
         <input class="srch" id="nrSrch" placeholder="성명, 차량번호, 주소, 자격번호" value="${e_(f.search||'')}">
         <button class="btn bp btn-sm" id="nrSrchBtn">조회</button>
         <button class="btn bo btn-sm" id="nrRstBtn">초기화</button>
@@ -857,6 +862,7 @@ async function renderClosures(){
         ${rselflt('clRegF',f.region||'')}
         <select id="clTypF" class="fsel"><option value="">전체 구분</option>${CLOSURE_TYPES.map(t=>`<option value="${t}">${t}</option>`).join('')}</select>
         <select id="clDtF" class="fsel"><option value="">신규+이전</option><option value="신규자료">신규자료</option><option value="이전자료">이전자료</option></select>
+        ${dateOrderSel('clSortF',f.date_order||'desc')}
         <input class="srch" id="clSrch" placeholder="관리번호, 성명, 차량번호" value="${e_(f.search||'')}">
         <button class="btn bp btn-sm" id="clSrchBtn">조회</button>
         <button class="btn bo btn-sm" id="clRstBtn">초기화</button>
@@ -868,7 +874,7 @@ async function renderClosures(){
   const hdrs=[{field:'management_number',label:'관리번호'},{field:'closure_type',label:'구분'},{field:'data_type',label:'자료'},{field:'region',label:'지역'},{field:'vehicle_number',label:'차량번호'},{field:'name',label:'성명'},{field:'closure_date',label:'처리일자'},{field:'approval_date',label:'인가일자'},{field:'reason',label:'사유'},{field:'memo',label:'비고'},{label:'관리',noSort:true}];
 
   const doSearch=async(pg=1)=>{
-    ST.fl.cl={region:document.getElementById('clRegF').value,closure_type:document.getElementById('clTypF').value,data_type:document.getElementById('clDtF').value,search:document.getElementById('clSrch').value.trim()};
+    ST.fl.cl={region:document.getElementById('clRegF').value,closure_type:document.getElementById('clTypF').value,data_type:document.getElementById('clDtF').value,date_order:document.getElementById('clSortF').value,search:document.getElementById('clSrch').value.trim()};
     const q=new URLSearchParams({page:pg,limit:50,...getSortParams(sk),...Object.fromEntries(Object.entries(ST.fl.cl).filter(([,v])=>v))});
     const d=await api('GET',`/api/closures?${q}`).catch(()=>null);if(!d)return;
     document.getElementById('clCnt').textContent=`${d.total.toLocaleString()}건`;
@@ -948,6 +954,7 @@ async function renderChangeHistory(){
       <div class="frow">
         ${rselflt('chRegF',f.region||'')}
         <select id="chTypF" class="fsel"><option value="">전체 유형</option>${CHANGE_TYPES.map(t=>`<option value="${t}">${t}</option>`).join('')}</select>
+        ${dateOrderSel('chSortF',f.date_order||'desc')}
         <input class="srch" id="chSrch" placeholder="성명, 차량번호, 변경 전/후" value="${e_(f.search||'')}">
         <button class="btn bp btn-sm" id="chSrchBtn">조회</button>
         <button class="btn bo btn-sm" id="chRstBtn">초기화</button>
@@ -959,7 +966,7 @@ async function renderChangeHistory(){
   const hdrs=[{field:'change_type',label:'변경유형'},{field:'change_date',label:'처리일자'},{field:'region',label:'지역'},{field:'vehicle_number',label:'차량번호'},{field:'name',label:'성명'},{field:'before_value',label:'변경 전'},{field:'after_value',label:'변경 후'},{field:'memo',label:'비고'},{label:'관리',noSort:true}];
 
   const doSearch=async(pg=1)=>{
-    ST.fl.ch={region:document.getElementById('chRegF').value,change_type:document.getElementById('chTypF').value,search:document.getElementById('chSrch').value.trim()};
+    ST.fl.ch={region:document.getElementById('chRegF').value,change_type:document.getElementById('chTypF').value,date_order:document.getElementById('chSortF').value,search:document.getElementById('chSrch').value.trim()};
     const q=new URLSearchParams({page:pg,limit:50,...getSortParams(sk),...Object.fromEntries(Object.entries(ST.fl.ch).filter(([,v])=>v))});
     const d=await api('GET',`/api/change-history?${q}`).catch(()=>null);if(!d)return;
     document.getElementById('chCnt').textContent=`${d.total.toLocaleString()}건`;

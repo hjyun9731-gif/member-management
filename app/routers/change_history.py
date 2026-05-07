@@ -109,14 +109,24 @@ async def list_changes(
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db), _=Depends(get_current_user),
 ):
-    items, total = crud.get_sorted_page(
-        db, models.ChangeHistory,
-        date_field="change_date", sort_dir=date_order or "desc",
-        page=page, limit=limit,
-        search=search, search_fields=SEARCH,
-        filters={"region": region, "change_type": change_type},
-        nonempty_any=["vehicle_number", "name", "after_value"],
-    )
+    if date_order in ("mgmt_desc", "mgmt_asc"):
+        sort_dir = "desc" if date_order == "mgmt_desc" else "asc"
+        items, total = crud.get_sorted_page_mgmt(
+            db, models.ChangeHistory, sort_dir=sort_dir,
+            page=page, limit=limit,
+            search=search, search_fields=SEARCH,
+            filters={"region": region, "change_type": change_type},
+            nonempty_any=["vehicle_number", "name"],
+        )
+    else:
+        items, total = crud.get_sorted_page(
+            db, models.ChangeHistory,
+            date_field="change_date", sort_dir=date_order or "desc",
+            page=page, limit=limit,
+            search=search, search_fields=SEARCH,
+            filters={"region": region, "change_type": change_type},
+            nonempty_any=["vehicle_number", "name", "after_value"],
+        )
     pages = max(1, (total + limit - 1) // limit)
     return {"items": [_fmt(i) for i in items], "total": total,
             "page": page, "pages": pages, "limit": limit}
