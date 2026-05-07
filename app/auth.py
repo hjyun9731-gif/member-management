@@ -79,13 +79,17 @@ async def require_admin(current_user: models.User = Depends(get_current_user)) -
 
 
 def create_default_admin(db: Session):
-    existing = db.query(models.User).filter(models.User.username == "admin").first()
-    if not existing:
-        admin = models.User(
-            username="admin",
-            password_hash=get_password_hash("admin1234"),
-            role="admin",
-            full_name="관리자"
-        )
-        db.add(admin)
-        db.commit()
+    """admin 계정 없으면 생성. 동시 실행 race condition은 UniqueViolation으로 처리."""
+    try:
+        existing = db.query(models.User).filter(models.User.username == "admin").first()
+        if not existing:
+            admin = models.User(
+                username="admin",
+                password_hash=get_password_hash("admin1234"),
+                role="admin",
+                full_name="관리자"
+            )
+            db.add(admin)
+            db.commit()
+    except Exception:
+        db.rollback()  # 중복 등 오류 발생 시 rollback만 (admin은 이미 존재)

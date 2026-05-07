@@ -103,38 +103,50 @@ def _prep_lh(rec: dict, file_type: str) -> dict:
 
 
 def _find_dup(db, model, rec, file_type):
-    """중복 검색: management_number 우선, 없으면 vehicle_number"""
+    """중복 검색: management_number 우선(모든 모델), 없으면 vehicle_number"""
     try:
-        # management_number 기준 (가장 신뢰성 높음)
-        mgmt = rec.get('management_number') or ''
-        if mgmt and hasattr(model, 'management_number'):
-            hit = db.query(model).filter(
-                model.management_number == mgmt,
-                model.deleted_at.is_(None),
-            ).first()
-            if hit:
-                return hit
-
-        vn = rec.get('vehicle_number') or ''
-        if not vn:
-            return None
+        mgmt = (rec.get('management_number') or '').strip()
+        vn   = (rec.get('vehicle_number') or '').strip()
 
         if model == models.LicenseHolder:
-            return db.query(model).filter(
-                model.vehicle_number == vn,
-                model.deleted_at.is_(None),
-            ).first()
+            # management_number 우선 체크
+            if mgmt:
+                hit = db.query(model).filter(
+                    model.management_number == mgmt,
+                    model.deleted_at.is_(None),
+                ).first()
+                if hit:
+                    return hit
+            # vehicle_number 체크
+            if vn:
+                return db.query(model).filter(
+                    model.vehicle_number == vn,
+                    model.deleted_at.is_(None),
+                ).first()
+
         elif model == models.TransferLedger:
-            seq = rec.get('seq_number') or ''
+            seq = (rec.get('seq_number') or '').strip()
             if seq:
                 return db.query(model).filter(
                     model.seq_number == seq, model.deleted_at.is_(None)
                 ).first()
+            if vn and mgmt:
+                return db.query(model).filter(
+                    model.vehicle_number == vn,
+                    model.management_number == mgmt,
+                    model.deleted_at.is_(None),
+                ).first()
+
         elif model == models.Closure:
             if mgmt:
                 return db.query(model).filter(
                     model.management_number == mgmt, model.deleted_at.is_(None)
                 ).first()
+
+        elif model == models.ChangeHistory:
+            # 변경이력은 중복 체크 없이 항상 새로 추가
+            return None
+
     except Exception:
         pass
     return None

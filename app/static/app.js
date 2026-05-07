@@ -1208,8 +1208,8 @@ async function renderUpload(){
               <option value="">-- 파일 종류를 선택하세요 --</option>
               <option value="면허자현황">면허자현황 (강원도전체면허자현황.xlsm) — 개인/택배 시트</option>
               <option value="양도양수대장">양도양수대장 — 2000~현재 전체 시트 (예정자 제외)</option>
-              <option value="폐지현황">폐지현황 (사용)</option>
-              <option value="이전폐지현황">이전 폐지현황 — 유형별 시트</option>
+              <option value="폐지현황">폐업현황 (사용)</option>
+              <option value="이전폐지현황">이전 폐업현황 — 유형별 시트</option>
               <option value="주소변경등록대장">주소변경등록대장 → 변경이력으로 저장</option>
               <option value="변경이력대장">변경이력대장 → 변경이력으로 저장</option>
               <option value="부과대수">부과대수</option>
