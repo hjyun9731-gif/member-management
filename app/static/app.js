@@ -1074,7 +1074,7 @@ async function renderMonthlyReport(){
         <button class="btn bo btn-sm" onclick="ST.reportMonth--;if(ST.reportMonth<1){ST.reportMonth=12;ST.reportYear--;}renderMonthlyReport()">◀ 이전</button>
         <span class="rpt-period">${y}년 ${m}월</span>
         <button class="btn bo btn-sm" onclick="ST.reportMonth++;if(ST.reportMonth>12){ST.reportMonth=1;ST.reportYear++;}renderMonthlyReport()">다음 ▶</button>
-        <span style="font-size:11px;color:var(--c-text-4);margin-left:8px">신규→인가일자 / 나머지→처리일자 기준 자동 계산</span>
+        <span style="font-size:11px;color:var(--c-text-4);margin-left:8px">해당 월(${y}년 ${m}월) 기준 자동 계산</span>
         <button class="btn bxl btn-sm" style="margin-left:auto" onclick="dl('/api/reports/monthly/export?year=${y}&month=${m}','월례보고서_${y}_${String(m).padStart(2,'0')}.xlsx')">엑셀</button>
       </div>
     </div>
@@ -1087,7 +1087,7 @@ async function renderMonthlyReport(){
             <tbody>
               <tr><td class="rl">개인(사업자)</td><td>${ms.individual||0}</td><td>-</td><td>-</td></tr>
               <tr><td class="rl">택배(차량)</td><td>${ms.delivery||0}</td><td>-</td><td>-</td></tr>
-              <tr class="total-row"><td class="rl">합계</td><td>${ms.total||0}</td><td>${ms.joined||0}</td><td>${ms.not_joined||0}</td></tr>
+              <tr class="total-row"><td class="rl">합계(전체)</td><td>${ms.total||0}</td><td>${ms.joined||0}</td><td>${ms.not_joined||0}</td></tr><tr style="background:var(--c-bg-2)"><td class="rl">※ ${m}월 신규가입</td><td colspan="3"><strong>${ms.month_joined||0}명</strong> (가입일자 기준)</td></tr><tr style="background:var(--c-bg-2)"><td class="rl">※ ${m}월 미가입발생</td><td colspan="3"><strong>${ms.month_not_joined||0}명</strong> (인가일자 기준)</td></tr>
             </tbody></table></div>
           <div class="rpt-sec"><div class="rpt-sec-ttl">1-1. 택배 차량대수</div>
             <table class="rpt-tbl"><thead><tr><th>허가대수</th><th>취업신고</th><th>미신고</th></tr></thead>
@@ -1166,7 +1166,7 @@ async function renderUpload(){
             <select id="ftSel" class="fc" style="margin-top:3px">
               <option value="">-- 파일 종류를 선택하세요 --</option>
               <option value="면허자현황">면허자현황 (강원도전체면허자현황.xlsm) — 개인/택배 시트</option>
-              <option value="양도양수대장">양도양수대장 — 2000~2026년 전체 시트 (예정자 제외)</option>
+              <option value="양도양수대장">양도양수대장 — 2000~현재 전체 시트 (예정자 제외)</option>
               <option value="폐지현황">폐지현황 (사용)</option>
               <option value="이전폐지현황">이전 폐지현황 — 유형별 시트</option>
               <option value="주소지변경대장">주소지변경대장 → 변경이력으로 저장</option>
@@ -1261,7 +1261,7 @@ async function renderUpload(){
     const ft=document.getElementById('ftSel').value;
     if(!ft){toast('파일 종류를 선택하세요','warn');return;}
     if(!selFile){toast('파일을 선택하세요','warn');return;}
-    if(!await cfm(`"${ft}" 파일을 업로드합니다.\n※ 양도양수대장은 2000~2026년 전체 시트를 처리합니다.`))return;
+    if(!await cfm(`"${ft}" 파일을 업로드합니다.\n※ 양도양수대장은 2000~현재 전체 시트를 처리합니다.`))return;
     const fd=new FormData();fd.append('file_type',ft);fd.append('duplicate_handling',document.getElementById('dupSel').value);fd.append('file',selFile);
     document.getElementById('upBtn').disabled=true;document.getElementById('upBtn').textContent='업로드 중...';
     const d=await api('POST','/api/excel/upload',fd,true).catch(()=>null);

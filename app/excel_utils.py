@@ -79,7 +79,7 @@ def parse_date_sort(date_str: str):
         return datetime.min
     s = str(date_str).strip().rstrip('.')
     # 4자리 연도: 2024.04.02 / 2024-04-02 / 2024. 4. 2
-    m = re.search(r'(19[0-9]{2}|20[0-2][0-9])\s*[\.\-/]\s*(\d{1,2})\s*[\.\-/]\s*(\d{1,2})', s)
+    m = re.search(r'(19[0-9]{2}|20[0-9]{2})\s*[\.\-/]\s*(\d{1,2})\s*[\.\-/]\s*(\d{1,2})', s)
     if m:
         try:
             return datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)))
@@ -111,7 +111,7 @@ def extract_year(date_str: str) -> Optional[int]:
 
 def extract_sheet_year(sheet_name: str) -> Optional[int]:
     """시트 이름에서 연도 추출. '2000년도' → 2000, '00년' → 2000"""
-    m = re.search(r'(19[0-9]{2}|20[0-2][0-9])', sheet_name)
+    m = re.search(r'(19[0-9]{2}|20[0-9]{2})', sheet_name)
     if m: return int(m.group())
     m = re.search(r'^(\d{2})년', sheet_name)
     if m:
@@ -332,23 +332,33 @@ _NAME_FIELDS = {'name','transferor','transferee'}
 # 변경이력 자동 분류
 # ─────────────────────────────────────────────
 
+# 변경유형 키워드 매핑 (공백/특수문자 제거 후 포함 여부로 매칭)
 _CK = {
-    '주소지변경':['주소변경','주소지변경','주소'],
-    '상호변경':['상호변경'],
-    '구조변경':['구조변경'],
-    '전속계약 업체변경':['업체변경','전속계약','소속업체변경'],
-    '등록이관':['등록이관','이관등록'],
-    '이전전출':['이전전출','이전','전출'],
-    '대표자변경':['대표자변경'],
-    '성명변경':['성명변경','이름변경'],
-    '번호변경':['번호변경','차량번호변경'],
+    '구조변경':          ['구조변경', '구조 변경'],
+    '전속계약 업체변경': ['전속계약업체변경', '전속업체변경', '전속계약', '소속업체변경', '업체변경'],
+    '주소지변경':        ['주소지변경', '주소변경', '주소이전'],
+    '상호변경':          ['상호변경'],
+    '등록이관':          ['등록이관', '이관등록'],
+    '이전전출':          ['이전전출', '이전', '전출'],
+    '대표자변경':        ['대표자변경'],
+    '성명변경':          ['성명변경', '이름변경'],
+    '번호변경':          ['번호변경', '차량번호변경'],
+    '양도':              ['양도양수', '양도'],
+    '폐업':              ['폐업', '폐지'],
+    '이관':              ['이관'],
 }
+
+def _normalize_text(s: str) -> str:
+    """공백/특수문자 제거 후 소문자 변환"""
+    return re.sub(r'[\s\-_·,./]+', '', str(s or '')).lower()
 
 def _detect_ctype(active_cols, row):
     active_vals = {c: row.get(c,'') for c in active_cols if row.get(c,'').strip()}
-    hay = (' '.join(active_vals.keys()) + ' ' + ' '.join(active_vals.values())).lower()
+    hay_raw = (' '.join(active_vals.keys()) + ' ' + ' '.join(active_vals.values()))
+    hay = _normalize_text(hay_raw)
     for ct, kws in _CK.items():
-        if any(kw.lower() in hay for kw in kws): return ct
+        if any(_normalize_text(kw) in hay for kw in kws):
+            return ct
     return '기타'
 
 def _parse_change_text(text: str):
@@ -356,8 +366,10 @@ def _parse_change_text(text: str):
     ct, bv, av = '기타', '', ''
     lines = [l.strip() for l in text.split('\n') if l.strip()]
     first = lines[0] if lines else text
+    first_norm = _normalize_text(first)
     for _ct, kws in _CK.items():
-        if any(kw.lower() in first.lower() for kw in kws): ct = _ct; break
+        if any(_normalize_text(kw) in first_norm for kw in kws):
+            ct = _ct; break
     m = re.search(r'(.+?)\s*[-→>]+\s*(.+)', text)
     if m: bv, av = m.group(1).strip(), m.group(2).strip()
     elif len(lines) > 1: bv = '\n'.join(lines[1:])
@@ -701,3 +713,28 @@ def records_to_excel(records: list, exclude: list = None) -> bytes:
     with pd.ExcelWriter(out, engine='openpyxl') as w:
         df.to_excel(w, index=False)
     return out.getvalue()
+
+
+def mgmt_sort_key(mgmt: str) -> tuple:
+    """관리번호 자연정렬 키: 연도+번호 기준 (90~99=1990~1999, 00~현재=2000~현재).
+    예: '신26-181' → (2026, 181), '폐-80' → (9999, 80), '26-099' → (2026, 99)
+    개인/택배 구분 없이 동일 기준 적용.
+    """
+    if not mgmt:
+        return (9999, 9999, mgmt or '')
+    s = str(mgmt).strip()
+    # 한글접두어 + 2자리연도 + 번호: 신26-181, 양26-001
+    m = re.match(r'^[가-힣]*(\d{2})\s*[-]\s*(\d+)', s)
+    if m:
+        yy = int(m.group(1))
+        year = 2000 + yy if yy <= 30 else 1900 + yy
+        return (year, int(m.group(2)), s)
+    # 한글접두어만 있는 형태: 폐-80, 양-28
+    m = re.match(r'^[가-힣]+[-]\s*(\d+)', s)
+    if m:
+        return (9999, int(m.group(1)), s)
+    # 숫자만
+    m = re.match(r'^(\d+)', s)
+    if m:
+        return (9998, int(m.group(1)), s)
+    return (9997, 0, s)

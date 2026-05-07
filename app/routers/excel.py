@@ -12,6 +12,7 @@ from app.database import get_db
 from app.auth import get_current_user
 from app import models, crud
 from app.excel_utils import excel_to_records, normalize_membership_status, normalize_closure_type
+from app.routers.change_history import normalize_change_type
 
 router = APIRouter()
 
@@ -97,7 +98,10 @@ async def upload(
                 ms = rec.get('membership_status', '')
                 rec['membership_status'] = normalize_membership_status(ms)
 
-            # 폐지현황 data_type 설정 + closure_type 정규화
+            # 변경이력: change_type 정규화
+            if model == models.ChangeHistory:
+                if rec.get('change_type'):
+                    rec['change_type'] = normalize_change_type(rec['change_type'])
             if file_type == '폐지현황':
                 rec.setdefault('data_type', '신규자료')
                 if rec.get('closure_type'):

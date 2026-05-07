@@ -220,7 +220,71 @@ def get_region_vehicle_page(db: Session, model: Type, *, page: int = 1, limit: i
     return [items_by_id[pid] for pid in page_ids if pid in items_by_id], total
 
 
-def get_by_id(db: Session, model: Type, item_id: int):
+def get_sorted_page_mgmt(db: Session, model: Type, *, sort_dir: str = "desc",
+                          page: int = 1, limit: int = 50,
+                          search=None, search_fields=None, filters=None,
+                          nonempty_any=None, fallback_date_field: str = None
+                          ) -> Tuple[List, int]:
+    """관리번호 기준 자연정렬 (연도+번호). 날짜 없는 경우 관리번호 연도+번호 기준."""
+    from app.excel_utils import mgmt_sort_key, parse_date_sort
+    from sqlalchemy.orm import defer as defer_col
+
+    mgmt_col = getattr(model, 'management_number', None)
+    date_col = getattr(model, fallback_date_field, None) if fallback_date_field else None
+
+    select_cols = [model.id, mgmt_col if mgmt_col is not None else model.id]
+    nonempty_cols = []
+    if date_col is not None:
+        select_cols.append(date_col)
+    for field in (nonempty_any or []):
+        col = getattr(model, field, None)
+        if col is not None:
+            select_cols.append(col)
+            nonempty_cols.append(field)
+
+    light_q = db.query(*select_cols).filter(model.deleted_at.is_(None))
+    light_q = _apply_common_filters(light_q, model, search, search_fields, filters, None)
+    all_rows = light_q.all()
+
+    # Python 빈 행 제거
+    if nonempty_cols:
+        n_check = len(nonempty_cols)
+        date_offset = 2 + (1 if date_col is not None else 0)
+        all_rows = [r for r in all_rows
+                    if any(r[date_offset + i] and str(r[date_offset + i]).strip() for i in range(n_check))]
+
+    reverse = (sort_dir == "desc")
+
+    def sort_key(r):
+        mgmt = str(r[1] or '')
+        mk = mgmt_sort_key(mgmt)
+        if date_col is not None:
+            dt = parse_date_sort(str(r[2] or ''))
+            # 날짜가 있으면 날짜 우선, 없으면 관리번호 기준
+            from datetime import datetime
+            if dt != datetime.min:
+                return (dt.year, dt.month, dt.day, mk[0], mk[1])
+            return (mk[0], 0, 0, mk[0], mk[1])
+        return (mk[0], mk[1], 0, 0, 0)
+
+    all_rows.sort(key=sort_key, reverse=reverse)
+
+    total = len(all_rows)
+    page_ids = [r[0] for r in all_rows[(page - 1) * limit: page * limit]]
+
+    if not page_ids:
+        return [], total
+
+    items_q = db.query(model).filter(
+        model.id.in_(page_ids),
+        model.deleted_at.is_(None),
+    )
+    if hasattr(model, 'raw_data'):
+        items_q = items_q.options(defer_col(model.raw_data))
+
+    items = items_q.all()
+    items_by_id = {i.id: i for i in items}
+    return [items_by_id[pid] for pid in page_ids if pid in items_by_id], total
     return db.query(model).filter(model.id == item_id, model.deleted_at.is_(None)).first()
 
 

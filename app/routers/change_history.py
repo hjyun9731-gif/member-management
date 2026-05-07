@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import Optional
-import io
+import re, io
 
 from app.database import get_db
 from app.auth import get_current_user, require_admin
@@ -12,9 +12,40 @@ from app.excel_utils import records_to_excel
 router = APIRouter()
 
 CHANGE_TYPES = ["주소지변경","상호변경","구조변경","전속계약 업체변경","등록이관",
-                "이전전출","대표자변경","성명변경","번호변경","변동변경","기타"]
+                "이전전출","대표자변경","성명변경","번호변경","변동변경","양도","폐업","기타"]
 
 SEARCH = ["name", "vehicle_number", "region", "before_value", "after_value", "change_type"]
+
+
+def normalize_change_type(val: str) -> str:
+    """변경유형 텍스트 정규화: 공백/특수문자 무시하고 키워드 매칭"""
+    if not val:
+        return '기타'
+    s = re.sub(r'[\s\-_·,./]+', '', str(val)).lower()
+    mapping = [
+        ('구조변경', ['구조변경']),
+        ('전속계약 업체변경', ['전속계약업체변경', '전속업체변경', '전속계약', '소속업체변경', '업체변경']),
+        ('주소지변경', ['주소지변경', '주소변경', '주소이전']),
+        ('상호변경', ['상호변경']),
+        ('등록이관', ['등록이관', '이관등록']),
+        ('이전전출', ['이전전출']),
+        ('대표자변경', ['대표자변경']),
+        ('성명변경', ['성명변경', '이름변경']),
+        ('번호변경', ['번호변경', '차량번호변경']),
+        ('양도', ['양도양수', '양도']),
+        ('폐업', ['폐업', '폐지']),
+        ('이관', ['이관']),
+        ('이전', ['이전']),
+        ('전출', ['전출']),
+    ]
+    for ct, kws in mapping:
+        if any(re.sub(r'[\s\-_·,./]+', '', kw).lower() in s for kw in kws):
+            return ct
+    # 원래 값이 CHANGE_TYPES에 있으면 그대로
+    for t in CHANGE_TYPES:
+        if re.sub(r'[\s\-_·,./]+', '', t).lower() == s:
+            return t
+    return val.strip() if val.strip() else '기타'
 
 
 def _fmt(c):
@@ -123,6 +154,8 @@ async def get_change(cid: int, db: Session = Depends(get_db), _=Depends(get_curr
 @router.post("")
 async def create_change(data: dict, db: Session = Depends(get_db),
                          _=Depends(get_current_user)):
+    if data.get("change_type"):
+        data["change_type"] = normalize_change_type(data["change_type"])
     return _fmt(crud.create_item(db, models.ChangeHistory, data))
 
 
@@ -132,6 +165,8 @@ async def update_change(cid: int, data: dict, db: Session = Depends(get_db),
     c = crud.get_by_id(db, models.ChangeHistory, cid)
     if not c:
         raise HTTPException(404)
+    if data.get("change_type"):
+        data["change_type"] = normalize_change_type(data["change_type"])
     return _fmt(crud.update_item(db, c, data))
 
 

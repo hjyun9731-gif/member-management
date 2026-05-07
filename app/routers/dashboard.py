@@ -19,7 +19,7 @@ router = APIRouter()
 
 def _ext_year(s: str) -> Optional[int]:
     if not s: return None
-    m = re.search(r'(19[0-9]{2}|20[0-2][0-9])', str(s))
+    m = re.search(r'(19[0-9]{2}|20[0-9]{2})', str(s))
     if m: return int(m.group())
     m = re.match(r'^(\d{2})\s*[\.\-/년]', str(s).strip())
     if m:
@@ -139,14 +139,17 @@ async def full_stats(db: Session = Depends(get_db), _=Depends(get_current_user))
         elif age <= 69: age_groups["65~69"] += 1
         else: age_groups["70이상"] += 1
 
-    # 연식별 (vehicle_type "18,포터II..." 형식) - 1년 단위 버킷
-    veh_year_dist: dict = {}
+    # 연식별 (vehicle_type "18,포터II..." 형식) - 1년 단위 버킷, 현재 연도 동적 계산
+    _VEH_BUCKETS = ["1년 미만","2년 미만","3년 미만","4년 미만","5년 미만","6년 미만",
+                    "7년 미만","8년 미만","9년 미만","10년 미만","11년 미만","12년 미만","12년 이상"]
+    veh_year_raw: dict = {}
     cur_year = datetime.now().year
     for m in lh_q.all():
         vy = ext_veh_year(m.vehicle_type or "")
         if vy:
             age_y = cur_year - vy
-            if age_y < 1: bkt = "1년 미만"
+            if age_y < 0: bkt = "1년 미만"
+            elif age_y < 1: bkt = "1년 미만"
             elif age_y < 2: bkt = "2년 미만"
             elif age_y < 3: bkt = "3년 미만"
             elif age_y < 4: bkt = "4년 미만"
@@ -159,7 +162,9 @@ async def full_stats(db: Session = Depends(get_db), _=Depends(get_current_user))
             elif age_y < 11: bkt = "11년 미만"
             elif age_y < 12: bkt = "12년 미만"
             else: bkt = "12년 이상"
-            veh_year_dist[bkt] = veh_year_dist.get(bkt, 0) + 1
+            veh_year_raw[bkt] = veh_year_raw.get(bkt, 0) + 1
+    # 1년 미만 → 12년 이상 순으로 정렬된 dict
+    veh_year_dist = {bkt: veh_year_raw[bkt] for bkt in _VEH_BUCKETS if bkt in veh_year_raw}
 
     # 폐지/양도/이관 집계 ('폐지'는 '폐업'으로 통일)
     cl_q = db.query(models.Closure).filter(models.Closure.deleted_at.is_(None))
@@ -325,16 +330,25 @@ async def monthly_report_auto(
     month: Optional[int] = Query(None),
     db: Session = Depends(get_db), _=Depends(get_current_user),
 ):
-    """월례보고서 자동 계산 - 연도/월 지정 또는 최신 데이터 기준"""
+    """월례보고서 자동 계산 - 선택한 연도/월 기준 (해당 월에 발생한 데이터만 집계)"""
     now = datetime.now()
     target_year = year or now.year
     target_month = month or now.month
 
+    def _ym(date_str: str) -> tuple:
+        if not date_str: return None, None
+        s = str(date_str).strip()
+        m = re.search(r'(19[0-9]{2}|20[0-9]{2})\s*[\.\-/]\s*(\d{1,2})', s)
+        if m: return int(m.group(1)), int(m.group(2))
+        m = re.match(r'^(\d{2})\s*[\.\-/]\s*(\d{1,2})', s)
+        if m:
+            yy = int(m.group(1))
+            return (2000+yy if yy<=30 else 1900+yy), int(m.group(2))
+        return None, None
+
     def matches(date_str: str) -> bool:
-        if not date_str: return False
-        y = _ext_year(date_str)
-        m_ = _ext_month(date_str)
-        return y == target_year and m_ == target_month
+        y, mo = _ym(date_str)
+        return y == target_year and mo == target_month
 
     lh_q = db.query(models.LicenseHolder).filter(
         models.LicenseHolder.deleted_at.is_(None),
@@ -346,13 +360,18 @@ async def monthly_report_auto(
     individual = sum(1 for m in all_members if m.category == "개인")
     delivery = sum(1 for m in all_members if m.category == "택배")
 
-    # 사업자수/차량대수
+    # 해당 월 가입자: membership_date(가입일자)가 해당 월인 사람
+    month_joined = sum(1 for m in all_members if matches(m.membership_date or ''))
+    # 해당 월 미가입자: 미가입이고 인가일자가 해당 월인 사람
+    month_not_joined = sum(1 for m in all_members
+                           if m.membership_status != '가입' and matches(m.approval_date or ''))
+
     member_stats = {
         "total": total, "individual": individual, "delivery": delivery,
         "joined": joined, "not_joined": total - joined,
+        "month_joined": month_joined, "month_not_joined": month_not_joined,
     }
 
-    # 택배 취업신고 (소속업체 있으면 취업신고)
     del_employed = sum(1 for m in all_members
                        if m.category == "택배" and m.affiliated_company and m.affiliated_company.strip())
     taxi_stats = {
@@ -361,13 +380,11 @@ async def monthly_report_auto(
         "unemployed": delivery - del_employed,
     }
 
-    # 유형별 (차종 분류)
     vtype_counts: dict = {}
     for m in all_members:
         cat = classify_vt(m.vehicle_type or "")
         vtype_counts[cat] = vtype_counts.get(cat, 0) + 1
 
-    # 연령대
     age_groups = {"29이하": 0, "30~39": 0, "40~49": 0, "50~59": 0,
                   "60~64": 0, "65~69": 0, "70이상": 0, "불명": 0}
     for m in all_members:
@@ -381,13 +398,16 @@ async def monthly_report_auto(
         elif age <= 69: age_groups["65~69"] += 1
         else: age_groups["70이상"] += 1
 
-    # 연식별 - 1년 단위 버킷
-    veh_age: dict = {}
+    # 연식별 - 현재 연도(target_year) 기준, 1년 미만→12년 이상 순서로 정렬
+    _VEH_BUCKETS = ["1년 미만","2년 미만","3년 미만","4년 미만","5년 미만","6년 미만",
+                    "7년 미만","8년 미만","9년 미만","10년 미만","11년 미만","12년 미만","12년 이상"]
+    veh_age_raw: dict = {}
     for m in all_members:
         vy = ext_veh_year(m.vehicle_type or "")
         if vy:
             age_y = target_year - vy
-            if age_y < 1: bkt = "1년 미만"
+            if age_y < 0: bkt = "1년 미만"
+            elif age_y < 1: bkt = "1년 미만"
             elif age_y < 2: bkt = "2년 미만"
             elif age_y < 3: bkt = "3년 미만"
             elif age_y < 4: bkt = "4년 미만"
@@ -400,20 +420,22 @@ async def monthly_report_auto(
             elif age_y < 11: bkt = "11년 미만"
             elif age_y < 12: bkt = "12년 미만"
             else: bkt = "12년 이상"
-            veh_age[bkt] = veh_age.get(bkt, 0) + 1
+            veh_age_raw[bkt] = veh_age_raw.get(bkt, 0) + 1
+    # 1년 미만 → 12년 이상 순서 정렬
+    veh_age = {bkt: veh_age_raw[bkt] for bkt in _VEH_BUCKETS if bkt in veh_age_raw}
 
-    # 지정/위탁 처리현황 (해당 월 기준 - change_date/closure_date/approval_date)
+    # 해당 월 신규/양도/폐업/변경
     month_transfers = [t for t in db.query(models.TransferLedger).filter(
         models.TransferLedger.deleted_at.is_(None)).all()
-        if matches(t.process_date or t.approval_date or t.receipt_date or "")]
+        if matches(t.process_date or '')]
     month_closures = [c for c in db.query(models.Closure).filter(
         models.Closure.deleted_at.is_(None)).all()
-        if matches(c.closure_date or "")]
+        if matches(c.closure_date or '')]
     month_changes = [c for c in db.query(models.ChangeHistory).filter(
         models.ChangeHistory.deleted_at.is_(None)).all()
-        if matches(c.change_date or "")]
+        if matches(c.change_date or '')]
     month_new = [m for m in all_members
-                 if m.registration_type == "신규" and matches(m.approval_date or "")]
+                 if m.registration_type == "신규" and matches(m.approval_date or '')]
 
     change_by_type: dict = {}
     for c in month_changes:
@@ -425,11 +447,22 @@ async def monthly_report_auto(
         "대표자변경": change_by_type.get("대표자변경", 0),
         "차량변경": change_by_type.get("구조변경", 0) + change_by_type.get("번호변경", 0),
         "주소변경": change_by_type.get("주소지변경", 0),
-        "취업신고": 0,  # 확인 필요
-        "퇴사신고": 0,  # 확인 필요
-        "자격증재교부": None,  # 확인 필요
+        "취업신고": 0,
+        "퇴사신고": 0,
+        "자격증재교부": None,
         "양도양수": len(month_transfers),
     }
+
+    # 폐업 목록에서 closure_type 폐지→폐업 통일
+    closure_list = []
+    for c in month_closures[:10]:
+        ct = c.closure_type or ''
+        if ct == '폐지': ct = '폐업'
+        closure_list.append({
+            "management_number": c.management_number, "region": c.region,
+            "vehicle_number": c.vehicle_number, "name": c.name,
+            "closure_type": ct, "closure_date": c.closure_date
+        })
 
     return {
         "period": {"year": target_year, "month": target_month},
@@ -446,19 +479,16 @@ async def monthly_report_auto(
             "changes": len(month_changes),
         },
         "admin_work": admin_work,
-        "education": None,   # 확인 필요
-        "enforcement": None, # 확인 필요
+        "education": None,
+        "enforcement": None,
         "month_new_list": [{"region": m.region, "vehicle_number": m.vehicle_number,
                              "name": m.name, "approval_date": m.approval_date}
                            for m in month_new[:10]],
         "month_transfer_list": [{"region": t.region, "vehicle_number": t.vehicle_number,
                                   "transferor": t.transferor, "transferee": t.transferee,
-                                  "approval_date": t.approval_date}
+                                  "process_date": t.process_date}
                                 for t in month_transfers[:10]],
-        "month_closure_list": [{"management_number": c.management_number, "region": c.region,
-                                  "vehicle_number": c.vehicle_number, "name": c.name,
-                                  "closure_type": c.closure_type, "closure_date": c.closure_date}
-                                for c in month_closures[:10]],
+        "month_closure_list": closure_list,
     }
 
 

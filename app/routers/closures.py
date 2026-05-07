@@ -71,12 +71,22 @@ async def list_closures(
         and_(models.Closure.name.isnot(None), models.Closure.name != ''),
     ))
 
-    from app.excel_utils import parse_date_sort
-    all_items = base_q.with_entities(models.Closure.id, models.Closure.closure_date).all()
-    reverse = (date_order or "desc") == "desc"
-    all_items.sort(key=lambda r: parse_date_sort(r[1] or ""), reverse=reverse)
-    total = len(all_items)
-    page_ids = [r[0] for r in all_items[(page - 1) * limit: page * limit]]
+    date_order_v = date_order or "desc"
+    # 날짜 기준 정렬 (기본) or 관리번호 기준 정렬
+    if date_order_v in ("mgmt_desc", "mgmt_asc"):
+        sort_dir = "desc" if date_order_v == "mgmt_desc" else "asc"
+        from app import crud as _crud
+        all_items_raw = base_q.with_entities(models.Closure.id, models.Closure.management_number, models.Closure.closure_date).all()
+        from app.excel_utils import mgmt_sort_key, parse_date_sort
+        reverse = sort_dir == "desc"
+        all_items_raw.sort(key=lambda r: mgmt_sort_key(r[1] or ''), reverse=reverse)
+    else:
+        from app.excel_utils import parse_date_sort
+        all_items_raw = base_q.with_entities(models.Closure.id, models.Closure.closure_date).all()
+        reverse = date_order_v == "desc"
+        all_items_raw.sort(key=lambda r: parse_date_sort(r[1] or ""), reverse=reverse)
+    total = len(all_items_raw)
+    page_ids = [r[0] for r in all_items_raw[(page - 1) * limit: page * limit]]
     if page_ids:
         items = db.query(models.Closure).filter(models.Closure.id.in_(page_ids)).all()
         items_by_id = {i.id: i for i in items}

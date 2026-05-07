@@ -111,6 +111,15 @@ async def list_members(
             search=search, search_fields=SEARCH, filters=filters,
             nonempty_any=nonempty,
         )
+    elif member_sort in ("mgmt_desc", "mgmt_asc"):
+        # 관리번호 기준 자연정렬 (연도+번호, 개인/택배 구분 없이)
+        sort_dir = "desc" if member_sort == "mgmt_desc" else "asc"
+        items, total = crud.get_sorted_page_mgmt(
+            db, models.LicenseHolder, sort_dir=sort_dir,
+            page=page, limit=limit,
+            search=search, search_fields=SEARCH, filters=filters,
+            nonempty_any=nonempty, fallback_date_field="approval_date",
+        )
     else:
         # 기본: 지역(가나다) + 차량번호(자연정렬)
         items, total = crud.get_region_vehicle_page(
