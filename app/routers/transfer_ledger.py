@@ -220,23 +220,32 @@ async def list_transfers(
 
     # 정렬 분기
     if effective_sort in ("mgmt_desc", "mgmt_asc"):
-        # 관리번호 자연정렬 + 빈값은 receipt_date로 보조 정렬
         all_rows = base_q.with_entities(
             models.TransferLedger.id,
             models.TransferLedger.management_number,
+            models.TransferLedger.seq_number,
             models.TransferLedger.receipt_date,
             models.TransferLedger.process_date).all()
         reverse = effective_sort == "mgmt_desc"
 
         def mgmt_sort_fn(r):
-            from datetime import datetime
-            mk = mgmt_sort_key(str(r[1] or ''))
+            from datetime import datetime as _dt
+            mgmt   = str(r[1] or '').strip()
+            seq    = str(r[2] or '').strip()
+            mk = mgmt_sort_key(mgmt)
             if mk[0] > 0:
-                # 관리번호 있는 행: 2층으로 (관리번호가 날짜 행보다 위)
-                return (2, mk[0], mk[1], 0)
-            # 관리번호 없는 행: 날짜로 보조정렬 (1층)
-            d = parse_date_sort(r[2] or '') if r[2] else parse_date_sort(r[3] or '')
-            if d != datetime.min:
+                # 관리번호가 있으면 (year, num) 기준 최상단
+                return (3, mk[0], mk[1], 0)
+            # 관리번호 없음: seq_number를 숫자로 파싱해서 차선 정렬
+            try:
+                seq_int = int(float(seq)) if seq else 0
+            except (ValueError, TypeError):
+                seq_int = 0
+            if seq_int > 0:
+                return (2, 0, seq_int, 0)
+            # seq도 없으면 날짜
+            d = parse_date_sort(r[3] or '') if r[3] else parse_date_sort(r[4] or '')
+            if d != _dt.min:
                 return (1, d.year, d.month, d.day)
             return (0, 0, 0, 0)
 

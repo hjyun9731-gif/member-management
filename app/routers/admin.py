@@ -114,3 +114,57 @@ async def db_status(db: Session = Depends(get_db), _=Depends(require_admin)):
             "delivery": db.query(models.LicenseHolder).filter(models.LicenseHolder.deleted_at.is_(None), models.LicenseHolder.category=='택배').count(),
         }
     }
+
+
+@router.post("/backfill-transfer-mgmt")
+async def backfill_transfer_management_numbers(
+    db: Session = Depends(get_db), _=Depends(require_admin)
+):
+    """기존 TransferLedger에 management_number가 없는 행을 seq_number+data_year로 채움
+    형식: 양YY-NN (예: 양26-28, 양00-15)
+    """
+    import re
+    rows = db.query(models.TransferLedger).filter(
+        models.TransferLedger.deleted_at.is_(None),
+        models.TransferLedger.management_number.is_(None) |
+        (models.TransferLedger.management_number == '')
+    ).all()
+
+    updated = skipped = 0
+    for r in rows:
+        seq = str(r.seq_number or '').strip()
+        try:
+            seq_int = int(float(seq)) if seq else 0
+        except (ValueError, TypeError):
+            seq_int = 0
+
+        if seq_int <= 0:
+            skipped += 1
+            continue
+
+        # data_year 또는 receipt_date/approval_date에서 연도 추출
+        year = r.data_year if hasattr(r, 'data_year') and r.data_year else None
+        if not year:
+            for date_field in [r.receipt_date, r.approval_date, r.process_date]:
+                if date_field:
+                    m = re.search(r'(\d{2,4})[.\-/]', str(date_field))
+                    if m:
+                        y = int(m.group(1))
+                        year = (2000 + y) if y <= 99 and y >= 0 else y
+                        break
+
+        if not year:
+            skipped += 1
+            continue
+
+        yy = str(year % 100).zfill(2)
+        r.management_number = f"양{yy}-{seq_int}"
+        updated += 1
+
+    db.commit()
+    return {
+        "updated": updated,
+        "skipped": skipped,
+        "total": len(rows),
+        "message": f"management_number 채우기 완료: {updated}건 업데이트"
+    }
