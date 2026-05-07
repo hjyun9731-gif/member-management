@@ -144,17 +144,33 @@ function _bindFmt(scope){
     });
   });
 }
-// 저장 전 유효성 검사
+// 저장 전 유효성 검사 - 형식이 맞지 않아도 저장 허용 (경고만 표시)
 function _validateFmt(form){
-  const mobile=(form.querySelector('[name="mobile"]')||{}).value||'';
-  const resident=(form.querySelector('[name="resident_number"]')||{}).value||'';
-  if(mobile&&!/^\d{2,3}-\d{3,4}-\d{4}$/.test(mobile)){
-    toast('핸드폰 형식을 확인해주세요 (예: 010-1234-5678)','warn');return false;
-  }
-  if(resident&&!/^\d{6}-\d{7}$/.test(resident)){
-    toast('주민등록번호 형식을 확인해주세요 (예: 000000-0000000)','warn');return false;
-  }
-  return true;
+  // 전화번호: 숫자+하이픈 형식이면 OK, 완전히 다른 형식이면 경고 후 계속
+  const checkPhone=(name)=>{
+    const el=form.querySelector(`[name="${name}"]`);
+    const val=(el&&el.value)||'';
+    if(!val)return true; // 빈칸은 OK
+    // 숫자와 하이픈만 있으면 OK (길이 무관)
+    if(/^[\d\-\.\s]+$/.test(val))return true;
+    toast(`${name} 전화번호 형식을 확인해주세요`,'warn');
+    return false;
+  };
+  const checkResident=(name)=>{
+    const el=form.querySelector(`[name="${name}"]`);
+    const val=(el&&el.value)||'';
+    if(!val)return true;
+    // 6자리-7자리 또는 13자리 숫자면 OK
+    if(/^\d{6}-?\d{7}$/.test(val.replace(/\s/g,'')))return true;
+    // 형식 안맞아도 강제로 통과 (경고만)
+    toast('주민등록번호 형식을 확인하세요 (예: 000000-0000000)','warn');
+    return true; // 경고만, 저장은 허용
+  };
+  checkPhone('mobile');
+  checkPhone('agent_mobile');
+  checkResident('resident_number');
+  checkResident('agent_resident_number');
+  return true; // 항상 저장 허용
 }
 
 // PAGINATION
@@ -591,11 +607,19 @@ window.editMember=async(id,defaultCat='개인')=>{
   document.getElementById('_mSave').onclick=async()=>{
     const form=document.getElementById('mForm');
     if(!form.checkValidity()){form.reportValidity();return;}
-    if(!_validateFmt(form))return;
+    _validateFmt(form); // 경고만, 저장은 계속
     const fd=Object.fromEntries(new FormData(form));
     if(!id)fd.category=fd.vehicle_number?.includes('배')?'택배':'개인';
-    const res=await api(id?'PUT':'POST',id?`/api/members/${id}`:'/api/members',fd).catch(()=>null);
-    if(res){toast(id?'수정되었습니다.':'등록되었습니다.');closeModal();navigate(ST.cat,ST.sub);}
+    const btn=document.getElementById('_mSave');
+    btn.disabled=true;btn.textContent='저장 중...';
+    try{
+      const res=await api(id?'PUT':'POST',id?`/api/members/${id}`:'/api/members',fd);
+      if(res){toast(id?'수정되었습니다.':'등록되었습니다.');closeModal();navigate(ST.cat,ST.sub);}
+    }catch(e){
+      // api()에서 이미 toast 표시됨
+    }finally{
+      btn.disabled=false;btn.textContent=id?'저장':'등록';
+    }
   };
 };
 

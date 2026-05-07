@@ -29,7 +29,7 @@ except Exception as e:
 
 # 컬럼 마이그레이션: 새 컬럼이 없으면 추가
 def _run_migrations():
-    """신규 컬럼이 기존 DB에 없을 경우 ALTER TABLE로 추가"""
+    """신규 컬럼이 기존 DB에 없을 경우 ALTER TABLE로 추가 (컬럼별 독립 트랜잭션)"""
     from sqlalchemy import text, inspect as sa_inspect
     is_sqlite = "sqlite" in DATABASE_URL
 
@@ -37,7 +37,9 @@ def _run_migrations():
     try:
         inspector = sa_inspect(engine)
         existing_cols = {c["name"] for c in inspector.get_columns("license_holders")}
-    except Exception:
+        logger.info(f"현재 license_holders 컬럼: {sorted(existing_cols)}")
+    except Exception as ex:
+        logger.warning(f"컬럼 조회 실패 (전체 마이그레이션 시도): {ex}")
         existing_cols = set()
 
     new_cols = [
@@ -48,20 +50,22 @@ def _run_migrations():
         ("agent_mobile",          "VARCHAR(50)"),
     ]
 
-    with engine.begin() as conn:
-        for col_name, col_type in new_cols:
-            if col_name in existing_cols:
-                continue  # 이미 있는 컬럼 스킵
-            try:
+    for col_name, col_type in new_cols:
+        if col_name in existing_cols:
+            continue  # 이미 있는 컬럼 스킵
+        # 컬럼별로 독립 트랜잭션
+        try:
+            with engine.begin() as conn:
                 if is_sqlite:
                     conn.execute(text(
                         f"ALTER TABLE license_holders ADD COLUMN {col_name} {col_type}"))
                 else:
+                    # PostgreSQL: IF NOT EXISTS (오류 방지)
                     conn.execute(text(
                         f"ALTER TABLE license_holders ADD COLUMN IF NOT EXISTS {col_name} {col_type}"))
-                logger.info(f"마이그레이션 완료: license_holders.{col_name} 추가")
-            except Exception as e:
-                logger.warning(f"마이그레이션 스킵 ({col_name}): {e}")
+            logger.info(f"마이그레이션 완료: license_holders.{col_name} 추가")
+        except Exception as e:
+            logger.warning(f"마이그레이션 스킵 ({col_name}): {e}")
 
 try:
     _run_migrations()

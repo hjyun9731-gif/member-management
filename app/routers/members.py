@@ -216,13 +216,27 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
         from app.excel_utils import _normalize_region
         data["region"] = _normalize_region(data["region"])
 
-    # 허용 필드만 필터링 (프론트에서 불필요한 값이 와도 안전하게 처리)
+    # 허용 필드만 필터링
     filtered_data = {k: v for k, v in data.items() if k in _ALLOWED_UPDATE_FIELDS}
+
+    # 새로 추가된 컬럼이 실제 DB에 없을 경우 안전하게 제거
+    _new_cols = {"reapproval_date", "official_address", "agent_name",
+                 "agent_resident_number", "agent_mobile"}
+    for col in list(_new_cols):
+        if col in filtered_data and not hasattr(m, col):
+            filtered_data.pop(col)
 
     # 변경 전 값 스냅샷
     before_snap = {f: getattr(m, f, "") or "" for f in _AUTO_CHANGE_FIELDS}
 
-    updated = crud.update_item(db, m, filtered_data)
+    # 기본 필드 업데이트
+    for k, v in filtered_data.items():
+        try:
+            setattr(m, k, v)
+        except Exception:
+            pass  # 컬럼이 없으면 스킵
+
+    m.updated_at = datetime.datetime.utcnow()
 
     # 변경된 필드 자동 기록
     today = datetime.datetime.now().strftime("%Y-%m-%d")
@@ -230,25 +244,30 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
         old_val = before_snap[field]
         new_val = filtered_data.get(field, old_val)
         if old_val != new_val and new_val:
-            ch = models.ChangeHistory(
-                change_type=change_type,
-                region=updated.region or "",
-                vehicle_number=updated.vehicle_number or "",
-                name=updated.name or "",
-                before_value=old_val,
-                after_value=str(new_val),
-                change_date=today,
-                memo="회원정보 수정 자동기록",
-                member_id=mid,
-            )
-            db.add(ch)
+            try:
+                ch = models.ChangeHistory(
+                    change_type=change_type,
+                    region=getattr(m, "region", "") or "",
+                    vehicle_number=getattr(m, "vehicle_number", "") or "",
+                    name=getattr(m, "name", "") or "",
+                    before_value=old_val,
+                    after_value=str(new_val),
+                    change_date=today,
+                    memo="회원정보 수정 자동기록",
+                    member_id=mid,
+                )
+                db.add(ch)
+            except Exception:
+                pass  # 변경이력 저장 실패해도 회원 수정은 계속
+
     try:
         db.commit()
+        db.refresh(m)
     except Exception as e:
         db.rollback()
-        raise HTTPException(500, f"저장 오류: {e}")
+        raise HTTPException(500, f"저장 오류: {str(e)}")
 
-    return _fmt(updated)
+    return _fmt(m)
 
 
 @router.delete("/{mid}")
