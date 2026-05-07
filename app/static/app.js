@@ -510,6 +510,8 @@ async function renderMember(category){
         <select id="${key}MemF" class="fsel"><option value="">가입/미가입</option><option value="가입">가입</option><option value="미가입">미가입</option></select>
         <select id="${key}SortF" class="fsel">
           <option value="default" ${(!f.member_sort||f.member_sort==='default')?'selected':''}>지역+차량번호순</option>
+          <option value="mgmt_desc" ${f.member_sort==='mgmt_desc'?'selected':''}>관리번호 최신순</option>
+          <option value="mgmt_asc" ${f.member_sort==='mgmt_asc'?'selected':''}>관리번호 오래된순</option>
           <option value="approval_desc" ${f.member_sort==='approval_desc'?'selected':''}>인가일자 최신순</option>
           <option value="approval_asc" ${f.member_sort==='approval_asc'?'selected':''}>인가일자 오래된순</option>
           <option value="join_desc" ${f.member_sort==='join_desc'?'selected':''}>가입일자 최신순</option>
@@ -572,11 +574,37 @@ async function renderMember(category){
 }
 
 window.editMember=async(id,defaultCat='개인')=>{
-  let r={management_number:'',region:'',vehicle_number:'',name:'',company_name:'',address:'',phone:'',mobile:'',category:defaultCat,membership_status:'가입',membership_date:'',approval_date:'',certificate_issue_date:'',certificate_number:'',driver_license_number:'',vehicle_type:'',fuel_type:'',business_number:'',affiliated_company:'',resident_number:'',memo:'',reapproval_date:'',official_address:'',agent_name:'',agent_resident_number:'',agent_mobile:''};
-  if(id){r=await api('GET',`/api/members/${id}`).catch(()=>null);if(!r)return;}
-  const isTaxi=r.category==='택배';
-  const isInd=r.category==='개인'||!r.category;
-  openModal(id?'회원 수정':'회원 등록',`<form id="mForm"><div class="fg">
+  let r={management_number:'',region:'',vehicle_number:'',name:'',company_name:'',
+    address:'',phone:'',mobile:'',category:defaultCat,
+    membership_status:'가입',membership_date:'',approval_date:'',
+    certificate_issue_date:'',certificate_number:'',driver_license_number:'',
+    vehicle_type:'',fuel_type:'',business_number:'',affiliated_company:'',
+    resident_number:'',memo:'',
+    reapproval_date:'',official_address:'',
+    agent_name:'',agent_resident_number:'',agent_mobile:''};
+  if(id){
+    r=await api('GET',`/api/members/${id}`).catch(()=>null);
+    if(!r)return;
+  }
+  const cat=r.category||defaultCat||'개인';
+  const isTaxi=(cat==='택배');
+  const isInd=(cat==='개인');
+
+  // 택배 전용 섹션 HTML
+  const taxiSection=`
+    <div class="fi-section-label cs4" style="color:var(--c-primary);font-weight:600;margin-top:8px;padding-top:8px;border-top:1px solid var(--c-border);font-size:12px">── 택배 전용 항목</div>
+    ${fi('reapproval_date','재허가',r.reapproval_date||'')}
+    <div class="fi cs2"><label>공문주소</label><input class="fc" name="official_address" value="${e_(r.official_address||'')}" placeholder="공문 발송 주소"></div>`;
+
+  // 개인 전용 섹션 HTML
+  const indSection=`
+    <div class="fi-section-label cs4" style="color:var(--c-primary);font-weight:600;margin-top:8px;padding-top:8px;border-top:1px solid var(--c-border);font-size:12px">── 개인 전용 항목 (대리인)</div>
+    ${fi('agent_name','대리인',r.agent_name||'')}
+    ${frn('agent_resident_number','대리인 주민등록번호',r.agent_resident_number||'')}
+    ${fph('agent_mobile','대리인 핸드폰번호',r.agent_mobile||'')}`;
+
+  const formHtml=`<form id="mForm"><div class="fg">
+    <input type="hidden" name="category" value="${e_(cat)}">
     ${fi('management_number','관리번호',r.management_number||'')}
     <div class="fi"><label>지역</label>${rsel('region',r.region||'')}</div>
     ${fi('vehicle_number','차량번호',r.vehicle_number||'',true)} ${fi('name','성명',r.name||'',true)}
@@ -586,40 +614,32 @@ window.editMember=async(id,defaultCat='개인')=>{
     ${fi('membership_date','가입일자',r.membership_date||'')} ${fi('approval_date','인가일자',r.approval_date||'')}
     ${fi('certificate_issue_date','자격증발급일자',r.certificate_issue_date||'')} ${fi('certificate_number','자격증발급번호',r.certificate_number||'')}
     ${fi('driver_license_number','운전면허번호',r.driver_license_number||'')}
-    <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||'')}" placeholder="예: 22,포터Ⅱ내장탑차 / 봉고 / 냉동탑차"></div>
+    <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||'')}" placeholder="예: 22,포터Ⅱ내장탑차"></div>
     ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),r.fuel_type||'')}
     ${fi('affiliated_company','소속업체',r.affiliated_company||'')} ${frn('resident_number','주민등록번호',r.resident_number||'')}
-    ${isTaxi||(!id)||r.category==='택배'?`
-    <div class="fi-section-label cs4" style="color:var(--c-primary);font-weight:600;margin-top:6px;font-size:12px">── 택배 전용</div>
-    ${fi('reapproval_date','재허가',r.reapproval_date||'')}
-    <div class="fi cs2"><label>공문주소</label><input class="fc" name="official_address" value="${e_(r.official_address||'')}" placeholder="공문 발송 주소"></div>
-    `:''}
-    ${isInd||(!id)||r.category==='개인'?`
-    <div class="fi-section-label cs4" style="color:var(--c-primary);font-weight:600;margin-top:6px;font-size:12px">── 개인 전용 (대리인)</div>
-    ${fi('agent_name','대리인',r.agent_name||'')}
-    ${frn('agent_resident_number','대리인 주민등록번호',r.agent_resident_number||'')}
-    ${fph('agent_mobile','대리인 핸드폰번호',r.agent_mobile||'')}
-    `:''}
+    ${isTaxi?taxiSection:''}
+    ${isInd?indSection:''}
+    ${(!id)?(taxiSection+indSection):''}
     ${fta('memo','비고',r.memo||'','cs4')}
-  </div></form>`,
-  `<button class="btn bg btn-sm" id="_mSave">${id?'저장':'등록'}</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
+  </div></form>`;
+
+  openModal(id?'회원 수정':'회원 등록',formHtml,
+    `<button class="btn bg btn-sm" id="_mSave">${id?'저장':'등록'}</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
+
   setTimeout(()=>_bindFmt(document.getElementById('mForm')),0);
   document.getElementById('_mSave').onclick=async()=>{
     const form=document.getElementById('mForm');
     if(!form.checkValidity()){form.reportValidity();return;}
-    _validateFmt(form); // 경고만, 저장은 계속
     const fd=Object.fromEntries(new FormData(form));
-    if(!id)fd.category=fd.vehicle_number?.includes('배')?'택배':'개인';
+    // 신규 등록 시 category 재계산
+    if(!id) fd.category=fd.vehicle_number?.includes('배')?'택배':'개인';
     const btn=document.getElementById('_mSave');
-    btn.disabled=true;btn.textContent='저장 중...';
+    btn.disabled=true; btn.textContent='저장 중...';
     try{
       const res=await api(id?'PUT':'POST',id?`/api/members/${id}`:'/api/members',fd);
       if(res){toast(id?'수정되었습니다.':'등록되었습니다.');closeModal();navigate(ST.cat,ST.sub);}
-    }catch(e){
-      // api()에서 이미 toast 표시됨
-    }finally{
-      btn.disabled=false;btn.textContent=id?'저장':'등록';
-    }
+    }catch(e){/* api()에서 toast 표시됨 */}
+    finally{btn.disabled=false; btn.textContent=id?'저장':'등록';}
   };
 };
 
