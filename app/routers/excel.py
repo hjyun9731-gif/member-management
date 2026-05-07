@@ -115,7 +115,6 @@ async def upload(
                         for k in ('비고', '변경내용', '변경유형', '구분', '변경종류', '메모'):
                             if k in rec['raw_data']:
                                 probe_texts.append(str(rec['raw_data'][k] or ''))
-                    from app.routers.change_history import normalize_change_type
                     for txt in probe_texts:
                         if txt and txt.strip():
                             detected = normalize_change_type(txt)
