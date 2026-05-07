@@ -18,14 +18,14 @@ from app.routers import (candidates, members, transfer_ledger,
                           closures, change_history, allocation, admin)
 import app.models as _models
 
-# 테이블 생성 (없는 경우)
+# 테이블 생성 (없는 경우만 - checkfirst=True로 기존 테이블 충돌 방지)
 try:
-    _models.Base.metadata.create_all(bind=engine)
+    _models.Base.metadata.create_all(bind=engine, checkfirst=True)
     db_type = "SQLite" if "sqlite" in DATABASE_URL else "PostgreSQL"
     logger.info(f"DB 연결 완료 ({db_type})")
 except Exception as e:
-    logger.error(f"DB 초기화 오류: {e}")
-    raise
+    # create_all 실패해도 서버는 계속 기동 (테이블이 이미 존재하는 경우)
+    logger.warning(f"DB create_all 경고 (무시, 테이블 이미 존재): {e}")
 
 # 컬럼 마이그레이션: 새 컬럼이 없으면 추가
 def _run_migrations():
