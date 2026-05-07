@@ -57,7 +57,7 @@ async def save_allocation(data: dict, db: Session = Depends(get_db), _=Depends(g
             setattr(row, f, int(data.get(f, 0)))
         row.memo = data.get("memo", "")
         from datetime import datetime
-        row.updated_at = datetime.utcnow()
+        row.updated_at = datetime.datetime.now(datetime.timezone.utc)
     else:
         row = models.AllocationCount(
             year=year, month=month,

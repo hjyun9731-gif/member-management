@@ -242,7 +242,7 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
         except Exception as ex:
             logger.warning(f"setattr {k}={v} 실패: {ex}")
 
-    m.updated_at = datetime.datetime.utcnow()
+    m.updated_at = datetime.datetime.now(datetime.timezone.utc)
 
     # 변경된 필드 자동 기록
     today = datetime.datetime.now().strftime("%Y-%m-%d")

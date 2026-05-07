@@ -119,7 +119,7 @@ async def save_entry(year: int = Query(...), month: int = Query(...),
         entry.execution_date = data.get("execution_date", "")
         entry.memo = data.get("memo", "")
         entry.custom_data = data.get("custom_data", {})
-        entry.updated_at = datetime.utcnow()
+        entry.updated_at = datetime.datetime.now(datetime.timezone.utc)
     else:
         entry = models.MonthlyReportEntry(year=year, month=month,
             document_number=data.get("document_number", ""),

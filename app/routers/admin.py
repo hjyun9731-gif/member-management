@@ -34,7 +34,7 @@ async def reset_table(
     if not model:
         raise HTTPException(400, f"알 수 없는 테이블: {table_name}. 가능: {list(TABLE_MAP.keys())}")
 
-    now = datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc)
     if hasattr(model, "deleted_at"):
         updated = db.query(model).filter(model.deleted_at.is_(None)).update(
             {"deleted_at": now}, synchronize_session=False
@@ -53,7 +53,7 @@ async def reset_all(
     current_user=Depends(require_admin),
 ):
     """모든 업로드 데이터 초기화 (사용자/설정 제외)"""
-    now = datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc)
     counts = {}
     for name, model in TABLE_MAP.items():
         if hasattr(model, "deleted_at"):

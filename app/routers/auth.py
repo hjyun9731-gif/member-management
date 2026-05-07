@@ -79,7 +79,7 @@ async def delete_user(
         raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
     if user.username == "admin":
         raise HTTPException(status_code=400, detail="기본 관리자 계정은 삭제할 수 없습니다.")
-    from datetime import datetime
-    user.deleted_at = datetime.utcnow()
+    import datetime as _dt
+    user.deleted_at = _dt.datetime.now(_dt.timezone.utc)
     db.commit()
     return {"message": "삭제되었습니다."}

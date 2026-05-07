@@ -282,14 +282,14 @@ def update_item(db: Session, db_item, data: dict):
     for k, v in data.items():
         if hasattr(db_item, k):
             setattr(db_item, k, v)
-    db_item.updated_at = datetime.utcnow()
+    db_item.updated_at = datetime.datetime.now(datetime.timezone.utc)
     db.commit()
     db.refresh(db_item)
     return db_item
 
 
 def soft_delete(db: Session, db_item):
-    db_item.deleted_at = datetime.utcnow()
+    db_item.deleted_at = datetime.datetime.now(datetime.timezone.utc)
     db.commit()
 
 
