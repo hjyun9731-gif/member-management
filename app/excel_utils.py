@@ -827,13 +827,17 @@ def mgmt_sort_key(mgmt: str) -> tuple:
     """관리번호 자연정렬 키: 연도+번호 기준 (90~99=1990~1999, 00~현재=2000~현재).
     예: '신26-181' → (2026, 181), '폐-80' → (9999, 80), '26-099' → (2026, 99)
     개인/택배 구분 없이 동일 기준 적용.
+    빈값/None은 내림차순 시 맨 아래로 (0, 0) 반환.
     """
     from datetime import datetime as _dt
     cur_yy = _dt.now().year % 100  # 예: 2026 → 26
 
-    if not mgmt:
-        return (9999, 9999, mgmt or '')
+    # 빈값/None → 정렬 맨 아래 (내림차순 기준 가장 작은 값)
+    if not mgmt or not str(mgmt).strip():
+        return (0, 0, '')
+
     s = str(mgmt).strip()
+
     # 한글접두어 + 2자리연도 + 번호: 신26-181, 양26-001
     m = re.match(r'^[가-힣]*(\d{2})\s*[-]\s*(\d+)', s)
     if m:
@@ -849,4 +853,4 @@ def mgmt_sort_key(mgmt: str) -> tuple:
     m = re.match(r'^(\d+)', s)
     if m:
         return (9998, int(m.group(1)), s)
-    return (9997, 0, s)
+    return (0, 0, s)  # 인식 불가 → 맨 아래

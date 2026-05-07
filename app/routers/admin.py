@@ -65,3 +65,52 @@ async def reset_all(
         counts[name] = cnt
     db.commit()
     return {"ok": True, "deleted": counts}
+
+
+@router.get("/db-status")
+async def db_status(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Railway DB 실제 상태 확인용"""
+    from sqlalchemy import text, func
+
+    # TransferLedger 상태
+    tl_total = db.query(models.TransferLedger).filter(models.TransferLedger.deleted_at.is_(None)).count()
+    tl_has_mgmt = db.query(models.TransferLedger).filter(
+        models.TransferLedger.deleted_at.is_(None),
+        models.TransferLedger.management_number.isnot(None),
+        models.TransferLedger.management_number != ''
+    ).count()
+    tl_has_receipt = db.query(models.TransferLedger).filter(
+        models.TransferLedger.deleted_at.is_(None),
+        models.TransferLedger.receipt_date.isnot(None),
+        models.TransferLedger.receipt_date != ''
+    ).count()
+
+    # 샘플 10건
+    samples = db.query(models.TransferLedger).filter(
+        models.TransferLedger.deleted_at.is_(None)
+    ).limit(10).all()
+
+    return {
+        "transfer_ledger": {
+            "total": tl_total,
+            "has_management_number": tl_has_mgmt,
+            "no_management_number": tl_total - tl_has_mgmt,
+            "has_receipt_date": tl_has_receipt,
+            "samples": [
+                {
+                    "id": r.id,
+                    "management_number": r.management_number,
+                    "receipt_date": r.receipt_date,
+                    "process_date": r.process_date,
+                    "approval_date": r.approval_date,
+                    "transferee": r.transferee,
+                }
+                for r in samples
+            ]
+        },
+        "license_holders": {
+            "total": db.query(models.LicenseHolder).filter(models.LicenseHolder.deleted_at.is_(None)).count(),
+            "individual": db.query(models.LicenseHolder).filter(models.LicenseHolder.deleted_at.is_(None), models.LicenseHolder.category=='개인').count(),
+            "delivery": db.query(models.LicenseHolder).filter(models.LicenseHolder.deleted_at.is_(None), models.LicenseHolder.category=='택배').count(),
+        }
+    }

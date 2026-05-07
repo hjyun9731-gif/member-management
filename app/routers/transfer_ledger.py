@@ -220,12 +220,27 @@ async def list_transfers(
 
     # 정렬 분기
     if effective_sort in ("mgmt_desc", "mgmt_asc"):
-        # 관리번호 자연정렬
+        # 관리번호 자연정렬 + 빈값은 receipt_date로 보조 정렬
         all_rows = base_q.with_entities(
             models.TransferLedger.id,
-            models.TransferLedger.management_number).all()
+            models.TransferLedger.management_number,
+            models.TransferLedger.receipt_date,
+            models.TransferLedger.process_date).all()
         reverse = effective_sort == "mgmt_desc"
-        all_rows.sort(key=lambda r: mgmt_sort_key(str(r[1] or '')), reverse=reverse)
+
+        def mgmt_sort_fn(r):
+            from datetime import datetime
+            mk = mgmt_sort_key(str(r[1] or ''))
+            if mk[0] > 0:
+                # 관리번호 있는 행: 2층으로 (관리번호가 날짜 행보다 위)
+                return (2, mk[0], mk[1], 0)
+            # 관리번호 없는 행: 날짜로 보조정렬 (1층)
+            d = parse_date_sort(r[2] or '') if r[2] else parse_date_sort(r[3] or '')
+            if d != datetime.min:
+                return (1, d.year, d.month, d.day)
+            return (0, 0, 0, 0)
+
+        all_rows.sort(key=mgmt_sort_fn, reverse=reverse)
     else:
         # 날짜 정렬: 접수일자 1순위, 없으면 처리일자
         all_rows = base_q.with_entities(
