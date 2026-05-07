@@ -751,7 +751,7 @@ async function renderTransferLedger(){
       </div>
       <div class="frow">
         ${rselflt('tlRegF',f.region||'')}
-        ${dateOrderSel('tlDateF',f.date_order||'desc')}
+        ${dateOrderSel('tlDateF',f.date_order||'mgmt_desc')}
         <input class="srch" id="tlSrch" placeholder="양도자, 양수자, 차량번호" value="${e_(f.search||'')}">
         <button class="btn bp btn-sm" id="tlSrchBtn">조회</button>
         <button class="btn bo btn-sm" id="tlRstBtn">초기화</button>
@@ -768,7 +768,7 @@ async function renderTransferLedger(){
   ];
 
   const doSearch=async(pg=1)=>{
-    ST.fl.tl={region:document.getElementById('tlRegF').value,date_order:document.getElementById('tlDateF').value,search:document.getElementById('tlSrch').value.trim()};
+    const tlSort=document.getElementById('tlDateF')?.value||'mgmt_desc';ST.fl.tl={region:document.getElementById('tlRegF').value,date_order:tlSort,search:document.getElementById('tlSrch').value.trim()};
     const q=new URLSearchParams({page:pg,limit:50,...Object.fromEntries(Object.entries(ST.fl.tl).filter(([,v])=>v))});
     const tw=document.getElementById('tlTbl');
     let d=null;

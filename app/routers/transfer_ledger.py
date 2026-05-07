@@ -187,7 +187,7 @@ def backfill_transfer_names(db: Session):
 async def list_transfers(
     search: Optional[str] = Query(None),
     region: Optional[str] = Query(None),
-    date_order: Optional[str] = Query("desc"),   # desc/asc/mgmt_desc/mgmt_asc
+    date_order: Optional[str] = Query("mgmt_desc"),   # mgmt_desc(기본)/mgmt_asc/desc/asc
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db), _=Depends(get_current_user),
