@@ -30,12 +30,18 @@ async function api(method,url,body=null,isForm=false){
   else if(body&&isForm) opts.body=body;
   let res;
   try{res=await fetch(url,opts);}
-  catch{toast('서버 연결 오류','err');throw new Error('net');}
+  catch(netErr){toast('서버 연결 오류','err');throw new Error('net:'+netErr.message);}
   if(res.status===401){logout();return null;}
   if(!res.ok){
-    const e=await res.json().catch(()=>({detail:'오류'}));
-    const msg=Array.isArray(e.detail)?e.detail.map(x=>x.msg).join(', '):(e.detail||'오류');
-    toast(msg,'err');throw new Error(msg);
+    let errBody='';
+    try{errBody=await res.text();}catch{}
+    let msg='';
+    try{const j=JSON.parse(errBody);msg=Array.isArray(j.detail)?j.detail.map(x=>(x.loc?x.loc.join('.')+': ':'')+x.msg).join(' | '):(j.detail||j.message||errBody);}
+    catch{msg=errBody||res.statusText;}
+    const fullMsg=`[${res.status}] ${method} ${url}\n${msg}`;
+    console.error('API Error:', fullMsg);
+    toast(`${res.status} 오류: ${msg.slice(0,120)}`,'err');
+    throw new Error(fullMsg);
   }
   return res.headers.get('content-type')?.includes('json')?res.json():res;
 }
@@ -144,34 +150,7 @@ function _bindFmt(scope){
     });
   });
 }
-// 저장 전 유효성 검사 - 형식이 맞지 않아도 저장 허용 (경고만 표시)
-function _validateFmt(form){
-  // 전화번호: 숫자+하이픈 형식이면 OK, 완전히 다른 형식이면 경고 후 계속
-  const checkPhone=(name)=>{
-    const el=form.querySelector(`[name="${name}"]`);
-    const val=(el&&el.value)||'';
-    if(!val)return true; // 빈칸은 OK
-    // 숫자와 하이픈만 있으면 OK (길이 무관)
-    if(/^[\d\-\.\s]+$/.test(val))return true;
-    toast(`${name} 전화번호 형식을 확인해주세요`,'warn');
-    return false;
-  };
-  const checkResident=(name)=>{
-    const el=form.querySelector(`[name="${name}"]`);
-    const val=(el&&el.value)||'';
-    if(!val)return true;
-    // 6자리-7자리 또는 13자리 숫자면 OK
-    if(/^\d{6}-?\d{7}$/.test(val.replace(/\s/g,'')))return true;
-    // 형식 안맞아도 강제로 통과 (경고만)
-    toast('주민등록번호 형식을 확인하세요 (예: 000000-0000000)','warn');
-    return true; // 경고만, 저장은 허용
-  };
-  checkPhone('mobile');
-  checkPhone('agent_mobile');
-  checkResident('resident_number');
-  checkResident('agent_resident_number');
-  return true; // 항상 저장 허용
-}
+function _validateFmt(form){return true;} // 형식 검증 없음 - 항상 저장 허용
 
 // PAGINATION
 function pgn(data,onPage){
@@ -629,8 +608,8 @@ window.editMember=async(id,defaultCat='개인')=>{
   setTimeout(()=>_bindFmt(document.getElementById('mForm')),0);
   document.getElementById('_mSave').onclick=async()=>{
     const form=document.getElementById('mForm');
-    if(!form.checkValidity()){form.reportValidity();return;}
     const fd=Object.fromEntries(new FormData(form));
+    if(!fd.vehicle_number||!fd.name){toast('차량번호와 성명은 필수입니다','warn');return;}
     // 신규 등록 시 category 재계산
     if(!id) fd.category=fd.vehicle_number?.includes('배')?'택배':'개인';
     const btn=document.getElementById('_mSave');
