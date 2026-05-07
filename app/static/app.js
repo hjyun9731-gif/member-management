@@ -743,7 +743,7 @@ async function renderTransferLedger(){
     <div class="card">
       <div class="card-hd">
         <div class="card-hd-l"><span class="card-ico">📋</span><span class="card-ttl">양도양수대장</span><span class="cnt" id="tlCnt">0건</span>
-          <span class="badge b-sky" style="font-size:10px;margin-left:6px">처리일자 기준</span></div>
+          <span class="badge b-sky" style="font-size:10px;margin-left:6px">접수일자 기준</span></div>
         <div class="flex gap-8">
           <button class="btn bg btn-sm" id="tlAddBtn">+ 등록</button>
           <button class="btn bxl btn-sm" id="tlXlBtn">엑셀 다운로드</button>
@@ -761,9 +761,9 @@ async function renderTransferLedger(){
 
   // 요구사항 컬럼 순서 고정
   const hdrs=[
-    {label:'관리번호'},{label:'번호'},{label:'접수일자'},{label:'처리일자'},{label:'지역'},
+    {label:'관리번호'},{label:'번호'},{label:'접수일자'},{label:'인가일자'},{label:'지역'},
     {label:'차량번호'},{label:'양도자'},{label:'양수자'},{label:'핸드폰'},
-    {label:'인가일자'},{label:'가입일자'},{label:'자격증명발급일자'},{label:'자격증명발급번호'},
+    {label:'가입일자'},{label:'자격증명발급일자'},{label:'자격증명발급번호'},
     {label:'장부정리'},{label:'전산보고'},{label:'비고'},{label:'관리',noSort:true}
   ];
 
@@ -783,13 +783,12 @@ async function renderTransferLedger(){
         <td><strong style="color:var(--c-primary)">${fv(r.management_number)}</strong></td>
         <td>${fv(r.seq_number)}</td>
         <td><strong>${fv(r.receipt_date)}</strong></td>
-        <td>${fv(r.process_date)}</td>
+        <td>${fv(r.approval_date)}</td>
         <td>${fv(r.region)}</td>
         <td><a class="tbl-link" onclick="viewTransfer(${r.id});return false">${fv(r.vehicle_number)}</a></td>
         <td><a class="tbl-link" onclick="viewTransfer(${r.id});return false">${fv(r.transferor)}</a></td>
         <td><a class="tbl-link" onclick="viewTransfer(${r.id});return false">${fv(r.transferee)}</a></td>
         <td>${fv(r.mobile)||fv(r.phone)}</td>
-        <td>${fv(r.approval_date)}</td>
         <td>${fv(r.membership_date)}</td>
         <td>${fv(r.certificate_issue_date)}</td>
         <td>${fv(r.certificate_number)}</td>
