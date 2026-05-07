@@ -518,7 +518,9 @@ def _should_skip_sheet(sheet_name: str) -> bool:
 
 
 def _read_transfer_all_sheets(content: bytes, preview: bool, preview_n: int):
-    """양도양수대장: 2000년도~2026년도 시트 ALL 읽기 (예정자 제외)"""
+    """양도양수대장: 2000년도~2026년도 시트 ALL 읽기 (예정자 제외)
+    관리번호 자동 생성: 시트 연도 + 번호 컬럼 → 양YY-NN
+    """
     import warnings; warnings.filterwarnings('ignore')
     xl = pd.ExcelFile(io.BytesIO(content), engine='openpyxl')
     all_rec, all_cmap, all_un = [], {}, []
@@ -537,13 +539,30 @@ def _read_transfer_all_sheets(content: bytes, preview: bool, preview_n: int):
                 if u not in all_un: all_un.append(u)
             extra = {'sheet_year': sheet_year, 'data_year': sheet_year}
             recs = _df_to_records(df, _TM, '양도양수대장', extra)
-            # data_year 보완: receipt_date에서도 추출
+
+            # 시트 연도 2자리 (예: 2026 → '26', 2000 → '00')
+            yy = None
+            if sheet_year:
+                yy = str(sheet_year % 100).zfill(2)
+
             for r in recs:
+                # data_year 보완: receipt_date에서도 추출
                 if not r.get('data_year'):
                     rd = r.get('receipt_date','') or r.get('approval_date','')
                     y = extract_year(rd)
                     if y: r['data_year'] = y
-            logger.info(f"[양도양수대장] 시트 '{sheet}': {len(recs)}행 (연도={sheet_year})")
+
+                # ★ 관리번호 자동 생성: 양YY-NN
+                # seq_number(번호 컬럼)와 시트 연도를 조합
+                if not r.get('management_number'):
+                    seq = r.get('seq_number', '') or ''
+                    seq_str = str(seq).strip().split('.')[0]  # 소수점 제거 (1.0 → 1)
+                    # 숫자만 추출
+                    seq_digits = re.sub(r'[^0-9]', '', seq_str)
+                    if seq_digits and yy:
+                        r['management_number'] = f"양{yy}-{seq_digits}"
+
+            logger.info(f"[양도양수대장] 시트 '{sheet}': {len(recs)}행 (연도={sheet_year}, yy={yy})")
             all_rec.extend(recs)
         except Exception as e:
             logger.error(f"[양도양수대장] 시트 '{sheet}' 오류: {e}")

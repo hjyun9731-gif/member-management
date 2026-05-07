@@ -125,15 +125,19 @@ def _find_dup(db, model, rec, file_type):
                 ).first()
 
         elif model == models.TransferLedger:
-            seq = (rec.get('seq_number') or '').strip()
-            if seq:
+            mgmt_check = mgmt  # 양YY-NN 형태
+            # management_number(양YY-NN) 기준 우선 중복 체크
+            if mgmt_check:
                 return db.query(model).filter(
-                    model.seq_number == seq, model.deleted_at.is_(None)
+                    model.management_number == mgmt_check,
+                    model.deleted_at.is_(None),
                 ).first()
-            if vn and mgmt:
+            # seq_number 기준 (같은 번호가 다른 연도 시트에 있을 수 있으므로 vehicle_number도 함께)
+            seq = (rec.get('seq_number') or '').strip()
+            if seq and vn:
                 return db.query(model).filter(
+                    model.seq_number == seq,
                     model.vehicle_number == vn,
-                    model.management_number == mgmt,
                     model.deleted_at.is_(None),
                 ).first()
 
