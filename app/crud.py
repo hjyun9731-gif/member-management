@@ -269,6 +269,10 @@ def get_sorted_page_mgmt(db: Session, model: Type, *, sort_dir: str = "desc",
     items_by_id = {i.id: i for i in items}
     return [items_by_id[pid] for pid in page_ids if pid in items_by_id], total
 
+def get_by_id(db: Session, model: Type, item_id: int):
+    return db.query(model).filter(model.id == item_id, model.deleted_at.is_(None)).first()
+
+
 def create_item(db: Session, model: Type, data: dict):
     allowed = {c.name for c in model.__table__.columns}
     db_item = model(**{k: v for k, v in data.items() if k in allowed})
