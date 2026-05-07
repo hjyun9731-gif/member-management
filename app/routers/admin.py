@@ -5,7 +5,7 @@
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.database import get_db
 from app.auth import require_admin
@@ -34,7 +34,7 @@ async def reset_table(
     if not model:
         raise HTTPException(400, f"알 수 없는 테이블: {table_name}. 가능: {list(TABLE_MAP.keys())}")
 
-    now = datetime.datetime.now(datetime.timezone.utc)
+    now = datetime.now(timezone.utc)
     if hasattr(model, "deleted_at"):
         updated = db.query(model).filter(model.deleted_at.is_(None)).update(
             {"deleted_at": now}, synchronize_session=False
@@ -53,7 +53,7 @@ async def reset_all(
     current_user=Depends(require_admin),
 ):
     """모든 업로드 데이터 초기화 (사용자/설정 제외)"""
-    now = datetime.datetime.now(datetime.timezone.utc)
+    now = datetime.now(timezone.utc)
     counts = {}
     for name, model in TABLE_MAP.items():
         if hasattr(model, "deleted_at"):
