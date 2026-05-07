@@ -138,14 +138,15 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 @app.on_event("startup")
 async def startup():
+    # startup에서는 최소 작업만 (Healthcheck 즉시 통과 필요)
     db = SessionLocal()
     try:
         create_default_admin(db)
-        # 양도자/양수자 역추출 마이그레이션 (비어있는 레코드에만 적용)
-        from app.routers.transfer_ledger import backfill_transfer_names
-        backfill_transfer_names(db)
+        # ⚠️ backfill_transfer_names 제거: 4591건 UPDATE가 startup을 blocking해서
+        # Healthcheck 실패 → Railway 배포 실패 원인
+        # 필요 시 /api/admin/db-status 확인 후 수동 실행
     except Exception as e:
-        logger.warning(f"startup migration 오류 (무시): {e}")
+        logger.warning(f"startup 오류 (무시): {e}")
     finally:
         db.close()
 

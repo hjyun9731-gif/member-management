@@ -68,7 +68,7 @@ async def reset_all(
 
 
 @router.get("/db-status")
-async def db_status(db: Session = Depends(get_db), _=Depends(get_current_user)):
+async def db_status(db: Session = Depends(get_db), _=Depends(require_admin)):
     """Railway DB 실제 상태 확인용"""
     from sqlalchemy import text, func
 
