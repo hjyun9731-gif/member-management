@@ -567,10 +567,14 @@ def _read_member_sheets(content: bytes, preview: bool, preview_n: int):
             for u in un:
                 if u not in all_un: all_un.append(u)
             recs = _df_to_records(df, _CM, '면허자현황')
+            # ★ 시트 이름이 '개인' 또는 '택배'이면 category를 강제 설정
+            force_cat = sheet if sheet in ('개인', '택배') else None
             for r in recs:
+                if force_cat:
+                    r['category'] = force_cat  # 엑셀 컬럼값 덮어쓰기
                 y = extract_year(r.get('approval_date',''))
                 if y: r['data_year'] = y
-            logger.info(f"[면허자현황] 시트 '{sheet}': {len(recs)}행")
+            logger.info(f"[면허자현황] 시트 '{sheet}': {len(recs)}행 (category={force_cat})")
             all_rec.extend(recs)
         except Exception as e:
             logger.error(f"[면허자현황] 시트 '{sheet}' 오류: {e}")
