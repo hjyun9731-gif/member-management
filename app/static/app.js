@@ -768,7 +768,7 @@ async function renderTransferLedger(){
   ];
 
   const doSearch=async(pg=1)=>{
-    const tlSort=document.getElementById('tlDateF')?.value||'mgmt_desc';ST.fl.tl={region:document.getElementById('tlRegF').value,date_order:tlSort,search:document.getElementById('tlSrch').value.trim()};
+    const tlSort=document.getElementById('tlDateF')?.value||'mgmt_desc';const tlIsDate=(tlSort==='desc'||tlSort==='asc');ST.fl.tl={region:document.getElementById('tlRegF').value,member_sort:tlIsDate?undefined:tlSort,date_order:tlIsDate?tlSort:undefined,search:document.getElementById('tlSrch').value.trim()};
     const q=new URLSearchParams({page:pg,limit:50,...Object.fromEntries(Object.entries(ST.fl.tl).filter(([,v])=>v))});
     const tw=document.getElementById('tlTbl');
     let d=null;

@@ -187,13 +187,18 @@ def backfill_transfer_names(db: Session):
 async def list_transfers(
     search: Optional[str] = Query(None),
     region: Optional[str] = Query(None),
-    date_order: Optional[str] = Query("mgmt_desc"),   # mgmt_desc(기본)/mgmt_asc/desc/asc
+    date_order: Optional[str] = Query("desc"),    # 날짜 정렬: desc/asc
+    member_sort: Optional[str] = Query(None),      # 관리번호 정렬: mgmt_desc/mgmt_asc
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db), _=Depends(get_current_user),
 ):
     from app.excel_utils import mgmt_sort_key, parse_date_sort
     from sqlalchemy.orm import defer
+
+    # member_sort가 있으면 우선 적용, 없으면 date_order 사용
+    # (하위호환: date_order=mgmt_desc 형태도 처리)
+    effective_sort = member_sort or date_order or "mgmt_desc"
 
     base_q = (db.query(models.TransferLedger)
               .filter(models.TransferLedger.deleted_at.is_(None))
@@ -207,31 +212,31 @@ async def list_transfers(
         if conds:
             base_q = base_q.filter(or_(*conds))
 
-    # 빈 행 제외 (차량번호 또는 양수자 있는 행만)
     from sqlalchemy import or_ as _or
     base_q = base_q.filter(_or(
         models.TransferLedger.vehicle_number.isnot(None),
         models.TransferLedger.transferee.isnot(None),
     ))
 
-    # 정렬: mgmt_desc/mgmt_asc → 관리번호 자연정렬, 나머지 → 접수일자 기준
-    if date_order in ("mgmt_desc", "mgmt_asc"):
+    # 정렬 분기
+    if effective_sort in ("mgmt_desc", "mgmt_asc"):
+        # 관리번호 자연정렬
         all_rows = base_q.with_entities(
-            models.TransferLedger.id, models.TransferLedger.management_number).all()
-        reverse = date_order == "mgmt_desc"
+            models.TransferLedger.id,
+            models.TransferLedger.management_number).all()
+        reverse = effective_sort == "mgmt_desc"
         all_rows.sort(key=lambda r: mgmt_sort_key(str(r[1] or '')), reverse=reverse)
     else:
-        # 1순위: 접수일자(receipt_date), 없으면 처리일자(process_date)
+        # 날짜 정렬: 접수일자 1순위, 없으면 처리일자
         all_rows = base_q.with_entities(
             models.TransferLedger.id,
             models.TransferLedger.receipt_date,
             models.TransferLedger.process_date).all()
-        reverse = (date_order or "desc") == "desc"
+        reverse = (effective_sort or "desc") == "desc"
 
         def sort_key(r):
-            # 접수일자 우선, 없으면 처리일자
-            d = parse_date_sort(r[1] or '') 
             from datetime import datetime
+            d = parse_date_sort(r[1] or '')
             if d == datetime.min:
                 d = parse_date_sort(r[2] or '')
             return d
