@@ -71,45 +71,32 @@ def _raw_get(raw: dict, keys: list) -> str:
 # 포맷 함수
 # ─────────────────────────────────────────────
 def _fmt(t):
-    """목록용 - raw_data 접근 없음 (성능 최적화)"""
-    raw_pd = t.process_date or ''
-    raw_rd = t.receipt_date or ''
-
-    # 날짜 정제: 날짜+메모 혼합 셀에서 날짜만 추출
-    clean_pd = _clean_date(raw_pd)
-    clean_rd = _clean_date(raw_rd)
-
-    # 날짜 셀에서 추출된 메모 → 기존 memo에 병합
-    pd_memo = _extract_memo(raw_pd)
-    rd_memo = _extract_memo(raw_rd)
-    existing_memo = t.memo or ''
-    extra = [m for m in [pd_memo, rd_memo] if m and m not in existing_memo]
-    combined_memo = ' | '.join([existing_memo] + extra) if extra else existing_memo
-
+    """양도양수대장 날짜: 접수일자(receipt_date=B열), 인가일자(approval_date=K열).
+    처리일자(process_date) 개념 없음 - 엑셀에 해당 컬럼 존재하지 않음.
+    """
     return {
         "id": t.id,
-        "seq_number": t.seq_number or "",
-        "receipt_date": clean_rd,
-        "process_date": clean_pd,
-        "region": t.region or "",
-        "vehicle_number": t.vehicle_number or "",
-        "transferor": t.transferor or "",
-        "transferee": t.transferee or "",
-        "resident_number": t.resident_number or "",
-        "address": t.address or "",
-        "phone": t.phone or "",
-        "mobile": t.mobile or "",
-        "approval_date": t.approval_date or "",
-        "membership_date": t.membership_date or "",
+        "seq_number":            t.seq_number or "",
+        "management_number":     t.management_number or "",
+        "region":                t.region or "",
+        "vehicle_number":        t.vehicle_number or "",
+        "transferor":            t.transferor or "",
+        "transferee":            t.transferee or "",
+        "resident_number":       t.resident_number or "",
+        "address":               t.address or "",
+        "phone":                 t.phone or "",
+        "mobile":                t.mobile or "",
+        "receipt_date":          _clean_date(t.receipt_date or ""),    # 접수일자 (B열)
+        "approval_date":         _clean_date(t.approval_date or ""),   # 인가일자 (K열)
+        "membership_date":       _clean_date(t.membership_date or ""),
         "certificate_issue_date": t.certificate_issue_date or "",
-        "certificate_number": t.certificate_number or "",
-        "ledger_update": t.ledger_update or "",
+        "certificate_number":    t.certificate_number or "",
+        "ledger_update":         t.ledger_update or "",
         "driver_license_number": t.driver_license_number or "",
-        "computer_report": t.computer_report or "",
-        "memo": combined_memo,
-        "management_number": t.management_number or "",
-        "member_id": t.member_id,
-        "created_at": str(t.created_at)[:16] if t.created_at else None,
+        "computer_report":       t.computer_report or "",
+        "memo":                  t.memo or "",
+        "member_id":             t.member_id,
+        "created_at":            str(t.created_at)[:16] if t.created_at else None,
     }
 
 
@@ -224,8 +211,7 @@ async def list_transfers(
             models.TransferLedger.id,
             models.TransferLedger.management_number,
             models.TransferLedger.seq_number,
-            models.TransferLedger.receipt_date,
-            models.TransferLedger.process_date).all()
+            models.TransferLedger.receipt_date).all()
         reverse = effective_sort == "mgmt_desc"
 
         def mgmt_sort_fn(r):
@@ -244,7 +230,7 @@ async def list_transfers(
             if seq_int > 0:
                 return (2, 0, seq_int, 0)
             # seq도 없으면 날짜
-            d = parse_date_sort(r[3] or '') if r[3] else parse_date_sort(r[4] or '')
+            d = parse_date_sort(r[3] or '')
             if d != _dt.min:
                 return (1, d.year, d.month, d.day)
             return (0, 0, 0, 0)
@@ -254,8 +240,7 @@ async def list_transfers(
         # 날짜 정렬: 접수일자 1순위, 없으면 처리일자
         all_rows = base_q.with_entities(
             models.TransferLedger.id,
-            models.TransferLedger.receipt_date,
-            models.TransferLedger.process_date).all()
+            models.TransferLedger.receipt_date).all()
         reverse = (effective_sort or "desc") == "desc"
 
         def sort_key(r):

@@ -101,8 +101,7 @@ async def db_status(db: Session = Depends(get_db), _=Depends(require_admin)):
                     "id": r.id,
                     "management_number": r.management_number,
                     "receipt_date": r.receipt_date,
-                    "process_date": r.process_date,
-                    "approval_date": r.approval_date,
+                                        "approval_date": r.approval_date,
                     "transferee": r.transferee,
                 }
                 for r in samples
@@ -145,7 +144,7 @@ async def backfill_transfer_management_numbers(
         # data_year 또는 receipt_date/approval_date에서 연도 추출
         year = r.data_year if hasattr(r, 'data_year') and r.data_year else None
         if not year:
-            for date_field in [r.receipt_date, r.approval_date, r.process_date]:
+            for date_field in [r.receipt_date, r.approval_date]:
                 if date_field:
                     m = re.search(r'(\d{2,4})[.\-/]', str(date_field))
                     if m:

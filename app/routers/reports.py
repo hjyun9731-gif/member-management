@@ -60,10 +60,10 @@ async def monthly(year: int = Query(...), month: int = Query(...),
     # 해당 월 신규/양도/폐업
     month_new = sum(1 for m in all_members
                     if m.registration_type == '신규' and _in_month(m.approval_date or '', year, month))
-    # 양도: process_date 기준
+    # 양도: receipt_date(접수일자) 기준
     month_transfers = sum(1 for t in db.query(models.TransferLedger).filter(
         models.TransferLedger.deleted_at.is_(None)).all()
-        if _in_month(t.process_date or '', year, month))
+        if _in_month(t.receipt_date or '', year, month))
     # 폐업: closure_date 기준
     month_closures = sum(1 for c in db.query(models.Closure).filter(
         models.Closure.deleted_at.is_(None)).all()
@@ -139,7 +139,7 @@ async def export(year: int = Query(...), month: int = Query(...),
                    if m.registration_type == "신규" and _in_month(m.approval_date or '', year, month)]
     transfer_list = [t for t in db.query(models.TransferLedger).filter(
         models.TransferLedger.deleted_at.is_(None)).all()
-        if _in_month(t.process_date or '', year, month)]
+        if _in_month(t.receipt_date or '', year, month)]
     closure_list = [c for c in db.query(models.Closure).filter(
         models.Closure.deleted_at.is_(None)).all()
         if _in_month(c.closure_date or '', year, month)]
@@ -151,7 +151,7 @@ async def export(year: int = Query(...), month: int = Query(...),
         sheet([{"관리번호": r.management_number, "지역": r.region, "차량번호": r.vehicle_number,
                 "성명": r.name, "등록구분": r.registration_type} for r in new_members], "신규등록")
         sheet([{"지역": r.region, "차량번호": r.vehicle_number, "양도자": r.transferor,
-                "양수자": r.transferee, "처리일자": r.process_date} for r in transfer_list], "양도양수")
+                "양수자": r.transferee, "접수일자": r.receipt_date, "인가일자": r.approval_date} for r in transfer_list], "양도양수")
         sheet([{"관리번호": r.management_number, "지역": r.region, "차량번호": r.vehicle_number,
                 "성명": r.name, "구분": "폐업"} for r in closure_list], "폐업")
     out.seek(0)

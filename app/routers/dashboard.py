@@ -272,11 +272,11 @@ async def activity_by_year(db: Session = Depends(get_db), _=Depends(get_current_
             result.setdefault(y, {"year": y, "new": 0, "transfer": 0, "closure": 0, "change": 0})
             result[y]["new"] += 1
 
-    # 양도양수 - process_date (처리일자) 기준
+    # 양도양수 - receipt_date (접수일자) 기준
     for t in db.query(models.TransferLedger).filter(
         models.TransferLedger.deleted_at.is_(None),
     ).all():
-        y = _ext_year(t.process_date or t.approval_date or t.receipt_date or "")
+        y = _ext_year(t.receipt_date or t.approval_date or "")
         if y and min_year <= y <= cur_year:
             result.setdefault(y, {"year": y, "new": 0, "transfer": 0, "closure": 0, "change": 0})
             result[y]["transfer"] += 1
@@ -457,7 +457,7 @@ async def monthly_report_auto(
     # 해당 월 신규/양도/폐업/변경
     month_transfers = [t for t in db.query(models.TransferLedger).filter(
         models.TransferLedger.deleted_at.is_(None)).all()
-        if matches(t.process_date or '')]
+        if matches(t.receipt_date or '')]
     month_closures = [c for c in db.query(models.Closure).filter(
         models.Closure.deleted_at.is_(None)).all()
         if matches(c.closure_date or '')]
@@ -516,7 +516,7 @@ async def monthly_report_auto(
                            for m in month_new[:10]],
         "month_transfer_list": [{"region": t.region, "vehicle_number": t.vehicle_number,
                                   "transferor": t.transferor, "transferee": t.transferee,
-                                  "process_date": t.process_date}
+                                  "receipt_date": t.receipt_date}
                                 for t in month_transfers[:10]],
         "month_closure_list": closure_list,
     }

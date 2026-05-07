@@ -268,7 +268,8 @@ _TM = {
     '성명(양수)':'transferee','양수(자)성명':'transferee',
     '장부정리':'ledger_update',
     '전산보고':'computer_report',
-    '처리일자':'process_date','처리일':'process_date',
+    # '처리일자':'process_date',  # 양도양수대장 엑셀에 처리일자 컬럼 없음
+    # '처리일':'process_date',    # 사용하지 않음
     '인가일자':'approval_date',   # 인가일자 = 관청 공문 발행일 (접수일자/처리일자와 다름)
 }
 
