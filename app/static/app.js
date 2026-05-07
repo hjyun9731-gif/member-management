@@ -174,9 +174,10 @@ function plainHeaders(headers){
 
 // 날짜 정렬 셀렉트 HTML
 function dateOrderSel(id,val='desc'){
-  return `<select id="${id}" class="fsel" style="min-width:110px">
-    <option value="desc" ${val==='desc'?'selected':''}>최신순</option>
-    <option value="asc" ${val==='asc'?'selected':''}>오래된순</option>
+  // 날짜+관리번호 통합 정렬 셀렉트
+  return `<select id="${id}" class="fsel" style="min-width:120px">
+    <option value="desc" ${val==='desc'?'selected':''}>날짜 최신순</option>
+    <option value="asc" ${val==='asc'?'selected':''}>날짜 오래된순</option>
     <option value="mgmt_desc" ${val==='mgmt_desc'?'selected':''}>관리번호↓</option>
     <option value="mgmt_asc" ${val==='mgmt_asc'?'selected':''}>관리번호↑</option>
   </select>`;
@@ -513,7 +514,10 @@ async function renderMember(category){
   ];
 
   const doSearch=async(pg=1)=>{
-    ST.fl[key]={category,region:document.getElementById(`${key}RegF`).value,membership_status:document.getElementById(`${key}MemF`).value,member_sort:document.getElementById(`${key}SortF`).value,search:document.getElementById(`${key}Srch`).value.trim()};
+    const rawSort = document.getElementById(`${key}SortF`)?.value || 'default';
+    // 이전 캐시에서 'desc'/'asc' 값이 남아있으면 'default'로 변환
+    const member_sort_val = (rawSort==='desc'||rawSort==='asc') ? 'default' : rawSort;
+    ST.fl[key]={category,region:document.getElementById(`${key}RegF`).value,membership_status:document.getElementById(`${key}MemF`).value,member_sort:member_sort_val,search:document.getElementById(`${key}Srch`).value.trim()};
     const q=new URLSearchParams({page:pg,limit:50,...Object.fromEntries(Object.entries(ST.fl[key]).filter(([,v])=>v))});
     const d=await api('GET',`/api/members?${q}`).catch(()=>null);if(!d)return;
     document.getElementById('mCnt').textContent=`${d.total.toLocaleString()}건`;
@@ -694,7 +698,7 @@ async function renderNewRegistrations(){
     ST.fl.nr={
       region:document.getElementById('nrRegF').value,
       category:document.getElementById('nrCatF').value,
-      member_sort:document.getElementById('nrDateF').value,
+      member_sort:document.getElementById('nrDateF')?.value||'mgmt_desc',
       search:document.getElementById('nrSrch').value.trim()
     };
     const q=new URLSearchParams({page:pg,limit:50,mgmt_prefix:'신',...Object.fromEntries(Object.entries(ST.fl.nr).filter(([,v])=>v))});

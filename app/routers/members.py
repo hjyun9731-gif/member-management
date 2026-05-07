@@ -100,6 +100,10 @@ async def list_members(
                "management_number_prefix": mgmt_prefix}
     nonempty = ["vehicle_number", "name"]
 
+    # 이전 버전 호환: desc/asc → default (날짜 정렬은 approval_desc/approval_asc 사용)
+    if member_sort in ("desc", "asc", None, ""):
+        member_sort = "default"
+
     if member_sort in ("approval_desc", "approval_asc"):
         # 인가일자 기준 날짜 정렬
         sort_dir = "desc" if member_sort == "approval_desc" else "asc"
