@@ -1,12 +1,13 @@
 """
 엑셀 업로드 라우터
-- 모든 행 저장 (빈 필드 있어도 절대 누락 금지)
-- 개인/택배 카운트 별도 집계
-- raw_data에 원본 데이터 전체 보존
-- 실패 = DB 오류만 (빈 필드 ≠ 실패)
+- 행별 독립 저장: 한 행 실패해도 서버 전체가 500으로 죽지 않음
+- 실패 행은 상세 정보(행번호, 차량번호, 오류메시지)와 함께 응답
+- PostgreSQL 세션 오류 방지: 행별 savepoint 사용
 """
+import re, math
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.database import get_db
 from app.auth import get_current_user
@@ -18,15 +19,119 @@ router = APIRouter()
 
 # 파일 종류 → DB 모델
 FILE_MODEL = {
-    '면허자현황':     models.LicenseHolder,
-    '양도양수대장':   models.TransferLedger,
-    '폐지현황':      models.Closure,
-    '이전폐지현황':   models.Closure,
-    '변경이력대장':   models.ChangeHistory,
-    '주소변경등록대장': models.ChangeHistory,   # 신규 통일 명칭
-    '주소지변경대장': models.ChangeHistory,     # 구 명칭 하위호환
-    '변경등록대장':   models.ChangeHistory,
+    '면허자현황':       models.LicenseHolder,
+    '양도양수대장':     models.TransferLedger,
+    '폐지현황':        models.Closure,
+    '이전폐지현황':     models.Closure,
+    '변경이력대장':     models.ChangeHistory,
+    '주소변경등록대장': models.ChangeHistory,
+    '주소지변경대장':   models.ChangeHistory,
+    '변경등록대장':     models.ChangeHistory,
 }
+
+# DB 컬럼별 최대 길이 (VARCHAR 초과 방지)
+_COL_MAX_LEN = {
+    'vehicle_number': 50, 'name': 100, 'region': 50, 'category': 20,
+    'phone': 50, 'mobile': 50, 'management_number': 50, 'status': 20,
+    'membership_status': 20, 'membership_date': 50, 'approval_date': 50,
+    'certificate_issue_date': 50, 'certificate_number': 100,
+    'permit_number': 100, 'driver_license_number': 100,
+    'vehicle_type': 50, 'fuel_type': 30, 'business_number': 50,
+    'affiliated_company': 200, 'resident_number': 30, 'company_name': 200,
+    'registration_type': 20, 'reapproval_date': 50,
+    'agent_name': 100, 'agent_resident_number': 30, 'agent_mobile': 50,
+    'change_type': 50, 'change_date': 50, 'receipt_date': 50,
+    'closure_type': 50, 'closure_date': 50, 'data_type': 50,
+    'seq_number': 50,
+}
+
+
+def _sanitize(rec: dict, allowed: set) -> dict:
+    """DB 저장 전 값 정제: NaN 제거, 길이 초과 자르기, None 처리"""
+    clean = {}
+    for k, v in rec.items():
+        if k not in allowed:
+            continue
+        # NaN / inf / None → 빈 문자열
+        if v is None:
+            clean[k] = None
+            continue
+        if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+            clean[k] = None
+            continue
+        # 문자열 변환
+        if not isinstance(v, str):
+            v = str(v)
+        # 'nan', 'None', 'NaT' → None
+        if v.strip().lower() in ('nan', 'none', 'nat', '#n/a', 'n/a', ''):
+            clean[k] = None
+            continue
+        # 길이 초과 자르기
+        max_len = _COL_MAX_LEN.get(k)
+        if max_len and len(v) > max_len:
+            v = v[:max_len]
+        clean[k] = v
+    return clean
+
+
+def _row_label(rec: dict, i: int) -> str:
+    """실패 행 식별용 레이블"""
+    vn = rec.get('vehicle_number', '')
+    nm = rec.get('name', '') or rec.get('transferee', '') or rec.get('transferor', '')
+    parts = [f"{i+2}행"]
+    if vn:
+        parts.append(vn)
+    if nm:
+        parts.append(nm)
+    return ' / '.join(parts)
+
+
+def _prep_record(rec: dict, model, file_type: str) -> dict:
+    """모델별 전처리 (정규화, 기본값 설정)"""
+    if model == models.LicenseHolder:
+        vn = rec.get('vehicle_number', '') or ''
+        rec.setdefault('category', '택배' if '배' in vn else '개인')
+        rec.setdefault('status', 'active')
+        rec.setdefault('registration_type', '엑셀업로드')
+        rec['membership_status'] = normalize_membership_status(
+            rec.get('membership_status', ''))
+
+    elif model == models.ChangeHistory:
+        ct = rec.get('change_type', '')
+        if not ct or ct in ('기타', '기타변경', ''):
+            probe = [
+                rec.get('memo', ''), rec.get('before_value', ''),
+                rec.get('after_value', ''),
+            ]
+            if isinstance(rec.get('raw_data'), dict):
+                for k in ('비고', '변경내용', '변경유형', '구분', '변경종류', '메모'):
+                    v = rec['raw_data'].get(k, '')
+                    if v:
+                        probe.append(str(v))
+            for txt in probe:
+                if txt and txt.strip():
+                    d = normalize_change_type(txt)
+                    if d and d != '기타':
+                        ct = d
+                        break
+        if file_type in ('주소변경등록대장', '주소지변경대장'):
+            rec['change_type'] = '주소지변경'
+        elif ct:
+            rec['change_type'] = normalize_change_type(ct)
+        else:
+            rec.setdefault('change_type', '기타')
+
+    elif file_type == '폐지현황':
+        rec.setdefault('data_type', '신규자료')
+        if rec.get('closure_type'):
+            rec['closure_type'] = normalize_closure_type(rec['closure_type'])
+
+    elif file_type == '이전폐지현황':
+        rec.setdefault('data_type', '이전자료')
+        if rec.get('closure_type'):
+            rec['closure_type'] = normalize_closure_type(rec['closure_type'])
+
+    return rec
 
 
 @router.post('/preview')
@@ -78,7 +183,7 @@ async def upload(
         records, unmapped = result[0], result[2]
         sheet_logs = result[3] if len(result) > 3 else []
     except Exception as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, f'파싱 오류: {e}')
 
     model = FILE_MODEL[file_type]
     allowed = {c.name for c in model.__table__.columns}
@@ -87,76 +192,32 @@ async def upload(
     errors = []
 
     for i, rec in enumerate(records):
+        label = _row_label(rec, i)
         try:
-            # 면허자현황: 차량번호 기반 카테고리 자동 판단
-            if model == models.LicenseHolder:
-                vn = rec.get('vehicle_number', '')
-                cat = '택배' if vn and '배' in vn else '개인'
-                rec.setdefault('category', cat)
-                rec.setdefault('status', 'active')
-                rec.setdefault('registration_type', '엑셀업로드')
-                ms = rec.get('membership_status', '')
-                rec['membership_status'] = normalize_membership_status(ms)
-
-            # 변경이력: change_type 정규화 + 비고/변경내용에서 재탐지
-            if model == models.ChangeHistory:
-                ct = rec.get('change_type', '')
-                if not ct or ct in ('기타', '기타변경', ''):
-                    probe_texts = [
-                        rec.get('memo', ''),
-                        rec.get('before_value', ''),
-                        rec.get('after_value', ''),
-                    ]
-                    if isinstance(rec.get('raw_data'), dict):
-                        for k in ('비고', '변경내용', '변경유형', '구분', '변경종류', '메모'):
-                            if k in rec['raw_data']:
-                                probe_texts.append(str(rec['raw_data'][k] or ''))
-                    for txt in probe_texts:
-                        if txt and txt.strip():
-                            detected = normalize_change_type(txt)
-                            if detected and detected != '기타':
-                                ct = detected
-                                break
-                # 주소변경등록대장은 항상 주소지변경으로 강제
-                if file_type in ('주소변경등록대장', '주소지변경대장'):
-                    rec['change_type'] = '주소지변경'
-                elif ct:
-                    rec['change_type'] = normalize_change_type(ct)
-                else:
-                    rec.setdefault('change_type', '기타')
-
-            if file_type == '폐지현황':
-                rec.setdefault('data_type', '신규자료')
-                if rec.get('closure_type'):
-                    rec['closure_type'] = normalize_closure_type(rec['closure_type'])
-            elif file_type == '이전폐지현황':
-                rec.setdefault('data_type', '이전자료')
-                if rec.get('closure_type'):
-                    rec['closure_type'] = normalize_closure_type(rec['closure_type'])
+            # 전처리
+            rec = _prep_record(rec, model, file_type)
 
             # 중복 체크
             existing = _find_dup(db, model, rec, file_type)
-
             if existing:
                 if duplicate_handling == 'skip':
                     duplicate += 1
                     continue
                 elif duplicate_handling == 'overwrite':
-                    clean = {k: v for k, v in rec.items() if k in allowed}
+                    clean = _sanitize(rec, allowed)
                     for k, v in clean.items():
                         setattr(existing, k, v)
+                    # SAVEPOINT로 개별 flush
                     db.flush()
                     success += 1
                     duplicate += 1
                     if model == models.LicenseHolder:
-                        if rec.get('category') == '택배':
-                            delivery += 1
-                        else:
-                            individual += 1
+                        delivery += 1 if rec.get('category') == '택배' else 0
+                        individual += 1 if rec.get('category') != '택배' else 0
                     continue
 
             # 저장
-            clean = {k: v for k, v in rec.items() if k in allowed}
+            clean = _sanitize(rec, allowed)
             db.add(model(**clean))
             db.flush()
             success += 1
@@ -167,29 +228,57 @@ async def upload(
                     individual += 1
 
         except Exception as ex:
-            # ★ flush 오류 후 반드시 rollback해야 다음 행 처리 가능
+            # PostgreSQL: 실패한 트랜잭션을 rollback해야 다음 작업 가능
             try:
                 db.rollback()
             except Exception:
                 pass
+
             err_cnt += 1
-            # 실패 행의 상세 정보 수집
-            err_fields = {k: v for k, v in rec.items()
-                          if k not in ('raw_data', 'sheet_year') and v}
+            err_msg = str(ex)
+            # 핵심 오류 메시지만 추출 (psycopg2 오류는 첫 줄이 핵심)
+            short_err = err_msg.split('\n')[0][:300]
+
             errors.append({
                 'row': i + 2,
-                'error': str(ex)[:400],
-                'fields': err_fields,
+                'label': label,
+                'vehicle_number': rec.get('vehicle_number', ''),
+                'name': rec.get('name', ''),
+                'error': short_err,
+                'error_full': err_msg[:500],
             })
 
-    db.commit()
-    db.add(models.UploadHistory(
-        file_type=file_type, filename=file.filename,
-        total_count=len(records), success_count=success,
-        duplicate_count=duplicate, error_count=err_cnt,
-        uploaded_by=current_user.username, error_details=errors[:50],
-    ))
-    db.commit()
+    # 최종 commit (성공한 행들)
+    try:
+        db.commit()
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        err_msg = str(e).split('\n')[0][:300]
+        # commit 실패는 전체 실패로 처리
+        return {
+            'total': len(records), 'success': 0,
+            'individual_count': 0, 'delivery_count': 0,
+            'duplicates': 0, 'errors': len(records),
+            'error_details': [{'row': 0, 'label': '전체', 'error': f'최종 저장 실패: {err_msg}'}],
+            'unmapped_columns': unmapped, 'sheet_logs': sheet_logs,
+            'file_type': file_type,
+        }
+
+    # 업로드 이력 저장 (별도 try로 보호)
+    try:
+        db.add(models.UploadHistory(
+            file_type=file_type, filename=file.filename,
+            total_count=len(records), success_count=success,
+            duplicate_count=duplicate, error_count=err_cnt,
+            uploaded_by=current_user.username,
+            error_details=[{'row': e['row'], 'error': e['error']} for e in errors[:50]],
+        ))
+        db.commit()
+    except Exception:
+        pass  # 이력 저장 실패는 무시
 
     return {
         'total': len(records),
@@ -198,7 +287,7 @@ async def upload(
         'delivery_count': delivery,
         'duplicates': duplicate,
         'errors': err_cnt,
-        'error_details': errors[:30],
+        'error_details': errors[:50],
         'unmapped_columns': unmapped,
         'sheet_logs': sheet_logs,
         'file_type': file_type,
@@ -266,15 +355,28 @@ async def _upload_allocation(file, db, current_user):
             db.flush()
             success += 1
         except Exception as ex:
-            errors.append({'row': i + 2, 'error': str(ex)[:200]})
-    db.commit()
-    db.add(models.UploadHistory(
-        file_type='부과대수', filename=file.filename,
-        total_count=len(records), success_count=success,
-        error_count=len(errors), uploaded_by=current_user.username,
-        error_details=errors[:30],
-    ))
-    db.commit()
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            errors.append({'row': i + 2, 'error': str(ex).split('\n')[0][:200]})
+    try:
+        db.commit()
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    try:
+        db.add(models.UploadHistory(
+            file_type='부과대수', filename=file.filename,
+            total_count=len(records), success_count=success,
+            error_count=len(errors), uploaded_by=current_user.username,
+            error_details=errors[:30],
+        ))
+        db.commit()
+    except Exception:
+        pass
     return {
         'total': len(records), 'success': success,
         'individual_count': 0, 'delivery_count': 0,

@@ -429,7 +429,7 @@ window.registerCandidate=async(cid,vn,name)=>{
 };
 window.deleteCandidate=async(cid)=>{
   if(!await cfm('이 예정자를 삭제하시겠습니까?'))return;
-  await api('DELETE',`/api/candidates/${cid}`);toast('삭제');renderCandidateSection();
+  try{await api('DELETE',`/api/candidates/${cid}`);toast('삭제');renderCandidateSection();}catch(e){}
 };
 
 async function renderTransferSection(){
@@ -837,7 +837,7 @@ window.registerTransferMember=async(tid)=>{
     if(r){toast(`${r.category}회원 등록 완료`);closeModal();renderTransferLedger();}
   };
 };
-window.deleteTransfer=async(id)=>{if(!await cfm('삭제?'))return;await api('DELETE',`/api/transfer-ledger/${id}`);toast('삭제');renderTransferLedger();};
+window.deleteTransfer=async(id)=>{if(!await cfm('삭제?'))return;try{await api('DELETE',`/api/transfer-ledger/${id}`);toast('삭제');renderTransferLedger();}catch(e){};};
 
 // ===== CLOSURES =====
 async function renderClosures(){
@@ -929,7 +929,7 @@ window.editClosure=async(id)=>{
     if(res){toast(id?'수정':'등록');closeModal();renderClosures();}
   };
 };
-window.deleteClosure=async(id)=>{if(!await cfm('삭제?'))return;await api('DELETE',`/api/closures/${id}`);toast('삭제');renderClosures();};
+window.deleteClosure=async(id)=>{if(!await cfm('삭제?'))return;try{await api('DELETE',`/api/closures/${id}`);toast('삭제');renderClosures();}catch(e){};};
 
 // ===== CHANGE HISTORY =====
 async function renderChangeHistory(){
@@ -1319,8 +1319,15 @@ async function renderUpload(){
       <div class="res-row"><span class="res-lbl">중복 처리</span><span class="res-val rv-warn">${d.duplicates||0}</span></div>
       <div class="res-row"><span class="res-lbl">실패</span><span class="res-val rv-err">${d.errors||0}</span></div>
       ${d.sheet_logs?.length?`<hr class="div"><p style="font-size:11px;color:var(--c-text-3);font-weight:600">시트별 처리 현황:</p><div class="tbl-wrap" style="margin-top:4px"><table style="font-size:11px"><thead><tr><th>시트명</th><th>처리건수</th><th>상태</th></tr></thead><tbody>${d.sheet_logs.map(s=>`<tr><td>${e_(s.sheet)}</td><td>${s.count||0}</td><td style="color:${s.status==='ok'?'var(--c-success)':s.status==='skip'||s.status==='empty'?'var(--c-text-4)':'var(--c-danger)'}">${s.status||'-'}</td></tr>`).join('')}</tbody></table></div>`:''}
-      ${d.error_details?.length?`<hr class="div"><p style="font-size:11px;color:var(--c-danger);font-weight:600">실패 상세 (총 ${d.errors}건):</p>${d.error_details.slice(0,20).map(e=>`<div style="margin:4px 0;padding:7px 10px;background:var(--c-bg-2);border-left:3px solid var(--c-danger);border-radius:4px;font-size:11px"><strong>${e.row}행</strong> — ${e_(e.error)}${e.fields?`<br><span style="color:var(--c-text-3);font-size:10px">[${e_(Object.entries(e.fields).slice(0,5).map(([k,v])=>k+':'+v).join(', '))}]</span>`:""}</div>`).join('')}`:''}
-    </div>`;
+      </div>`;
+    // 에러 상세 동적 추가 (중첩 백틱 문제 회피)
+    if(d.error_details&&d.error_details.length){
+      const errHtml=d.error_details.slice(0,30).map(function(e){
+        var lbl=e.label||(e.vehicle_number||'');
+        return '<div style="margin:4px 0;padding:7px 10px;background:var(--c-bg-2);border-left:3px solid var(--c-danger);border-radius:4px;font-size:11px"><strong>'+e.row+'행</strong>'+(lbl?' / '+e_(lbl):'')+' &mdash; '+e_(e.error)+'</div>';
+      }).join('');
+      document.getElementById('upResult').insertAdjacentHTML('beforeend','<hr><p style="font-size:11px;color:var(--c-danger);font-weight:600">실패 상세 (총 '+d.errors+'건):</p>'+errHtml);
+    }
     loadHist();
   };
   await loadHist();
