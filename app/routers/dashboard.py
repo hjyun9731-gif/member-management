@@ -161,12 +161,16 @@ async def full_stats(db: Session = Depends(get_db), _=Depends(get_current_user))
             else: bkt = "12년 이상"
             veh_year_dist[bkt] = veh_year_dist.get(bkt, 0) + 1
 
-    # 폐지/양도/이관 집계
+    # 폐지/양도/이관 집계 ('폐지'는 '폐업'으로 통일)
     cl_q = db.query(models.Closure).filter(models.Closure.deleted_at.is_(None))
     closure_by_type = {}
     for r in (cl_q.with_entities(models.Closure.closure_type, func.count())
               .group_by(models.Closure.closure_type).all()):
-        closure_by_type[r[0] or "기타"] = r[1]
+        ct = r[0] or "기타"
+        # 폐지 → 폐업으로 통일
+        if ct == '폐지':
+            ct = '폐업'
+        closure_by_type[ct] = closure_by_type.get(ct, 0) + r[1]
 
     # 부과대수 자동 계산
     now = datetime.now()
@@ -181,7 +185,7 @@ async def full_stats(db: Session = Depends(get_db), _=Depends(get_current_user))
     # 양도 건수 (양도양수대장 기준)
     transfer_count = db.query(models.TransferLedger).filter(
         models.TransferLedger.deleted_at.is_(None)).count()
-    # 폐지(폐업) 건수
+    # 폐지(폐업) 건수 - '폐지'로 저장된 데이터도 포함
     closed_count = closure_by_type.get("폐업", 0)
     # 이관 건수
     transfer_out_count = closure_by_type.get("이관", 0)
@@ -190,7 +194,7 @@ async def full_stats(db: Session = Depends(get_db), _=Depends(get_current_user))
         "협회가입": joined,
         "양도": transfer_count,
         "타도(이관)": transfer_out_count,
-        "폐지": closed_count,
+        "폐업": closed_count,
         "탈퇴": None,  # 데이터 없음
         "택배신규": db.query(models.LicenseHolder).filter(
             models.LicenseHolder.deleted_at.is_(None),

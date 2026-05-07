@@ -289,11 +289,17 @@ def get_next_transfer_member_number(db: Session) -> str:
 
 
 def get_next_closure_number(db: Session, closure_type: str) -> str:
-    """폐-80, 양-28, 이-4 (연도 없음)"""
+    """폐-80, 양-28, 이-4 (연도 없음). '폐지'는 '폐업'과 동일 처리."""
+    if closure_type == '폐지':
+        closure_type = '폐업'
     prefix_start = {"폐업": ("폐-", 80), "양도": ("양-", 28), "이관": ("이-", 4)}
     prefix, start = prefix_start.get(closure_type, ("폐-", 1))
+    # 폐업 조회 시 '폐지'도 포함
+    ct_filter = [closure_type]
+    if closure_type == '폐업':
+        ct_filter.append('폐지')
     items = db.query(models.Closure).filter(
-        models.Closure.closure_type == closure_type,
+        models.Closure.closure_type.in_(ct_filter),
         models.Closure.management_number.like(f"{prefix}%"),
         models.Closure.deleted_at.is_(None)
     ).all()

@@ -36,6 +36,42 @@ def _cv(v) -> str:
     if s.lower() in ('nan','none','null','nat','#n/a','n/a'): return ''
     return s.replace('\n',' ').replace('\r',' ').strip()
 
+def normalize_membership_status(val: str) -> str:
+    """가입/미가입 처리:
+    - 날짜 형식(숫자/점/하이픈 포함)이 있으면 → '가입'
+    - 빈칸, 공백, null, '미가입', '0' 등 → '미가입'
+    - '가입'이 명시된 경우 → '가입'
+    """
+    if not val or not val.strip():
+        return '미가입'
+    v = val.strip()
+    if v.lower() in ('nan', 'none', 'null', 'nat', '#n/a', 'n/a', '', '0', 'x', '-'):
+        return '미가입'
+    # 날짜 패턴이 있으면 가입으로 처리
+    if re.search(r'\d{2,4}[\.\-/]\d{1,2}', v):
+        return '가입'
+    # 숫자만 있어도 날짜로 간주 (예: 엑셀 날짜 serial number)
+    if re.match(r'^\d{5}$', v):
+        return '가입'
+    # 명시적 가입
+    if '가입' in v and '미가입' not in v:
+        return '가입'
+    # 명시적 미가입
+    if '미가입' in v or '미' in v:
+        return '미가입'
+    # 그 외 값이 있으면 가입으로 간주
+    if v:
+        return '가입'
+    return '미가입'
+
+def normalize_closure_type(val: str) -> str:
+    """폐지 → 폐업으로 통일"""
+    if not val:
+        return val
+    if val.strip() == '폐지':
+        return '폐업'
+    return val.strip()
+
 def parse_date_sort(date_str: str):
     """날짜 문자열 → datetime (정렬용). 파싱 실패 시 datetime.min 반환."""
     from datetime import datetime
@@ -388,6 +424,10 @@ def _df_to_records(df, mapping, file_type='', extra=None):
                 # 유종 검증: 차종 값("18,포터II...")이 들어가지 않게
                 if orig and _is_valid_fuel(orig):
                     rec[field] = orig
+            elif field == 'membership_status':
+                rec[field] = normalize_membership_status(orig)
+            elif field == 'closure_type':
+                rec[field] = normalize_closure_type(orig)
             else:
                 rec[field] = orig
 

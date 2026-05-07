@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.auth import get_current_user
 from app import models, crud
-from app.excel_utils import excel_to_records
+from app.excel_utils import excel_to_records, normalize_membership_status, normalize_closure_type
 
 router = APIRouter()
 
@@ -93,12 +93,19 @@ async def upload(
                 rec.setdefault('category', cat)
                 rec.setdefault('status', 'active')
                 rec.setdefault('registration_type', '엑셀업로드')
+                # 가입/미가입 정규화
+                ms = rec.get('membership_status', '')
+                rec['membership_status'] = normalize_membership_status(ms)
 
-            # 폐지현황 data_type 설정
+            # 폐지현황 data_type 설정 + closure_type 정규화
             if file_type == '폐지현황':
                 rec.setdefault('data_type', '신규자료')
+                if rec.get('closure_type'):
+                    rec['closure_type'] = normalize_closure_type(rec['closure_type'])
             elif file_type == '이전폐지현황':
                 rec.setdefault('data_type', '이전자료')
+                if rec.get('closure_type'):
+                    rec['closure_type'] = normalize_closure_type(rec['closure_type'])
 
             # 중복 체크
             existing = _find_dup(db, model, rec, file_type)

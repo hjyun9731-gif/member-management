@@ -238,9 +238,11 @@ class CloseBody(BaseModel):
 @router.post("/{mid}/close")
 async def close_member(mid: int, body: CloseBody,
                         db: Session = Depends(get_db), _=Depends(get_current_user)):
-    mgmt = body.management_number or crud.get_next_closure_number(db, body.closure_type)
+    from app.excel_utils import normalize_closure_type
+    ct = normalize_closure_type(body.closure_type)
+    mgmt = body.management_number or crud.get_next_closure_number(db, ct)
     if crud.check_mgmt_dup(db, models.Closure, mgmt):
         raise HTTPException(400, f"관리번호 {mgmt}가 이미 존재합니다.")
-    closure = crud.close_member(db, mid, body.closure_type, body.closure_date,
+    closure = crud.close_member(db, mid, ct, body.closure_date,
                                   mgmt, body.reason)
     return {"ok": True, "closure_id": closure.id, "management_number": mgmt}

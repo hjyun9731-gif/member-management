@@ -7,7 +7,7 @@ import io
 from app.database import get_db
 from app.auth import get_current_user, require_admin
 from app import models, crud
-from app.excel_utils import records_to_excel, parse_date_sort
+from app.excel_utils import records_to_excel, parse_date_sort, normalize_closure_type
 
 router = APIRouter()
 
@@ -15,10 +15,14 @@ SEARCH = ["name", "vehicle_number", "management_number", "region", "reason", "co
 
 
 def _fmt(c):
+    ct = c.closure_type or ""
+    # 폐지 → 폐업으로 표시 통일
+    if ct == '폐지':
+        ct = '폐업'
     return {
         "id": c.id,
         "management_number": c.management_number or "",
-        "closure_type": c.closure_type or "",
+        "closure_type": ct,
         "data_type": c.data_type or "신규자료",
         "region": c.region or "",
         "vehicle_number": c.vehicle_number or "",
@@ -43,14 +47,42 @@ async def list_closures(
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db), _=Depends(get_current_user),
 ):
-    filters = {"region": region, "closure_type": closure_type, "data_type": data_type}
-    items, total = crud.get_sorted_page(
-        db, models.Closure,
-        date_field="closure_date", sort_dir=date_order or "desc",
-        page=page, limit=limit,
-        search=search, search_fields=SEARCH, filters=filters,
-        nonempty_any=["vehicle_number", "name"],
-    )
+    # '폐업' 필터 시 DB에 '폐지'로 저장된 데이터도 포함 (or_ 방식)
+    from sqlalchemy import or_
+    base_q = db.query(models.Closure).filter(models.Closure.deleted_at.is_(None))
+    if region:
+        base_q = base_q.filter(models.Closure.region == region)
+    if closure_type:
+        if closure_type == '폐업':
+            base_q = base_q.filter(or_(models.Closure.closure_type == '폐업', models.Closure.closure_type == '폐지'))
+        else:
+            base_q = base_q.filter(models.Closure.closure_type == closure_type)
+    if data_type:
+        base_q = base_q.filter(models.Closure.data_type == data_type)
+    if search:
+        from sqlalchemy import or_ as _or
+        conds = [getattr(models.Closure, f).ilike(f"%{search}%") for f in SEARCH if hasattr(models.Closure, f)]
+        if conds:
+            base_q = base_q.filter(_or(*conds))
+    # nonempty filter
+    from sqlalchemy import and_
+    base_q = base_q.filter(or_(
+        and_(models.Closure.vehicle_number.isnot(None), models.Closure.vehicle_number != ''),
+        and_(models.Closure.name.isnot(None), models.Closure.name != ''),
+    ))
+
+    from app.excel_utils import parse_date_sort
+    all_items = base_q.with_entities(models.Closure.id, models.Closure.closure_date).all()
+    reverse = (date_order or "desc") == "desc"
+    all_items.sort(key=lambda r: parse_date_sort(r[1] or ""), reverse=reverse)
+    total = len(all_items)
+    page_ids = [r[0] for r in all_items[(page - 1) * limit: page * limit]]
+    if page_ids:
+        items = db.query(models.Closure).filter(models.Closure.id.in_(page_ids)).all()
+        items_by_id = {i.id: i for i in items}
+        items = [items_by_id[pid] for pid in page_ids if pid in items_by_id]
+    else:
+        items = []
     pages = max(1, (total + limit - 1) // limit)
     return {"items": [_fmt(i) for i in items], "total": total,
             "page": page, "pages": pages, "limit": limit}
@@ -90,6 +122,9 @@ async def get_closure(cid: int, db: Session = Depends(get_db), _=Depends(get_cur
 @router.post("")
 async def create_closure(data: dict, db: Session = Depends(get_db),
                           _=Depends(get_current_user)):
+    # 폐지 → 폐업 통일
+    if data.get("closure_type"):
+        data["closure_type"] = normalize_closure_type(data["closure_type"])
     if not data.get("management_number") and data.get("closure_type"):
         data["management_number"] = crud.get_next_closure_number(db, data["closure_type"])
     mgmt = data.get("management_number")
@@ -104,6 +139,9 @@ async def update_closure(cid: int, data: dict, db: Session = Depends(get_db),
     c = crud.get_by_id(db, models.Closure, cid)
     if not c:
         raise HTTPException(404)
+    # 폐지 → 폐업 통일
+    if data.get("closure_type"):
+        data["closure_type"] = normalize_closure_type(data["closure_type"])
     new_mgmt = data.get("management_number")
     if new_mgmt and new_mgmt != c.management_number:
         if crud.check_mgmt_dup(db, models.Closure, new_mgmt, exclude_id=cid):

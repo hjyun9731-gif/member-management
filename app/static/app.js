@@ -864,7 +864,7 @@ window.editClosure=async(id)=>{
   let r={management_number:'',closure_type:'폐업',data_type:'신규자료',region:'',vehicle_number:'',name:'',company_name:'',closure_date:'',approval_date:'',reason:'',memo:''};
   if(id){r=await api('GET',`/api/closures/${id}`).catch(()=>null);if(!r)return;}
   if(!id){const nn=await api('GET',`/api/closures/next-number/폐업`).catch(()=>null);if(nn)r.management_number=nn.next_number;}
-  openModal(id?'폐지 수정':'폐지 등록',`<form id="clForm"><div class="fg">
+  openModal(id?'폐업 수정':'폐업 등록',`<form id="clForm"><div class="fg">
     ${fi('management_number','관리번호',r.management_number||'')}
     <div class="fi"><label>처리구분</label>${ssel('closure_type',CLOSURE_TYPES,r.closure_type||'폐업')}</div>
     <div class="fi"><label>자료구분</label>${ssel('data_type',['신규자료','이전자료'],r.data_type||'신규자료')}</div>
@@ -1023,7 +1023,7 @@ async function renderDashboard(){
       <div class="card-hd"><div class="card-hd-l"><span class="card-ico">📊</span><span class="card-ttl">부과대수 자동 파악</span><span class="badge b-teal" style="font-size:10px;margin-left:6px">자동 계산</span></div></div>
       <div class="card-bd">
         <div class="alloc-grid">
-          ${[['협회가입',alloc['협회가입']],['양도',alloc['양도']],['타도(이관)',alloc['타도(이관)']],['폐지',alloc['폐지']],['탈퇴',alloc['탈퇴']],['택배신규',alloc['택배신규']],['관리비폐지',alloc['관리비폐지']],['70세',alloc['70세']],['협회기본대수',alloc['협회기본대수']],['총부과대수',alloc['총부과대수']],['택배관리',alloc['택배관리']]].map(([l,v])=>`
+          ${[['협회가입',alloc['협회가입']],['양도',alloc['양도']],['타도(이관)',alloc['타도(이관)']],['폐업',alloc['폐업']],['탈퇴',alloc['탈퇴']],['택배신규',alloc['택배신규']],['관리비폐지',alloc['관리비폐지']],['70세',alloc['70세']],['협회기본대수',alloc['협회기본대수']],['총부과대수',alloc['총부과대수']],['택배관리',alloc['택배관리']]].map(([l,v])=>`
           <div class="alloc-card"><div class="alloc-lbl">${l}</div>
             ${v===null||v===undefined?`<div class="alloc-na">확인 필요</div>`:`<div class="alloc-val">${Number(v).toLocaleString()}</div>`}
           </div>`).join('')}
@@ -1038,7 +1038,7 @@ async function renderDashboard(){
         </table></div>
       </div>
       <div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">📈</span><span class="card-ttl">연도별 변동 (최근 10년)</span></div></div>
-        <div class="tbl-wrap"><table><thead><tr><th>연도</th><th>신규</th><th>양도양수</th><th>폐지</th><th>변경</th></tr></thead>
+        <div class="tbl-wrap"><table><thead><tr><th>연도</th><th>신규</th><th>양도양수</th><th>폐업</th><th>변경</th></tr></thead>
           <tbody>${(byYear||[]).slice(-10).reverse().map(r=>`<tr><td><strong>${r.year}</strong></td><td>${r.new||0}</td><td>${r.transfer||0}</td><td>${r.closure||0}</td><td>${r.change||0}</td></tr>`).join('')||'<tr><td colspan="5" style="text-align:center;padding:14px;color:var(--c-text-4)">데이터 없음</td></tr>'}</tbody>
         </table></div>
       </div>
@@ -1049,7 +1049,7 @@ async function renderDashboard(){
         <div class="tbl-wrap"><table><thead><tr><th>지역</th><th>차량번호</th><th>성명</th><th>인가일자</th></tr></thead>
           <tbody>${(recent?.new_members||[]).map(r=>`<tr><td>${fv(r.region)}</td><td>${fv(r.vehicle_number)}</td><td>${fv(r.name)}</td><td>${fv(r.approval_date)}</td></tr>`).join('')||'<tr><td colspan="4" style="text-align:center;padding:12px;color:var(--c-text-4)">없음</td></tr>'}</tbody>
         </table></div></div>
-      <div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">🚫</span><span class="card-ttl">최근 폐지처리</span><span class="badge b-pink" style="font-size:10px;margin-left:4px">처리일자 기준</span></div></div>
+      <div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">🚫</span><span class="card-ttl">최근 폐업처리</span><span class="badge b-pink" style="font-size:10px;margin-left:4px">처리일자 기준</span></div></div>
         <div class="tbl-wrap"><table><thead><tr><th>관리번호</th><th>지역</th><th>차량번호</th><th>성명</th><th>구분</th></tr></thead>
           <tbody>${(recent?.closures||[]).map(r=>`<tr><td>${fv(r.management_number)}</td><td>${fv(r.region)}</td><td>${fv(r.vehicle_number)}</td><td>${fv(r.name)}</td><td>${ctBadge(r.closure_type)}</td></tr>`).join('')||'<tr><td colspan="5" style="text-align:center;padding:12px;color:var(--c-text-4)">없음</td></tr>'}</tbody>
         </table></div></div>
@@ -1123,7 +1123,7 @@ async function renderMonthlyReport(){
         <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:12px">
           <div class="stat-card sky"><div class="stat-lbl">신규등록</div><div class="stat-val">${act.new_registrations||0}</div><div class="stat-sub">인가일자 기준</div></div>
           <div class="stat-card"><div class="stat-lbl">양도양수</div><div class="stat-val">${act.transfers||0}</div></div>
-          <div class="stat-card red"><div class="stat-lbl">폐지</div><div class="stat-val">${act.closures||0}</div></div>
+          <div class="stat-card red"><div class="stat-lbl">폐업</div><div class="stat-val">${act.closures||0}</div></div>
           <div class="stat-card purple"><div class="stat-lbl">변경이력</div><div class="stat-val">${act.changes||0}</div></div>
         </div>
         <table class="rpt-tbl"><thead><tr><th>업무 구분</th><th>당월 처리</th></tr></thead>
@@ -1145,7 +1145,7 @@ async function renderMonthlyReport(){
       ${act.new_registrations>0?`<div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">📋</span><span class="card-ttl">${y}년 ${m}월 신규등록 목록</span></div></div>
         <div class="tbl-wrap"><table><thead><tr><th>지역</th><th>차량번호</th><th>성명</th><th>인가일자</th></tr></thead>
           <tbody>${(d.month_new_list||[]).map(r=>`<tr><td>${fv(r.region)}</td><td>${fv(r.vehicle_number)}</td><td>${fv(r.name)}</td><td>${fv(r.approval_date)}</td></tr>`).join('')}</tbody></table></div></div>`:''}
-      ${act.closures>0?`<div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">🚫</span><span class="card-ttl">${y}년 ${m}월 폐지 목록</span></div></div>
+      ${act.closures>0?`<div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">🚫</span><span class="card-ttl">${y}년 ${m}월 폐업 목록</span></div></div>
         <div class="tbl-wrap"><table><thead><tr><th>관리번호</th><th>지역</th><th>차량번호</th><th>성명</th><th>구분</th></tr></thead>
           <tbody>${(d.month_closure_list||[]).map(r=>`<tr><td>${fv(r.management_number)}</td><td>${fv(r.region)}</td><td>${fv(r.vehicle_number)}</td><td>${fv(r.name)}</td><td>${ctBadge(r.closure_type)}</td></tr>`).join('')}</tbody></table></div></div>`:''}
     </div>`:''}`;
