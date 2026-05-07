@@ -518,59 +518,136 @@ def _should_skip_sheet(sheet_name: str) -> bool:
 
 
 def _read_transfer_all_sheets(content: bytes, preview: bool, preview_n: int):
-    """양도양수대장: 2000년도~2026년도 시트 ALL 읽기 (예정자 제외)
-    관리번호 자동 생성: 시트 연도 + 번호 컬럼 → 양YY-NN
+    """양도양수대장: 연도별 시트 ALL 읽기 (예정자/택배예정자 제외)
+
+    실제 파일 구조 기반:
+    - 시트명: '2000년도' ~ '2026년도' (4자리 연도)
+    - 헤더: '접수\\n일자', '주[공백]소', '자격증명\\n발급일자' 등 줄바꿈/공백 포함
+    - 번호 컬럼: int형 정수 (1, 2, 3, ...)
+    - 관리번호: 양YY-번호  (예: 양26-1, 양26-28, 양00-15)
+    - 접수일자: 2000년도 등 구버전 시트에는 없을 수 있음
+    - 인가일자 ≠ 접수일자 (절대 혼용 금지)
     """
     import warnings; warnings.filterwarnings('ignore')
     xl = pd.ExcelFile(io.BytesIO(content), engine='openpyxl')
     all_rec, all_cmap, all_un = [], {}, []
 
+    def _nc_col(c):
+        """컬럼명 정규화: 줄바꿈/다중공백 제거"""
+        return re.sub(r'[\s\n\r]+', '', str(c)).strip()
+
+    # 정규화된 컬럼명 → DB 필드 매핑
+    COL_MAP = {
+        '번호':            'seq_number',
+        '접수일자':         'receipt_date',
+        '지역별':          'region',
+        '차량번호':         'vehicle_number',
+        '양도자':          'transferor',
+        '양수자':          'transferee',
+        '주민등록번호':     'resident_number',
+        '주소':            'address',
+        '전화번호':         'phone',
+        '핸드폰':          'mobile',
+        '인가일자':         'approval_date',
+        '가입일자':         'membership_date',
+        '자격증명발급일자':  'certificate_issue_date',
+        '자격증명발급번호':  'certificate_number',
+        '장부정리':         'ledger_update',
+        '운전면허번호':     'driver_license_number',
+        '전산보고':         'computer_report',
+        '비고':            'memo',
+    }
+
+    _NONE_VALS = {'nan', 'none', 'nat', '', '-', 'x'}
+
     for sheet in xl.sheet_names:
         if _should_skip_sheet(sheet):
             logger.info(f"[양도양수대장] SKIP 시트: {sheet}")
             continue
-        sheet_year = extract_sheet_year(sheet)
+
+        # 시트명에서 4자리 연도 추출
+        m = re.search(r'(\d{4})', sheet)
+        if not m:
+            logger.warning(f"[양도양수대장] 연도 파싱 실패, SKIP: {sheet}")
+            continue
+        sheet_year = int(m.group(1))
+        yy = str(sheet_year % 100).zfill(2)
+
         try:
-            df = _read_df(content, _TM, sheet)
-            if preview: df = df.head(preview_n)
-            cmap, un = _col_map(df, _TM)
-            all_cmap.update(cmap)
-            for u in un:
-                if u not in all_un: all_un.append(u)
-            extra = {'sheet_year': sheet_year, 'data_year': sheet_year}
-            recs = _df_to_records(df, _TM, '양도양수대장', extra)
+            df_raw = pd.read_excel(io.BytesIO(content), sheet_name=sheet,
+                                   header=0, engine='openpyxl')
+            if preview:
+                df_raw = df_raw.head(preview_n)
 
-            # 시트 연도 2자리 (예: 2026 → '26', 2000 → '00')
-            yy = None
-            if sheet_year:
-                yy = str(sheet_year % 100).zfill(2)
+            # 컬럼명 정규화
+            norm_cols = [_nc_col(c) for c in df_raw.columns]
+            df_raw.columns = norm_cols
 
-            for r in recs:
-                # data_year 보완: receipt_date에서도 추출
-                if not r.get('data_year'):
-                    rd = r.get('receipt_date','') or r.get('approval_date','')
-                    y = extract_year(rd)
-                    if y: r['data_year'] = y
+            # cmap 기록
+            for nc in norm_cols:
+                if nc in COL_MAP and nc != '번호':
+                    all_cmap[nc] = COL_MAP[nc]
+                elif not nc.startswith('Unnamed') and nc not in all_un and nc:
+                    all_un.append(nc)
 
-                # ★ 관리번호 자동 생성: 양YY-NN
-                # seq_number(번호 컬럼)와 시트 연도를 조합
-                if not r.get('management_number'):
-                    seq = r.get('seq_number', '') or ''
-                    seq_str = str(seq).strip().split('.')[0]  # 소수점 제거 (1.0 → 1)
-                    # 숫자만 추출
-                    seq_digits = re.sub(r'[^0-9]', '', seq_str)
-                    if seq_digits and yy:
-                        r['management_number'] = f"양{yy}-{seq_digits}"
+            # 이 시트에 접수일자 컬럼이 있는지
+            has_receipt = '접수일자' in norm_cols
 
-            logger.info(f"[양도양수대장] 시트 '{sheet}': {len(recs)}행 (연도={sheet_year}, yy={yy})")
-            all_rec.extend(recs)
+            valid_recs = []
+            for _, row in df_raw.iterrows():
+                seq_raw = row.get('번호', None)
+                if seq_raw is None or (isinstance(seq_raw, float) and pd.isna(seq_raw)):
+                    continue
+                try:
+                    seq_int = int(float(str(seq_raw).strip()))
+                except (ValueError, TypeError):
+                    continue
+                if seq_int <= 0:
+                    continue
+
+                rec = {
+                    'management_number': f"양{yy}-{seq_int}",
+                    'seq_number':        str(seq_int),
+                    'sheet_year':        sheet_year,
+                    'data_year':         sheet_year,
+                }
+
+                for nc, field in COL_MAP.items():
+                    if nc == '번호':
+                        continue
+                    val = row.get(nc, None)
+                    if val is None or (isinstance(val, float) and pd.isna(val)):
+                        rec[field] = None
+                        continue
+                    s = str(val).strip().rstrip('.')
+                    if s.lower() in _NONE_VALS:
+                        rec[field] = None
+                    else:
+                        rec[field] = s
+
+                # 접수일자 없는 시트는 명시적으로 None
+                if not has_receipt:
+                    rec['receipt_date'] = None
+
+                # raw_data 보존
+                rec['raw_data'] = {
+                    nc: (None if (isinstance(v, float) and pd.isna(v)) else str(v).strip())
+                    for nc, v in zip(norm_cols, row)
+                    if nc and not nc.startswith('Unnamed')
+                }
+
+                valid_recs.append(rec)
+
+            logger.info(f"[양도양수대장] '{sheet}': {len(valid_recs)}행 "
+                        f"(year={sheet_year}, yy={yy}, 접수일자={'있음' if has_receipt else '없음'})")
+            all_rec.extend(valid_recs)
+
         except Exception as e:
             logger.error(f"[양도양수대장] 시트 '{sheet}' 오류: {e}")
             continue
 
     logger.info(f"[양도양수대장] 전체 합계: {len(all_rec)}행")
     return all_rec, all_cmap, all_un
-
 
 def _read_member_sheets(content: bytes, preview: bool, preview_n: int):
     import warnings; warnings.filterwarnings('ignore')
