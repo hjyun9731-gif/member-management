@@ -441,16 +441,21 @@ async function renderTransferSection(){
       <div class="card-hd"><div class="card-hd-l"><span class="card-ico">✏️</span><span class="card-ttl">양도양수 등록 (타 지역→강원도 전입)</span></div></div>
       <div class="card-bd"><form id="trSecForm"><div class="fg">
         <div class="fi"><label>지역</label>${rsel('region','')}</div>
-        ${fi('vehicle_number','차량번호')} ${fi('name','양수자(성명)')} ${fi('resident_number','주민등록번호')}
-        ${fi('phone','전화번호')} ${fi('mobile','핸드폰')}
+        ${fi('vehicle_number','차량번호','')}
+        ${fi('transferor','양도인(성명)','')}
+        ${fi('name','양수자(성명)','')}
+        ${fi('receipt_date','접수일자',new Date().toISOString().slice(0,10))}
+        ${fi('approval_date','인가일자','')}
+        ${fi('membership_date','가입일자','')}
+        ${fi('resident_number','주민등록번호','')}
+        ${fi('phone','전화번호','')} ${fi('mobile','핸드폰','')}
         <div class="fi cs2"><label>주소</label><input class="fc" name="address"></div>
-        ${fi('approval_date','인가일자')}
-        <div class="fi cs3"><label>양도정보 (예: 경기→강원 이전전입)</label><input class="fc" name="memo"></div>
-        ${fi('certificate_issue_date','자격증발급일자')} ${fi('certificate_number','자격증발급번호')}
-        ${fi('driver_license_number','운전면허번호')}
-        ${fri('vehicle_type','차종',[''].concat(VEH_TYPES),'')}
+        ${fi('certificate_issue_date','자격증발급일자','')} ${fi('certificate_number','자격증발급번호','')}
+        ${fi('driver_license_number','운전면허번호','')}
+        <div class="fi"><label>차종 (직접입력)</label><input class="fc" name="vehicle_type" placeholder="예: 22,포터Ⅱ내장탑차 / 1톤 냉동탑차"></div>
         ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),'')}
-        ${fi('business_number','사업자번호')} ${fi('affiliated_company','소속업체')}
+        ${fi('business_number','사업자번호','')} ${fi('affiliated_company','소속업체','')}
+        <div class="fi cs3"><label>비고</label><input class="fc" name="memo" placeholder="예: 경기→강원 이전전입"></div>
       </div>
       <div class="flex gap-8 mt8" style="justify-content:flex-end">
         <button type="button" class="btn bo btn-sm" onclick="document.getElementById('trSecForm').reset()">초기화</button>
@@ -461,11 +466,20 @@ async function renderTransferSection(){
     const fd=Object.fromEntries(new FormData(document.getElementById('trSecForm')));
     if(!fd.vehicle_number){toast('차량번호를 입력하세요','warn');return;}
     const nn=await api('GET','/api/members/next-transfer-number').catch(()=>null);
-    const tl={receipt_date:new Date().toISOString().slice(0,10),region:fd.region||'',vehicle_number:fd.vehicle_number,
-      transferor:'',transferee:fd.name,resident_number:fd.resident_number,address:fd.address,
-      phone:fd.phone,mobile:fd.mobile,approval_date:fd.approval_date,
+    const tl={
+      receipt_date:fd.receipt_date||new Date().toISOString().slice(0,10),
+      region:fd.region||'',vehicle_number:fd.vehicle_number,
+      transferor:fd.transferor||'',
+      transferee:fd.name,
+      resident_number:fd.resident_number,address:fd.address,
+      phone:fd.phone,mobile:fd.mobile,
+      approval_date:fd.approval_date,
+      membership_date:fd.membership_date||'',
       certificate_issue_date:fd.certificate_issue_date,certificate_number:fd.certificate_number,
-      driver_license_number:fd.driver_license_number,memo:fd.memo};
+      driver_license_number:fd.driver_license_number,
+      vehicle_type:fd.vehicle_type||'',fuel_type:fd.fuel_type||'',
+      business_number:fd.business_number||'',affiliated_company:fd.affiliated_company||'',
+      memo:fd.memo};
     const trRec=await api('POST','/api/transfer-ledger',tl).catch(()=>null);
     if(!trRec)return;
     const mr=await api('POST',`/api/transfer-ledger/${trRec.id}/register-member`,{management_number:nn?.next_number||''}).catch(()=>null);
