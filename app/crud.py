@@ -419,6 +419,9 @@ def register_transfer_as_member(db: Session, transfer_id: int,
     if not tr:
         raise ValueError("양도양수 기록을 찾을 수 없습니다.")
     cat = detect_category(tr.vehicle_number)
+    # 가입일자(membership_date)가 있으면 가입, 없으면 미가입
+    from app.excel_utils import normalize_membership_status
+    ms = normalize_membership_status(tr.membership_date or '')
     member = models.LicenseHolder(
         management_number=management_number,
         registration_type="양도양수",
@@ -438,7 +441,7 @@ def register_transfer_as_member(db: Session, transfer_id: int,
         driver_license_number=tr.driver_license_number,
         memo=tr.memo,
         transfer_ledger_id=transfer_id,
-        membership_status="가입",
+        membership_status=ms,   # 가입일자 기준 자동 판정
     )
     db.add(member)
     db.flush()

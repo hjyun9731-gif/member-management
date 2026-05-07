@@ -761,9 +761,9 @@ async function renderTransferLedger(){
 
   // 요구사항 컬럼 순서 고정
   const hdrs=[
-    {label:'관리번호'},{label:'번호'},{label:'접수일자'},{label:'인가일자'},{label:'지역'},
+    {label:'관리번호'},{label:'번호'},{label:'접수일자'},{label:'지역'},
     {label:'차량번호'},{label:'양도자'},{label:'양수자'},{label:'핸드폰'},
-    {label:'가입일자'},{label:'자격증명발급일자'},{label:'자격증명발급번호'},
+    {label:'인가일자'},{label:'가입일자'},{label:'자격증명발급일자'},{label:'자격증명발급번호'},
     {label:'장부정리'},{label:'전산보고'},{label:'비고'},{label:'관리',noSort:true}
   ];
 
@@ -783,12 +783,12 @@ async function renderTransferLedger(){
         <td><strong style="color:var(--c-primary)">${fv(r.management_number)}</strong></td>
         <td>${fv(r.seq_number)}</td>
         <td><strong>${fv(r.receipt_date)}</strong></td>
-        <td>${fv(r.approval_date)}</td>
         <td>${fv(r.region)}</td>
         <td><a class="tbl-link" onclick="viewTransfer(${r.id});return false">${fv(r.vehicle_number)}</a></td>
         <td><a class="tbl-link" onclick="viewTransfer(${r.id});return false">${fv(r.transferor)}</a></td>
         <td><a class="tbl-link" onclick="viewTransfer(${r.id});return false">${fv(r.transferee)}</a></td>
-        <td>${fv(r.mobile)||fv(r.phone)}</td>
+        <td>${fv(r.mobile)}</td>
+        <td>${fv(r.approval_date)}</td>
         <td>${fv(r.membership_date)}</td>
         <td>${fv(r.certificate_issue_date)}</td>
         <td>${fv(r.certificate_number)}</td>
@@ -819,16 +819,24 @@ window.editTransfer=async(id)=>{
   let r={seq_number:'',receipt_date:'',region:'',vehicle_number:'',transferor:'',transferee:'',resident_number:'',address:'',phone:'',mobile:'',approval_date:'',membership_date:'',certificate_issue_date:'',certificate_number:'',ledger_update:'',driver_license_number:'',computer_report:'',memo:''};
   if(id){r=await api('GET',`/api/transfer-ledger/${id}`).catch(()=>null);if(!r)return;}
   openModal(id?'양도양수 수정':'양도양수 등록',`<form id="tlForm"><div class="fg">
-    ${fi('seq_number','번호',r.seq_number||'')} ${fi('receipt_date','접수일자',r.receipt_date||'')}
+    ${fi('management_number','관리번호',r.management_number||'')}
+    ${fi('seq_number','번호',r.seq_number||'')}
+    ${fi('receipt_date','접수일자',r.receipt_date||'')}
     <div class="fi"><label>지역</label>${rsel('region',r.region||'')}</div>
     ${fi('vehicle_number','차량번호',r.vehicle_number||'',true)}
-    ${fi('transferor','양도자',r.transferor||'')} ${fi('transferee','양수자',r.transferee||'')}
-    ${fi('resident_number','주민등록번호',r.resident_number||'')}
+    ${fi('transferor','양도자',r.transferor||'')}
+    ${fi('transferee','양수자',r.transferee||'')}
+    ${frn('resident_number','주민등록번호',r.resident_number||'')}
     <div class="fi cs2"><label>주소</label><input class="fc" name="address" value="${e_(r.address||'')}"></div>
-    ${fi('phone','전화번호',r.phone||'')} ${fi('mobile','핸드폰',r.mobile||'')}
-    ${fi('approval_date','인가일자',r.approval_date||'')} ${fi('membership_date','가입일자',r.membership_date||'')}
-    ${fi('certificate_issue_date','자격증발급일자',r.certificate_issue_date||'')} ${fi('certificate_number','자격증발급번호',r.certificate_number||'')}
-    ${fi('ledger_update','장부정리',r.ledger_update||'')} ${fi('driver_license_number','운전면허번호',r.driver_license_number||'')} ${fi('computer_report','전산보고',r.computer_report||'')}
+    ${fi('phone','전화번호',r.phone||'')}
+    ${fph('mobile','핸드폰',r.mobile||'')}
+    ${fi('approval_date','인가일자',r.approval_date||'')}
+    ${fi('membership_date','가입일자',r.membership_date||'')}
+    ${fi('certificate_issue_date','자격증명발급일자',r.certificate_issue_date||'')}
+    ${fi('certificate_number','자격증명발급번호',r.certificate_number||'')}
+    ${fi('ledger_update','장부정리',r.ledger_update||'')}
+    ${fi('driver_license_number','운전면허번호',r.driver_license_number||'')}
+    ${fi('computer_report','전산보고',r.computer_report||'')}
     ${fta('memo','비고',r.memo||'','cs4')}
   </div></form>`,
   `<button class="btn bg btn-sm" id="_tlS">${id?'저장':'등록'}</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');

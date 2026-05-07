@@ -226,6 +226,14 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
 
     # 허용 필드만 필터링
     filtered_data = {k: v for k, v in data.items() if k in _ALLOWED_UPDATE_FIELDS}
+
+    # 가입일자(membership_date) 변경 시 membership_status 재판정
+    # 단, membership_status를 직접 명시한 경우는 그 값 우선
+    if 'membership_date' in filtered_data and 'membership_status' not in filtered_data:
+        from app.excel_utils import normalize_membership_status
+        filtered_data['membership_status'] = normalize_membership_status(
+            filtered_data.get('membership_date') or ''
+        )
     logger.info(f"PUT /api/members/{mid} 저장 필드: {list(filtered_data.keys())}")
 
     # 새로 추가된 컬럼이 실제 DB에 없을 경우 안전하게 제거
