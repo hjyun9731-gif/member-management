@@ -151,6 +151,48 @@ async def get_change(cid: int, db: Session = Depends(get_db), _=Depends(get_curr
     return _fmt_detail(c)  # 상세보기에서만 raw_data 포함
 
 
+@router.post("/renormalize-types")
+async def renormalize_change_types(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """DB에 '기타'로 저장된 변경이력의 change_type을 memo/before_value/after_value에서 재탐지해 업데이트"""
+    updated_count = 0
+    records = db.query(models.ChangeHistory).filter(
+        models.ChangeHistory.deleted_at.is_(None),
+    ).all()
+
+    from app.excel_utils import _normalize_text
+    for rec in records:
+        # 현재 타입이 기타거나 없는 경우 재탐지
+        cur_type = rec.change_type or ''
+        probe_texts = [
+            cur_type,
+            rec.memo or '',
+            rec.before_value or '',
+            rec.after_value or '',
+        ]
+        # raw_data 비고 컬럼도 탐색
+        if isinstance(rec.raw_data, dict):
+            for k in ('비고', '변경내용', '변경유형', '구분', '변경종류'):
+                v = rec.raw_data.get(k, '')
+                if v:
+                    probe_texts.append(str(v))
+
+        new_type = None
+        for txt in probe_texts:
+            if txt and txt.strip():
+                detected = normalize_change_type(txt)
+                if detected and detected not in ('기타', ''):
+                    new_type = detected
+                    break
+
+        if new_type and new_type != rec.change_type:
+            rec.change_type = new_type
+            updated_count += 1
+
+    if updated_count:
+        db.commit()
+    return {"updated": updated_count, "total": len(records)}
+
+
 @router.post("")
 async def create_change(data: dict, db: Session = Depends(get_db),
                          _=Depends(get_current_user)):

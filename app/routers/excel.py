@@ -98,10 +98,34 @@ async def upload(
                 ms = rec.get('membership_status', '')
                 rec['membership_status'] = normalize_membership_status(ms)
 
-            # 변경이력: change_type 정규화
+            # 변경이력: change_type 정규화 + 비고/변경내용에서 재탐지
             if model == models.ChangeHistory:
-                if rec.get('change_type'):
-                    rec['change_type'] = normalize_change_type(rec['change_type'])
+                from app.excel_utils import _normalize_text
+                ct = rec.get('change_type', '')
+                # 비어있거나 기타이면 비고/변경내용/메모에서 재탐지
+                if not ct or ct in ('기타', '기타변경', ''):
+                    # 탐지 대상: memo, before_value, after_value, raw_data 내 비고 컬럼
+                    probe_texts = [
+                        rec.get('memo', ''),
+                        rec.get('before_value', ''),
+                        rec.get('after_value', ''),
+                    ]
+                    # raw_data가 있으면 비고/변경내용 컬럼도 포함
+                    if isinstance(rec.get('raw_data'), dict):
+                        for k in ('비고', '변경내용', '변경유형', '구분', '변경종류', '메모'):
+                            if k in rec['raw_data']:
+                                probe_texts.append(str(rec['raw_data'][k] or ''))
+                    from app.routers.change_history import normalize_change_type
+                    for txt in probe_texts:
+                        if txt and txt.strip():
+                            detected = normalize_change_type(txt)
+                            if detected and detected != '기타':
+                                ct = detected
+                                break
+                if ct:
+                    rec['change_type'] = normalize_change_type(ct)
+                else:
+                    rec.setdefault('change_type', '기타')
             if file_type == '폐지현황':
                 rec.setdefault('data_type', '신규자료')
                 if rec.get('closure_type'):

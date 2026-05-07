@@ -726,6 +726,9 @@ def mgmt_sort_key(mgmt: str) -> tuple:
     예: '신26-181' → (2026, 181), '폐-80' → (9999, 80), '26-099' → (2026, 99)
     개인/택배 구분 없이 동일 기준 적용.
     """
+    from datetime import datetime as _dt
+    cur_yy = _dt.now().year % 100  # 예: 2026 → 26
+
     if not mgmt:
         return (9999, 9999, mgmt or '')
     s = str(mgmt).strip()
@@ -733,7 +736,8 @@ def mgmt_sort_key(mgmt: str) -> tuple:
     m = re.match(r'^[가-힣]*(\d{2})\s*[-]\s*(\d+)', s)
     if m:
         yy = int(m.group(1))
-        year = 2000 + yy if yy <= 30 else 1900 + yy
+        # 현재 연도 기준: cur_yy 이하면 2000년대, 초과면 1900년대
+        year = 2000 + yy if yy <= cur_yy else 1900 + yy
         return (year, int(m.group(2)), s)
     # 한글접두어만 있는 형태: 폐-80, 양-28
     m = re.match(r'^[가-힣]+[-]\s*(\d+)', s)

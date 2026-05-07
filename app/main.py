@@ -30,7 +30,16 @@ except Exception as e:
 # 컬럼 마이그레이션: 새 컬럼이 없으면 추가
 def _run_migrations():
     """신규 컬럼이 기존 DB에 없을 경우 ALTER TABLE로 추가"""
+    from sqlalchemy import text, inspect as sa_inspect
     is_sqlite = "sqlite" in DATABASE_URL
+
+    # 현재 license_holders 테이블의 실제 컬럼 목록 조회
+    try:
+        inspector = sa_inspect(engine)
+        existing_cols = {c["name"] for c in inspector.get_columns("license_holders")}
+    except Exception:
+        existing_cols = set()
+
     new_cols = [
         ("reapproval_date",       "VARCHAR(50)"),
         ("official_address",      "TEXT"),
@@ -38,24 +47,69 @@ def _run_migrations():
         ("agent_resident_number", "VARCHAR(30)"),
         ("agent_mobile",          "VARCHAR(50)"),
     ]
-    with engine.connect() as conn:
+
+    with engine.begin() as conn:
         for col_name, col_type in new_cols:
+            if col_name in existing_cols:
+                continue  # 이미 있는 컬럼 스킵
             try:
                 if is_sqlite:
-                    conn.execute(__import__('sqlalchemy').text(
+                    conn.execute(text(
                         f"ALTER TABLE license_holders ADD COLUMN {col_name} {col_type}"))
                 else:
-                    conn.execute(__import__('sqlalchemy').text(
+                    conn.execute(text(
                         f"ALTER TABLE license_holders ADD COLUMN IF NOT EXISTS {col_name} {col_type}"))
-                conn.commit()
-                logger.info(f"마이그레이션: license_holders.{col_name} 컬럼 추가")
-            except Exception:
-                pass  # 이미 존재하는 컬럼은 무시
+                logger.info(f"마이그레이션 완료: license_holders.{col_name} 추가")
+            except Exception as e:
+                logger.warning(f"마이그레이션 스킵 ({col_name}): {e}")
 
 try:
     _run_migrations()
 except Exception as e:
     logger.warning(f"마이그레이션 경고 (무시): {e}")
+
+# 변경이력 change_type 자동 재정규화 (기존 '기타' 데이터 수정)
+def _renormalize_change_types():
+    from app.database import SessionLocal as _SL
+    from app import models as _m
+    from app.routers.change_history import normalize_change_type as _norm_ct
+    db = _SL()
+    try:
+        records = db.query(_m.ChangeHistory).filter(
+            _m.ChangeHistory.deleted_at.is_(None),
+        ).all()
+        updated = 0
+        for rec in records:
+            probe_texts = [
+                rec.change_type or '',
+                rec.memo or '',
+                rec.before_value or '',
+                rec.after_value or '',
+            ]
+            if isinstance(rec.raw_data, dict):
+                for k in ('비고', '변경내용', '변경유형', '구분', '변경종류'):
+                    v = rec.raw_data.get(k, '')
+                    if v: probe_texts.append(str(v))
+            for txt in probe_texts:
+                if txt and txt.strip():
+                    detected = _norm_ct(txt)
+                    if detected and detected not in ('기타', ''):
+                        if detected != rec.change_type:
+                            rec.change_type = detected
+                            updated += 1
+                        break
+        if updated:
+            db.commit()
+            logger.info(f"변경이력 재정규화: {updated}건 업데이트")
+    except Exception as e:
+        logger.warning(f"변경이력 재정규화 오류 (무시): {e}")
+    finally:
+        db.close()
+
+try:
+    _renormalize_change_types()
+except Exception as e:
+    logger.warning(f"변경이력 재정규화 경고: {e}")
 
 app = FastAPI(title="강원도 개인소형화물협회 업무관리 시스템", version="3.0.0")
 

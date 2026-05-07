@@ -18,14 +18,37 @@ router = APIRouter()
 
 
 def _ext_year(s: str) -> Optional[int]:
-    if not s: return None
-    m = re.search(r'(19[0-9]{2}|20[0-9]{2})', str(s))
-    if m: return int(m.group())
-    m = re.match(r'^(\d{2})\s*[\.\-/년]', str(s).strip())
-    if m:
-        yy = int(m.group(1))
-        return (2000 + yy) if yy <= 30 else (1900 + yy)
+    """날짜/연도 문자열에서 연도 추출.
+    - 4자리 연도가 있으면 그대로 사용
+    - 2자리 연도: 현재연도 뒤 2자리보다 크면 1900년대, 아니면 2000년대
+    - 미래 연도(현재+1 이상)는 None 반환
+    """
+    if not s:
+        return None
+    cur_year = datetime.now().year
+    cur_yy = cur_year % 100  # 예: 2026 → 26
+
+    # 4자리 연도 우선 탐색 (19xx, 20xx)
+    m4 = re.search(r'\b(19[0-9]{2}|20[0-9]{2})\b', str(s))
+    if m4:
+        y = int(m4.group())
+        return y if y <= cur_year else None  # 미래 연도 제외
+
+    # 2자리 연도: 날짜 형식 내에서만 추출 (관리번호 오염 방지)
+    # 패턴: "16. 6.28" / "24.04.02" / "99-12-30"
+    m2 = re.match(r'^(\d{2})\s*[\.\-/년]', str(s).strip())
+    if m2:
+        yy = int(m2.group(1))
+        # 현재 연도의 2자리보다 크면 1900년대 (예: yy=94, cur_yy=26 → 1994)
+        year = (2000 + yy) if yy <= cur_yy else (1900 + yy)
+        return year if year <= cur_year else None
+
     return None
+
+
+def _ext_year_from_date(s: str) -> Optional[int]:
+    """날짜 문자열 전용 연도 추출 (관리번호 등 비날짜 문자열 제외)"""
+    return _ext_year(s)
 
 
 def _ext_month(s: str) -> Optional[int]:
@@ -236,13 +259,16 @@ async def activity_by_year(db: Session = Depends(get_db), _=Depends(get_current_
     """연도별 신규/양도/폐지/변경 건수 (날짜 기준)"""
     result: dict = {}
 
+    cur_year = datetime.now().year
+    min_year = cur_year - 9  # 최근 10년만 (예: 2026기준 2017~2026)
+
     # 신규등록 - 인가일자 기준, 관리번호 '신'으로 시작하는 자료
     for m in db.query(models.LicenseHolder).filter(
         models.LicenseHolder.deleted_at.is_(None),
         models.LicenseHolder.management_number.like("신%"),
     ).all():
         y = _ext_year(m.approval_date or "")
-        if y:
+        if y and min_year <= y <= cur_year:
             result.setdefault(y, {"year": y, "new": 0, "transfer": 0, "closure": 0, "change": 0})
             result[y]["new"] += 1
 
@@ -251,16 +277,16 @@ async def activity_by_year(db: Session = Depends(get_db), _=Depends(get_current_
         models.TransferLedger.deleted_at.is_(None),
     ).all():
         y = _ext_year(t.process_date or t.approval_date or t.receipt_date or "")
-        if y:
+        if y and min_year <= y <= cur_year:
             result.setdefault(y, {"year": y, "new": 0, "transfer": 0, "closure": 0, "change": 0})
             result[y]["transfer"] += 1
 
-    # 폐지 - closure_date 기준
+    # 폐업 - closure_date 기준 (폐지/폐업 동일 집계)
     for c in db.query(models.Closure).filter(
         models.Closure.deleted_at.is_(None),
     ).all():
         y = _ext_year(c.closure_date or "")
-        if y:
+        if y and min_year <= y <= cur_year:
             result.setdefault(y, {"year": y, "new": 0, "transfer": 0, "closure": 0, "change": 0})
             result[y]["closure"] += 1
 
@@ -269,9 +295,13 @@ async def activity_by_year(db: Session = Depends(get_db), _=Depends(get_current_
         models.ChangeHistory.deleted_at.is_(None),
     ).all():
         y = _ext_year(c.change_date or "")
-        if y:
+        if y and min_year <= y <= cur_year:
             result.setdefault(y, {"year": y, "new": 0, "transfer": 0, "closure": 0, "change": 0})
             result[y]["change"] += 1
+
+    # 최근 10년 범위를 채워서 빈 연도도 표시
+    for yr in range(min_year, cur_year + 1):
+        result.setdefault(yr, {"year": yr, "new": 0, "transfer": 0, "closure": 0, "change": 0})
 
     return sorted(result.values(), key=lambda x: x["year"])
 

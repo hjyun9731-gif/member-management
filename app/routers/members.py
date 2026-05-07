@@ -192,6 +192,19 @@ _AUTO_CHANGE_FIELDS = {
     "region":            "등록이관",
 }
 
+# 수정 시 저장 허용할 모든 필드 목록 (화이트리스트)
+_ALLOWED_UPDATE_FIELDS = {
+    "management_number", "region", "vehicle_number", "name", "company_name",
+    "address", "phone", "mobile", "membership_status", "membership_date",
+    "approval_date", "certificate_issue_date", "certificate_number",
+    "driver_license_number", "vehicle_type", "fuel_type", "business_number",
+    "affiliated_company", "resident_number", "memo", "category",
+    # 택배 전용
+    "reapproval_date", "official_address",
+    # 개인 전용
+    "agent_name", "agent_resident_number", "agent_mobile",
+}
+
 
 @router.put("/{mid}")
 async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
@@ -203,16 +216,19 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
         from app.excel_utils import _normalize_region
         data["region"] = _normalize_region(data["region"])
 
+    # 허용 필드만 필터링 (프론트에서 불필요한 값이 와도 안전하게 처리)
+    filtered_data = {k: v for k, v in data.items() if k in _ALLOWED_UPDATE_FIELDS}
+
     # 변경 전 값 스냅샷
     before_snap = {f: getattr(m, f, "") or "" for f in _AUTO_CHANGE_FIELDS}
 
-    updated = crud.update_item(db, m, data)
+    updated = crud.update_item(db, m, filtered_data)
 
     # 변경된 필드 자동 기록
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     for field, change_type in _AUTO_CHANGE_FIELDS.items():
         old_val = before_snap[field]
-        new_val = data.get(field, old_val)
+        new_val = filtered_data.get(field, old_val)
         if old_val != new_val and new_val:
             ch = models.ChangeHistory(
                 change_type=change_type,
@@ -222,11 +238,15 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
                 before_value=old_val,
                 after_value=str(new_val),
                 change_date=today,
-                memo=f"회원정보 수정 자동기록",
+                memo="회원정보 수정 자동기록",
                 member_id=mid,
             )
             db.add(ch)
-    db.commit()
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"저장 오류: {e}")
 
     return _fmt(updated)
 
