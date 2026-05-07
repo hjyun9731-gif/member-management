@@ -43,6 +43,13 @@ class LicenseHolder(Base):
     affiliated_company = Column(String(200))
     resident_number = Column(String(30))
     memo = Column(Text)
+    # ── 택배 전용 추가 필드 ──────────────────────────
+    reapproval_date = Column(String(50))             # 재허가 일자
+    official_address = Column(Text)                  # 공문주소
+    # ── 개인 전용 추가 필드 ──────────────────────────
+    agent_name = Column(String(100))                 # 대리인 성명
+    agent_resident_number = Column(String(30))       # 대리인 주민등록번호
+    agent_mobile = Column(String(50))                # 대리인 핸드폰번호
     candidate_id = Column(Integer, nullable=True)        # FK → candidates
     transfer_ledger_id = Column(Integer, nullable=True)  # FK → transfer_ledger
     closure_id = Column(Integer, nullable=True)          # FK → closures (폐업 시)

@@ -27,6 +27,36 @@ except Exception as e:
     logger.error(f"DB 초기화 오류: {e}")
     raise
 
+# 컬럼 마이그레이션: 새 컬럼이 없으면 추가
+def _run_migrations():
+    """신규 컬럼이 기존 DB에 없을 경우 ALTER TABLE로 추가"""
+    is_sqlite = "sqlite" in DATABASE_URL
+    new_cols = [
+        ("reapproval_date",       "VARCHAR(50)"),
+        ("official_address",      "TEXT"),
+        ("agent_name",            "VARCHAR(100)"),
+        ("agent_resident_number", "VARCHAR(30)"),
+        ("agent_mobile",          "VARCHAR(50)"),
+    ]
+    with engine.connect() as conn:
+        for col_name, col_type in new_cols:
+            try:
+                if is_sqlite:
+                    conn.execute(__import__('sqlalchemy').text(
+                        f"ALTER TABLE license_holders ADD COLUMN {col_name} {col_type}"))
+                else:
+                    conn.execute(__import__('sqlalchemy').text(
+                        f"ALTER TABLE license_holders ADD COLUMN IF NOT EXISTS {col_name} {col_type}"))
+                conn.commit()
+                logger.info(f"마이그레이션: license_holders.{col_name} 컬럼 추가")
+            except Exception:
+                pass  # 이미 존재하는 컬럼은 무시
+
+try:
+    _run_migrations()
+except Exception as e:
+    logger.warning(f"마이그레이션 경고 (무시): {e}")
+
 app = FastAPI(title="강원도 개인소형화물협회 업무관리 시스템", version="3.0.0")
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,

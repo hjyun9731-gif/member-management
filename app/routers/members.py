@@ -54,6 +54,13 @@ def _fmt(m):
         "memo": m.memo or "",
         "registration_type": m.registration_type or "",
         "created_at": str(m.created_at)[:10] if m.created_at else "",
+        # ── 택배 전용 ──────────────────────────────────
+        "reapproval_date": getattr(m, "reapproval_date", None) or "",
+        "official_address": getattr(m, "official_address", None) or "",
+        # ── 개인 전용 ──────────────────────────────────
+        "agent_name": getattr(m, "agent_name", None) or "",
+        "agent_resident_number": getattr(m, "agent_resident_number", None) or "",
+        "agent_mobile": getattr(m, "agent_mobile", None) or "",
     }
 
 
