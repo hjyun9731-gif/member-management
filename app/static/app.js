@@ -761,7 +761,7 @@ async function renderTransferLedger(){
 
   // 요구사항 컬럼 순서 고정
   const hdrs=[
-    {label:'번호'},{label:'처리일자'},{label:'접수일자'},{label:'지역'},
+    {label:'관리번호'},{label:'번호'},{label:'접수일자'},{label:'처리일자'},{label:'지역'},
     {label:'차량번호'},{label:'양도자'},{label:'양수자'},{label:'핸드폰'},
     {label:'인가일자'},{label:'가입일자'},{label:'자격증명발급일자'},{label:'자격증명발급번호'},
     {label:'장부정리'},{label:'전산보고'},{label:'비고'},{label:'관리',noSort:true}
@@ -780,9 +780,10 @@ async function renderTransferLedger(){
     tw.innerHTML=`<div class="tbl-wrap"><table>
       <thead><tr>${plainHeaders(hdrs)}</tr></thead>
       <tbody>${d.items.map(r=>`<tr>
+        <td><strong style="color:var(--c-primary)">${fv(r.management_number)}</strong></td>
         <td>${fv(r.seq_number)}</td>
-        <td><strong>${fv(r.process_date)||fv(r.receipt_date)}</strong></td>
-        <td>${fv(r.receipt_date)}</td>
+        <td><strong>${fv(r.receipt_date)}</strong></td>
+        <td>${fv(r.process_date)}</td>
         <td>${fv(r.region)}</td>
         <td><a class="tbl-link" onclick="viewTransfer(${r.id});return false">${fv(r.vehicle_number)}</a></td>
         <td><a class="tbl-link" onclick="viewTransfer(${r.id});return false">${fv(r.transferor)}</a></td>
@@ -805,7 +806,8 @@ async function renderTransferLedger(){
   };
   document.getElementById('tlSrchBtn').onclick=()=>doSearch(1);
   document.getElementById('tlSrch').onkeydown=e=>{if(e.key==='Enter')doSearch(1);};
-  document.getElementById('tlRstBtn').onclick=()=>{ST.fl.tl={};renderTransferLedger();};
+  // 초기화 시 mgmt_desc 유지
+  document.getElementById('tlRstBtn').onclick=()=>{ST.fl.tl={member_sort:'mgmt_desc'};renderTransferLedger();};
   document.getElementById('tlAddBtn').onclick=()=>editTransfer(null);
   document.getElementById('tlXlBtn').onclick=()=>{
     const q=new URLSearchParams(Object.fromEntries(Object.entries(ST.fl.tl||{}).filter(([,v])=>v)));
@@ -1301,6 +1303,8 @@ async function renderUpload(){
               <span style="color:var(--c-text-3);font-size:11px">양도양수대장 목록에서 관리번호 기준 정렬을 확인해주세요.</span>
             </div>`;
           }
+          // 양도양수대장 탭이 열려있으면 즉시 재조회
+          if(ST.sub==='transfer-ledger'){ST.fl.tl={member_sort:'mgmt_desc'};renderTransferLedger();}
         }
       }catch(e){}
       btn.disabled=false;btn.textContent='🔧 양도양수 관리번호 재생성';
