@@ -23,7 +23,8 @@ FILE_MODEL = {
     '폐지현황':      models.Closure,
     '이전폐지현황':   models.Closure,
     '변경이력대장':   models.ChangeHistory,
-    '주소지변경대장': models.ChangeHistory,
+    '주소변경등록대장': models.ChangeHistory,   # 신규 통일 명칭
+    '주소지변경대장': models.ChangeHistory,     # 구 명칭 하위호환
     '변경등록대장':   models.ChangeHistory,
 }
 
@@ -94,23 +95,18 @@ async def upload(
                 rec.setdefault('category', cat)
                 rec.setdefault('status', 'active')
                 rec.setdefault('registration_type', '엑셀업로드')
-                # 가입/미가입 정규화
                 ms = rec.get('membership_status', '')
                 rec['membership_status'] = normalize_membership_status(ms)
 
             # 변경이력: change_type 정규화 + 비고/변경내용에서 재탐지
             if model == models.ChangeHistory:
-                from app.excel_utils import _normalize_text
                 ct = rec.get('change_type', '')
-                # 비어있거나 기타이면 비고/변경내용/메모에서 재탐지
                 if not ct or ct in ('기타', '기타변경', ''):
-                    # 탐지 대상: memo, before_value, after_value, raw_data 내 비고 컬럼
                     probe_texts = [
                         rec.get('memo', ''),
                         rec.get('before_value', ''),
                         rec.get('after_value', ''),
                     ]
-                    # raw_data가 있으면 비고/변경내용 컬럼도 포함
                     if isinstance(rec.get('raw_data'), dict):
                         for k in ('비고', '변경내용', '변경유형', '구분', '변경종류', '메모'):
                             if k in rec['raw_data']:
@@ -121,10 +117,14 @@ async def upload(
                             if detected and detected != '기타':
                                 ct = detected
                                 break
-                if ct:
+                # 주소변경등록대장은 항상 주소지변경으로 강제
+                if file_type in ('주소변경등록대장', '주소지변경대장'):
+                    rec['change_type'] = '주소지변경'
+                elif ct:
                     rec['change_type'] = normalize_change_type(ct)
                 else:
                     rec.setdefault('change_type', '기타')
+
             if file_type == '폐지현황':
                 rec.setdefault('data_type', '신규자료')
                 if rec.get('closure_type'):
@@ -154,9 +154,8 @@ async def upload(
                         else:
                             individual += 1
                     continue
-                # 'add': 그냥 삽입
 
-            # 저장 (빈 필드도 그대로, DB 오류만 실패)
+            # 저장
             clean = {k: v for k, v in rec.items() if k in allowed}
             db.add(model(**clean))
             db.flush()
@@ -168,8 +167,20 @@ async def upload(
                     individual += 1
 
         except Exception as ex:
+            # ★ flush 오류 후 반드시 rollback해야 다음 행 처리 가능
+            try:
+                db.rollback()
+            except Exception:
+                pass
             err_cnt += 1
-            errors.append({'row': i + 2, 'error': str(ex)[:300]})
+            # 실패 행의 상세 정보 수집
+            err_fields = {k: v for k, v in rec.items()
+                          if k not in ('raw_data', 'sheet_year') and v}
+            errors.append({
+                'row': i + 2,
+                'error': str(ex)[:400],
+                'fields': err_fields,
+            })
 
     db.commit()
     db.add(models.UploadHistory(

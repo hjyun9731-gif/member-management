@@ -293,10 +293,10 @@ _CHM = {
     '변경유형':'change_type','구분':'change_type','변경종류':'change_type',
     '변경전':'before_value','변경 전':'before_value','이전주소':'before_value',
     '변경전주소':'before_value','변경전내용':'before_value','이전내용':'before_value',
-    '이전':'before_value',
+    '이전':'before_value','전주소':'before_value','종전주소':'before_value',
     '변경후':'after_value','변경 후':'after_value','현재주소':'after_value',
     '변경후주소':'after_value','변경후내용':'after_value','현재내용':'after_value',
-    '현재':'after_value','변경된내용':'after_value',
+    '현재':'after_value','변경된내용':'after_value','신주소':'after_value','새주소':'after_value',
     '변경일자':'change_date','처리일자':'change_date','변경일':'change_date',
     '인가일자':'change_date',
 }
@@ -316,7 +316,8 @@ FILE_MAPPINGS = {
     '폐지현황': _CLM,
     '이전폐지현황': _CLM,
     '변경이력대장': _CHM,
-    '주소지변경대장': _CHM,
+    '주소변경등록대장': _CHM,   # 신규 통일 명칭
+    '주소지변경대장': _CHM,     # 구 명칭 하위호환
     '변경등록대장': _CHM,
     '부과대수': _ALM,
 }
@@ -449,14 +450,14 @@ def _df_to_records(df, mapping, file_type='', extra=None):
             else:
                 rec[field] = orig
 
-        if file_type in ('변경이력대장','주소지변경대장','변경등록대장'):
+        if file_type in ('변경이력대장','주소변경등록대장','주소지변경대장','변경등록대장'):
             ct_text = rec.pop('_change_content','')
             if ct_text:
                 ct, bv, av = _parse_change_text(ct_text)
                 rec.setdefault('change_type', ct)
                 rec.setdefault('before_value', bv)
                 rec.setdefault('after_value', av)
-            if file_type == '주소지변경대장':
+            if file_type in ('주소지변경대장', '주소변경등록대장'):
                 rec['change_type'] = '주소지변경'
                 if rec.get('before_value') and not rec.get('after_value'):
                     rec['after_value'] = rec['before_value']
@@ -499,7 +500,7 @@ def excel_to_records(content: bytes, file_type: str,
         return recs, cmap, un, []
 
     # 변경이력대장/주소지변경대장/변경등록대장: 연도별 멀티시트 ALL
-    if file_type in ('변경이력대장', '주소지변경대장', '변경등록대장'):
+    if file_type in ('변경이력대장','주소변경등록대장','주소지변경대장','변경등록대장'):
         recs, cmap, un, slogs = _read_change_all_sheets(content, file_type, mapping, preview, preview_n)
         return recs, cmap, un, slogs
 
@@ -663,7 +664,7 @@ def _read_change_all_sheets(content: bytes, file_type: str, mapping: dict,
                     all_un.append(u)
 
             extra = {'sheet_year': sheet_year}
-            if file_type == '주소지변경대장':
+            if file_type in ('주소지변경대장', '주소변경등록대장'):
                 extra['change_type'] = '주소지변경'
 
             recs = _df_to_records(df, mapping, file_type, extra)
@@ -697,7 +698,7 @@ def _read_change_all_sheets(content: bytes, file_type: str, mapping: dict,
                 df = df.head(preview_n)
             cmap, un = _col_map(df, mapping)
             extra = {}
-            if file_type == '주소지변경대장':
+            if file_type in ('주소지변경대장', '주소변경등록대장'):
                 extra['change_type'] = '주소지변경'
             all_rec = _df_to_records(df, mapping, file_type, extra)
             all_cmap = cmap; all_un = un

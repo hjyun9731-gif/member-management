@@ -1209,8 +1209,8 @@ async function renderUpload(){
               <option value="양도양수대장">양도양수대장 — 2000~현재 전체 시트 (예정자 제외)</option>
               <option value="폐지현황">폐지현황 (사용)</option>
               <option value="이전폐지현황">이전 폐지현황 — 유형별 시트</option>
-              <option value="주소지변경대장">주소지변경대장 → 변경이력으로 저장</option>
-              <option value="변경이력대장">변경등록대장 → 변경이력으로 저장</option>
+              <option value="주소변경등록대장">주소변경등록대장 → 변경이력으로 저장</option>
+              <option value="변경이력대장">변경이력대장 → 변경이력으로 저장</option>
               <option value="부과대수">부과대수</option>
             </select>
           </div>
@@ -1318,7 +1318,7 @@ async function renderUpload(){
       <div class="res-row"><span class="res-lbl">중복 처리</span><span class="res-val rv-warn">${d.duplicates||0}</span></div>
       <div class="res-row"><span class="res-lbl">실패</span><span class="res-val rv-err">${d.errors||0}</span></div>
       ${d.sheet_logs?.length?`<hr class="div"><p style="font-size:11px;color:var(--c-text-3);font-weight:600">시트별 처리 현황:</p><div class="tbl-wrap" style="margin-top:4px"><table style="font-size:11px"><thead><tr><th>시트명</th><th>처리건수</th><th>상태</th></tr></thead><tbody>${d.sheet_logs.map(s=>`<tr><td>${e_(s.sheet)}</td><td>${s.count||0}</td><td style="color:${s.status==='ok'?'var(--c-success)':s.status==='skip'||s.status==='empty'?'var(--c-text-4)':'var(--c-danger)'}">${s.status||'-'}</td></tr>`).join('')}</tbody></table></div>`:''}
-      ${d.error_details?.length?`<hr class="div"><p style="font-size:11px;color:var(--c-danger);font-weight:600">실패 상세:</p>${d.error_details.slice(0,10).map(e=>`<div class="res-row"><span class="res-lbl">${e.row}행</span><span class="res-val rv-err" style="font-size:11px">${e_(e.error)}</span></div>`).join('')}`:''}
+      ${d.error_details?.length?`<hr class="div"><p style="font-size:11px;color:var(--c-danger);font-weight:600">실패 상세 (총 ${d.errors}건):</p>${d.error_details.slice(0,20).map(e=>`<div style="margin:4px 0;padding:7px 10px;background:var(--c-bg-2);border-left:3px solid var(--c-danger);border-radius:4px;font-size:11px"><strong>${e.row}행</strong> — ${e_(e.error)}${e.fields?`<br><span style="color:var(--c-text-3);font-size:10px">[${e_(Object.entries(e.fields).slice(0,5).map(([k,v])=>k+':'+v).join(', '))}]</span>`:""}</div>`).join('')}`:''}
     </div>`;
     loadHist();
   };
