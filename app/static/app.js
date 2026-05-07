@@ -1212,7 +1212,7 @@ async function renderUpload(){
       <div class="card">
         <div class="card-hd">
           <div class="card-hd-l"><span class="card-ico">📤</span><span class="card-ttl">파일 업로드</span></div>
-          ${isAdmin()?`<button class="btn br btn-sm" id="resetAllBtn">🗑 데이터 초기화</button>`:''}
+          ${isAdmin()?`<button class="btn br btn-sm" id="resetAllBtn">🗑 데이터 초기화</button><button class="btn bo btn-sm" id="backfillMgmtBtn" style="margin-left:6px">🔧 양도양수 관리번호 재생성</button>`:''}
         </div>
         <div class="card-bd">
           <div class="fi" style="margin-bottom:10px">
@@ -1278,6 +1278,32 @@ async function renderUpload(){
       if(!await cfm('⚠️ 모든 업로드 데이터를 삭제합니다.\n이 작업은 되돌릴 수 없습니다.'))return;
       const r=await api('DELETE','/api/admin/reset-all').catch(()=>null);
       if(r){toast('초기화 완료','info');loadHist();}
+    };
+  }
+
+  if(isAdmin()&&document.getElementById('backfillMgmtBtn')){
+    document.getElementById('backfillMgmtBtn').onclick=async()=>{
+      if(!await cfm('양도양수대장 관리번호(양YY-NN)를 재생성합니다.\n기존 관리번호가 없는 행에만 적용됩니다.\n계속하시겠습니까?'))return;
+      const btn=document.getElementById('backfillMgmtBtn');
+      btn.disabled=true;btn.textContent='처리 중...';
+      try{
+        const r=await api('POST','/api/admin/backfill-transfer-mgmt');
+        if(r){
+          toast(`관리번호 재생성 완료: ${r.updated}건 업데이트, ${r.skipped}건 스킵`,'info');
+          // 결과 표시
+          const res=document.getElementById('upResult');
+          if(res){
+            res.innerHTML=`<div style="margin-top:12px;padding:12px;background:var(--c-bg-2);border-radius:8px;font-size:13px">
+              <strong>🔧 양도양수 관리번호 재생성 결과</strong><br>
+              ✅ 업데이트: <strong>${r.updated}건</strong><br>
+              ⏭ 스킵(번호 없음): ${r.skipped}건<br>
+              전체 대상: ${r.total}건<br>
+              <span style="color:var(--c-text-3);font-size:11px">양도양수대장 목록에서 관리번호 기준 정렬을 확인해주세요.</span>
+            </div>`;
+          }
+        }
+      }catch(e){}
+      btn.disabled=false;btn.textContent='🔧 양도양수 관리번호 재생성';
     };
   }
 
