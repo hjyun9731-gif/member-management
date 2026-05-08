@@ -64,9 +64,32 @@ def _fmt(m):
     }
 
 
-def _fmt_detail(m):
+def _fmt_detail(m, transfer=None):
     d = _fmt(m)
     d["raw_data"] = _clean_raw(m.raw_data)
+    # 양도양수 정보 (transfer_ledger와 연결된 경우)
+    if transfer:
+        d["transfer_info"] = {
+            "id":                    transfer.id,
+            "management_number":     transfer.management_number or "",
+            "transferor":            transfer.transferor or "",       # 양도인
+            "transferee":            transfer.transferee or "",       # 양수자
+            "receipt_date":          transfer.receipt_date or "",     # 접수일자
+            "approval_date":         transfer.approval_date or "",    # 인가일자
+            "membership_date":       transfer.membership_date or "",  # 가입일자
+            "certificate_issue_date": transfer.certificate_issue_date or "",
+            "certificate_number":    transfer.certificate_number or "",
+            "region":                transfer.region or "",
+            "vehicle_number":        transfer.vehicle_number or "",
+            "address":               transfer.address or "",
+            "phone":                 transfer.phone or "",
+            "mobile":                transfer.mobile or "",
+            "ledger_update":         transfer.ledger_update or "",
+            "computer_report":       transfer.computer_report or "",
+            "memo":                  transfer.memo or "",
+        }
+    else:
+        d["transfer_info"] = None
     return d
 
 
@@ -173,7 +196,16 @@ async def get_member(mid: int, db: Session = Depends(get_db), _=Depends(get_curr
     m = crud.get_by_id(db, models.LicenseHolder, mid)
     if not m:
         raise HTTPException(404, "회원을 찾을 수 없습니다.")
-    return _fmt_detail(m)
+    # 양도양수 정보 조회: transfer_ledger_id 우선, 없으면 member_id로 역조회
+    transfer = None
+    if m.transfer_ledger_id:
+        transfer = crud.get_by_id(db, models.TransferLedger, m.transfer_ledger_id)
+    if not transfer:
+        transfer = db.query(models.TransferLedger).filter(
+            models.TransferLedger.member_id == mid,
+            models.TransferLedger.deleted_at.is_(None),
+        ).first()
+    return _fmt_detail(m, transfer)
 
 
 @router.post("")

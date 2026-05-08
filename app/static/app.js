@@ -234,6 +234,20 @@ window.viewMember=async(id)=>{
     ...(rehasa.length?[{title:'재허가 이력',fields:rehasa}]:[]),
     ...(edu.length?[{title:'교육 / 점검',fields:edu}]:[]),
     {title:'비고 / 메모',fields:[['비고',r.memo,true],['전화메모',rawTelMemo,true],['비고2',rawMemo2,true],['비고3',rawMemo3,true]]},
+    // 양도양수 정보 (연결된 양도양수 이력이 있는 경우)
+    ...(r.transfer_info?[{title:'양도양수 정보',fields:[
+      ['관리번호(양도양수)',r.transfer_info.management_number],
+      ['양도인(성명)',r.transfer_info.transferor],
+      ['양수자(성명)',r.transfer_info.transferee],
+      ['접수일자',r.transfer_info.receipt_date],
+      ['인가일자',r.transfer_info.approval_date],
+      ['가입일자',r.transfer_info.membership_date],
+      ['자격증명발급일자',r.transfer_info.certificate_issue_date],
+      ['자격증명발급번호',r.transfer_info.certificate_number],
+      ['장부정리',r.transfer_info.ledger_update],
+      ['전산보고',r.transfer_info.computer_report],
+      ['비고',r.transfer_info.memo,true],
+    ]}]:[]),
   ];
   openModal('회원 상세정보',buildDetailSections(sections),
     `<button class="btn bp btn-sm" onclick="editMember(${id});closeModal()">수정</button><button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
