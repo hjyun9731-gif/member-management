@@ -78,6 +78,7 @@ class Candidate(Base):
     fuel_type = Column(String(30))
     business_number = Column(String(50))
     affiliated_company = Column(String(200))
+    membership_date = Column(String(50))          # 가입일자 (있으면 가입, 없으면 미가입)
     memo = Column(Text)
     is_registered = Column(Boolean, default=False)
     member_id = Column(Integer, nullable=True)

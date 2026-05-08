@@ -35,7 +35,9 @@ def _fmt(c):
         "certificate_issue_date": c.certificate_issue_date, "certificate_number": c.certificate_number,
         "driver_license_number": c.driver_license_number, "vehicle_type": c.vehicle_type,
         "fuel_type": c.fuel_type, "business_number": c.business_number,
-        "affiliated_company": c.affiliated_company, "memo": c.memo,
+        "affiliated_company": c.affiliated_company,
+        "membership_date": getattr(c, 'membership_date', '') or "",   # 가입일자
+        "memo": c.memo,
         "is_registered": c.is_registered, "member_id": c.member_id,
         "created_at": str(c.created_at)[:16] if c.created_at else None,
     }

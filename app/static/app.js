@@ -361,6 +361,7 @@ async function renderCandidateSection(){
         <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" placeholder="예: 22,포터Ⅱ내장탑차 / 봉고 / 냉동탑차"></div>
         ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),'')}
         ${fi('business_number','사업자번호')} ${fi('affiliated_company','소속업체')}
+        ${fi('membership_date','가입일자','')}<span style="font-size:11px;color:var(--c-text-3);align-self:center">&nbsp;없으면 미가입</span>
         ${fta('memo','비고','','cs4')}
       </div>
       <div class="flex gap-8 mt8" style="justify-content:flex-end">
@@ -434,6 +435,7 @@ window.editCandidate=async(id)=>{
     <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||'')}" placeholder="예: 22,포터Ⅱ내장탑차 / 봉고 / 냉동탑차"></div>
     ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),r.fuel_type||'')}
     ${fi('business_number','사업자번호',r.business_number||'')} ${fi('affiliated_company','소속업체',r.affiliated_company||'')}
+    ${fi('membership_date','가입일자',r.membership_date||'')}
     ${fta('memo','비고',r.memo||'','cs4')}
   </div></form>`,
   `<button class="btn bg btn-sm" id="_ceSave">저장</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
@@ -448,13 +450,17 @@ window.editCandidate=async(id)=>{
 };
 
 window.registerCandidate=async(cid,vn,name)=>{
-  const nn=await api('GET','/api/members/next-new-number').catch(()=>null);
+  const [nn,cand]=await Promise.all([
+    api('GET','/api/members/next-new-number').catch(()=>null),
+    api('GET',`/api/candidates/${cid}`).catch(()=>null),
+  ]);
+  const existingMemDate=cand?.membership_date||'';
   openModal('신규등록 처리',`
     <div class="info-box">차량번호: <strong>${e_(vn)}</strong> / 성명: <strong>${e_(name)}</strong>
     → ${vn.includes('배')?'택배회원':'개인회원'}으로 등록됩니다.</div>
     <div class="fg2 mt8">
       <div class="fi"><label>인가일자 <span class="req">*</span></label><input class="fc" id="regApprDate" placeholder="예: 2026-01-01"></div>
-      <div class="fi"><label>가입일자 <span style="font-size:11px;color:var(--c-text-3)">(없으면 미가입)</span></label><input class="fc" id="regMemDate" placeholder="예: 2026-01-15"></div>
+      <div class="fi"><label>가입일자 <span style="font-size:11px;color:var(--c-text-3)">(없으면 미가입)</span></label><input class="fc" id="regMemDate" value="${e_(existingMemDate)}" placeholder="예: 2026-01-15"></div>
       <div class="fi"><label>관리번호</label><input class="fc" id="regMgmtNum" value="${e_(nn?.next_number||'')}"></div>
     </div>`,
     `<button class="btn bg btn-sm" id="_rC">등록 완료</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'msm');

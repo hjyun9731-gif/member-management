@@ -55,6 +55,7 @@ def _run_migrations():
         ("transferee",            "closures",         "VARCHAR(100)"),
         ("transfer_region",       "closures",         "VARCHAR(50)"),
         ("receipt_date",          "closures",         "VARCHAR(50)"),
+        ("membership_date",       "candidates",       "VARCHAR(50)"),
     ]
 
     for col_name, table_name, col_type in new_cols:

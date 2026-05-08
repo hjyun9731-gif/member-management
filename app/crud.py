@@ -381,9 +381,11 @@ def register_candidate_as_member(db: Session, candidate_id: int,
     if not cand:
         raise ValueError("예정자를 찾을 수 없습니다.")
     cat = detect_category(cand.vehicle_number)
+    # 등록완료 모달 입력값 우선, 없으면 예정자 저장 시 입력한 가입일자 이어받기
+    final_membership_date = membership_date or getattr(cand, 'membership_date', '') or ''
     # ★ 가입일자 기준으로만 판정: 없으면 무조건 미가입
     from app.excel_utils import normalize_membership_status
-    ms = normalize_membership_status(membership_date or "")
+    ms = normalize_membership_status(final_membership_date)
     member = models.LicenseHolder(
         management_number=management_number,
         registration_type="신규",
@@ -397,7 +399,7 @@ def register_candidate_as_member(db: Session, candidate_id: int,
         phone=cand.phone,
         mobile=cand.mobile,
         approval_date=approval_date,
-        membership_date=membership_date or None,
+        membership_date=final_membership_date or None,
         membership_status=ms,       # 가입일자 기준 (없으면 미가입)
         certificate_issue_date=cand.certificate_issue_date,
         certificate_number=cand.certificate_number,
