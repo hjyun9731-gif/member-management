@@ -14,7 +14,7 @@ router = APIRouter()
 CHANGE_TYPES = ["주소지변경","상호변경","구조변경","전속계약 업체변경","등록이관",
                 "이전전출","대표자변경","성명변경","번호변경","변동변경","양도","폐업","기타"]
 
-SEARCH = ["name", "vehicle_number", "region", "before_value", "after_value", "change_type"]
+SEARCH = ["name", "vehicle_number", "management_number", "region", "before_value", "after_value", "change_type"]
 
 
 def normalize_change_type(val: str) -> str:

@@ -11,7 +11,7 @@ from app.excel_utils import records_to_excel, parse_date_sort, normalize_closure
 
 router = APIRouter()
 
-SEARCH = ["name", "vehicle_number", "management_number", "region", "reason", "company_name"]
+SEARCH = ["name", "vehicle_number", "management_number", "region", "reason", "company_name", "memo"]
 
 
 def _fmt(c):

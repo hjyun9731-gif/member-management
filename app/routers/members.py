@@ -14,7 +14,7 @@ from app.excel_utils import records_to_excel, normalize_fuel
 router = APIRouter()
 
 SEARCH = ["name", "vehicle_number", "phone", "mobile", "management_number",
-          "certificate_number", "address", "affiliated_company"]
+          "certificate_number", "address", "affiliated_company", "resident_number"]
 
 
 _HIDDEN_FIELDS = {'허가번호', 'permit_number', 'status', 'active', '등록구분', 'registration_type'}

@@ -373,7 +373,7 @@ async function renderCandidateSection(){
       <div class="card-hd"><div class="card-hd-l"><span class="card-ico">📂</span><span class="card-ttl">예정자 목록</span><span class="cnt" id="cCnt">0건</span></div></div>
       <div class="frow">
         ${rselflt('cRegF',f.region||'')}
-        <input class="srch" id="cSrch" placeholder="성명, 차량번호, 전화번호" value="${e_(f.search||'')}">
+        <input class="srch" id="cSrch" placeholder="성명, 차량번호, 관리번호, 주민번호" value="${e_(f.search||'')}">
         <button class="btn bp btn-sm" id="cSrchBtn">조회</button>
         <button class="btn bo btn-sm" id="cRstBtn">초기화</button>
       </div>
@@ -567,7 +567,7 @@ async function renderMember(category){
     </div>`;
 
   const hdrs=[
-    {label:'관리번호'},{label:'지역'},{label:'차량번호'},{label:'성명'},
+    {label:'관리번호'},{label:'지역'},{label:'차량번호'},{label:'성명'},{label:'주민등록번호'},
     {label:'핸드폰'},{label:'인가일자'},{label:'가입'},{label:'가입일자'},
     {label:'자격증명발급일자'},{label:'자격증명발급번호'},
     {label:'차종'},{label:'유종'},{label:'주소'},{label:'비고'},{label:'관리',noSort:true}
@@ -590,6 +590,7 @@ async function renderMember(category){
         <td>${fv(r.region)}</td>
         <td><a class="tbl-link" onclick="viewMember(${r.id});return false">${fv(r.vehicle_number)}</a></td>
         <td><a class="tbl-link" onclick="viewMember(${r.id});return false">${fv(r.name)}</a></td>
+        <td style="font-size:11px">${fv(r.resident_number)}</td>
         <td>${fv(r.mobile)}</td>
         <td>${fv(r.approval_date)}</td>
         <td>${memBadge(r.membership_status)}</td>
