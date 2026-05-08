@@ -74,6 +74,7 @@ async def delete_candidate(cid: int, db: Session = Depends(get_db), _=Depends(ge
 class RegisterBody(BaseModel):
     approval_date: str
     management_number: Optional[str] = None
+    membership_date: Optional[str] = ""   # 가입일자 (없으면 미가입)
 
 
 @router.post("/{cid}/register")
@@ -82,6 +83,9 @@ async def register_as_member(cid: int, body: RegisterBody,
     mgmt = body.management_number or crud.get_next_new_member_number(db)
     if crud.check_mgmt_dup(db, models.LicenseHolder, mgmt):
         raise HTTPException(400, f"관리번호 {mgmt}가 이미 존재합니다.")
-    member = crud.register_candidate_as_member(db, cid, body.approval_date, mgmt)
+    member = crud.register_candidate_as_member(
+        db, cid, body.approval_date, mgmt,
+        membership_date=body.membership_date or ""
+    )
     return {"ok": True, "management_number": mgmt, "member_id": member.id,
             "category": member.category}

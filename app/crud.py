@@ -375,11 +375,15 @@ def check_mgmt_dup(db: Session, model: Type, mgmt_num: str, exclude_id: int = No
 # ===== CANDIDATE → MEMBER REGISTRATION =====
 
 def register_candidate_as_member(db: Session, candidate_id: int,
-                                  approval_date: str, management_number: str) -> models.LicenseHolder:
+                                  approval_date: str, management_number: str,
+                                  membership_date: str = "") -> models.LicenseHolder:
     cand = get_by_id(db, models.Candidate, candidate_id)
     if not cand:
         raise ValueError("예정자를 찾을 수 없습니다.")
     cat = detect_category(cand.vehicle_number)
+    # ★ 가입일자 기준으로만 판정: 없으면 무조건 미가입
+    from app.excel_utils import normalize_membership_status
+    ms = normalize_membership_status(membership_date or "")
     member = models.LicenseHolder(
         management_number=management_number,
         registration_type="신규",
@@ -393,6 +397,8 @@ def register_candidate_as_member(db: Session, candidate_id: int,
         phone=cand.phone,
         mobile=cand.mobile,
         approval_date=approval_date,
+        membership_date=membership_date or None,
+        membership_status=ms,       # 가입일자 기준 (없으면 미가입)
         certificate_issue_date=cand.certificate_issue_date,
         certificate_number=cand.certificate_number,
         driver_license_number=cand.driver_license_number,
@@ -402,7 +408,6 @@ def register_candidate_as_member(db: Session, candidate_id: int,
         affiliated_company=cand.affiliated_company,
         memo=cand.memo,
         candidate_id=candidate_id,
-        membership_status="가입",
     )
     db.add(member)
     db.flush()

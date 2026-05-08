@@ -454,14 +454,20 @@ window.registerCandidate=async(cid,vn,name)=>{
     → ${vn.includes('배')?'택배회원':'개인회원'}으로 등록됩니다.</div>
     <div class="fg2 mt8">
       <div class="fi"><label>인가일자 <span class="req">*</span></label><input class="fc" id="regApprDate" placeholder="예: 2026-01-01"></div>
+      <div class="fi"><label>가입일자 <span style="font-size:11px;color:var(--c-text-3)">(없으면 미가입)</span></label><input class="fc" id="regMemDate" placeholder="예: 2026-01-15"></div>
       <div class="fi"><label>관리번호</label><input class="fc" id="regMgmtNum" value="${e_(nn?.next_number||'')}"></div>
     </div>`,
     `<button class="btn bg btn-sm" id="_rC">등록 완료</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'msm');
   document.getElementById('_rC').onclick=async()=>{
     const ad=document.getElementById('regApprDate').value.trim();
     if(!ad){toast('인가일자를 입력하세요','warn');return;}
-    const r=await api('POST',`/api/candidates/${cid}/register`,{approval_date:ad,management_number:document.getElementById('regMgmtNum').value.trim()}).catch(()=>null);
-    if(r){toast(`${r.category}회원 등록 완료 (${r.management_number})`);closeModal();renderCandidateSection();}
+    const md=document.getElementById('regMemDate').value.trim();
+    const r=await api('POST',`/api/candidates/${cid}/register`,{
+      approval_date:ad,
+      membership_date:md,
+      management_number:document.getElementById('regMgmtNum').value.trim()
+    }).catch(()=>null);
+    if(r){toast(`${r.category}회원 등록 완료 (${r.management_number}) - ${md?'가입':'미가입'}`);closeModal();renderCandidateSection();}
   };
 };
 window.deleteCandidate=async(cid)=>{
