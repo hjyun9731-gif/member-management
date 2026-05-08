@@ -384,7 +384,7 @@ async function renderCandidateSection(){
   setTimeout(()=>_bindFmt('candForm'),0);
 
   const sk='cand';
-  const hdrs=[{field:'region',label:'지역'},{field:'vehicle_number',label:'차량번호'},{field:'name',label:'성명'},{field:'phone',label:'전화번호'},{field:'mobile',label:'핸드폰'},{field:'vehicle_type',label:'차종'},{field:'certificate_number',label:'자격증번호'},{field:'affiliated_company',label:'소속업체'},{field:'memo',label:'비고'},{label:'관리',noSort:true}];
+  const hdrs=[{field:'region',label:'지역'},{field:'vehicle_number',label:'차량번호'},{field:'name',label:'성명'},{field:'phone',label:'전화번호'},{field:'mobile',label:'핸드폰'},{field:'vehicle_type',label:'차종'},{field:'certificate_number',label:'자격증번호'},{field:'affiliated_company',label:'소속업체'},{label:'관리',noSort:true}];
   const doSearch=async(pg=1)=>{
     ST.fl.cand={region:document.getElementById('cRegF').value,search:document.getElementById('cSrch').value.trim()};
     const q=new URLSearchParams({page:pg,limit:50,...getSortParams(sk),...Object.fromEntries(Object.entries(ST.fl.cand).filter(([,v])=>v))});
@@ -400,7 +400,7 @@ async function renderCandidateSection(){
         <td><a class="click-link" onclick="editCandidate(${r.id});return false">${fv(r.name)}</a></td>
         <td>${fv(r.phone)}</td><td>${fv(r.mobile)}</td>
         <td>${fv(r.vehicle_type)}</td>
-        <td>${fv(r.certificate_number)}</td><td>${fv(r.affiliated_company)}</td><td title="${e_(r.memo)}">${fv(r.memo)}</td>
+        <td>${fv(r.certificate_number)}</td><td>${fv(r.affiliated_company)}</td>
         <td class="td-act">
           <button class="btn bp btn-xs" onclick="editCandidate(${r.id})">수정</button>
           <button class="btn-check" onclick="registerCandidate(${r.id},'${e_(r.vehicle_number)}','${e_(r.name)}')">✅ 등록</button>
@@ -570,7 +570,7 @@ async function renderMember(category){
     {label:'관리번호'},{label:'지역'},{label:'차량번호'},{label:'성명'},{label:'주민등록번호'},
     {label:'핸드폰'},{label:'인가일자'},{label:'가입'},{label:'가입일자'},
     {label:'자격증명발급일자'},{label:'자격증명발급번호'},
-    {label:'차종'},{label:'유종'},{label:'주소'},{label:'비고'},{label:'관리',noSort:true}
+    {label:'차종'},{label:'유종'},{label:'주소'},{label:'관리',noSort:true}
   ];
 
   const doSearch=async(pg=1)=>{
@@ -600,7 +600,6 @@ async function renderMember(category){
         <td title="${e_(r.vehicle_type)}">${fv(r.vehicle_type)}</td>
         <td>${fv(r.fuel_type)}</td>
         <td title="${e_(r.address)}">${fv(r.address)}</td>
-        <td title="${e_(r.memo)}">${fv(r.memo)}</td>
         <td class="td-act">
           <button class="btn bp btn-xs" onclick="editMember(${r.id})">수정</button>
           <button class="btn br btn-xs" onclick="closeMember(${r.id},'${e_(r.name)}','${e_(r.vehicle_number)}')">폐업</button>
@@ -797,7 +796,6 @@ async function renderNewRegistrations(){
         <td>${fv(r.certificate_issue_date)}</td><td>${fv(r.certificate_number)}</td>
         <td title="${e_(r.vehicle_type)}">${fv(r.vehicle_type)}</td><td>${fv(r.fuel_type)}</td>
         <td title="${e_(r.address)}">${fv(r.address)}</td>
-        <td title="${e_(r.memo)}">${fv(r.memo)}</td>
         <td class="td-act">
           <button class="btn bp btn-xs" onclick="editMember(${r.id})">수정</button>
         </td></tr>`).join('')}</tbody>
