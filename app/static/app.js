@@ -290,6 +290,7 @@ window.viewClosure=async(id)=>{
     {title:'연락처 / 주소',fields:[['전화번호',rawPhone],['핸드폰',rawMobile],['주소',rawAddr,true],['주민등록번호',rawResNo]]},
     {title:'인가 / 자격',fields:[['인가일자',r.approval_date],['접수일자',rawReceipt],['가입일자',rawMemDate],['자격증명발급일자',rawCertDate],['자격증명발급번호',rawCertNo],['운전면허번호',rawDrvLic]]},
     {title:'폐업처리 정보',fields:[
+      ['접수일자',r.receipt_date],
       ['처리일자',r.closure_date],
       ['사유',r.reason,true],
       ...(r.transferee?[['양수인',r.transferee]]:r.closure_type==='양도'?[['양수인','']]:[] ),
@@ -696,6 +697,7 @@ window.closeMember=async(id,name,vn)=>{
         <div class="fi cs2"><label>이관지역</label><input class="fc" id="clTransferRegion" placeholder="예: 서울 → 강원 춘천시"></div>`:'';
       openModal(`${ct} 처리`,`
         <div class="fg2">
+          <div class="fi"><label>접수일자</label><input class="fc" id="clReceiptDate" placeholder="2026-01-01" value="${new Date().toISOString().slice(0,10)}"></div>
           <div class="fi"><label>처리일자 <span class="req">*</span></label><input class="fc" id="clDate" placeholder="2026-01-01"></div>
           <div class="fi"><label>관리번호</label><input class="fc" id="clMgmt" value="${e_(nn?.next_number||'')}"></div>
         </div>
@@ -706,7 +708,9 @@ window.closeMember=async(id,name,vn)=>{
         const cd=document.getElementById('clDate').value.trim();
         if(!cd){toast('처리일자를 입력하세요','warn');return;}
         const payload={
-          closure_type:ct,closure_date:cd,
+          closure_type:ct,
+          receipt_date:(document.getElementById('clReceiptDate')?.value||'').trim(),
+          closure_date:cd,
           management_number:document.getElementById('clMgmt').value.trim(),
           reason:document.getElementById('clReason').value.trim(),
           transferee:(document.getElementById('clTransferee')?.value||'').trim(),
@@ -944,7 +948,7 @@ async function renderClosures(){
     </div>`;
 
   const sk='cl';
-  const hdrs=[{field:'management_number',label:'관리번호'},{field:'closure_type',label:'구분'},{field:'data_type',label:'자료'},{field:'region',label:'지역'},{field:'vehicle_number',label:'차량번호'},{field:'name',label:'성명'},{field:'closure_date',label:'처리일자'},{field:'approval_date',label:'인가일자'},{field:'reason',label:'사유'},{field:'memo',label:'비고'},{label:'관리',noSort:true}];
+  const hdrs=[{label:'관리번호'},{label:'구분'},{label:'지역'},{label:'차량번호'},{label:'성명'},{label:'양수인'},{label:'이관지역'},{label:'접수일자'},{label:'처리일자'},{label:'관리',noSort:true}];
 
   const doSearch=async(pg=1)=>{
     ST.fl.cl={region:document.getElementById('clRegF').value,closure_type:document.getElementById('clTypF').value,data_type:document.getElementById('clDtF').value,date_order:document.getElementById('clSortF').value,search:document.getElementById('clSrch').value.trim()};
@@ -957,13 +961,14 @@ async function renderClosures(){
       <thead><tr>${plainHeaders(hdrs)}</tr></thead>
       <tbody>${d.items.map(r=>`<tr>
         <td><a class="click-link" onclick="viewClosure(${r.id});return false"><strong>${fv(r.management_number)}</strong></a></td>
-        <td>${ctBadge(r.closure_type)}</td><td>${dtBadge(r.data_type)}</td>
+        <td>${ctBadge(r.closure_type)}</td>
         <td>${fv(r.region)}</td>
         <td><a class="click-link" onclick="viewClosure(${r.id});return false">${fv(r.vehicle_number)}</a></td>
         <td><a class="click-link" onclick="viewClosure(${r.id});return false">${fv(r.name)}</a></td>
-        <td>${fv(r.closure_date)}</td><td>${fv(r.approval_date)}</td>
-        <td title="${e_(r.reason)}">${fv(r.reason)}</td>
-        <td title="${e_(r.memo)}">${fv(r.memo)}</td>
+        <td>${fv(r.transferee)}</td>
+        <td>${fv(r.transfer_region)}</td>
+        <td style="font-size:11px">${fv(r.receipt_date)}</td>
+        <td style="font-size:11px"><strong>${fv(r.closure_date)}</strong></td>
         <td class="td-act">
           <button class="btn bp btn-xs" onclick="editClosure(${r.id})">수정</button>
           ${isAdmin()?`<button class="btn br btn-xs" onclick="deleteClosure(${r.id})">삭제</button>`:''}
@@ -992,7 +997,7 @@ window.editClosure=async(id)=>{
     <div class="fi"><label>자료구분</label>${ssel('data_type',['신규자료','이전자료'],r.data_type||'신규자료')}</div>
     <div class="fi"><label>지역</label>${rsel('region',r.region||'')}</div>
     ${fi('vehicle_number','차량번호',r.vehicle_number||'',true)} ${fi('name','성명',r.name||'')} ${fi('company_name','상호',r.company_name||'')}
-    ${fi('closure_date','처리일자',r.closure_date||'')} ${fi('approval_date','인가일자',r.approval_date||'')}
+    ${fi('receipt_date','접수일자',r.receipt_date||'')} ${fi('closure_date','처리일자',r.closure_date||'')} ${fi('approval_date','인가일자',r.approval_date||'')}
     <div class="fi cs2"><label>사유</label><input class="fc" name="reason" value="${e_(r.reason||'')}"></div>
     ${fi('transferee','양수인',r.transferee||'')} ${fi('transfer_region','이관/양도지역',r.transfer_region||'')}
     ${fta('memo','비고',r.memo||'','cs4')}

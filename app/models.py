@@ -131,6 +131,7 @@ class Closure(Base):
     name = Column(String(100), index=True)
     company_name = Column(String(200))
     closure_date = Column(String(50))
+    receipt_date = Column(String(50))                   # 접수일자 (공문 접수)
     approval_date = Column(String(50))
     reason = Column(Text)
     memo = Column(Text)

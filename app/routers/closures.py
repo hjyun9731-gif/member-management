@@ -28,6 +28,7 @@ def _fmt(c):
         "name": c.name or "",
         "company_name": c.company_name or "",
         "closure_date": c.closure_date or "",
+        "receipt_date": getattr(c, 'receipt_date', '') or "",       # 접수일자 (공문 접수일)
         "approval_date": c.approval_date or "",
         "reason": c.reason or "",
         "transferee": getattr(c, 'transferee', '') or "",        # 양수인 (양도 시)

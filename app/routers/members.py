@@ -340,8 +340,9 @@ class CloseBody(BaseModel):
     closure_date: str
     management_number: Optional[str] = None
     reason: Optional[str] = ""
-    transferee: Optional[str] = ""        # 양수인 (양도 시)
-    transfer_region: Optional[str] = ""  # 이관지역 / 양도지역
+    transferee: Optional[str] = ""
+    transfer_region: Optional[str] = ""
+    receipt_date: Optional[str] = ""     # 접수일자 (공문 접수일)
 
 
 @router.post("/{mid}/close")
@@ -354,5 +355,6 @@ async def close_member(mid: int, body: CloseBody,
         raise HTTPException(400, f"관리번호 {mgmt}가 이미 존재합니다.")
     closure = crud.close_member(db, mid, ct, body.closure_date, mgmt, body.reason,
                                  transferee=body.transferee,
-                                 transfer_region=body.transfer_region)
+                                 transfer_region=body.transfer_region,
+                                 receipt_date=body.receipt_date)
     return {"ok": True, "closure_id": closure.id, "management_number": mgmt}
