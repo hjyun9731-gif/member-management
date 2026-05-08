@@ -249,6 +249,7 @@ _CM = {
     '가입일자':'membership_date','가입일':'membership_date',
     '주민등록번호':'resident_number','주민번호':'resident_number',
     '비고':'memo',
+    '구조변경':'structure_change','구조변경내용':'structure_change',
     '가입여부':'membership_status','가입/미가입':'membership_status',
     '회원구분':'membership_status',
     '개인/택배':'category',

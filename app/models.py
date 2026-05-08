@@ -50,6 +50,7 @@ class LicenseHolder(Base):
     agent_name = Column(String(100))                 # 대리인 성명
     agent_resident_number = Column(String(30))       # 대리인 주민등록번호
     agent_mobile = Column(String(50))                # 대리인 핸드폰번호
+    structure_change = Column(Text)                  # 구조변경 내용 (예: 윙바디 변경)
     upload_id = Column(Integer, nullable=True)        # 업로드 이력 ID (개별 삭제용)
     candidate_id = Column(Integer, nullable=True)        # FK → candidates
     transfer_ledger_id = Column(Integer, nullable=True)  # FK → transfer_ledger

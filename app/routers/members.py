@@ -61,6 +61,7 @@ def _fmt(m):
         "agent_name": getattr(m, "agent_name", None) or "",
         "agent_resident_number": getattr(m, "agent_resident_number", None) or "",
         "agent_mobile": getattr(m, "agent_mobile", None) or "",
+        "structure_change": getattr(m, "structure_change", None) or "",
     }
 
 
@@ -239,6 +240,7 @@ _ALLOWED_UPDATE_FIELDS = {
     "reapproval_date", "official_address",
     # 개인 전용
     "agent_name", "agent_resident_number", "agent_mobile",
+    "structure_change",
 }
 
 
@@ -270,7 +272,7 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
 
     # 새로 추가된 컬럼이 실제 DB에 없을 경우 안전하게 제거
     _new_cols = {"reapproval_date", "official_address", "agent_name",
-                 "agent_resident_number", "agent_mobile"}
+                 "agent_resident_number", "agent_mobile", "structure_change"}
     for col in list(_new_cols):
         if col in filtered_data and not hasattr(m, col):
             filtered_data.pop(col)
