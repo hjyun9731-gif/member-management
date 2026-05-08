@@ -52,6 +52,8 @@ def _run_migrations():
         ("upload_id",             "transfer_ledger",  "INTEGER"),
         ("upload_id",             "closures",         "INTEGER"),
         ("upload_id",             "change_history",   "INTEGER"),
+        ("transferee",            "closures",         "VARCHAR(100)"),
+        ("transfer_region",       "closures",         "VARCHAR(50)"),
     ]
 
     for col_name, table_name, col_type in new_cols:

@@ -16,7 +16,6 @@ SEARCH = ["name", "vehicle_number", "management_number", "region", "reason", "co
 
 def _fmt(c):
     ct = c.closure_type or ""
-    # 폐지 → 폐업으로 표시 통일
     if ct == '폐지':
         ct = '폐업'
     return {
@@ -31,7 +30,10 @@ def _fmt(c):
         "closure_date": c.closure_date or "",
         "approval_date": c.approval_date or "",
         "reason": c.reason or "",
+        "transferee": getattr(c, 'transferee', '') or "",        # 양수인 (양도 시)
+        "transfer_region": getattr(c, 'transfer_region', '') or "",  # 이관지역 / 양도지역
         "memo": c.memo or "",
+        "member_id": getattr(c, 'member_id', None),
         "created_at": str(c.created_at)[:10] if c.created_at else "",
     }
 

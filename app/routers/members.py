@@ -340,6 +340,8 @@ class CloseBody(BaseModel):
     closure_date: str
     management_number: Optional[str] = None
     reason: Optional[str] = ""
+    transferee: Optional[str] = ""        # 양수인 (양도 시)
+    transfer_region: Optional[str] = ""  # 이관지역 / 양도지역
 
 
 @router.post("/{mid}/close")
@@ -350,6 +352,7 @@ async def close_member(mid: int, body: CloseBody,
     mgmt = body.management_number or crud.get_next_closure_number(db, ct)
     if crud.check_mgmt_dup(db, models.Closure, mgmt):
         raise HTTPException(400, f"관리번호 {mgmt}가 이미 존재합니다.")
-    closure = crud.close_member(db, mid, ct, body.closure_date,
-                                  mgmt, body.reason)
+    closure = crud.close_member(db, mid, ct, body.closure_date, mgmt, body.reason,
+                                 transferee=body.transferee,
+                                 transfer_region=body.transfer_region)
     return {"ok": True, "closure_id": closure.id, "management_number": mgmt}

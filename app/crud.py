@@ -453,7 +453,8 @@ def register_transfer_as_member(db: Session, transfer_id: int,
 
 
 def close_member(db: Session, member_id: int, closure_type: str,
-                  closure_date: str, management_number: str, reason: str = "") -> models.Closure:
+                  closure_date: str, management_number: str, reason: str = "",
+                  transferee: str = "", transfer_region: str = "") -> models.Closure:
     member = get_by_id(db, models.LicenseHolder, member_id)
     if not member:
         raise ValueError("회원을 찾을 수 없습니다.")
@@ -468,6 +469,8 @@ def close_member(db: Session, member_id: int, closure_type: str,
         closure_date=closure_date,
         approval_date=member.approval_date,
         reason=reason,
+        transferee=transferee or "",
+        transfer_region=transfer_region or "",
         member_id=member_id,
     )
     db.add(closure)

@@ -273,10 +273,29 @@ window.viewTransfer=async(id)=>{
 
 window.viewClosure=async(id)=>{
   const r=await api('GET',`/api/closures/${id}`).catch(()=>null);if(!r)return;
+  const raw=r.raw_data||{};
+  // raw_data에서 추가 정보 추출
+  const rawPhone=raw['전화번호']||raw['연락처']||'';
+  const rawMobile=raw['핸드폰']||raw['휴대폰']||raw['핸드폰번호']||'';
+  const rawResNo=raw['주민등록번호']||raw['주민번호']||'';
+  const rawMemDate=raw['가입일자']||raw['가입일']||'';
+  const rawCertDate=raw['자격증명발급일자']||raw['자격증발급일자']||raw['발급일자']||'';
+  const rawCertNo=raw['자격증명발급번호']||raw['자격증발급번호']||raw['발급번호']||'';
+  const rawDrvLic=raw['운전면허번호']||raw['면허번호']||'';
+  const rawAddr=raw['주소']||raw['주소지']||'';
+  const rawReceipt=raw['접수일자']||raw['접수일']||'';
+  const rawSeq=raw['번호']||'';
   const sections=[
-    {title:'기본 정보',fields:[['관리번호',r.management_number],['처리구분',r.closure_type],['자료구분',r.data_type],['지역',r.region]]},
-    {title:'차량 / 성명',fields:[['차량번호',r.vehicle_number],['성명',r.name],['상호',r.company_name],['인가일자',r.approval_date]]},
-    {title:'처리 정보',fields:[['처리일자',r.closure_date],['사유',r.reason,true],['비고',r.memo,true]]},
+    {title:'기본 정보',fields:[['관리번호',r.management_number],['번호',rawSeq],['처리구분',r.closure_type],['자료구분',r.data_type],['지역',r.region],['차량번호',r.vehicle_number],['성명',r.name],['상호',r.company_name]]},
+    {title:'연락처 / 주소',fields:[['전화번호',rawPhone],['핸드폰',rawMobile],['주소',rawAddr,true],['주민등록번호',rawResNo]]},
+    {title:'인가 / 자격',fields:[['인가일자',r.approval_date],['접수일자',rawReceipt],['가입일자',rawMemDate],['자격증명발급일자',rawCertDate],['자격증명발급번호',rawCertNo],['운전면허번호',rawDrvLic]]},
+    {title:'폐업처리 정보',fields:[
+      ['처리일자',r.closure_date],
+      ['사유',r.reason,true],
+      ...(r.transferee?[['양수인',r.transferee]]:r.closure_type==='양도'?[['양수인','']]:[] ),
+      ...(r.transfer_region?[['이관/양도지역',r.transfer_region]]:r.closure_type==='이관'?[['이관지역','']]:[] ),
+      ['비고',r.memo,true],
+    ]},
   ];
   openModal('폐업현황 상세정보',buildDetailSections(sections),
     `<button class="btn bp btn-sm" onclick="editClosure(${id});closeModal()">수정</button><button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
@@ -670,17 +689,30 @@ window.closeMember=async(id,name,vn)=>{
     btn.onclick=async()=>{
       const ct=btn.dataset.type;
       const nn=await api('GET',`/api/closures/next-number/${encodeURIComponent(ct)}`).catch(()=>null);
+      const extraFields=ct==='양도'?`
+        <div class="fi"><label>양수인</label><input class="fc" id="clTransferee" placeholder="양도받는 사람 성명"></div>
+        <div class="fi"><label>양수지역</label><input class="fc" id="clTransferRegion" placeholder="예: 강원 원주시"></div>`:
+        ct==='이관'?`
+        <div class="fi cs2"><label>이관지역</label><input class="fc" id="clTransferRegion" placeholder="예: 서울 → 강원 춘천시"></div>`:'';
       openModal(`${ct} 처리`,`
         <div class="fg2">
           <div class="fi"><label>처리일자 <span class="req">*</span></label><input class="fc" id="clDate" placeholder="2026-01-01"></div>
           <div class="fi"><label>관리번호</label><input class="fc" id="clMgmt" value="${e_(nn?.next_number||'')}"></div>
         </div>
-        <div class="fi mt8"><label>사유</label><input class="fc" id="clReason"></div>`,
+        ${extraFields}
+        <div class="fi mt8"><label>사유 / 비고</label><input class="fc" id="clReason"></div>`,
         `<button class="btn br btn-sm" id="_clC">${ct} 처리</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'msm');
       document.getElementById('_clC').onclick=async()=>{
         const cd=document.getElementById('clDate').value.trim();
         if(!cd){toast('처리일자를 입력하세요','warn');return;}
-        const res=await api('POST',`/api/members/${id}/close`,{closure_type:ct,closure_date:cd,management_number:document.getElementById('clMgmt').value.trim(),reason:document.getElementById('clReason').value.trim()}).catch(()=>null);
+        const payload={
+          closure_type:ct,closure_date:cd,
+          management_number:document.getElementById('clMgmt').value.trim(),
+          reason:document.getElementById('clReason').value.trim(),
+          transferee:(document.getElementById('clTransferee')?.value||'').trim(),
+          transfer_region:(document.getElementById('clTransferRegion')?.value||'').trim(),
+        };
+        const res=await api('POST',`/api/members/${id}/close`,payload).catch(()=>null);
         if(res){toast(`${ct} 처리 완료 (${res.management_number})`);closeModal();navigate(ST.cat,ST.sub);}
       };
     };
@@ -962,6 +994,7 @@ window.editClosure=async(id)=>{
     ${fi('vehicle_number','차량번호',r.vehicle_number||'',true)} ${fi('name','성명',r.name||'')} ${fi('company_name','상호',r.company_name||'')}
     ${fi('closure_date','처리일자',r.closure_date||'')} ${fi('approval_date','인가일자',r.approval_date||'')}
     <div class="fi cs2"><label>사유</label><input class="fc" name="reason" value="${e_(r.reason||'')}"></div>
+    ${fi('transferee','양수인',r.transferee||'')} ${fi('transfer_region','이관/양도지역',r.transfer_region||'')}
     ${fta('memo','비고',r.memo||'','cs4')}
   </div></form>`,
   `<button class="btn bg btn-sm" id="_clS">${id?'저장':'등록'}</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`);

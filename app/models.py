@@ -134,6 +134,8 @@ class Closure(Base):
     approval_date = Column(String(50))
     reason = Column(Text)
     memo = Column(Text)
+    transferee = Column(String(100))                  # 양수인 (양도 시)
+    transfer_region = Column(String(50))              # 이관지역 / 양도지역
     member_id = Column(Integer, nullable=True)
     upload_id = Column(Integer, nullable=True)     # 업로드 이력 ID
     raw_data = Column(JSON)
