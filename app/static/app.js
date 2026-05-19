@@ -778,7 +778,7 @@ async function renderNewRegistrations(){
       member_sort:document.getElementById('nrDateF')?.value||'mgmt_desc',
       search:document.getElementById('nrSrch').value.trim()
     };
-    const q=new URLSearchParams({page:pg,limit:50,mgmt_prefix:'신',...Object.fromEntries(Object.entries(ST.fl.nr).filter(([,v])=>v))});
+    const q=new URLSearchParams({page:pg,limit:50,mgmt_prefix:'신',status:'all',...Object.fromEntries(Object.entries(ST.fl.nr).filter(([,v])=>v))});
     const d=await api('GET',`/api/members?${q}`).catch(()=>null);if(!d)return;
     document.getElementById('nrCnt').textContent=`${d.total.toLocaleString()}건`;
     const tw=document.getElementById('nrTbl');
@@ -786,7 +786,7 @@ async function renderNewRegistrations(){
     tw.innerHTML=`<div class="tbl-wrap"><table>
       <thead><tr>${plainHeaders(hdrs)}</tr></thead>
       <tbody>${d.items.map(r=>`<tr>
-        <td><a class="tbl-link" onclick="viewMember(${r.id});return false">${fv(r.management_number)}</a></td>
+        <td><a class="tbl-link" onclick="viewMember(${r.id});return false">${fv(r.management_number)}</a>${r.status==='closed'?'<span class="badge b-gray" style="font-size:10px;margin-left:4px">폐업</span>':''}</td>
         <td>${fv(r.region)}</td>
         <td><a class="tbl-link" onclick="viewMember(${r.id});return false">${fv(r.vehicle_number)}</a></td>
         <td><a class="tbl-link" onclick="viewMember(${r.id});return false">${fv(r.name)}</a></td>

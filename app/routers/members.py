@@ -53,6 +53,7 @@ def _fmt(m):
         "company_name": m.company_name or "",
         "memo": m.memo or "",
         "registration_type": m.registration_type or "",
+        "status": m.status or "active",
         "created_at": str(m.created_at)[:10] if m.created_at else "",
         # ── 택배 전용 ──────────────────────────────────
         "reapproval_date": getattr(m, "reapproval_date", None) or "",
@@ -118,6 +119,9 @@ async def list_members(
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db), _=Depends(get_current_user),
 ):
+    # status=all이면 status 필터 제거 (신규등록대장: 폐업자도 포함)
+    if status == "all":
+        status = None
     filters = {"region": region, "category": category,
                "membership_status": membership_status, "status": status,
                "registration_type": registration_type,
