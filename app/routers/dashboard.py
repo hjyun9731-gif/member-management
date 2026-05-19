@@ -550,3 +550,54 @@ async def upload_history(db: Session = Depends(get_db), _=Depends(get_current_us
              "uploaded_by": r.uploaded_by, "error_details": r.error_details,
              "created_at": str(r.created_at)[:16] if r.created_at else ""}
             for r in rows]
+
+
+@router.get("/debug-new-count")
+async def debug_new_count(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """신규 집계 디버그: 실제 DB 수치 확인용"""
+    from datetime import datetime as dt
+    cur_year = dt.now().year
+    min_year = cur_year - 9
+
+    # 신26-* 전체
+    all_shin26 = db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.deleted_at.is_(None),
+        models.LicenseHolder.management_number.like("신26%"),
+    ).count()
+
+    # approval_date 없는 신26-*
+    no_date = db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.deleted_at.is_(None),
+        models.LicenseHolder.management_number.like("신26%"),
+    ).filter(
+        (models.LicenseHolder.approval_date.is_(None)) |
+        (models.LicenseHolder.approval_date == "")
+    ).count()
+
+    # activity_by_year 신규 로직 동일하게 재현
+    rows = db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.deleted_at.is_(None),
+        models.LicenseHolder.management_number.like("신%"),
+    ).all()
+
+    year_cnt = {}
+    for m in rows:
+        y = _ext_year(m.approval_date or "") or cur_year
+        if min_year <= y <= cur_year:
+            year_cnt[y] = year_cnt.get(y, 0) + 1
+
+    # 관리번호 목록 (마지막 20개)
+    from sqlalchemy import func
+    mgmt_rows = db.query(models.LicenseHolder.management_number).filter(
+        models.LicenseHolder.deleted_at.is_(None),
+        models.LicenseHolder.management_number.like("신26%"),
+    ).all()
+    from app.excel_utils import mgmt_sort_key
+    mgmt_list = sorted([r[0] for r in mgmt_rows], key=mgmt_sort_key)
+
+    return {
+        "신26_전체수": all_shin26,
+        "신26_인가일자없는수": no_date,
+        "activity_by_year_2026신규": year_cnt.get(2026, 0),
+        "신26_마지막20개": mgmt_list[-20:],
+    }
