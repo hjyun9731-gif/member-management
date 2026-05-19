@@ -230,7 +230,7 @@ async def delete_upload(
     db: Session = Depends(get_db),
     _=Depends(require_admin),
 ):
-    """특정 업로드 이력의 데이터만 삭제 (다른 업로드 데이터 유지)."""
+    """특정 업로드 이력의 데이터 삭제."""
     from datetime import datetime, timezone
     hist = db.query(models.UploadHistory).filter(
         models.UploadHistory.id == history_id
@@ -238,25 +238,56 @@ async def delete_upload(
     if not hist:
         raise HTTPException(status_code=404, detail="업로드 이력을 찾을 수 없습니다.")
 
+    now = datetime.now(timezone.utc)
     deleted = {}
+
+    # upload_id가 설정된 행 삭제
     for model, label in [
         (models.LicenseHolder, "면허자현황"),
         (models.TransferLedger, "양도양수대장"),
-        (models.Closure, "폐지현황"),
+        (models.Closure, "폐지/폐업현황"),
         (models.ChangeHistory, "변경이력대장"),
     ]:
-        if not hasattr(model, 'upload_id'):
-            continue
         rows = db.query(model).filter(
             model.upload_id == history_id,
             model.deleted_at.is_(None),
         ).all()
-        now = datetime.now(timezone.utc)
         for row in rows:
             row.deleted_at = now
-        deleted[label] = len(rows)
+        deleted[label] = deleted.get(label, 0) + len(rows)
 
-    # 이력도 삭제 처리
+    # upload_id가 NULL인 경우: file_type 기준으로 created_at 범위 삭제
+    # (이전에 upload_id 없이 저장된 데이터)
+    file_type = hist.file_type or ""
+    if sum(deleted.values()) == 0:
+        # upload_id 방식으로 삭제된 게 없으면 file_type + 업로드 시각 기준 삭제
+        upload_time = hist.created_at
+        if upload_time:
+            from sqlalchemy import and_
+            import datetime as dt_mod
+            # 해당 업로드 직후 1분 이내에 생성된 데이터
+            t_from = upload_time - dt_mod.timedelta(seconds=5)
+            t_to   = upload_time + dt_mod.timedelta(minutes=2)
+
+            model_map = {
+                "이전폐지현황": models.Closure,
+                "폐지현황":    models.Closure,
+                "양도양수대장": models.TransferLedger,
+                "면허자현황":  models.LicenseHolder,
+                "변경이력대장": models.ChangeHistory,
+                "주소변경등록대장": models.ChangeHistory,
+            }
+            model = model_map.get(file_type)
+            if model:
+                rows = db.query(model).filter(
+                    model.deleted_at.is_(None),
+                    model.created_at >= t_from,
+                    model.created_at <= t_to,
+                ).all()
+                for row in rows:
+                    row.deleted_at = now
+                deleted[file_type] = len(rows)
+
     db.delete(hist)
     db.commit()
 
@@ -264,9 +295,59 @@ async def delete_upload(
     return {
         "deleted_total": total,
         "deleted_by_type": deleted,
-        "message": f"업로드 이력 #{history_id} 삭제 완료: 총 {total}건",
+        "message": f"업로드 이력 #{history_id} ({file_type}) 삭제 완료: 총 {total}건",
     }
 
+
+@router.delete("/upload-by-filetype/{file_type}")
+async def delete_upload_by_filetype(
+    file_type: str,
+    db: Session = Depends(get_db),
+    _=Depends(require_admin),
+):
+    """파일 종류 전체 삭제 (재업로드 전 정리용).
+    예: DELETE /api/admin/upload-by-filetype/이전폐지현황
+    """
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+
+    model_map = {
+        "이전폐지현황": models.Closure,
+        "폐지현황":    models.Closure,
+        "양도양수대장": models.TransferLedger,
+        "면허자현황":  models.LicenseHolder,
+        "변경이력대장": models.ChangeHistory,
+        "주소변경등록대장": models.ChangeHistory,
+    }
+
+    model = model_map.get(file_type)
+    if not model:
+        raise HTTPException(400, f"지원하지 않는 파일 종류: {file_type}. 가능한 값: {list(model_map.keys())}")
+
+    # data_type으로 추가 필터 (폐지현황 구분)
+    q = db.query(model).filter(model.deleted_at.is_(None))
+    if file_type == "이전폐지현황":
+        q = q.filter(model.data_type == "이전자료")
+    elif file_type == "폐지현황":
+        q = q.filter(model.data_type == "신규자료")
+
+    rows = q.all()
+    for row in rows:
+        row.deleted_at = now
+
+    # 관련 업로드 이력도 삭제
+    hists = db.query(models.UploadHistory).filter(
+        models.UploadHistory.file_type == file_type
+    ).all()
+    for h in hists:
+        db.delete(h)
+
+    db.commit()
+    return {
+        "deleted_total": len(rows),
+        "deleted_histories": len(hists),
+        "message": f"{file_type} 전체 삭제 완료: {len(rows)}건",
+    }
 
 @router.get("/check-closed-new-members")
 async def check_closed_new_members(

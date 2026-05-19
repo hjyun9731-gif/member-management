@@ -1358,15 +1358,32 @@ async function renderUpload(){
         <td style="color:var(--c-pri);font-weight:700">${(h.success_count||0).toLocaleString()}</td>
         <td style="color:${h.error_count>0?'var(--c-danger)':'var(--c-text-4)'}">${h.error_count||0}</td>
         <td style="font-size:11px;color:var(--c-text-3)">${(h.created_at||'-').slice(0,16)}</td>
-        ${adminMode?`<td><button class="btn br btn-xs" onclick="deleteUpload(${h.id},'${e_(h.file_type)}',${h.success_count})">삭제</button></td>`:''}
+        ${adminMode?`<td style="white-space:nowrap">
+          <button class="btn br btn-xs" onclick="deleteUpload(${h.id},'${e_(h.file_type)}',${h.success_count})" title="이 업로드 건만 삭제">이력삭제</button>
+          <button class="btn br btn-xs" style="margin-left:4px" onclick="deleteByFileType('${e_(h.file_type)}')" title="${e_(h.file_type)} 전체 삭제">전체삭제</button>
+        </td>`:''}
       </tr>`).join('')}</tbody></table></div>`;
   };
   window.deleteUpload=async(histId,fileType,cnt)=>{
-    if(!await cfm(`업로드 이력 #${histId} (${fileType}) 을 삭제합니다.\n저장된 데이터 약 ${cnt}건이 삭제됩니다.\n다른 업로드 데이터는 유지됩니다.\n\n계속하시겠습니까?`))return;
+    if(!await cfm(`업로드 이력 #${histId} (${fileType}) 삭제\n저장된 데이터 약 ${cnt}건이 삭제됩니다.\n다른 업로드 데이터는 유지됩니다.\n계속하시겠습니까?`))return;
     try{
       const r=await api('DELETE',`/api/admin/upload/${histId}`);
-      if(r){toast(`삭제 완료: ${r.deleted_total}건 제거`,'info');loadHist();}
-    }catch(e){}
+      if(r){
+        if(r.deleted_total===0){
+          toast(`이력 삭제됨 (데이터 0건: upload_id 미연결)`,'warn');
+        }else{
+          toast(`삭제 완료: ${r.deleted_total}건 제거`,'info');
+        }
+        loadHist();
+      }
+    }catch(e){toast('삭제 실패','error');}
+  };
+  window.deleteByFileType=async(fileType)=>{
+    if(!await cfm(`[${fileType}] 전체 삭제\n이 파일종류로 업로드된 모든 데이터를 삭제합니다.\n재업로드 전 정리용입니다.\n계속하시겠습니까?`))return;
+    try{
+      const r=await api('DELETE',`/api/admin/upload-by-filetype/${encodeURIComponent(fileType)}`);
+      if(r){toast(`${fileType} 삭제 완료: ${r.deleted_total}건`,'info');loadHist();}
+    }catch(e){toast('삭제 실패','error');}
   };
 
   if(isAdmin()&&document.getElementById('resetAllBtn')){
