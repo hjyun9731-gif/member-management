@@ -266,3 +266,100 @@ async def delete_upload(
         "deleted_by_type": deleted,
         "message": f"업로드 이력 #{history_id} 삭제 완료: 총 {total}건",
     }
+
+
+@router.get("/check-closed-new-members")
+async def check_closed_new_members(
+    db: Session = Depends(get_db), _=Depends(require_admin)
+):
+    """신규등록대장에서 폐업 처리로 숨겨진 회원 현황 확인"""
+    closed = db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.deleted_at.is_(None),
+        models.LicenseHolder.management_number.like("신%"),
+        models.LicenseHolder.status == "closed",
+    ).all()
+
+    return {
+        "숨겨진_신규회원수": len(closed),
+        "목록": [
+            {
+                "id": m.id,
+                "management_number": m.management_number,
+                "name": m.name,
+                "vehicle_number": m.vehicle_number,
+                "approval_date": m.approval_date,
+                "status": m.status,
+            }
+            for m in closed
+        ]
+    }
+
+
+@router.get("/dashboard-verify")
+async def dashboard_verify(
+    db: Session = Depends(get_db), _=Depends(require_admin)
+):
+    """대시보드 집계 실제 검증"""
+    from datetime import datetime
+    from app.routers.dashboard import _ext_year
+
+    cur_year = datetime.now().year
+
+    # 1. 신규 집계: 관리번호 신26-* 전체 vs 인가일자 2026년
+    shin26_total = db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.deleted_at.is_(None),
+        models.LicenseHolder.management_number.like("신26%"),
+    ).count()
+
+    shin26_active = db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.deleted_at.is_(None),
+        models.LicenseHolder.management_number.like("신26%"),
+        models.LicenseHolder.status == "active",
+    ).count()
+
+    shin26_closed = db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.deleted_at.is_(None),
+        models.LicenseHolder.management_number.like("신26%"),
+        models.LicenseHolder.status == "closed",
+    ).count()
+
+    # 인가일자 2026년인 신규
+    shin_all = db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.deleted_at.is_(None),
+        models.LicenseHolder.management_number.like("신%"),
+    ).all()
+
+    by_approval_year = {}
+    no_approval = []
+    parse_fail = []
+    for m in shin_all:
+        y = _ext_year(m.approval_date or "")
+        if y:
+            by_approval_year[y] = by_approval_year.get(y, 0) + 1
+        elif m.approval_date:
+            parse_fail.append({"mgmt": m.management_number, "approval_date": m.approval_date})
+        else:
+            no_approval.append(m.management_number)
+
+    # 2. 폐업현황 집계
+    total_closures = db.query(models.Closure).filter(
+        models.Closure.deleted_at.is_(None)
+    ).count()
+
+    # 3. 전체 회원
+    total_members = db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.deleted_at.is_(None),
+        models.LicenseHolder.status == "active",
+    ).count()
+
+    return {
+        "신26_관리번호_전체": shin26_total,
+        "신26_active": shin26_active,
+        "신26_closed(신규등록대장에서_숨겨진수)": shin26_closed,
+        "인가일자_연도별_신규수": dict(sorted(by_approval_year.items(), reverse=True)),
+        "인가일자_없는_신규": len(no_approval),
+        "인가일자_없는_목록(최대10개)": no_approval[:10],
+        "인가일자_파싱실패(최대10개)": parse_fail[:10],
+        "폐업현황_전체": total_closures,
+        "현재_active_회원수": total_members,
+    }
