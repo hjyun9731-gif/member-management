@@ -494,23 +494,53 @@ def close_member(db: Session, member_id: int, closure_type: str,
 # ===== DASHBOARD =====
 
 def get_dashboard_stats(db: Session) -> dict:
-    lh = db.query(models.LicenseHolder).filter(
+    """대시보드 상단 통계 - 항상 DB 현재 상태 기준 (캐시 없음)
+
+    기준:
+    - 총 사업자: status=active, deleted_at IS NULL
+    - 가입: membership_date 있음 (가입일자 기준)
+    - 미가입: membership_date 없음
+    - 취업신고: certificate_issue_date 있음 (자격증명발급일자 기준)
+    - 미신고: certificate_issue_date 없음
+    """
+    lh_all = db.query(models.LicenseHolder).filter(
         models.LicenseHolder.deleted_at.is_(None),
         models.LicenseHolder.status == "active"
-    )
-    total = lh.count()
-    joined = lh.filter(models.LicenseHolder.membership_status == "가입").count()
-    individual = lh.filter(models.LicenseHolder.category == "개인").count()
-    delivery = lh.filter(models.LicenseHolder.category == "택배").count()
+    ).all()
+
+    total      = len(lh_all)
+    individual = sum(1 for m in lh_all if m.category == "개인")
+    delivery   = sum(1 for m in lh_all if m.category == "택배")
+
+    # 가입: membership_date(가입일자) 값 있음
+    def _has_val(v):
+        return bool(v and str(v).strip() and str(v).strip().lower() not in ('-','x','none','nan'))
+
+    joined     = sum(1 for m in lh_all if _has_val(m.membership_date))
+    not_joined = total - joined
+
+    # 취업신고: certificate_issue_date(자격증명발급일자) 값 있음
+    cert_all   = sum(1 for m in lh_all if _has_val(m.certificate_issue_date))
+    cert_ind   = sum(1 for m in lh_all if m.category == "개인" and _has_val(m.certificate_issue_date))
+    cert_del   = sum(1 for m in lh_all if m.category == "택배" and _has_val(m.certificate_issue_date))
+
     candidates = db.query(models.Candidate).filter(
         models.Candidate.deleted_at.is_(None),
         models.Candidate.is_registered == False
     ).count()
-    closures = db.query(models.Closure).filter(models.Closure.deleted_at.is_(None)).count()
+    closures  = db.query(models.Closure).filter(models.Closure.deleted_at.is_(None)).count()
     transfers = db.query(models.TransferLedger).filter(models.TransferLedger.deleted_at.is_(None)).count()
+
     return {
-        "total": total, "joined": joined, "not_joined": total - joined,
+        "total": total, "joined": joined, "not_joined": not_joined,
         "individual": individual, "delivery": delivery,
+        # 취업신고/미신고 (자격증명발급일자 기준)
+        "employed": cert_all,                       # 전체 취업신고
+        "not_employed": total - cert_all,           # 전체 미신고
+        "individual_employed": cert_ind,
+        "individual_not_employed": individual - cert_ind,
+        "delivery_employed": cert_del,
+        "delivery_not_employed": delivery - cert_del,
         "candidates": candidates, "closures": closures, "transfers": transfers,
         "next_new_number": get_next_new_member_number(db),
         "next_transfer_number": get_next_transfer_member_number(db),

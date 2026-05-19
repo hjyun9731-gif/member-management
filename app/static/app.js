@@ -185,6 +185,35 @@ function dateOrderSel(id,val='desc'){
 
 function getSortParams(){return {};}  // 하위 호환성 유지
 
+// ── 대시보드 통계 클릭 → 대상자 목록 모달 ──
+window.showStatList=async(statType)=>{
+  const labelMap={
+    'joined':'협회 가입자 (가입일자 있음)',
+    'not_joined':'미가입자 (가입일자 없음)',
+    'delivery_employed':'택배 취업신고 (자격증명발급일자 있음)',
+    'delivery_not_employed':'택배 미신고 (자격증명발급일자 없음)',
+  };
+  const label=labelMap[statType]||statType;
+  openModal(`📊 ${label}`,`<div id="statListBody" style="padding:8px">로딩 중...</div>`,
+    `<button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
+  try{
+    const d=await api('GET',`/api/dashboard/stat-list?stat_type=${statType}`);
+    if(!d||!d.items){document.getElementById('statListBody').innerHTML='데이터 없음';return;}
+    const rows=d.items.map(r=>`<tr>
+      <td>${fv(r.region)}</td><td>${fv(r.vehicle_number)}</td><td>${fv(r.name)}</td>
+      <td>${fv(r.category)}</td><td>${fv(r.membership_date)}</td>
+      <td>${fv(r.certificate_issue_date)}</td><td>${fv(r.certificate_number)}</td>
+      <td>${fv(r.approval_date)}</td>
+    </tr>`).join('');
+    document.getElementById('statListBody').innerHTML=`
+      <p style="font-size:12px;color:var(--c-text-3);margin-bottom:8px">총 ${d.total}명</p>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>지역</th><th>차량번호</th><th>성명</th><th>구분</th><th>가입일자</th><th>자격증발급일자</th><th>자격증발급번호</th><th>인가일자</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>`;
+  }catch(e){document.getElementById('statListBody').innerHTML='오류 발생';}
+};
+
 // ===== DETAIL VIEW (섹션별, no raw_data JSON) =====
 function buildDetailSections(sections){
   return `<div class="dtl-sections">${sections.map(sec=>{
@@ -1127,12 +1156,13 @@ async function renderDashboard(){
 
   document.getElementById('content').innerHTML=`
     <div class="stat-grid">
-      <div class="stat-card" onclick="navigate('members','individual')"><div class="stat-lbl">총 사업자</div><div class="stat-val">${s.total.toLocaleString()}</div></div>
-      <div class="stat-card sky"><div class="stat-lbl">협회 가입</div><div class="stat-val">${s.joined.toLocaleString()}</div></div>
-      <div class="stat-card pink"><div class="stat-lbl">미가입</div><div class="stat-val">${s.not_joined.toLocaleString()}</div></div>
-      <div class="stat-card"><div class="stat-lbl">개인회원</div><div class="stat-val">${s.individual.toLocaleString()}</div></div>
-      <div class="stat-card yellow"><div class="stat-lbl">택배회원</div><div class="stat-val">${s.delivery.toLocaleString()}</div></div>
-      <div class="stat-card gray"><div class="stat-lbl">택배 취업신고</div><div class="stat-val">${s.delivery_employed.toLocaleString()}</div><div class="stat-sub">미신고 ${s.delivery_unemployed}</div></div>
+      <div class="stat-card" onclick="navigate('members','individual')"><div class="stat-lbl">총 사업자</div><div class="stat-val">${s.total.toLocaleString()}</div><div class="stat-sub">폐업 제외</div></div>
+      <div class="stat-card sky" onclick="showStatList('joined')"><div class="stat-lbl">협회 가입</div><div class="stat-val">${s.joined.toLocaleString()}</div><div class="stat-sub">가입일자 기준</div></div>
+      <div class="stat-card pink" onclick="showStatList('not_joined')"><div class="stat-lbl">미가입</div><div class="stat-val">${s.not_joined.toLocaleString()}</div><div class="stat-sub">가입일자 없음</div></div>
+      <div class="stat-card" onclick="navigate('members','individual')"><div class="stat-lbl">개인회원</div><div class="stat-val">${s.individual.toLocaleString()}</div></div>
+      <div class="stat-card yellow" onclick="navigate('members','delivery')"><div class="stat-lbl">택배회원</div><div class="stat-val">${s.delivery.toLocaleString()}</div></div>
+      <div class="stat-card gray" onclick="showStatList('delivery_employed')"><div class="stat-lbl">택배 취업신고</div><div class="stat-val">${(s.delivery_employed||0).toLocaleString()}</div><div class="stat-sub">자격증명발급일자 기준</div></div>
+      <div class="stat-card red" onclick="showStatList('delivery_not_employed')"><div class="stat-lbl">택배 미신고</div><div class="stat-val">${(s.delivery_not_employed||0).toLocaleString()}</div><div class="stat-sub">자격증명발급일자 없음</div></div>
     </div>
 
     <div class="grid2">

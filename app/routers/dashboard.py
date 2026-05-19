@@ -60,20 +60,59 @@ def _ext_month(s: str) -> Optional[int]:
     return None
 
 
-def classify_vt(vt: str) -> str:
-    if not vt: return '기타'
-    v = vt.lower()
-    if '냉동' in v or '냉장' in v: return '냉동탑차'
-    if '사다리' in v: return '사다리차'
-    if '전기' in v or '일렉트릭' in v: return '전기차'
-    if '하이브리드' in v: return '전기차'
-    if '봉고' in v and ('탑' in v or '내장' in v): return '봉고탑차'
-    if '봉고' in v: return '봉고'
-    if ('포터' in v) and ('탑' in v or '내장' in v): return '포터탑차'
-    if '포터' in v: return '포터'
-    if '픽업' in v or '렉스턴' in v: return 'SUV/픽업'
-    if '1톤' in v: return '1톤트럭'
-    return '기타'
+def classify_vt(vt: str, fuel: str = "") -> str:
+    """차종 분류 (문서 확정 기준)
+    우선순위: 전기차 > 냉동/냉장 > 윙바디 > 사다리/고소 > 렉카/구난 > 밴 > 탑차/내장탑 > 카고 > 기타특수 > 미분류
+    """
+    if not vt and not fuel:
+        return '미분류'
+    v = str(vt or '').lower()
+    f = str(fuel or '').lower()
+
+    # 1. 전기차: 유종=전기 또는 차종 키워드
+    EV_KW = ['전기', 'ev', '일렉트릭', 'electric', 'pv5', 'masada']
+    if any(k in v for k in EV_KW) or '전기' in f or 'ev' in f:
+        return '전기차'
+
+    # 2. 냉동탑/냉장탑
+    if '냉동' in v or '냉장' in v:
+        return '냉동탑/냉장탑'
+
+    # 3. 윙바디
+    if '윙바디' in v or '윙' in v or 'wing' in v:
+        return '윙바디'
+
+    # 4. 사다리/고소작업차
+    if any(k in v for k in ['사다리', '고소', '엘리카', '호룡']):
+        return '사다리/고소'
+
+    # 5. 렉카/구난
+    if any(k in v for k in ['렉카', '구난', '견인']):
+        return '렉카/구난'
+
+    # 6. 밴/특수밴
+    if any(k in v for k in ['밴', 'van', '워크스루', '미닫이', 'se-a2', '특수밴']):
+        return '밴/특수밴'
+
+    # 7. 탑차/내장탑 (냉동/냉장 없는 것)
+    TAP_KW = ['탑', '내장탑', '하이내장', '플러스내장', '하이탑', '내장차', '택배전용']
+    if any(k in v for k in TAP_KW):
+        return '탑차/내장탑'
+
+    # 8. 카고 (탑/냉동/윙/전기/특수 없는 포터/봉고/카고)
+    CARGO_KW = ['카고', '포터', '봉고', '1톤', '2.5톤', '3.5톤']
+    if any(k in v for k in CARGO_KW):
+        return '카고'
+
+    # 9. 기타특수 (위에 안 들어간 특수장치 키워드)
+    SPEC_KW = ['특장', '특수', '크레인', '덤프', '믹서', '탱크', '소방', '암롤', '리프트', '집게']
+    if any(k in v for k in SPEC_KW):
+        return '기타특수'
+
+    # 10. 미분류
+    if not v.strip():
+        return '미분류'
+    return '기타특수'
 
 
 def _normalize_fuel_stat(fuel: str) -> Optional[str]:
@@ -423,23 +462,32 @@ async def monthly_report_auto(
     month_not_joined = sum(1 for m in all_members
                            if m.membership_status != '가입' and matches(m.approval_date or ''))
 
+    def _has_val(v):
+        return bool(v and str(v).strip() and str(v).strip().lower() not in ('-','x','none','nan'))
+
+    # 가입: membership_date(가입일자) 기준
+    joined     = sum(1 for m in all_members if _has_val(m.membership_date))
+    # 취업신고: certificate_issue_date(자격증명발급일자) 기준
+    cert_del   = sum(1 for m in all_members if m.category=="택배" and _has_val(m.certificate_issue_date))
+    cert_ind   = sum(1 for m in all_members if m.category=="개인" and _has_val(m.certificate_issue_date))
+
     member_stats = {
         "total": total, "individual": individual, "delivery": delivery,
         "joined": joined, "not_joined": total - joined,
         "month_joined": month_joined, "month_not_joined": month_not_joined,
     }
 
-    del_employed = sum(1 for m in all_members
-                       if m.category == "택배" and m.affiliated_company and m.affiliated_company.strip())
     taxi_stats = {
         "total_delivery": delivery,
-        "employed": del_employed,
-        "unemployed": delivery - del_employed,
+        "employed": cert_del,
+        "unemployed": delivery - cert_del,
+        "individual_employed": cert_ind,
+        "individual_not_employed": individual - cert_ind,
     }
 
     vtype_counts: dict = {}
     for m in all_members:
-        cat = classify_vt(m.vehicle_type or "")
+        cat = classify_vt(m.vehicle_type or "", m.fuel_type or "")
         vtype_counts[cat] = vtype_counts.get(cat, 0) + 1
 
     age_groups = {"29이하": 0, "30~39": 0, "40~49": 0, "50~59": 0,
@@ -656,4 +704,52 @@ async def debug_new_count(db: Session = Depends(get_db), _=Depends(get_current_u
         "신26_인가일자2026으로집계되는수": year_cnt.get(2026, 0),
         "신26_파싱실패건": parse_failed,  # 인가일자가 있는데 2026으로 안 읽히는 건
         "신26_마지막20개": mgmt_list[-20:],
+    }
+
+
+@router.get("/stat-list")
+async def stat_list(
+    stat_type: str = Query(...),
+    db: Session = Depends(get_db), _=Depends(get_current_user),
+):
+    """대시보드 통계 클릭 시 대상자 목록"""
+    def _has_val(v):
+        return bool(v and str(v).strip() and str(v).strip().lower() not in ('-','x','none','nan'))
+
+    base = db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.deleted_at.is_(None),
+        models.LicenseHolder.status == "active",
+    )
+
+    if stat_type == "joined":
+        members = [m for m in base.all() if _has_val(m.membership_date)]
+    elif stat_type == "not_joined":
+        members = [m for m in base.all() if not _has_val(m.membership_date)]
+    elif stat_type == "delivery_employed":
+        members = [m for m in base.filter(models.LicenseHolder.category=="택배").all()
+                   if _has_val(m.certificate_issue_date)]
+    elif stat_type == "delivery_not_employed":
+        members = [m for m in base.filter(models.LicenseHolder.category=="택배").all()
+                   if not _has_val(m.certificate_issue_date)]
+    else:
+        members = []
+
+    from app.excel_utils import mgmt_sort_key
+    members.sort(key=lambda m: mgmt_sort_key(m.management_number or ''), reverse=True)
+
+    return {
+        "total": len(members),
+        "stat_type": stat_type,
+        "items": [{
+            "management_number": m.management_number or "",
+            "region": m.region or "",
+            "vehicle_number": m.vehicle_number or "",
+            "name": m.name or "",
+            "category": m.category or "",
+            "membership_date": m.membership_date or "",
+            "membership_status": m.membership_status or "",
+            "certificate_issue_date": m.certificate_issue_date or "",
+            "certificate_number": m.certificate_number or "",
+            "approval_date": m.approval_date or "",
+        } for m in members[:500]],  # 최대 500명
     }
