@@ -272,62 +272,66 @@ async def full_stats(db: Session = Depends(get_db), _=Depends(get_current_user))
 
 @router.get("/activity-by-year")
 async def activity_by_year(db: Session = Depends(get_db), _=Depends(get_current_user)):
-    """연도별 신규/양도/폐지/변경 건수 (날짜 기준)"""
+    """연도별 집계 (문서 확정 기준):
+    신규: 관리번호 신YY-* 기준
+    양도양수: 관리번호 양YY-* 기준
+    폐업/양도/이관: 접수일자(receipt_date) 기준, 없으면 closure_date
+    변경: change_date 기준
+    """
+    cur_year = datetime.now().year
+    cur_yy   = cur_year % 100
+    min_year = cur_year - 9
     result: dict = {}
 
-    cur_year = datetime.now().year
-    min_year = cur_year - 9  # 최근 10년만 (예: 2026기준 2017~2026)
+    def _r(y):
+        result.setdefault(y, {"year": y, "new": 0, "transfer": 0, "closure": 0, "change": 0})
+        return result[y]
 
-    # 신규등록 - 관리번호 기준 (신YY-* → YY년도 신규)
-    # 접수일자/인가일자/status 무관하게 관리번호로만 판단
+    def _mgmt_yy(prefix, mgmt):
+        m = re.match(rf'^{prefix}(\d{{2}})[-]', (mgmt or '').strip())
+        if not m: return None
+        yy = int(m.group(1))
+        return 2000 + yy if yy <= cur_yy else 1900 + yy
+
+    # 1. 신규: 관리번호 신YY-* (status/날짜 무관)
     for m in db.query(models.LicenseHolder).filter(
         models.LicenseHolder.deleted_at.is_(None),
         models.LicenseHolder.management_number.like("신%"),
     ).all():
-        mgmt = (m.management_number or "").strip()
-        # 관리번호에서 연도 추출: 신26-* → 26 → 2026
-        import re as _re
-        m2 = _re.match(r'^신(\d{2})[-]', mgmt)
-        if m2:
-            yy = int(m2.group(1))
-            y = 2000 + yy if yy <= cur_year % 100 else 1900 + yy
-            if min_year <= y <= cur_year:
-                result.setdefault(y, {"year": y, "new": 0, "transfer": 0, "closure": 0, "change": 0})
-                result[y]["new"] += 1
+        y = _mgmt_yy("신", m.management_number)
+        if y and min_year <= y <= cur_year:
+            _r(y)["new"] += 1
 
-    # 양도양수 - receipt_date (접수일자) 기준
+    # 2. 양도양수: 관리번호 양YY-* (날짜 무관)
     for t in db.query(models.TransferLedger).filter(
         models.TransferLedger.deleted_at.is_(None),
     ).all():
-        y = _ext_year(t.receipt_date or t.approval_date or "")
+        y = _mgmt_yy("양", t.management_number)
         if y and min_year <= y <= cur_year:
-            result.setdefault(y, {"year": y, "new": 0, "transfer": 0, "closure": 0, "change": 0})
-            result[y]["transfer"] += 1
+            _r(y)["transfer"] += 1
 
-    # 폐업 - closure_date 기준 (폐지/폐업 동일 집계)
+    # 3. 폐업/양도/이관: 접수일자(receipt_date) 기준, 없으면 closure_date
+    #    이전자료+신규자료 합산
     for c in db.query(models.Closure).filter(
         models.Closure.deleted_at.is_(None),
     ).all():
-        y = _ext_year(c.closure_date or "")
+        date_str = (c.receipt_date or c.closure_date or "").strip()
+        y = _ext_year(date_str)
         if y and min_year <= y <= cur_year:
-            result.setdefault(y, {"year": y, "new": 0, "transfer": 0, "closure": 0, "change": 0})
-            result[y]["closure"] += 1
+            _r(y)["closure"] += 1
 
-    # 변경이력 - change_date 기준
+    # 4. 변경: change_date 기준
     for c in db.query(models.ChangeHistory).filter(
         models.ChangeHistory.deleted_at.is_(None),
     ).all():
         y = _ext_year(c.change_date or "")
         if y and min_year <= y <= cur_year:
-            result.setdefault(y, {"year": y, "new": 0, "transfer": 0, "closure": 0, "change": 0})
-            result[y]["change"] += 1
+            _r(y)["change"] += 1
 
-    # 최근 10년 범위를 채워서 빈 연도도 표시
     for yr in range(min_year, cur_year + 1):
         result.setdefault(yr, {"year": yr, "new": 0, "transfer": 0, "closure": 0, "change": 0})
 
     return sorted(result.values(), key=lambda x: x["year"])
-
 
 @router.get("/recent-by-type")
 async def recent_by_type(
@@ -478,17 +482,36 @@ async def monthly_report_auto(
     veh_age = {bkt: veh_age_raw[bkt] for bkt in _VEH_BUCKETS if bkt in veh_age_raw}
 
     # 해당 월 신규/양도/폐업/변경
+    # ── 해당 월 신규: 관리번호 신YY-* 이고 인가일자가 해당 월인 건
+    cur_yy = cur_year % 100
+    def _mgmt_year_match(mgmt, prefix, t_year):
+        m2 = re.match(rf'^{prefix}(\d{{2}})[-]', (mgmt or '').strip())
+        if not m2: return False
+        yy = int(m2.group(1))
+        y = 2000 + yy if yy <= cur_yy else 1900 + yy
+        return y == t_year
+
+    # 신규: 관리번호 신YY-* 이고 approval_date 해당 월
+    month_new = [m for m in db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.deleted_at.is_(None),
+        models.LicenseHolder.management_number.like("신%"),
+    ).all() if _mgmt_year_match(m.management_number, "신", target_year)
+              and matches(m.approval_date or '')]
+
+    # 양도양수: 관리번호 양YY-* 이고 receipt_date 해당 월
     month_transfers = [t for t in db.query(models.TransferLedger).filter(
-        models.TransferLedger.deleted_at.is_(None)).all()
-        if matches(t.receipt_date or '')]
+        models.TransferLedger.deleted_at.is_(None),
+    ).all() if _mgmt_year_match(t.management_number, "양", target_year)
+             and matches(t.receipt_date or '')]
+
+    # 폐업/양도/이관: 접수일자(receipt_date) 기준, 이전+신규 합산
     month_closures = [c for c in db.query(models.Closure).filter(
         models.Closure.deleted_at.is_(None)).all()
-        if matches(c.closure_date or '')]
+        if matches((c.receipt_date or c.closure_date or ''))]
+
     month_changes = [c for c in db.query(models.ChangeHistory).filter(
         models.ChangeHistory.deleted_at.is_(None)).all()
         if matches(c.change_date or '')]
-    month_new = [m for m in all_members
-                 if m.registration_type == "신규" and matches(m.approval_date or '')]
 
     change_by_type: dict = {}
     for c in month_changes:
@@ -506,15 +529,31 @@ async def monthly_report_auto(
         "양도양수": len(month_transfers),
     }
 
-    # 폐업 목록에서 closure_type 폐지→폐업 통일
+    # 관리번호 자연정렬 (숫자 기준 내림차순)
+    from app.excel_utils import mgmt_sort_key
+    def _sort_desc(lst, key_fn):
+        return sorted(lst, key=key_fn, reverse=True)
+
+    # 신규 목록: 관리번호 내림차순
+    month_new_sorted = _sort_desc(month_new,
+        lambda m: mgmt_sort_key(m.management_number or ''))
+
+    # 폐업 목록: 관리번호 내림차순, closure_type 폐지→폐업 통일
+    month_closures_sorted = _sort_desc(month_closures,
+        lambda c: mgmt_sort_key(c.management_number or ''))
+
     closure_list = []
-    for c in month_closures[:10]:
+    for c in month_closures_sorted:
         ct = c.closure_type or ''
         if ct == '폐지': ct = '폐업'
+        data_label = "이전자료" if c.data_type == "이전자료" else "신규자료"
         closure_list.append({
             "management_number": c.management_number, "region": c.region,
             "vehicle_number": c.vehicle_number, "name": c.name,
-            "closure_type": ct, "closure_date": c.closure_date
+            "closure_type": ct,
+            "receipt_date": c.receipt_date or "",
+            "closure_date": c.closure_date or "",
+            "data_type": data_label,
         })
 
     return {
@@ -534,13 +573,17 @@ async def monthly_report_auto(
         "admin_work": admin_work,
         "education": None,
         "enforcement": None,
-        "month_new_list": [{"region": m.region, "vehicle_number": m.vehicle_number,
-                             "name": m.name, "approval_date": m.approval_date}
-                           for m in month_new[:10]],
-        "month_transfer_list": [{"region": t.region, "vehicle_number": t.vehicle_number,
+        "month_new_list": [{"management_number": m.management_number,
+                             "region": m.region, "vehicle_number": m.vehicle_number,
+                             "name": m.name, "approval_date": m.approval_date,
+                             "category": m.category}
+                           for m in month_new_sorted],
+        "month_transfer_list": [{"management_number": t.management_number,
+                                  "region": t.region, "vehicle_number": t.vehicle_number,
                                   "transferor": t.transferor, "transferee": t.transferee,
                                   "receipt_date": t.receipt_date}
-                                for t in month_transfers[:10]],
+                                for t in _sort_desc(month_transfers,
+                                    lambda t: mgmt_sort_key(t.management_number or ''))],
         "month_closure_list": closure_list,
     }
 

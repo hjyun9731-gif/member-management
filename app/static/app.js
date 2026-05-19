@@ -1283,12 +1283,12 @@ async function renderMonthlyReport(){
     </div>
 
     ${act.new_registrations>0||act.closures>0?`<div class="grid2">
-      ${act.new_registrations>0?`<div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">📋</span><span class="card-ttl">${y}년 ${m}월 신규등록 목록</span></div></div>
-        <div class="tbl-wrap"><table><thead><tr><th>지역</th><th>차량번호</th><th>성명</th><th>인가일자</th></tr></thead>
-          <tbody>${(d.month_new_list||[]).map(r=>`<tr><td>${fv(r.region)}</td><td>${fv(r.vehicle_number)}</td><td>${fv(r.name)}</td><td>${fv(r.approval_date)}</td></tr>`).join('')}</tbody></table></div></div>`:''}
-      ${act.closures>0?`<div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">🚫</span><span class="card-ttl">${y}년 ${m}월 폐업 목록</span></div></div>
-        <div class="tbl-wrap"><table><thead><tr><th>관리번호</th><th>지역</th><th>차량번호</th><th>성명</th><th>구분</th></tr></thead>
-          <tbody>${(d.month_closure_list||[]).map(r=>`<tr><td>${fv(r.management_number)}</td><td>${fv(r.region)}</td><td>${fv(r.vehicle_number)}</td><td>${fv(r.name)}</td><td>${ctBadge(r.closure_type)}</td></tr>`).join('')}</tbody></table></div></div>`:''}
+      ${act.new_registrations>0?`<div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">📋</span><span class="card-ttl">${y}년 ${m}월 신규등록 목록 (${act.new_registrations}건)</span></div></div>
+        <div class="tbl-wrap"><table><thead><tr><th>관리번호</th><th>지역</th><th>차량번호</th><th>성명</th><th>구분</th><th>인가일자</th></tr></thead>
+          <tbody>${(d.month_new_list||[]).map(r=>`<tr><td><strong>${fv(r.management_number)}</strong></td><td>${fv(r.region)}</td><td>${fv(r.vehicle_number)}</td><td>${fv(r.name)}</td><td>${fv(r.category)}</td><td>${fv(r.approval_date)}</td></tr>`).join('')}</tbody></table></div></div>`:''}
+      ${act.closures>0?`<div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">🚫</span><span class="card-ttl">${y}년 ${m}월 폐업/양도/이관 목록 (${act.closures}건)</span></div></div>
+        <div class="tbl-wrap"><table><thead><tr><th>자료</th><th>관리번호</th><th>구분</th><th>지역</th><th>차량번호</th><th>성명</th><th>접수일자</th></tr></thead>
+          <tbody>${(d.month_closure_list||[]).map(r=>`<tr><td><span class="badge ${r.data_type==='이전자료'?'b-gray':'b-sky'}" style="font-size:10px">${r.data_type||''}</span></td><td><strong>${fv(r.management_number)}</strong></td><td>${ctBadge(r.closure_type)}</td><td>${fv(r.region)}</td><td>${fv(r.vehicle_number)}</td><td>${fv(r.name)}</td><td>${fv(r.receipt_date||r.closure_date)}</td></tr>`).join('')}</tbody></table></div></div>`:''}
     </div>`:''}`;
 }
 
