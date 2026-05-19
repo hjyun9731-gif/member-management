@@ -323,23 +323,25 @@ async def dashboard_verify(
         models.LicenseHolder.status == "closed",
     ).count()
 
-    # 인가일자 2026년인 신규
+    # 관리번호 기준 연도별 집계 (신YY-* → YY년도, 접수일자/인가일자/status 무관)
+    import re as _re
     shin_all = db.query(models.LicenseHolder).filter(
         models.LicenseHolder.deleted_at.is_(None),
         models.LicenseHolder.management_number.like("신%"),
     ).all()
 
-    by_approval_year = {}
-    no_approval = []
-    parse_fail = []
+    by_mgmt_year = {}
+    bad_format = []
     for m in shin_all:
-        y = _ext_year(m.approval_date or "")
-        if y:
-            by_approval_year[y] = by_approval_year.get(y, 0) + 1
-        elif m.approval_date:
-            parse_fail.append({"mgmt": m.management_number, "approval_date": m.approval_date})
+        mgmt = (m.management_number or "").strip()
+        m2 = _re.match(r'^신(\d{2})[-]', mgmt)
+        if m2:
+            yy = int(m2.group(1))
+            cur_yy = datetime.now().year % 100
+            y = 2000 + yy if yy <= cur_yy else 1900 + yy
+            by_mgmt_year[y] = by_mgmt_year.get(y, 0) + 1
         else:
-            no_approval.append(m.management_number)
+            bad_format.append({"id": m.id, "management_number": mgmt, "status": m.status})
 
     # 2. 폐업현황 집계
     total_closures = db.query(models.Closure).filter(
@@ -356,10 +358,8 @@ async def dashboard_verify(
         "신26_관리번호_전체": shin26_total,
         "신26_active": shin26_active,
         "신26_closed(신규등록대장에서_숨겨진수)": shin26_closed,
-        "인가일자_연도별_신규수": dict(sorted(by_approval_year.items(), reverse=True)),
-        "인가일자_없는_신규": len(no_approval),
-        "인가일자_없는_목록(최대10개)": no_approval[:10],
-        "인가일자_파싱실패(최대10개)": parse_fail[:10],
+        "관리번호기준_연도별_신규수": dict(sorted(by_mgmt_year.items(), reverse=True)),
+        "관리번호_형식_불일치": bad_format[:10],
         "폐업현황_전체": total_closures,
         "현재_active_회원수": total_members,
     }

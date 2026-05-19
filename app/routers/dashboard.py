@@ -278,16 +278,22 @@ async def activity_by_year(db: Session = Depends(get_db), _=Depends(get_current_
     cur_year = datetime.now().year
     min_year = cur_year - 9  # 최근 10년만 (예: 2026기준 2017~2026)
 
-    # 신규등록 - 인가일자(approval_date) 연도 기준
-    # 관리번호 '신'으로 시작하는 회원 중 인가일자가 해당 연도인 건수
+    # 신규등록 - 관리번호 기준 (신YY-* → YY년도 신규)
+    # 접수일자/인가일자/status 무관하게 관리번호로만 판단
     for m in db.query(models.LicenseHolder).filter(
         models.LicenseHolder.deleted_at.is_(None),
         models.LicenseHolder.management_number.like("신%"),
     ).all():
-        y = _ext_year(m.approval_date or "")
-        if y and min_year <= y <= cur_year:
-            result.setdefault(y, {"year": y, "new": 0, "transfer": 0, "closure": 0, "change": 0})
-            result[y]["new"] += 1
+        mgmt = (m.management_number or "").strip()
+        # 관리번호에서 연도 추출: 신26-* → 26 → 2026
+        import re as _re
+        m2 = _re.match(r'^신(\d{2})[-]', mgmt)
+        if m2:
+            yy = int(m2.group(1))
+            y = 2000 + yy if yy <= cur_year % 100 else 1900 + yy
+            if min_year <= y <= cur_year:
+                result.setdefault(y, {"year": y, "new": 0, "transfer": 0, "closure": 0, "change": 0})
+                result[y]["new"] += 1
 
     # 양도양수 - receipt_date (접수일자) 기준
     for t in db.query(models.TransferLedger).filter(
