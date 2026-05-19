@@ -263,12 +263,13 @@ async def activity_by_year(db: Session = Depends(get_db), _=Depends(get_current_
     min_year = cur_year - 9  # 최근 10년만 (예: 2026기준 2017~2026)
 
     # 신규등록 - 인가일자 기준, 관리번호 '신'으로 시작하는 자료
+    # 인가일자 없는 행도 포함 (당해년도로 처리)
     for m in db.query(models.LicenseHolder).filter(
         models.LicenseHolder.deleted_at.is_(None),
         models.LicenseHolder.management_number.like("신%"),
     ).all():
-        y = _ext_year(m.approval_date or "")
-        if y and min_year <= y <= cur_year:
+        y = _ext_year(m.approval_date or "") or cur_year  # 인가일자 없으면 현재 연도
+        if min_year <= y <= cur_year:
             result.setdefault(y, {"year": y, "new": 0, "transfer": 0, "closure": 0, "change": 0})
             result[y]["new"] += 1
 

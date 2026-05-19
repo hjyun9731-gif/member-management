@@ -221,12 +221,17 @@ async def create_member(data: dict, db: Session = Depends(get_db), _=Depends(get
 
 
 _AUTO_CHANGE_FIELDS = {
-    "address":           "주소지변경",
-    "name":              "성명변경",
-    "affiliated_company":"전속계약 업체변경",
-    "company_name":      "상호변경",
-    "vehicle_number":    "번호변경",
-    "region":            "등록이관",
+    "address":            "주소지변경",
+    "name":               "성명변경",
+    "affiliated_company": "전속계약 업체변경",
+    "company_name":       "상호변경",
+    "vehicle_number":     "번호변경",
+    "region":             "등록이관",
+    "vehicle_type":       "구조변경",      # 차종 변경 (카고→냉동탑 등)
+    "fuel_type":          "구조변경",      # 유종 변경
+    "structure_change":   "구조변경",      # 구조변경 내용
+    "mobile":             "성명변경",      # 핸드폰 변경 (성명변경 유형으로 기록)
+    "phone":              "성명변경",      # 전화번호 변경
 }
 
 # 수정 시 저장 허용할 모든 필드 목록 (화이트리스트)
@@ -290,27 +295,45 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
 
     m.updated_at = datetime.datetime.now(datetime.timezone.utc)
 
-    # 변경된 필드 자동 기록
+    # 변경된 필드 자동 기록 (유형별 그룹화)
     today = datetime.datetime.now().strftime("%Y-%m-%d")
+    _FIELD_LABELS = {
+        "address": "주소", "name": "성명", "affiliated_company": "소속업체",
+        "company_name": "상호", "vehicle_number": "차량번호", "region": "지역",
+        "vehicle_type": "차종", "fuel_type": "유종", "structure_change": "구조변경",
+        "mobile": "핸드폰", "phone": "전화번호",
+    }
+    # 변경유형별로 묶어서 하나의 이력 생성
+    changes_by_type: dict = {}
     for field, change_type in _AUTO_CHANGE_FIELDS.items():
+        if field not in before_snap:
+            continue
         old_val = before_snap[field]
         new_val = filtered_data.get(field, old_val)
-        if old_val != new_val and new_val:
-            try:
-                ch = models.ChangeHistory(
-                    change_type=change_type,
-                    region=getattr(m, "region", "") or "",
-                    vehicle_number=getattr(m, "vehicle_number", "") or "",
-                    name=getattr(m, "name", "") or "",
-                    before_value=old_val,
-                    after_value=str(new_val),
-                    change_date=today,
-                    memo="회원정보 수정 자동기록",
-                    member_id=mid,
-                )
-                db.add(ch)
-            except Exception as ex:
-                logger.warning(f"변경이력 저장 실패: {ex}")
+        if old_val != new_val and new_val is not None and str(new_val).strip():
+            label = _FIELD_LABELS.get(field, field)
+            if change_type not in changes_by_type:
+                changes_by_type[change_type] = []
+            changes_by_type[change_type].append(
+                f"[{label}] {old_val or '(없음)'} → {new_val}"
+            )
+
+    for change_type, detail_list in changes_by_type.items():
+        try:
+            ch = models.ChangeHistory(
+                change_type=change_type,
+                region=getattr(m, "region", "") or "",
+                vehicle_number=getattr(m, "vehicle_number", "") or "",
+                name=getattr(m, "name", "") or "",
+                before_value="",
+                after_value="\n".join(detail_list),
+                change_date=today,
+                memo="회원정보 수정 자동기록",
+                member_id=mid,
+            )
+            db.add(ch)
+        except Exception as ex:
+            logger.warning(f"변경이력 저장 실패: {ex}")
 
     try:
         db.commit()
