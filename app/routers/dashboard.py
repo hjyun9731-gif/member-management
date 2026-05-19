@@ -84,9 +84,26 @@ def _normalize_fuel_stat(fuel: str) -> Optional[str]:
 
 
 def ext_veh_year(vt: str) -> Optional[int]:
-    m = re.match(r'^(\d{2})\s*,', str(vt or '').strip())
-    if m:
-        yy = int(m.group(1))
+    """차량연식 추출. 지원 형태:
+    '26,포터Ⅱ' → 2026
+    '26포터' → 2026 (쉼표 없음)
+    '26.카고' → 2026 (점 구분)
+    '2026,포터' → 2026 (4자리)
+    """
+    s = str(vt or '').strip()
+    # 4자리 연도: 2000~2099
+    m4 = re.match(r'^(20\d{2})[,.\s]', s)
+    if m4:
+        return int(m4.group(1))
+    # 2자리 연도 + 구분자 (쉼표/점/공백)
+    m2 = re.match(r'^(\d{2})[,.\s]', s)
+    if m2:
+        yy = int(m2.group(1))
+        return 2000 + yy
+    # 2자리 연도 + 바로 한글/영문 (쉼표 없음)
+    m2b = re.match(r'^(\d{2})[가-힣A-Za-z]', s)
+    if m2b:
+        yy = int(m2b.group(1))
         return 2000 + yy
     return None
 
