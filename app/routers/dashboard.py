@@ -19,27 +19,26 @@ router = APIRouter()
 
 def _ext_year(s: str) -> Optional[int]:
     """날짜/연도 문자열에서 연도 추출.
-    - 4자리 연도가 있으면 그대로 사용
-    - 2자리 연도: 현재연도 뒤 2자리보다 크면 1900년대, 아니면 2000년대
+    - 4자리 연도: 2026년, 2026.03.30, 2026-03-30 등
+    - 2자리 연도: 26.03.30, 26-03-30, 26년 등
     - 미래 연도(현재+1 이상)는 None 반환
     """
     if not s:
         return None
+    s = str(s).strip()
     cur_year = datetime.now().year
-    cur_yy = cur_year % 100  # 예: 2026 → 26
+    cur_yy = cur_year % 100
 
-    # 4자리 연도 우선 탐색 (19xx, 20xx)
-    m4 = re.search(r'\b(19[0-9]{2}|20[0-9]{2})\b', str(s))
+    # 4자리 연도 우선 탐색 (19xx, 20xx) - 뒤에 숫자/한글/구분자 무관
+    m4 = re.search(r'(19[0-9]{2}|20[0-9]{2})', s)
     if m4:
         y = int(m4.group())
-        return y if y <= cur_year else None  # 미래 연도 제외
+        return y if y <= cur_year else None
 
-    # 2자리 연도: 날짜 형식 내에서만 추출 (관리번호 오염 방지)
-    # 패턴: "16. 6.28" / "24.04.02" / "99-12-30"
-    m2 = re.match(r'^(\d{2})\s*[\.\-/년]', str(s).strip())
+    # 2자리 연도: 날짜 형식 내에서만 추출
+    m2 = re.match(r'^(\d{2})\s*[.\-/년]', s)
     if m2:
         yy = int(m2.group(1))
-        # 현재 연도의 2자리보다 크면 1900년대 (예: yy=94, cur_yy=26 → 1994)
         year = (2000 + yy) if yy <= cur_yy else (1900 + yy)
         return year if year <= cur_year else None
 
@@ -279,14 +278,14 @@ async def activity_by_year(db: Session = Depends(get_db), _=Depends(get_current_
     cur_year = datetime.now().year
     min_year = cur_year - 9  # 최근 10년만 (예: 2026기준 2017~2026)
 
-    # 신규등록 - 인가일자 기준, 관리번호 '신'으로 시작하는 자료
-    # 인가일자 없는 행도 포함 (당해년도로 처리)
+    # 신규등록 - 인가일자(approval_date) 연도 기준
+    # 관리번호 '신'으로 시작하는 회원 중 인가일자가 해당 연도인 건수
     for m in db.query(models.LicenseHolder).filter(
         models.LicenseHolder.deleted_at.is_(None),
         models.LicenseHolder.management_number.like("신%"),
     ).all():
-        y = _ext_year(m.approval_date or "") or cur_year  # 인가일자 없으면 현재 연도
-        if min_year <= y <= cur_year:
+        y = _ext_year(m.approval_date or "")
+        if y and min_year <= y <= cur_year:
             result.setdefault(y, {"year": y, "new": 0, "transfer": 0, "closure": 0, "change": 0})
             result[y]["new"] += 1
 
@@ -574,17 +573,24 @@ async def debug_new_count(db: Session = Depends(get_db), _=Depends(get_current_u
         (models.LicenseHolder.approval_date == "")
     ).count()
 
-    # activity_by_year 신규 로직 동일하게 재현
+    # activity_by_year 신규 로직 동일하게 재현 + 파싱 실패 건 수집
     rows = db.query(models.LicenseHolder).filter(
         models.LicenseHolder.deleted_at.is_(None),
-        models.LicenseHolder.management_number.like("신%"),
+        models.LicenseHolder.management_number.like("신26%"),
     ).all()
 
     year_cnt = {}
+    parse_failed = []  # 인가일자가 있는데 2026으로 파싱 안 되는 건
     for m in rows:
-        y = _ext_year(m.approval_date or "") or cur_year
-        if min_year <= y <= cur_year:
-            year_cnt[y] = year_cnt.get(y, 0) + 1
+        y = _ext_year(m.approval_date or "")
+        if y == 2026:
+            year_cnt[2026] = year_cnt.get(2026, 0) + 1
+        else:
+            parse_failed.append({
+                "management_number": m.management_number,
+                "approval_date": m.approval_date,
+                "parsed_year": y,
+            })
 
     # 관리번호 목록 (마지막 20개)
     from sqlalchemy import func
@@ -598,6 +604,7 @@ async def debug_new_count(db: Session = Depends(get_db), _=Depends(get_current_u
     return {
         "신26_전체수": all_shin26,
         "신26_인가일자없는수": no_date,
-        "activity_by_year_2026신규": year_cnt.get(2026, 0),
+        "신26_인가일자2026으로집계되는수": year_cnt.get(2026, 0),
+        "신26_파싱실패건": parse_failed,  # 인가일자가 있는데 2026으로 안 읽히는 건
         "신26_마지막20개": mgmt_list[-20:],
     }
