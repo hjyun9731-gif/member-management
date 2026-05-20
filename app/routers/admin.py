@@ -444,3 +444,55 @@ async def dashboard_verify(
         "폐업현황_전체": total_closures,
         "현재_active_회원수": total_members,
     }
+
+
+@router.get("/cert-debug")
+async def cert_debug(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """택배 취업신고/미신고 디버그: 정확한 계산 근거 확인"""
+    def _has_val(v):
+        return bool(v and str(v).strip() and str(v).strip().lower() not in ('-','x','none','nan'))
+
+    # 전체 택배 원본 (삭제된 것 포함)
+    all_delivery_raw = db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.category == "택배"
+    ).count()
+
+    # 삭제된 택배
+    deleted = db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.category == "택배",
+        models.LicenseHolder.deleted_at.isnot(None)
+    ).count()
+
+    # 폐업 처리된 택배 (status=closed)
+    closed = db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.category == "택배",
+        models.LicenseHolder.deleted_at.is_(None),
+        models.LicenseHolder.status == "closed"
+    ).count()
+
+    # 현재 유효한 택배 (status=active, deleted_at=NULL)
+    valid = db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.category == "택배",
+        models.LicenseHolder.deleted_at.is_(None),
+        models.LicenseHolder.status == "active"
+    ).all()
+
+    employed   = [m for m in valid if _has_val(m.certificate_issue_date)]
+    unemployed = [m for m in valid if not _has_val(m.certificate_issue_date)]
+
+    return {
+        "택배_전체원본": all_delivery_raw,
+        "deleted_at있음": deleted,
+        "status_closed(폐업)": closed,
+        "현재유효택배": len(valid),
+        "취업신고(자격증발급일자있음)": len(employed),
+        "미신고(자격증발급일자없음)": len(unemployed),
+        "검증": f"취업신고{len(employed)} + 미신고{len(unemployed)} = {len(employed)+len(unemployed)} (유효택배{len(valid)}와 {'일치✅' if len(employed)+len(unemployed)==len(valid) else '불일치❌'})",
+        "미신고_샘플10": [
+            {"관리번호": m.management_number, "지역": m.region,
+             "차량번호": m.vehicle_number, "성명": m.name,
+             "certificate_issue_date": m.certificate_issue_date or "",
+             "status": m.status}
+            for m in unemployed[:10]
+        ]
+    }
