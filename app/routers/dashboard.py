@@ -557,6 +557,7 @@ async def monthly_report_auto(
 
     # 해당 월 신규/양도/폐업/변경
     # ── 해당 월 신규: 관리번호 신YY-* 이고 인가일자가 해당 월인 건
+    cur_year = datetime.now().year
     cur_yy = cur_year % 100
     def _mgmt_year_match(mgmt, prefix, t_year):
         m2 = re.match(rf'^{prefix}(\d{{2}})[-]', (mgmt or '').strip())

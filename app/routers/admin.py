@@ -605,3 +605,61 @@ async def delete_old_closure_data(db: Session = Depends(get_db), _=Depends(requi
             "남은이전자료": len(protected),
         },
     }
+
+
+@router.post("/cleanup-closures")
+async def cleanup_closures(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """이전폐지현황 정리: 자료구분 보정 + 이전자료 삭제 (폐-*/양-*/이-* 보호)"""
+    from datetime import datetime, timezone
+    import re as _re
+
+    all_rows = db.query(models.Closure).filter(
+        models.Closure.deleted_at.is_(None)
+    ).all()
+
+    # 삭제 전 현황
+    pre = {
+        "전체": len(all_rows),
+        "이전자료": sum(1 for r in all_rows if r.data_type == "이전자료"),
+        "신규자료": sum(1 for r in all_rows if r.data_type != "이전자료"),
+        "폐-*": sum(1 for r in all_rows if (r.management_number or "").startswith("폐-")),
+        "양-*": sum(1 for r in all_rows if (r.management_number or "").startswith("양-")),
+        "이-*": sum(1 for r in all_rows if (r.management_number or "").startswith("이-")),
+    }
+
+    now = datetime.now(timezone.utc)
+
+    # 1단계: 폐-*/양-*/이-* → 신규자료 보정
+    fixed = 0
+    for r in all_rows:
+        if _re.match(r"^(폐|양|이)-", r.management_number or ""):
+            if r.data_type != "신규자료":
+                r.data_type = "신규자료"
+                fixed += 1
+
+    # 2단계: 이전자료 + 폐-/양-/이- 아닌 것 삭제
+    to_delete = [r for r in all_rows
+                 if r.data_type == "이전자료"
+                 and not _re.match(r"^(폐|양|이)-", r.management_number or "")]
+    for r in to_delete:
+        r.deleted_at = now
+
+    db.commit()
+
+    # 삭제 후 현황
+    remaining = db.query(models.Closure).filter(models.Closure.deleted_at.is_(None)).all()
+    post = {
+        "전체": len(remaining),
+        "이전자료": sum(1 for r in remaining if r.data_type == "이전자료"),
+        "신규자료": sum(1 for r in remaining if r.data_type != "이전자료"),
+        "폐-*": sum(1 for r in remaining if (r.management_number or "").startswith("폐-")),
+        "양-*": sum(1 for r in remaining if (r.management_number or "").startswith("양-")),
+        "이-*": sum(1 for r in remaining if (r.management_number or "").startswith("이-")),
+    }
+
+    return {
+        "삭제전": pre,
+        "보정건수(폐양이→신규자료)": fixed,
+        "삭제건수": len(to_delete),
+        "삭제후": post,
+    }
