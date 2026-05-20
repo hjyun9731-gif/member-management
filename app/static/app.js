@@ -331,7 +331,7 @@ window.viewTransfer=async(id)=>{
     .filter(([k,v])=>v&&fv(v)!=='-'&&!['id','seq_number','region','vehicle_number','transferor','transferee','receipt_date','approval_date','membership_date','certificate_issue_date','certificate_number','driver_license_number','ledger_update','computer_report','memo','resident_number','phone','mobile','address','management_number','허가번호'].includes(k))
     .slice(0,20);
   const sections=[
-    {title:'기본 정보',fields:[['번호',r.seq_number],['접수일자',r.receipt_date],['지역',r.region],['차량번호',r.vehicle_number]]},
+    {title:'기본 정보',fields:[['번호',r.seq_number],['관리번호',r.management_number],['접수일자',r.receipt_date],['지역',r.region],['차량번호',r.vehicle_number],['차종',raw['차종']||raw['vehicle_type']||''],['유종',raw['유종']||raw['fuel_type']||'']]},
     {title:'양도자 / 양수자',fields:[['양도자',r.transferor],['양수자',r.transferee],['주민등록번호',r.resident_number],['전화번호',r.phone],['핸드폰',r.mobile],['주소',r.address,true]]},
     {title:'인허가 정보',fields:[['인가일자',r.approval_date],['가입일자',r.membership_date],['자격증발급일자',r.certificate_issue_date],['자격증발급번호',r.certificate_number],['운전면허번호',r.driver_license_number]]},
     {title:'행정 정보',fields:[['장부정리',r.ledger_update],['전산보고',r.computer_report],['비고',r.memo,true]]},
@@ -358,7 +358,7 @@ window.viewClosure=async(id)=>{
   const sections=[
     {title:'기본 정보',fields:[['관리번호',r.management_number],['번호',rawSeq],['처리구분',r.closure_type],['자료구분',r.data_type],['지역',r.region],['차량번호',r.vehicle_number],['성명',r.name],['상호',r.company_name]]},
     {title:'연락처 / 주소',fields:[['전화번호',rawPhone],['핸드폰',rawMobile],['주소',rawAddr,true],['주민등록번호',rawResNo]]},
-    {title:'인가 / 자격',fields:[['인가일자',r.approval_date],['접수일자',rawReceipt],['가입일자',rawMemDate],['자격증명발급일자',rawCertDate],['자격증명발급번호',rawCertNo],['운전면허번호',rawDrvLic]]},
+    {title:'인가 / 자격',fields:[['인가일자',r.approval_date],['접수일자',rawReceipt],['가입일자',rawMemDate],['차종',raw['차종']||raw['vehicle_type']||''],['유종',raw['유종']||raw['fuel_type']||''],['자격증명발급일자',rawCertDate],['자격증명발급번호',rawCertNo],['운전면허번호',rawDrvLic]]},
     {title:'폐업처리 정보',fields:[
       ['접수일자',r.receipt_date],
       ['처리일자',r.closure_date],

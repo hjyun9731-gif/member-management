@@ -1,3 +1,15 @@
+from datetime import datetime as _dt
+from app.routers.dashboard import _ext_year
+
+def _is_future_date(date_str):
+    if not date_str: return False
+    try:
+        from app.routers.dashboard import _ext_year
+        y = _ext_year(str(date_str))
+        from datetime import datetime
+        return y is not None and y > datetime.now().year
+    except: return False
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -62,6 +74,7 @@ def _fmt(c):
         "receipt_date": c.receipt_date or "",
         "memo": c.memo or "",
         "created_at": str(c.created_at)[:10] if c.created_at else "",
+        "is_future_date": _is_future_date(c.change_date or ""),  # 미래 날짜 여부
     }
 
 

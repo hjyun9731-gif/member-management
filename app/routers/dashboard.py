@@ -77,7 +77,7 @@ def classify_vt(vt: str, fuel: str = "") -> str:
     if any(k in vl for k in ["윙바디","윙","wing"]):
         return "윙바디"
     # 3. 사다리/고소
-    if any(k in vl for k in ["사다리","고소","엘리카","호룡"]):
+    if any(k in vl for k in ["사다리","사다라","사다리차","사다라차","고소","고소작업","엘리카","호룡"]):
         return "사다리/고소"
     # 4. 렉카/구난
     if any(k in vl for k in ["렉카","렉커","구난","견인"]):
@@ -327,7 +327,7 @@ async def full_stats(db: Session = Depends(get_db), _=Depends(get_current_user))
                           if k != "전기차"],
         "fuel_types": [{"type": k, "count": v}
                        for k, v in sorted(fuel_counts.items(), key=lambda x: -x[1])],
-        "debug_version": "vt-fix-20260520-1700",
+        "debug_version": "vt-fix-20260520-1800",
         "age_groups": age_groups,
         "vehicle_age": veh_year_dist,
         "closure_by_type": closure_by_type,
