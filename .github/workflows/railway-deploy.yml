@@ -1,26 +1,13 @@
-name: Deploy to Railway
+# Railway 직접 GitHub 연동 사용 - 이 워크플로우 비활성화
+# Railway Settings > Source > Auto Deploy ON 으로 자동 배포됨
+name: Disabled - Using Railway Direct GitHub Integration
 
 on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
+  workflow_dispatch:  # 수동 실행만 허용 (자동 비활성화)
 
 jobs:
-  deploy:
+  info:
     runs-on: ubuntu-latest
-
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
-
-      - name: Deploy to Railway
-        run: railway up --detach
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      - name: Info
+        run: echo "Railway auto-deploy handles this via GitHub integration"
