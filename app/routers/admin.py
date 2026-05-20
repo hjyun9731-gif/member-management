@@ -552,7 +552,9 @@ async def fix_closure_data_type(db: Session = Depends(get_db), _=Depends(require
 
 @router.delete("/old-closure-data")
 async def delete_old_closure_data(db: Session = Depends(get_db), _=Depends(require_admin)):
-    """이전자료 삭제 (폐-*/양-*/이-* 제외)"""
+    """이전자료 삭제 (폐-*/양-*/이-* 절대 보존).
+    삭제 전/후 상세 로그 반환.
+    """
     from datetime import datetime, timezone
     import re as _re
 
@@ -560,20 +562,46 @@ async def delete_old_closure_data(db: Session = Depends(get_db), _=Depends(requi
         models.Closure.deleted_at.is_(None)
     ).all()
 
+    # 삭제 전 현황
     total = len(all_rows)
     old_data = [r for r in all_rows if r.data_type == "이전자료"]
-    protected = [r for r in old_data if _re.match(r'^(폐|양|이)-', r.management_number or "")]
-    to_delete = [r for r in old_data if not _re.match(r'^(폐|양|이)-', r.management_number or "")]
+    new_data = [r for r in all_rows if r.data_type != "이전자료"]
+    pye = [r for r in all_rows if (r.management_number or "").startswith("폐-")]
+    yang = [r for r in all_rows if (r.management_number or "").startswith("양-")]
+    yi   = [r for r in all_rows if (r.management_number or "").startswith("이-")]
 
+    # 삭제 대상: 이전자료 + 관리번호가 폐-/양-/이- 아닌 것
+    to_delete = [r for r in old_data
+                 if not _re.match(r'^(폐|양|이)-', r.management_number or "")]
+    protected = [r for r in old_data
+                 if _re.match(r'^(폐|양|이)-', r.management_number or "")]
+
+    # 샘플
+    sample = [{"id": r.id, "management_number": r.management_number,
+               "data_type": r.data_type, "closure_type": r.closure_type,
+               "name": r.name, "receipt_date": r.receipt_date}
+              for r in old_data[:20]]
+
+    # 실제 삭제
     now = datetime.now(timezone.utc)
     for r in to_delete:
         r.deleted_at = now
     db.commit()
 
     return {
-        "삭제전_전체": total,
-        "이전자료": len(old_data),
-        "보호됨(폐양이-)": len(protected),
-        "삭제됨": len(to_delete),
-        "삭제후_남은건수": total - len(to_delete),
+        "삭제전": {
+            "전체": total,
+            "이전자료": len(old_data),
+            "신규자료": len(new_data),
+            "폐-*": len(pye), "양-*": len(yang), "이-*": len(yi),
+            "이전자료샘플20": sample,
+        },
+        "삭제결과": {
+            "삭제됨": len(to_delete),
+            "보호됨(폐양이-)": len(protected),
+        },
+        "삭제후": {
+            "남은전체": total - len(to_delete),
+            "남은이전자료": len(protected),
+        },
     }

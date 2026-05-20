@@ -61,40 +61,55 @@ def _ext_month(s: str) -> Optional[int]:
 
 
 def classify_vt(vt: str, fuel: str = "") -> str:
-    """차종 분류 - 구조/형태 기준만. 유종(전기/EV) 절대 반환 금지."""
+    """차종 분류 - 구조/형태 기준. 유종(전기/EV) 절대 반환 금지.
+    우선순위: 냉동>윙>사다리>렉카>픽업/덮개>밴/특수밴>탑차/내장탑>카고>기타특수>미분류
+    """
+    import re as _re
     v = str(vt or "").strip()
     vl = v.lower()
-    # EV/전기/일렉트릭 키워드만 있으면 제거 후 구조로만 판단
-    import re as _re
-    vl_clean = _re.sub(r"(전기|일렉트릭|electric|ev|하이브리드|hybrid)", "", vl).strip()
+    # EV/전기 키워드 제거 후 구조만 판단
+    vl_s = _re.sub(r"(전기|일렉트릭|electric|\bev\b|하이브리드|hybrid)", "", vl).strip()
 
-    if any(k in vl for k in ["냉동", "냉장", "저온", "보냉"]):
+    # 1. 냉동/냉장
+    if any(k in vl for k in ["냉동","냉장","저온","보냉"]):
         return "냉동탑/냉장탑"
-    if any(k in vl for k in ["윙바디", "윙", "wing"]):
+    # 2. 윙바디
+    if any(k in vl for k in ["윙바디","윙","wing"]):
         return "윙바디"
-    if any(k in vl for k in ["사다리", "고소", "엘리카", "호룡"]):
+    # 3. 사다리/고소
+    if any(k in vl for k in ["사다리","고소","엘리카","호룡"]):
         return "사다리/고소"
-    if any(k in vl for k in ["렉카", "구난", "견인"]):
+    # 4. 렉카/구난
+    if any(k in vl for k in ["렉카","렉커","구난","견인"]):
         return "렉카/구난"
-    if any(k in vl for k in ["밴", "워크스루", "미닫이", "se-a2", "masada", "pv5"]):
+    # 5. 픽업/덮개 (밴보다 먼저)
+    PICKUP = ["픽업","덮개","렉스턴스포츠","렉스턴 스포츠","코란도스포츠","무쏘스포츠",
+              "무쏘ev","스타렉스픽업","스타리아픽업","포트로-픽업","포트로픽업"]
+    if any(k in vl for k in PICKUP):
+        return "픽업/덮개"
+    # 6. 밴/특수밴
+    VAN = ["밴","van","워크스루","미닫이","se-a2","masada","pv5",
+           "스타리아","스타렉스","그랜드스타렉스","st1","t4k","master","마스터"]
+    if any(k in vl for k in VAN):
         return "밴/특수밴"
-    if any(k in vl for k in ["탑차", "내장탑", "하이내장", "플러스내장", "하이탑",
-                               "내장차", "택배전용", "내장", "탑"]):
+    # 7. 탑차/내장탑
+    TAP = ["탑차","내장탑","하이내장","플러스내장","하이탑","내장차","택배전용","내장","탑"]
+    if any(k in vl_s for k in TAP):
         return "탑차/내장탑"
-    # 카고: 일반 화물차 모델명 + 구조 없는 경우
-    CARGO = ["포터", "봉고", "카고", "1톤", "1.2톤", "1.4톤", "2.5톤", "3.5톤",
-             "트럭", "장축", "초장축", "일반형", "더블캡", "파워게이트", "킹캡",
-             "마이티", "메가트럭", "빅트럭", "카카오", "현대트럭",
-             "일반", "표준", "기본형"]
-    if any(k in vl_clean for k in CARGO):
+    # 8. 카고
+    CARGO = ["포터","봉고","카고","마이티","이-마이티","이마이티","메가트럭","빅트럭",
+             "1톤","1.2톤","1.4톤","2.2톤","2.5톤","3.5톤","5톤","트럭",
+             "장축","초장축","일반형","더블캡","파워게이트","킹캡",
+             "총중량","최대적재량","표준","기본형"]
+    if any(k in vl_s for k in CARGO):
         return "카고"
-    # 기타특수
-    if any(k in vl for k in ["특장", "특수", "크레인", "덤프", "믹서", "탱크",
-                               "소방", "암롤", "리프트", "집게", "로우베드",
-                               "카캐리어", "청소차", "살수차", "레미콘",
-                               "진공", "고압", "분뇨", "음식물"]):
+    # 9. 기타특수
+    SPEC = ["특장","특수","크레인","덤프","믹서","탱크","소방","암롤",
+            "리프트","집게","로우베드","카캐리어","청소차","살수차","레미콘",
+            "진공","고압","분뇨","음식물"]
+    if any(k in vl for k in SPEC):
         return "기타특수"
-    # 미분류: 값 없거나 판독 불가
+    # 10. 미분류
     return "미분류"
 
 
@@ -312,7 +327,7 @@ async def full_stats(db: Session = Depends(get_db), _=Depends(get_current_user))
                           if k != "전기차"],
         "fuel_types": [{"type": k, "count": v}
                        for k, v in sorted(fuel_counts.items(), key=lambda x: -x[1])],
-        "debug_version": "vt-fix-20260520-1600",
+        "debug_version": "vt-fix-20260520-1700",
         "age_groups": age_groups,
         "vehicle_age": veh_year_dist,
         "closure_by_type": closure_by_type,
