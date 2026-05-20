@@ -496,3 +496,34 @@ async def cert_debug(db: Session = Depends(get_db), _=Depends(require_admin)):
             for m in unemployed[:10]
         ]
     }
+
+
+@router.get("/vtype-debug")
+async def vtype_debug(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """미분류 차종 원본값 분석"""
+    from app.routers.dashboard import classify_vt
+    from collections import Counter
+
+    rows = db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.deleted_at.is_(None),
+        models.LicenseHolder.status == "active",
+    ).all()
+
+    unclassified = []
+    fuel_raw = Counter()
+
+    for m in rows:
+        cat = classify_vt(m.vehicle_type or "")
+        if cat == "미분류":
+            vt = (m.vehicle_type or "").strip()
+            unclassified.append(vt if vt else "(빈값)")
+        fuel_raw[m.fuel_type or "(빈값)"] += 1
+
+    vt_counter = Counter(unclassified)
+    return {
+        "미분류_총건수": len(unclassified),
+        "빈값건수": sum(1 for v in unclassified if v == "(빈값)"),
+        "값있는미분류": len([v for v in unclassified if v != "(빈값)"]),
+        "원본차종_빈도순_상위50": vt_counter.most_common(50),
+        "유종_원본값_빈도순": fuel_raw.most_common(20),
+    }
