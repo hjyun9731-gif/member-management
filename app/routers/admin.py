@@ -527,3 +527,53 @@ async def vtype_debug(db: Session = Depends(get_db), _=Depends(require_admin)):
         "원본차종_빈도순_상위50": vt_counter.most_common(50),
         "유종_원본값_빈도순": fuel_raw.most_common(20),
     }
+
+
+@router.post("/fix-closure-data-type")
+async def fix_closure_data_type(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """폐-*/양-*/이-* 관리번호는 신규자료로 보정"""
+    from datetime import datetime, timezone
+    import re as _re
+
+    rows = db.query(models.Closure).filter(
+        models.Closure.deleted_at.is_(None),
+    ).all()
+
+    fixed = 0
+    for r in rows:
+        mgmt = (r.management_number or "").strip()
+        if _re.match(r'^(폐|양|이)-', mgmt):
+            if r.data_type != "신규자료":
+                r.data_type = "신규자료"
+                fixed += 1
+    db.commit()
+    return {"보정건수": fixed, "message": f"폐-*/양-*/이-* → 신규자료 보정: {fixed}건"}
+
+
+@router.delete("/old-closure-data")
+async def delete_old_closure_data(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """이전자료 삭제 (폐-*/양-*/이-* 제외)"""
+    from datetime import datetime, timezone
+    import re as _re
+
+    all_rows = db.query(models.Closure).filter(
+        models.Closure.deleted_at.is_(None)
+    ).all()
+
+    total = len(all_rows)
+    old_data = [r for r in all_rows if r.data_type == "이전자료"]
+    protected = [r for r in old_data if _re.match(r'^(폐|양|이)-', r.management_number or "")]
+    to_delete = [r for r in old_data if not _re.match(r'^(폐|양|이)-', r.management_number or "")]
+
+    now = datetime.now(timezone.utc)
+    for r in to_delete:
+        r.deleted_at = now
+    db.commit()
+
+    return {
+        "삭제전_전체": total,
+        "이전자료": len(old_data),
+        "보호됨(폐양이-)": len(protected),
+        "삭제됨": len(to_delete),
+        "삭제후_남은건수": total - len(to_delete),
+    }

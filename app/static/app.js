@@ -183,7 +183,27 @@ function dateOrderSel(id,val='desc'){
   </select>`;
 }
 
-function getSortParams(){return {};}  // 하위 호환성 유지
+function getSortParams(){return {};}
+
+window.showYearDetail=async(year,category)=>{
+  const labelMap={new:`${year}년 신규 (신${String(year).slice(-2)}-*)`,transfer:`${year}년 양도양수 (양${String(year).slice(-2)}-*)`,closure:`${year}년 폐업/양도/이관`,change:`${year}년 변경`};
+  openModal(`📋 ${labelMap[category]}`,`<div id="ydBody">로딩 중...</div>`,`<button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
+  const d=await api('GET',`/api/dashboard/year-detail?year=${year}&category=${category}`).catch(()=>null);
+  if(!d){document.getElementById('ydBody').innerHTML='오류';return;}
+  const cols={
+    new:'<tr><th>관리번호</th><th>지역</th><th>차량번호</th><th>성명</th><th>인가일자</th><th>상태</th></tr>',
+    transfer:'<tr><th>관리번호</th><th>지역</th><th>차량번호</th><th>양도자</th><th>양수자</th><th>접수일자</th></tr>',
+    closure:'<tr><th>자료</th><th>관리번호</th><th>구분</th><th>지역</th><th>차량번호</th><th>성명</th><th>접수일자</th></tr>',
+    change:'<tr><th>지역</th><th>차량번호</th><th>성명</th><th>변경유형</th><th>변경일자</th><th>변경내용</th></tr>',
+  };
+  const rowFn={
+    new:r=>`<tr><td><strong>${fv(r.management_number)}</strong></td><td>${fv(r.region)}</td><td>${fv(r.vehicle_number)}</td><td>${fv(r.name)}</td><td>${fv(r.approval_date)}</td><td>${r.status==='closed'?'<span class="badge b-gray" style="font-size:10px">폐업</span>':'활성'}</td></tr>`,
+    transfer:r=>`<tr><td><strong>${fv(r.management_number)}</strong></td><td>${fv(r.region)}</td><td>${fv(r.vehicle_number)}</td><td>${fv(r.transferor)}</td><td>${fv(r.transferee)}</td><td>${fv(r.receipt_date)}</td></tr>`,
+    closure:r=>`<tr><td><span class="badge ${r.data_type==='이전자료'?'b-gray':'b-sky'}" style="font-size:10px">${r.data_type||''}</span></td><td><strong>${fv(r.management_number)}</strong></td><td>${ctBadge(r.closure_type)}</td><td>${fv(r.region)}</td><td>${fv(r.vehicle_number)}</td><td>${fv(r.name)}</td><td>${fv(r.receipt_date||r.closure_date)}</td></tr>`,
+    change:r=>`<tr><td>${fv(r.region)}</td><td>${fv(r.vehicle_number)}</td><td>${fv(r.name)}</td><td>${fv(r.change_type)}</td><td>${fv(r.change_date)}</td><td style="max-width:200px;font-size:11px">${fv(r.after_value)}</td></tr>`,
+  };
+  document.getElementById('ydBody').innerHTML=`<p style="font-size:12px;color:var(--c-text-3);margin-bottom:8px">총 ${d.total}건</p><div class="tbl-wrap"><table><thead>${cols[category]}</thead><tbody>${(d.items||[]).map(rowFn[category]).join('')}</tbody></table></div>`;
+};
 
 // ── 대시보드 통계 클릭 → 대상자 목록 모달 ──
 window.showVtypeList=async(category)=>{
@@ -1231,7 +1251,13 @@ async function renderDashboard(){
       </div>
       <div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">📈</span><span class="card-ttl">연도별 변동 (최근 10년)</span></div></div>
         <div class="tbl-wrap"><table><thead><tr><th>연도</th><th>신규</th><th>양도양수</th><th>폐업</th><th>변경</th></tr></thead>
-          <tbody>${(byYear||[]).slice(-10).reverse().map(r=>`<tr><td><strong>${r.year}</strong></td><td>${r.new||0}</td><td>${r.transfer||0}</td><td>${r.closure||0}</td><td>${r.change||0}</td></tr>`).join('')||'<tr><td colspan="5" style="text-align:center;padding:14px;color:var(--c-text-4)">데이터 없음</td></tr>'}</tbody>
+          <tbody>${(byYear||[]).slice(-10).reverse().map(r=>`<tr>
+            <td><strong>${r.year}</strong></td>
+            <td><a class="tbl-link" onclick="showYearDetail(${r.year},'new')">${r.new||0}</a></td>
+            <td><a class="tbl-link" onclick="showYearDetail(${r.year},'transfer')">${r.transfer||0}</a></td>
+            <td><a class="tbl-link" onclick="showYearDetail(${r.year},'closure')">${r.closure||0}</a></td>
+            <td><a class="tbl-link" onclick="showYearDetail(${r.year},'change')">${r.change||0}</a></td>
+          </tr>`).join('')||'<tr><td colspan="5" style="text-align:center;padding:14px;color:var(--c-text-4)">데이터 없음</td></tr>'}</tbody>
         </table></div>
       </div>
     </div>

@@ -61,8 +61,13 @@ def _ext_month(s: str) -> Optional[int]:
 
 
 def classify_vt(vt: str, fuel: str = "") -> str:
+    """차종 분류 - 구조/형태 기준만. 유종(전기/EV) 절대 반환 금지."""
     v = str(vt or "").strip()
     vl = v.lower()
+    # EV/전기/일렉트릭 키워드만 있으면 제거 후 구조로만 판단
+    import re as _re
+    vl_clean = _re.sub(r"(전기|일렉트릭|electric|ev|하이브리드|hybrid)", "", vl).strip()
+
     if any(k in vl for k in ["냉동", "냉장", "저온", "보냉"]):
         return "냉동탑/냉장탑"
     if any(k in vl for k in ["윙바디", "윙", "wing"]):
@@ -71,19 +76,25 @@ def classify_vt(vt: str, fuel: str = "") -> str:
         return "사다리/고소"
     if any(k in vl for k in ["렉카", "구난", "견인"]):
         return "렉카/구난"
-    if any(k in vl for k in ["밴", "van", "워크스루", "미닫이", "se-a2", "masada", "pv5"]):
+    if any(k in vl for k in ["밴", "워크스루", "미닫이", "se-a2", "masada", "pv5"]):
         return "밴/특수밴"
     if any(k in vl for k in ["탑차", "내장탑", "하이내장", "플러스내장", "하이탑",
                                "내장차", "택배전용", "내장", "탑"]):
         return "탑차/내장탑"
-    if any(k in vl for k in ["포터", "봉고", "카고", "1톤", "1.2톤", "1.4톤",
-                               "2.5톤", "3.5톤", "트럭", "장축", "초장축",
-                               "일반형", "더블캡", "파워게이트", "킹캡"]):
+    # 카고: 일반 화물차 모델명 + 구조 없는 경우
+    CARGO = ["포터", "봉고", "카고", "1톤", "1.2톤", "1.4톤", "2.5톤", "3.5톤",
+             "트럭", "장축", "초장축", "일반형", "더블캡", "파워게이트", "킹캡",
+             "마이티", "메가트럭", "빅트럭", "카카오", "현대트럭",
+             "일반", "표준", "기본형"]
+    if any(k in vl_clean for k in CARGO):
         return "카고"
+    # 기타특수
     if any(k in vl for k in ["특장", "특수", "크레인", "덤프", "믹서", "탱크",
                                "소방", "암롤", "리프트", "집게", "로우베드",
-                               "카캐리어", "청소차", "살수차", "레미콘"]):
+                               "카캐리어", "청소차", "살수차", "레미콘",
+                               "진공", "고압", "분뇨", "음식물"]):
         return "기타특수"
+    # 미분류: 값 없거나 판독 불가
     return "미분류"
 
 
@@ -786,3 +797,74 @@ async def vtype_list(
     items.sort(key=lambda x: mgmt_sort_key(x["management_number"]), reverse=True)
 
     return {"category": category, "total": len(items), "items": items[:200]}
+
+
+@router.get("/year-detail")
+async def year_detail(
+    year: int = Query(...),
+    category: str = Query(...),  # new/transfer/closure/change
+    db: Session = Depends(get_db), _=Depends(get_current_user),
+):
+    """연도별 변동 숫자 클릭 시 상세 목록"""
+    import re as _re
+    from app.excel_utils import mgmt_sort_key
+
+    cur_yy = year % 100
+    yy = str(cur_yy).zfill(2)
+
+    if category == "new":
+        rows = db.query(models.LicenseHolder).filter(
+            models.LicenseHolder.deleted_at.is_(None),
+            models.LicenseHolder.management_number.like(f"신{yy}-%"),
+        ).all()
+        rows.sort(key=lambda r: mgmt_sort_key(r.management_number or ""), reverse=True)
+        return {"total": len(rows), "year": year, "category": "신규",
+                "items": [{"management_number": r.management_number, "region": r.region,
+                            "vehicle_number": r.vehicle_number, "name": r.name,
+                            "approval_date": r.approval_date, "status": r.status}
+                           for r in rows]}
+
+    elif category == "transfer":
+        rows = db.query(models.TransferLedger).filter(
+            models.TransferLedger.deleted_at.is_(None),
+            models.TransferLedger.management_number.like(f"양{yy}-%"),
+        ).all()
+        rows.sort(key=lambda r: mgmt_sort_key(r.management_number or ""), reverse=True)
+        return {"total": len(rows), "year": year, "category": "양도양수",
+                "items": [{"management_number": r.management_number, "region": r.region,
+                            "vehicle_number": r.vehicle_number, "transferor": r.transferor,
+                            "transferee": r.transferee, "receipt_date": r.receipt_date}
+                           for r in rows]}
+
+    elif category == "closure":
+        # 접수일자 기준, 이전+신규 합산
+        rows = db.query(models.Closure).filter(
+            models.Closure.deleted_at.is_(None),
+        ).all()
+        result = []
+        for r in rows:
+            date_str = (r.receipt_date or r.closure_date or "").strip()
+            y = _ext_year(date_str)
+            if y == year:
+                result.append(r)
+        result.sort(key=lambda r: mgmt_sort_key(r.management_number or ""), reverse=True)
+        return {"total": len(result), "year": year, "category": "폐업/양도/이관",
+                "items": [{"management_number": r.management_number,
+                            "closure_type": r.closure_type, "data_type": r.data_type,
+                            "region": r.region, "vehicle_number": r.vehicle_number,
+                            "name": r.name, "receipt_date": r.receipt_date,
+                            "closure_date": r.closure_date}
+                           for r in result]}
+
+    elif category == "change":
+        rows = db.query(models.ChangeHistory).filter(
+            models.ChangeHistory.deleted_at.is_(None),
+        ).all()
+        result = [r for r in rows if _ext_year(r.change_date or "") == year]
+        return {"total": len(result), "year": year, "category": "변경",
+                "items": [{"region": r.region, "vehicle_number": r.vehicle_number,
+                            "name": r.name, "change_type": r.change_type,
+                            "change_date": r.change_date, "after_value": r.after_value}
+                           for r in result[:200]]}
+
+    return {"error": "unknown category"}
