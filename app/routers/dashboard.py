@@ -297,9 +297,11 @@ async def full_stats(db: Session = Depends(get_db), _=Depends(get_current_user))
             "not_joined": total - joined,
         },
         "vehicle_types": [{"type": k, "count": v}
-                          for k, v in sorted(vtype_counts.items(), key=lambda x: -x[1])],
+                          for k, v in sorted(vtype_counts.items(), key=lambda x: -x[1])
+                          if k != "전기차"],
         "fuel_types": [{"type": k, "count": v}
                        for k, v in sorted(fuel_counts.items(), key=lambda x: -x[1])],
+        "debug_version": "vt-fix-20260520-1600",
         "age_groups": age_groups,
         "vehicle_age": veh_year_dist,
         "closure_by_type": closure_by_type,
