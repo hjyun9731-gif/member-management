@@ -175,19 +175,24 @@ async def full_stats(db: Session = Depends(get_db), _=Depends(get_current_user))
         models.LicenseHolder.status == "active",
     )
     total = lh_q.count()
-    joined = lh_q.filter(models.LicenseHolder.membership_status == "가입").count()
-    individual = lh_q.filter(models.LicenseHolder.category == "개인").count()
-    delivery = lh_q.filter(models.LicenseHolder.category == "택배").count()
-    delivery_employed = lh_q.filter(
-        models.LicenseHolder.category == "택배",
-        models.LicenseHolder.affiliated_company.isnot(None),
-        models.LicenseHolder.affiliated_company != ""
-    ).count()
+    all_lh = lh_q.all()
 
-    # 차종별
+    def _has_val(v):
+        return bool(v and str(v).strip() and str(v).strip().lower() not in ('-','x','none','nan'))
+
+    # 가입: membership_date(가입일자) 기준
+    joined     = sum(1 for m in all_lh if _has_val(m.membership_date))
+    individual = sum(1 for m in all_lh if m.category == "개인")
+    delivery   = sum(1 for m in all_lh if m.category == "택배")
+
+    # 취업신고: certificate_issue_date(자격증명발급일자) 기준
+    delivery_employed = sum(1 for m in all_lh
+                            if m.category == "택배" and _has_val(m.certificate_issue_date))
+
+    # 차종별: fuel_type도 함께 전달
     vtype_counts: dict = {}
-    for m in lh_q.all():
-        cat = classify_vt(m.vehicle_type or "")
+    for m in all_lh:
+        cat = classify_vt(m.vehicle_type or "", m.fuel_type or "")
         vtype_counts[cat] = vtype_counts.get(cat, 0) + 1
 
     # 유종별 (정규화: 전기/경유/LPG/휘발유/기타만 표시)
@@ -297,6 +302,8 @@ async def full_stats(db: Session = Depends(get_db), _=Depends(get_current_user))
             "individual": individual, "delivery": delivery,
             "delivery_employed": delivery_employed,
             "delivery_unemployed": delivery - delivery_employed,
+            "delivery_not_employed": delivery - delivery_employed,  # 프론트 호환
+            "not_joined": total - joined,
         },
         "vehicle_types": [{"type": k, "count": v}
                           for k, v in sorted(vtype_counts.items(), key=lambda x: -x[1])],
