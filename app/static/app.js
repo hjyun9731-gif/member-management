@@ -186,6 +186,27 @@ function dateOrderSel(id,val='desc'){
 function getSortParams(){return {};}  // 하위 호환성 유지
 
 // ── 대시보드 통계 클릭 → 대상자 목록 모달 ──
+window.showVtypeList=async(category)=>{
+  openModal(`🚗 차종별 목록: ${category}`,`<div id="vtypeListBody" style="padding:8px">로딩 중...</div>`,
+    `<button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
+  try{
+    const d=await api('GET',`/api/dashboard/vtype-list?category=${encodeURIComponent(category)}`);
+    if(!d||!d.items){document.getElementById('vtypeListBody').innerHTML='데이터 없음';return;}
+    document.getElementById('vtypeListBody').innerHTML=`
+      <p style="font-size:12px;color:var(--c-text-3);margin-bottom:8px">총 ${d.total}대</p>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>관리번호</th><th>지역</th><th>차량번호</th><th>성명</th><th>원본차종</th><th>유종</th><th>분류결과</th></tr></thead>
+        <tbody>${d.items.map(r=>`<tr>
+          <td>${fv(r.management_number)}</td><td>${fv(r.region)}</td>
+          <td>${fv(r.vehicle_number)}</td><td>${fv(r.name)}</td>
+          <td style="font-size:11px;color:var(--c-text-3)">${fv(r.vehicle_type_raw)}</td>
+          <td>${fv(r.fuel_category)}</td>
+          <td><span class="badge b-sky" style="font-size:10px">${fv(r.vehicle_category)}</span></td>
+        </tr>`).join('')}</tbody>
+      </table></div>`;
+  }catch(e){document.getElementById('vtypeListBody').innerHTML='오류 발생';}
+};
+
 window.showStatList=async(statType)=>{
   const labelMap={
     'joined':'협회 가입자 (가입일자 있음)',
@@ -1181,7 +1202,7 @@ async function renderDashboard(){
       <div>
         <div class="card" style="margin-bottom:12px"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">🚗</span><span class="card-ttl">차종별</span></div></div>
           <div class="tbl-wrap"><table><thead><tr><th>차종</th><th>대수</th></tr></thead>
-            <tbody>${(full.vehicle_types||[]).slice(0,8).map(r=>`<tr><td>${r.type}</td><td>${r.count}</td></tr>`).join('')||'<tr><td colspan="2" style="text-align:center;padding:10px;color:var(--c-text-4)">데이터 없음</td></tr>'}</tbody>
+            <tbody>${(full.vehicle_types||[]).slice(0,12).map(r=>`<tr style="cursor:pointer" onclick="showVtypeList('${r.type}')"><td>${r.type}</td><td style="color:var(--c-primary)">${r.count}</td></tr>`).join('')||'<tr><td colspan="2" style="text-align:center;padding:10px;color:var(--c-text-4)">데이터 없음</td></tr>'}</tbody>
           </table></div></div>
         <div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">⛽</span><span class="card-ttl">유종별</span></div></div>
           <div class="tbl-wrap"><table><thead><tr><th>유종</th><th>대수</th></tr></thead>
@@ -1269,7 +1290,7 @@ async function renderMonthlyReport(){
       <div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">🚗</span><span class="card-ttl">2. 유형별 차량대수</span></div></div>
         <div class="card-bd"><table class="rpt-tbl">
           <thead><tr><th>차종</th><th>대수</th></tr></thead>
-          <tbody>${(d.vehicle_types||[]).map(r=>`<tr><td class="rl">${r.type}</td><td>${r.count}</td></tr>`).join('')||'<tr><td colspan="2">데이터 없음</td></tr>'}</tbody>
+          <tbody>${(d.vehicle_types||[]).map(r=>`<tr style="cursor:pointer" onclick="showVtypeList('${r.type}')"><td class="rl">${r.type}</td><td style="color:var(--c-primary)">${r.count}</td></tr>`).join('')||'<tr><td colspan="2">데이터 없음</td></tr>'}</tbody>
         </table></div>
       </div>
     </div>

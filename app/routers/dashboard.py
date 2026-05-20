@@ -61,58 +61,79 @@ def _ext_month(s: str) -> Optional[int]:
 
 
 def classify_vt(vt: str, fuel: str = "") -> str:
-    """차종 분류 (문서 확정 기준)
-    우선순위: 전기차 > 냉동/냉장 > 윙바디 > 사다리/고소 > 렉카/구난 > 밴 > 탑차/내장탑 > 카고 > 기타특수 > 미분류
+    """차종 분류 - 차량 구조 기준만 (유종 전기는 유종별에서 처리)
+
+    우선순위:
+    1. 냉동/냉장  2. 윙바디  3. 사다리/고소  4. 렉카/구난
+    5. 밴/특수밴  6. 탑차/내장탑  7. 카고  8. 기타특수  9. 미분류
     """
-    if not vt and not fuel:
+    v = str(vt or '').strip()
+    vl = v.lower()
+
+    if not v:
         return '미분류'
-    v = str(vt or '').lower()
-    f = str(fuel or '').lower()
 
-    # 1. 전기차: 유종=전기 또는 차종 키워드
-    EV_KW = ['전기', 'ev', '일렉트릭', 'electric', 'pv5', 'masada']
-    if any(k in v for k in EV_KW) or '전기' in f or 'ev' in f:
-        return '전기차'
-
-    # 2. 냉동탑/냉장탑
-    if '냉동' in v or '냉장' in v:
+    # 1. 냉동/냉장 (구조 최우선)
+    if any(k in vl for k in ['냉동', '냉장']):
         return '냉동탑/냉장탑'
 
-    # 3. 윙바디
-    if '윙바디' in v or '윙' in v or 'wing' in v:
+    # 2. 윙바디
+    if any(k in vl for k in ['윙바디', '윙', 'wing']):
         return '윙바디'
 
-    # 4. 사다리/고소작업차
-    if any(k in v for k in ['사다리', '고소', '엘리카', '호룡']):
+    # 3. 사다리/고소
+    if any(k in vl for k in ['사다리', '고소', '엘리카', '호룡']):
         return '사다리/고소'
 
-    # 5. 렉카/구난
-    if any(k in v for k in ['렉카', '구난', '견인']):
+    # 4. 렉카/구난
+    if any(k in vl for k in ['렉카', '구난', '견인']):
         return '렉카/구난'
 
-    # 6. 밴/특수밴
-    if any(k in v for k in ['밴', 'van', '워크스루', '미닫이', 'se-a2', '특수밴']):
+    # 5. 밴/특수밴 (EV 모델명 포함)
+    if any(k in vl for k in ['밴', 'van', '워크스루', '미닫이', 'se-a2', 'masada', 'pv5']):
         return '밴/특수밴'
 
-    # 7. 탑차/내장탑 (냉동/냉장 없는 것)
-    TAP_KW = ['탑', '내장탑', '하이내장', '플러스내장', '하이탑', '내장차', '택배전용']
-    if any(k in v for k in TAP_KW):
+    # 6. 탑차/내장탑 (EV/전기 모델이어도 구조가 탑이면 탑차)
+    if any(k in vl for k in ['탑차', '내장탑', '하이내장', '플러스내장', '하이탑',
+                               '내장차', '택배전용', '내장']):
+        return '탑차/내장탑'
+    # '탑' 단독: 냉동/냉장/윙이 없는 경우
+    if '탑' in vl:
         return '탑차/내장탑'
 
-    # 8. 카고 (탑/냉동/윙/전기/특수 없는 포터/봉고/카고)
-    CARGO_KW = ['카고', '포터', '봉고', '1톤', '2.5톤', '3.5톤']
-    if any(k in v for k in CARGO_KW):
+    # 7. 카고 (포터/봉고/카고 + 위 구조 키워드 없는 경우)
+    if any(k in vl for k in ['카고', '포터', '봉고', '1톤', '2.5톤', '3.5톤', '트럭']):
         return '카고'
 
-    # 9. 기타특수 (위에 안 들어간 특수장치 키워드)
-    SPEC_KW = ['특장', '특수', '크레인', '덤프', '믹서', '탱크', '소방', '암롤', '리프트', '집게']
-    if any(k in v for k in SPEC_KW):
+    # 8. 기타특수
+    SPEC = ['특장', '특수', '크레인', '덤프', '믹서', '탱크', '소방', '암롤',
+            '리프트', '집게', '로우베드', '카캐리어', '더블캡']
+    if any(k in vl for k in SPEC):
         return '기타특수'
 
-    # 10. 미분류
-    if not v.strip():
-        return '미분류'
-    return '기타특수'
+    # 9. 미분류 (값은 있지만 판별 불가)
+    return '미분류'
+
+
+def classify_fuel(vt: str, fuel: str = "") -> str:
+    """유종 분류 - 연료 기준 (전기차는 여기서만 판정)"""
+    f = str(fuel or '').strip().lower()
+    v = str(vt or '').strip().lower()
+
+    EV_KW = ['전기', 'ev', '일렉트릭', 'electric']
+    if '전기' in f or any(k in v for k in EV_KW):
+        return '전기'
+    if 'lpg' in f or 'lpg' in v:
+        return 'LPG'
+    if 'cng' in f or 'cng' in v:
+        return 'CNG'
+    if '경유' in f or '디젤' in f:
+        return '경유'
+    if '가솔린' in f or '휘발유' in f:
+        return '가솔린'
+    if f:
+        return f  # 원본 유종값 그대로
+    return '미분류'
 
 
 def _normalize_fuel_stat(fuel: str) -> Optional[str]:
@@ -195,18 +216,12 @@ async def full_stats(db: Session = Depends(get_db), _=Depends(get_current_user))
         cat = classify_vt(m.vehicle_type or "", m.fuel_type or "")
         vtype_counts[cat] = vtype_counts.get(cat, 0) + 1
 
-    # 유종별 (정규화: 전기/경유/LPG/휘발유/기타만 표시)
+    # 유종별: fuel_type 기준 + 차종명에 EV/전기 포함이면 전기로 판정
     fuel_counts: dict = {}
-    fuel_rows = (db.query(models.LicenseHolder.fuel_type, func.count())
-                 .filter(models.LicenseHolder.deleted_at.is_(None),
-                         models.LicenseHolder.status == "active",
-                         models.LicenseHolder.fuel_type.isnot(None),
-                         models.LicenseHolder.fuel_type != "")
-                 .group_by(models.LicenseHolder.fuel_type).all())
-    for raw_fuel, cnt in fuel_rows:
-        normalized = _normalize_fuel_stat(raw_fuel)
-        if normalized:
-            fuel_counts[normalized] = fuel_counts.get(normalized, 0) + cnt
+    for m in all_lh:
+        fc = classify_fuel(m.vehicle_type or "", m.fuel_type or "")
+        if fc and fc != '미분류':
+            fuel_counts[fc] = fuel_counts.get(fc, 0) + 1
 
     # 연령대별 (주민등록번호 기반)
     age_groups = {"29이하": 0, "30~39": 0, "40~49": 0, "50~59": 0, "60~64": 0, "65~69": 0, "70이상": 0, "불명": 0}
@@ -760,3 +775,36 @@ async def stat_list(
             "approval_date": m.approval_date or "",
         } for m in members[:500]],  # 최대 500명
     }
+
+
+@router.get("/vtype-list")
+async def vtype_list(
+    category: str = Query(...),
+    db: Session = Depends(get_db), _=Depends(get_current_user),
+):
+    """차종별 클릭 시 해당 차량 목록"""
+    members = db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.deleted_at.is_(None),
+        models.LicenseHolder.status == "active",
+    ).all()
+
+    items = []
+    for m in members:
+        cat = classify_vt(m.vehicle_type or "", m.fuel_type or "")
+        if cat == category:
+            fuel_cat = classify_fuel(m.vehicle_type or "", m.fuel_type or "")
+            items.append({
+                "region": m.region or "",
+                "vehicle_number": m.vehicle_number or "",
+                "name": m.name or "",
+                "vehicle_type_raw": m.vehicle_type or "",
+                "fuel_type": m.fuel_type or "",
+                "vehicle_category": cat,
+                "fuel_category": fuel_cat,
+                "management_number": m.management_number or "",
+            })
+
+    from app.excel_utils import mgmt_sort_key
+    items.sort(key=lambda x: mgmt_sort_key(x["management_number"]), reverse=True)
+
+    return {"category": category, "total": len(items), "items": items[:200]}
