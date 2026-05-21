@@ -888,104 +888,184 @@ async def backfill_closure_vehicle_fields(
     dry_run: bool = True,
     db: Session = Depends(get_db), _=Depends(require_admin)
 ):
-    """폐업현황 차종/유종 backfill - 차량번호 기준 회원 매칭
-    dry_run=true(기본): 변경 없이 결과만 반환
-    dry_run=false: 실제 저장
+    """폐업현황 차종/유종 backfill.
+    매칭 소스: license_holders 전체(deleted 포함)
+    정규화: 공백/호 제거, 소문자
+    dry_run=true: 저장 없이 결과만
     """
     import re as _re
 
-    def _norm_vno(v):
-        v = str(v or '').strip()
-        v = _re.sub(r'\s+', '', v)
-        v = _re.sub(r'호$', '', v)
-        v = v.lower()
-        return v
+    def _norm(v):
+        v = str(v or "").strip()
+        v = _re.sub(r"\s+", "", v)
+        v = _re.sub(r"호$", "", v)
+        return v.lower()
 
-    # 전체 회원 (deleted 포함) 차량번호 인덱스
-    members = db.query(models.LicenseHolder).all()
-    by_vno: dict = {}
-    for m in members:
-        key = _norm_vno(m.vehicle_number)
+    # license_holders 전체 인덱스 (deleted 포함)
+    all_lh = db.query(models.LicenseHolder).all()
+    by_norm: dict = {}
+    for m in all_lh:
+        key = _norm(m.vehicle_number)
         if key:
-            by_vno.setdefault(key, []).append(m)
+            by_norm.setdefault(key, []).append(m)
 
     def _pick(c):
-        key = _norm_vno(c.vehicle_number)
-        cands = by_vno.get(key, [])
-        if not cands: return None
-        if len(cands) == 1: return cands[0]
-        name = (c.name or '').strip()
+        key = _norm(c.vehicle_number)
+        if not key:
+            return None, "차량번호없음"
+        cands = by_norm.get(key, [])
+        if not cands:
+            return None, f"미발견(정규화:{key})"
+        if len(cands) == 1:
+            return cands[0], "1건일치"
+        name = (c.name or "").strip()
         for m in cands:
-            if (m.name or '').strip() == name: return m
-        region = (c.region or '').strip()
+            if (m.name or "").strip() == name:
+                return m, "차량+성명일치"
+        region = (c.region or "").strip()
         for m in cands:
-            if (m.region or '').strip() == region: return m
-        return cands[0]
+            if (m.region or "").strip() == region:
+                return m, "차량+지역일치"
+        return cands[0], f"첫번째선택({len(cands)}명중)"
 
     closures = db.query(models.Closure).filter(
         models.Closure.deleted_at.is_(None),
     ).all()
 
+    fail_reasons: dict = {}
     stats = {
         "dry_run": dry_run,
         "전체": len(closures),
-        "차종없음": 0, "매칭성공": 0, "매칭실패": 0,
+        "차종없음": 0, "유종없음": 0,
+        "매칭성공": 0, "매칭실패": 0,
         "차종채움예정": 0, "유종채움예정": 0,
+        "매칭실패_사유별": {},
         "샘플": [],
     }
 
-    debug_mgmt = {'폐-91', '폐-55', '폐-58'}
+    target_mgmt = {"폐-55","폐-56","폐-58","폐-86","폐-91"}
+    debug_samples = {k: None for k in target_mgmt}
+    general_samples = []
 
     for c in closures:
-        cur_vt = (getattr(c, 'vehicle_type', '') or '').strip()
-        cur_ft = (getattr(c, 'fuel_type', '') or '').strip()
+        cur_vt = (getattr(c, "vehicle_type", "") or "").strip()
+        cur_ft = (getattr(c, "fuel_type", "") or "").strip()
+        mgmt = c.management_number or ""
+
+        if not cur_vt: stats["차종없음"] += 1
+        if not cur_ft: stats["유종없음"] += 1
+
         if cur_vt and cur_ft:
-            continue  # 둘 다 있으면 건너뜀
+            if mgmt in target_mgmt:
+                debug_samples[mgmt] = {
+                    "관리번호": mgmt, "상태": "이미있음",
+                    "차종": cur_vt, "유종": cur_ft,
+                }
+            continue
 
-        if not cur_vt:
-            stats["차종없음"] += 1
-
-        m = _pick(c)
-        mgmt = c.management_number or ''
+        m, reason = _pick(c)
 
         if not m:
             stats["매칭실패"] += 1
-            if mgmt in debug_mgmt:
-                stats["샘플"].append({
+            stats["매칭실패_사유별"][reason] = stats["매칭실패_사유별"].get(reason, 0) + 1
+            if mgmt in target_mgmt:
+                debug_samples[mgmt] = {
                     "관리번호": mgmt, "성명": c.name,
                     "차량번호_원본": c.vehicle_number,
-                    "차량번호_정규화": _norm_vno(c.vehicle_number),
-                    "매칭": "실패", "기존차종": cur_vt, "기존유종": cur_ft,
-                })
+                    "차량번호_정규화": _norm(c.vehicle_number),
+                    "매칭": "실패", "사유": reason,
+                    "기존차종": cur_vt, "기존유종": cur_ft,
+                }
             continue
 
         stats["매칭성공"] += 1
-        new_vt = (m.vehicle_type or '').strip()
-        new_ft = (m.fuel_type or '').strip()
+        new_vt = (m.vehicle_type or "").strip()
+        new_ft = (m.fuel_type or "").strip()
+        will_vt = not cur_vt and bool(new_vt)
+        will_ft = not cur_ft and bool(new_ft)
+        if will_vt: stats["차종채움예정"] += 1
+        if will_ft: stats["유종채움예정"] += 1
 
-        will_fill_vt = bool(not cur_vt and new_vt)
-        will_fill_ft = bool(not cur_ft and new_ft)
-
-        if will_fill_vt: stats["차종채움예정"] += 1
-        if will_fill_ft: stats["유종채움예정"] += 1
-
-        # 디버그 샘플 (특정 관리번호 + 일반 5건)
-        if mgmt in debug_mgmt or len(stats["샘플"]) < 5:
-            stats["샘플"].append({
-                "관리번호": mgmt, "성명": c.name,
-                "차량번호": c.vehicle_number,
-                "기존차종": cur_vt, "기존유종": cur_ft,
-                "매칭회원차종": new_vt, "매칭회원유종": new_ft,
-                "차종저장예정": new_vt if will_fill_vt else "(기존유지)",
-                "유종저장예정": new_ft if will_fill_ft else "(기존유지)",
-                "매칭근거": "차량번호 정규화 일치" + (f"+성명({m.name})" if (m.name or '')==(c.name or '') else ""),
-            })
+        sample = {
+            "관리번호": mgmt, "성명": c.name,
+            "차량번호": c.vehicle_number,
+            "기존차종": cur_vt, "기존유종": cur_ft,
+            "매칭차종": new_vt, "매칭유종": new_ft,
+            "차종저장예정": new_vt if will_vt else "(유지)",
+            "유종저장예정": new_ft if will_ft else "(유지)",
+            "매칭근거": reason,
+        }
+        if mgmt in target_mgmt:
+            debug_samples[mgmt] = sample
+        elif len(general_samples) < 5:
+            general_samples.append(sample)
 
         if not dry_run:
-            if will_fill_vt: c.vehicle_type = new_vt
-            if will_fill_ft: c.fuel_type = new_ft
+            if will_vt: c.vehicle_type = new_vt
+            if will_ft: c.fuel_type = new_ft
 
     if not dry_run:
         db.commit()
 
+    stats["샘플"] = [v for v in debug_samples.values() if v] + general_samples
     return stats
+
+
+@router.get("/debug-closure-match")
+async def debug_closure_match(
+    mgmt: str = "",
+    vno: str = "",
+    db: Session = Depends(get_db), _=Depends(require_admin)
+):
+    """특정 폐업현황 차량번호 매칭 추적"""
+    import re as _re
+
+    def _norm(v):
+        v = str(v or '').strip()
+        v = _re.sub(r'\s+', '', v)
+        v = _re.sub(r'호$', '', v)
+        return v.lower()
+
+    # 폐업현황 찾기
+    c = None
+    if mgmt:
+        c = db.query(models.Closure).filter(
+            models.Closure.management_number == mgmt,
+            models.Closure.deleted_at.is_(None),
+        ).first()
+
+    search_vno = _norm(vno or (c.vehicle_number if c else ''))
+    search_name = (c.name if c else '').strip()
+
+    # license_holders 전체(deleted 포함) 검색
+    all_lh = db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.vehicle_number.isnot(None),
+    ).all()
+
+    exact_match = []
+    norm_match = []
+    name_match = []
+
+    for m in all_lh:
+        orig = (m.vehicle_number or '').strip()
+        normed = _norm(orig)
+        if orig == (vno or (c.vehicle_number if c else '')).strip():
+            exact_match.append({"id": m.id, "name": m.name, "vno": orig,
+                                  "vt": m.vehicle_type, "status": m.status, "deleted": str(m.deleted_at)[:10] if m.deleted_at else None})
+        elif normed == search_vno:
+            norm_match.append({"id": m.id, "name": m.name, "vno": orig, "normed": normed,
+                                 "vt": m.vehicle_type, "status": m.status, "deleted": str(m.deleted_at)[:10] if m.deleted_at else None})
+        elif search_name and (m.name or '').strip() == search_name:
+            name_match.append({"id": m.id, "name": m.name, "vno": orig, "normed": normed,
+                                 "vt": m.vehicle_type, "status": m.status})
+
+    return {
+        "조회관리번호": mgmt,
+        "폐업차량번호_원본": c.vehicle_number if c else vno,
+        "폐업차량번호_정규화": search_vno,
+        "폐업성명": search_name,
+        "정확일치": exact_match[:5],
+        "정규화일치": norm_match[:5],
+        "성명일치": name_match[:5],
+        "총매칭": len(exact_match) + len(norm_match),
+    }
