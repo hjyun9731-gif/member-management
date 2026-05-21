@@ -3,7 +3,7 @@
 - 잘못 업로드된 데이터 전체 삭제
 - admin 권한만 사용 가능
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 
@@ -113,6 +113,16 @@ async def db_status(db: Session = Depends(get_db), _=Depends(require_admin)):
             "delivery": db.query(models.LicenseHolder).filter(models.LicenseHolder.deleted_at.is_(None), models.LicenseHolder.category=='택배').count(),
         }
     }
+
+
+@router.get("/routes")
+async def list_routes(request: Request, _=Depends(require_admin)):
+    routes = []
+    for r in request.app.routes:
+        if hasattr(r, 'methods'):
+            routes.append({"path": r.path, "methods": sorted(list(r.methods))})
+    admin = [r for r in routes if '/admin' in r['path']]
+    return {"admin_routes": sorted(admin, key=lambda x: x['path'])}
 
 
 @router.post("/backfill-transfer-mgmt")
