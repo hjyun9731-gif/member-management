@@ -1441,7 +1441,7 @@ async def backfill_change_before_after(
     skip_reasons = {}
 
     stats = {
-        '버전': 'change-backfill-v4',
+        '버전': 'change-backfill-v5',
         'dry_run': dry_run, '전체': len(rows),
         'before복구': 0, 'after복구': 0, '샘플': [],
         'id1_debug': None,
@@ -1473,13 +1473,22 @@ async def backfill_change_before_after(
         if not new_bv and not new_av:
             content_val = _find_key(raw, CONTENT_KEYS)
             if content_val:
-                cnt_has_content += 1
-                _, new_bv, new_av = _parse_change_text(content_val)
-                # 화살표 없으면: before='-', after=content_val
-                if not new_bv and not new_av:
-                    new_bv, new_av = '-', content_val
-                elif not new_bv:
-                    new_bv = '-'
+                # 업무유형명만 있으면 skip (실제 변경내용 아님)
+                _BAD_CONTENT = {
+                    '상호변경','주소지변경','주소변경','차량변경','구조변경','대표자변경',
+                    '전속계약업체변경','전속업체변경','자격증재교부','이전전출','등록이관',
+                    '변경내용','변경사항','기타','성명변경','번호변경',
+                }
+                content_nc = ''.join(content_val.split()).lower()
+                if any(''.join(b.split()).lower() == content_nc for b in _BAD_CONTENT):
+                    content_val = ''  # skip
+                else:
+                    cnt_has_content += 1
+                    _, new_bv, new_av = _parse_change_text(content_val)
+                    if not new_bv and not new_av:
+                        new_bv, new_av = '-', content_val
+                    elif not new_bv:
+                        new_bv = '-'
 
         will_bv = bool(not cur_bv and new_bv and new_bv != cur_bv)
         will_av = bool(not cur_av and new_av and new_av != cur_av)
@@ -1760,3 +1769,54 @@ async def backfill_closure_transfer_fields(
     stats['샘플'] = [v for v in debug.values() if v] + stats['샘플']
     return stats
 
+
+
+@router.post("/cleanup-bad-change-before-after")
+async def cleanup_bad_change_before_after(
+    dry_run: bool = True,
+    db: Session = Depends(get_db), _=Depends(require_admin)
+):
+    """backfill로 잘못 저장된 change before/after 복구.
+    before='-' AND after=업무유형명 인 행을 공란으로 되돌림.
+    """
+    BAD_AFTER = {
+        '상호변경','주소지변경','주소변경','차량변경','구조변경','대표자변경',
+        '전속계약 업체변경','전속업체변경','자격증재교부','이전전출','등록이관',
+        '변경내용','변 경 내 용','변경사항','기타','성명변경','번호변경',
+    }
+
+    def _nc(v): return ''.join(str(v or '').split()).lower()
+
+    rows = db.query(models.ChangeHistory).filter(
+        models.ChangeHistory.deleted_at.is_(None),
+        models.ChangeHistory.before_value == '-',
+    ).all()
+
+    stats = {'dry_run': dry_run, '전체대상': len(rows),
+             '잘못저장': 0, '샘플': []}
+
+    for r in rows:
+        av = (r.after_value or '').strip()
+        av_nc = _nc(av)
+        is_bad = any(_nc(b) == av_nc for b in BAD_AFTER)
+        if not is_bad: continue
+
+        stats['잘못저장'] += 1
+        if len(stats['샘플']) < 20:
+            stats['샘플'].append({
+                'id': r.id, 'change_type': r.change_type,
+                'vehicle_number': r.vehicle_number, 'name': r.name,
+                '기존_before': r.before_value, '기존_after': av,
+                '복구_before': '', '복구_after': '',
+                'memo유지': r.memo or '',
+            })
+        if not dry_run:
+            r.before_value = ''
+            r.after_value = ''
+            # memo가 비어있으면 유형명 보존
+            if not (r.memo or '').strip():
+                r.memo = av
+
+    if not dry_run:
+        db.commit()
+    return stats
