@@ -1371,16 +1371,26 @@ async function renderMonthlyReport(){
       </div>
     </div>
 
-    <div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">📋</span><span class="card-ttl">5. 지정·위탁업무 처리현황</span><span class="badge b-yellow" style="font-size:10px;margin-left:4px">처리일자 기준</span></div></div>
+    <div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">📋</span><span class="card-ttl">5. 지정·위탁업무 처리현황</span></div></div>
       <div class="card-bd">
         <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:12px">
-          <div class="stat-card sky"><div class="stat-lbl">신규등록</div><div class="stat-val">${act.new_registrations||0}</div><div class="stat-sub">인가일자 기준</div></div>
-          <div class="stat-card"><div class="stat-lbl">양도양수</div><div class="stat-val">${act.transfers||0}</div></div>
-          <div class="stat-card red"><div class="stat-lbl">폐업</div><div class="stat-val">${act.closures||0}</div></div>
-          <div class="stat-card purple"><div class="stat-lbl">변경이력</div><div class="stat-val">${act.changes||0}</div></div>
+          <div class="stat-card sky"><div class="stat-lbl">신규등록</div><div class="stat-val">${act.new_registrations||0}</div><div class="stat-sub">관리번호 기준</div></div>
+          <div class="stat-card"><div class="stat-lbl">양도양수</div><div class="stat-val">${act.transfers||0}</div><div class="stat-sub">관리번호 기준</div></div>
+          <div class="stat-card red"><div class="stat-lbl">폐업/양도/이관</div><div class="stat-val">${act.closures||0}</div><div class="stat-sub">접수일자 기준</div></div>
+          <div class="stat-card purple"><div class="stat-lbl">변경이력</div><div class="stat-val">${act.changes||0}</div><div class="stat-sub">변경등록대장</div></div>
         </div>
-        <table class="rpt-tbl"><thead><tr><th>업무 구분</th><th>당월 처리</th></tr></thead>
-          <tbody>${Object.entries(aw).map(([k,v])=>`<tr><td class="rl">${k}</td><td>${numOrNA(v)}</td></tr>`).join('')}</tbody>
+        <table class="rpt-tbl"><thead><tr><th>업무 구분</th><th>당월 처리</th><th>집계 기준</th></tr></thead>
+          <tbody>
+            <tr><td class="rl">취업신고</td><td>${aw.취업신고||0}</td><td style="font-size:11px;color:var(--c-text-3)">신규등록대장 당월 건수</td></tr>
+            <tr><td class="rl">퇴사신고</td><td>${aw.퇴사신고||0}</td><td style="font-size:11px;color:var(--c-text-3)">폐업현황 폐업(폐-*) 당월 건수</td></tr>
+            <tr><td class="rl">양도양수</td><td>${aw.양도양수||0}</td><td style="font-size:11px;color:var(--c-text-3)">양도양수대장 당월 건수</td></tr>
+            <tr><td class="rl">이관</td><td>${aw.이관||0}</td><td style="font-size:11px;color:var(--c-text-3)">폐업현황 이관(이-*) 당월 건수</td></tr>
+            <tr><td class="rl">상호변경</td><td>${aw.상호변경||0}</td><td style="font-size:11px;color:var(--c-text-3)">변경등록대장</td></tr>
+            <tr><td class="rl">대표자변경</td><td>${aw.대표자변경||0}</td><td style="font-size:11px;color:var(--c-text-3)">변경등록대장</td></tr>
+            <tr><td class="rl">차량변경</td><td>${aw.차량변경||0}</td><td style="font-size:11px;color:var(--c-text-3)">변경등록대장</td></tr>
+            <tr><td class="rl">주소변경</td><td>${aw.주소변경||0}</td><td style="font-size:11px;color:var(--c-text-3)">변경등록대장</td></tr>
+            <tr><td class="rl">자격증재교부</td><td>${aw.자격증재교부||0}</td><td style="font-size:11px;color:var(--c-text-3)">변경등록대장</td></tr>
+          </tbody>
         </table>
       </div>
     </div>
