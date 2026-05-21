@@ -1629,13 +1629,13 @@ async def backfill_closure_transfer_fields(
         # 양도
         if '/' in v:
             parts = v.split('/', 1)
-            region = parts[0].strip()
+            region = _norm_region(parts[0].strip())
             name_part = parts[1].strip()
             memo_m = _re.search(r'\((.+?)\)', name_part)
             memo = memo_m.group(1) if memo_m else ''
             name = _re.sub(r'\(.*?\)', '', name_part).strip()
             return name, region, memo, ''
-        if _is_region(v): return '', v, '', ''
+        if _is_region(v): return '', _norm_region(v), '', ''
         if _is_name(v): return v, '', '', ''
         return '', '', v, ''   # 불명확하면 비고로
 
@@ -1658,6 +1658,28 @@ async def backfill_closure_transfer_fields(
                    '대전','대구','부산','광주','울산','세종','제주','경기도']
     _NOT_DATE   = ['전출','말소','폐업','양도','신규','기타','취소']
 
+    _SIDO_MAP = {
+        '경기도': '경기', '경기': '경기',
+        '충청북도': '충북', '충북': '충북',
+        '충청남도': '충남', '충남': '충남',
+        '전라북도': '전북', '전북': '전북',
+        '전라남도': '전남', '전남': '전남',
+        '경상북도': '경북', '경북': '경북',
+        '경상남도': '경남', '경남': '경남',
+        '강원도': '강원', '강원': '강원',
+        '서울특별시': '서울', '서울': '서울',
+        '인천광역시': '인천', '인천': '인천',
+    }
+
+    def _norm_region(v):
+        """전북전주 → 전북 전주, 경기도포천 → 경기 포천"""
+        v = str(v or '').strip()
+        if not v or ' ' in v: return v
+        for full, short in sorted(_SIDO_MAP.items(), key=lambda x: -len(x[0])):
+            if v.startswith(full) and len(v) > len(full):
+                return f"{short} {v[len(full):]}"
+        return v
+
     def _is_valid_date(v):
         v = str(v or '').strip()
         if any(w in v for w in _NOT_DATE): return False
@@ -1679,7 +1701,7 @@ async def backfill_closure_transfer_fields(
             memo = ''
             if rest_clean:
                 if any(rest_clean.startswith(r) for r in _REGIONS_KW):
-                    region = rest_clean
+                    region = _norm_region(rest_clean)
                 else:
                     memo = rest_clean
             return date_part, region, memo
