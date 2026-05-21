@@ -1648,23 +1648,43 @@ async def backfill_closure_transfer_fields(
                     if val and val not in ('-','nan','None',''): return val
         return ''
 
-    # 날짜 패턴 (날짜 형식만 허용, 전출말소/폐업 등 문자 제외)
-    DATE_PATS = [
+    # 날짜 패턴
+    _DATE_START = _re.compile(r'^(\d{2}\s*\.\s*\d{1,2}\s*\.\s*\d{1,2}\.?)')
+    _DATE_FULL  = [
         _re.compile(r'^\d{2}\s*\.\s*\d{1,2}\s*\.\s*\d{1,2}\.?\s*$'),
         _re.compile(r'^\d{4}-\d{1,2}-\d{1,2}$'),
-        _re.compile(r'^\d{4}\.\d{1,2}\.\d{1,2}\.?$'),
     ]
-    NOT_DATE_WORDS = ['전출','말소','폐업','양도','이관','신규','기타','취소']
+    _REGIONS_KW = ['경기','서울','인천','충북','충남','전북','전남','경북','경남','강원',
+                   '대전','대구','부산','광주','울산','세종','제주','경기도']
+    _NOT_DATE   = ['전출','말소','폐업','양도','신규','기타','취소']
 
     def _is_valid_date(v):
         v = str(v or '').strip()
-        if any(w in v for w in NOT_DATE_WORDS): return False
-        return any(p.match(v) for p in DATE_PATS)
+        if any(w in v for w in _NOT_DATE): return False
+        return any(p.match(v) for p in _DATE_FULL)
 
-    def _extract_date(v):
+    def _parse_date_field(v):
+        """날짜+지역+비고 복합 문자열 분리 → (date, region, memo)"""
         v = str(v or '').strip()
-        if _is_valid_date(v): return v
-        return ''  # 날짜 형식 아니면 공란
+        if not v or v in ('-','nan','None',''): return '', '', ''
+        # 순수 날짜
+        if _is_valid_date(v): return v, '', ''
+        # 날짜로 시작하는지
+        m = _DATE_START.match(v)
+        if m:
+            date_part = m.group(1).strip()
+            rest = v[m.end():].strip().lstrip('.')  .strip()
+            rest_clean = _re.sub(r'이관$|전출$|말소$', '', rest).strip()
+            region = ''
+            memo = ''
+            if rest_clean:
+                if any(rest_clean.startswith(r) for r in _REGIONS_KW):
+                    region = rest_clean
+                else:
+                    memo = rest_clean
+            return date_part, region, memo
+        # 날짜 없음 → 전체 비고
+        return '', '', v
 
     rows = db.query(models.Closure).filter(
         models.Closure.deleted_at.is_(None),
@@ -1688,11 +1708,8 @@ async def backfill_closure_transfer_fields(
         # 처리구분별 분리
         tee, reg, memo, reason = _parse_val(raw_tee, ct)
         if not reg and raw_reg: reg = raw_reg
-        # 날짜 추출
-        date_val = ''
-        if raw_date:
-            date_val = _extract_date(raw_date)
-            if not date_val: date_val = raw_date
+        # 날짜 추출 (날짜+지역+비고 분리)
+        date_val, date_region, date_memo = _parse_date_field(raw_date)
 
         changes = {}
         cur_tee = (c.transferee or '').strip()
@@ -1701,19 +1718,22 @@ async def backfill_closure_transfer_fields(
         cur_memo = (c.memo or '').strip()
 
         if not cur_tee and tee: changes['transferee'] = tee
-        if not cur_reg and reg: changes['transfer_region'] = reg
-        if not cur_dt  and date_val: changes['closure_date'] = date_val
-        # 날짜 아닌 raw_date 값은 memo로
-        if raw_date and not _is_valid_date(raw_date) and not cur_memo and not memo:
-            changes['memo'] = raw_date
-        if not cur_memo and memo: changes['memo'] = memo
+        # 지역: raw_region 또는 날짜에서 추출된 지역
+        final_reg = reg or (date_region if date_region and not cur_reg else '')
+        if not cur_reg and final_reg: changes['transfer_region'] = final_reg
+        # 처리일자: 순수 날짜만
+        if not cur_dt and date_val: changes['closure_date'] = date_val
+        # 비고: date_memo, memo 순
+        final_memo = date_memo or memo
+        if not cur_memo and final_memo: changes['memo'] = final_memo
 
         sample = {
             '관리번호': mgmt, '성명': c.name, '처리구분': ct,
             'raw_transferee원본': raw_tee, 'raw_region원본': raw_reg,
             'raw_date원본': raw_date,
-            '날짜판정': _is_valid_date(raw_date) if raw_date else False,
-            '날짜판정사유': '날짜형식' if _is_valid_date(raw_date) else ('날짜형식아님' if raw_date else '값없음'),
+            '추출_날짜': date_val, '추출_날짜지역': date_region, '추출_날짜비고': date_memo,
+            '날짜판정': bool(date_val),
+            '날짜판정사유': '날짜추출성공' if date_val else ('날짜없음_비고처리' if raw_date else '값없음'),
             '기존_처리일자': cur_dt, '추출_처리일자': date_val,
             '기존_양수인': cur_tee, '추출_양수인': tee,
             '기존_이관양도지역': cur_reg, '추출_이관양도지역': reg,
