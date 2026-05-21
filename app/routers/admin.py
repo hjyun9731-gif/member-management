@@ -889,68 +889,89 @@ async def backfill_closure_vehicle_fields(
     db: Session = Depends(get_db), _=Depends(require_admin)
 ):
     """폐업현황 차종/유종/소속업체 backfill.
-    Unnamed:14~17을 값 형태로 분류 (고정 위치 X).
+    - 날짜 패턴 강화: 공백 섞인 04. 4.17. 형태도 제외
+    - 차종은 키워드 포함 시만 허용 (숫자+날짜만 있으면 제외)
     dry_run=true: 저장 없이 결과만.
     """
     import re as _re
 
-    VT_WORDS = ['포터','봉고','스타리아','스타렉스','렉스턴','코란도','무쏘',
-                'st1','t4k','master','마스터','내장','탑차','냉동','냉장','윙',
-                '사다리','엘리카','호룡','렉카','렉커','카고','픽업','밴',
-                'ev','일렉트릭','파워게이트','하이내장','택배전용','트럭','마이티']
-    FT_VALID  = ['경유','전기','lpg','엘피지','가스','휘발유','cng','하이브리드']
+    VT_KW = ['포터','봉고','스타리아','스타렉스','카니발','리베로','렉스턴','코란도',
+             '무쏘','마이티','다마스','라보','st1','t4k','master','마스터','내장',
+             '탑차','냉동','냉장','윙','사다리','엘리카','호룡','렉카','렉커','카고',
+             '픽업','밴','ev','일렉트릭','파워게이트','하이내장','택배전용','트럭']
+    FT_KW = ['경유','전기','lpg','엘피지','가스','휘발유','cng','하이브리드','디젤']
 
-    BAD_PATS = [
-        _re.compile(r'^\d{2}\.\d{1,2}\.\d{1,2}\.?$'),
-        _re.compile(r'^\d{4}[-\.]\d{2}[-\.]\d{2}\.?$'),
-        _re.compile(r'^\d{2}-\d{2}\([가-힣a-zA-Z]+\)-\d+'),
-        _re.compile(r'^\d{3}-\d{2}-\d{5}$'),
-        _re.compile(r'^\d{6}-\d{7}$'),
-        _re.compile(r'^\d{2,3}-\d{3,4}-\d{4}$'),
-        _re.compile(r'^\d{10,13}$'),
+    BAD = [
+        _re.compile(r'^\d{2}\s*\.\s*\d{1,2}\s*\.\s*\d{1,2}\s*\.?\s*$'),  # YY. M.D.
+        _re.compile(r'^\d{4}[-\.]\d{1,2}[-\.]\d{1,2}\.?$'),               # YYYY-MM-DD
+        _re.compile(r'^\d{2}-\d{2,3}\([가-힣a-zA-Z]+\)-\d+'),              # 자격증명
+        _re.compile(r'^\d{3}-\d{2}-\d{5}$'),                               # 사업자번호
+        _re.compile(r'^\d{6}-\d{7}$'),                                     # 주민번호
+        _re.compile(r'^\d{2,3}-\d{3,4}-\d{4}$'),                          # 전화번호
+        _re.compile(r'^\d+$'),                                              # 순수숫자
     ]
 
-    def _classify(v):
+    def _bad(v):
         v = str(v or '').strip()
-        if not v or v in ('-','x','X','nan','None',''): return None
-        if any(p.match(v) for p in BAD_PATS): return None
-        vl = v.lower()
-        if _re.match(r'^\d{2}[,.\s].{3,}', v): return 'vt'
-        if any(w in vl for w in VT_WORDS): return 'vt'
-        if any(f in vl for f in FT_VALID): return 'ft'
-        if _re.match(r'^[가-힣a-zA-Z][가-힣a-zA-Z0-9\s]{1,}$', v) and len(v) >= 3:
-            return 'co'
+        if not v or v in ('-','x','X','nan','None',''): return True
+        return any(p.match(v) for p in BAD)
+
+    def _is_vt(v):
+        if _bad(v): return False
+        return any(w in v.lower() for w in VT_KW)
+
+    def _is_ft(v):
+        if _bad(v): return False
+        vl = v.lower().replace(' ','')
+        return any(f in vl for f in FT_KW)
+
+    def _is_co(v):
+        if _bad(v) or _is_vt(v) or _is_ft(v): return False
+        return bool(_re.match(r'^[가-힣a-zA-Z][가-힣a-zA-Z0-9\s&\(\)]{1,}$', v)) and len(v) >= 2
+
+    def _classify(v):
+        if _is_vt(v): return 'vt'
+        if _is_ft(v): return 'ft'
+        if _is_co(v): return 'co'
+        return None
+
+    def _why_bad(v):
+        v = str(v or '').strip()
+        if not v or v in ('-','x','X','nan','None',''): return '빈값'
+        for p in BAD:
+            if p.match(v):
+                s = p.pattern
+                if r'\.\s*\d{1,2}\s*\.' in s: return '날짜(YY.M.D)'
+                if 'YYYY' in s or r'\d{4}' in s: return '날짜(YYYY)'
+                if '자격' in s or '가-힣a-zA-Z' in s: return '자격증명번호'
+                if r'\d{3}-\d{2}-\d{5}' in s: return '사업자번호'
+                return '제외패턴'
+        if not any(w in v.lower() for w in VT_KW): return '차종키워드없음'
         return None
 
     def _extract_raw(raw):
-        """raw_data에서 차종/유종/소속업체 추출 (값 형태 기반)"""
-        vt = ft = co = ''
-        rv = rf = rc = ''
-        if not isinstance(raw, dict):
-            return vt, ft, co, rv, rf, rc
-
-        # 1. 명시적 키 (차종/유종/업체 포함된 키)
+        vt = ft = co = rv = rf = rc = ''
+        if not isinstance(raw, dict): return vt,ft,co,rv,rf,rc
+        # 명시적 키
         for k in raw:
             ks = str(k).strip().replace(' ','').lower()
             v  = str(raw[k] or '').strip()
             if not vt and any(x in ks for x in ['차종','차량종류','차명']):
-                if _classify(v) == 'vt': vt, rv = v, f'키:{k}'
+                if _is_vt(v): vt,rv = v, f'키:{k}'
             if not ft and any(x in ks for x in ['유종','연료명','사용연료']):
-                if _classify(v) == 'ft': ft, rf = v, f'키:{k}'
+                if _is_ft(v): ft,rf = v, f'키:{k}'
             if not co and any(x in ks for x in ['업체','소속','company']):
-                if _classify(v) == 'co': co, rc = v, f'키:{k}'
-
-        # 2. Unnamed:14~17 전부 값 형태로 검사
+                if _is_co(v): co,rc = v, f'키:{k}'
+        # Unnamed:14~17 값 형태로 분류
         for suffix in ['14','15','16','17']:
             for k in raw:
-                if str(k).replace(' ','') in [f'Unnamed:{suffix}', f'unnamed:{suffix}']:
+                if str(k).replace(' ','') in [f'Unnamed:{suffix}',f'unnamed:{suffix}']:
                     v   = str(raw[k] or '').strip()
                     cls = _classify(v)
-                    if cls == 'vt' and not vt: vt, rv = v, f'Unnamed:{suffix}'
-                    elif cls == 'ft' and not ft: ft, rf = v, f'Unnamed:{suffix}'
-                    elif cls == 'co' and not co: co, rc = v, f'Unnamed:{suffix}'
-
-        return vt, ft, co, rv, rf, rc
+                    if cls == 'vt' and not vt: vt,rv = v, f'Unnamed:{suffix}'
+                    elif cls == 'ft' and not ft: ft,rf = v, f'Unnamed:{suffix}'
+                    elif cls == 'co' and not co: co,rc = v, f'Unnamed:{suffix}'
+        return vt,ft,co,rv,rf,rc
 
     def _norm(v):
         v = str(v or '').strip()
@@ -975,17 +996,17 @@ async def backfill_closure_vehicle_fields(
         models.Closure.deleted_at.is_(None)).all()
 
     stats = {
-        'dry_run': dry_run, '전체': len(closures),
-        'raw추출_차종': 0, 'raw추출_유종': 0,
-        'lh매칭_차종': 0, 'lh매칭_유종': 0,
-        '차종_이미있음': 0, '유종_이미있음': 0,
-        '차종채움예정': 0, '유종채움예정': 0, '소속업체채움예정': 0,
-        '샘플': [],
+        'dry_run':dry_run, '전체':len(closures),
+        'raw추출_차종':0,'raw추출_유종':0,
+        'lh매칭_차종':0,'lh매칭_유종':0,
+        '차종_이미있음':0,'유종_이미있음':0,
+        '차종채움예정':0,'유종채움예정':0,'소속업체채움예정':0,
+        '샘플':[],
     }
 
     target = {'폐-55','폐-56','폐-58','폐-86','폐-91'}
-    debug  = {k: None for k in target}
-    gen_samples = []
+    debug  = {k:None for k in target}
+    gen_ok = []; gen_skip = []
 
     for c in closures:
         cur_vt = (getattr(c,'vehicle_type','') or '').strip()
@@ -997,7 +1018,7 @@ async def backfill_closure_vehicle_fields(
         if cur_ft: stats['유종_이미있음'] += 1
 
         raw = c.raw_data if isinstance(c.raw_data, dict) else {}
-        raw_vt, raw_ft, raw_co, rv, rf, rc = _extract_raw(raw)
+        raw_vt,raw_ft,raw_co,rv,rf,rc = _extract_raw(raw)
 
         if raw_vt: stats['raw추출_차종'] += 1
         if raw_ft: stats['raw추출_유종'] += 1
@@ -1027,20 +1048,32 @@ async def backfill_closure_vehicle_fields(
         raw15 = str(raw.get('Unnamed: 15','') or '').strip()
         raw17 = str(raw.get('Unnamed: 17','') or '').strip()
 
+        # 검증 정보
+        def _vcheck(v):
+            if not v: return '빈값'
+            if _is_vt(v): return '차종✅'
+            if _is_ft(v): return '유종✅'
+            if _is_co(v): return '업체✅'
+            return f'제외({_why_bad(v) or "키워드없음"})'
+
         sample = {
-            '관리번호': mgmt, '성명': c.name, '차량번호': c.vehicle_number,
-            'raw_Unnamed14': raw14, 'raw_Unnamed15': raw15, 'raw_Unnamed17': raw17,
-            '기존차종': cur_vt, '기존유종': cur_ft,
-            '차종저장예정': final_vt if will_vt else ('(유지:'+cur_vt+')' if cur_vt else '(없음)'),
-            '유종저장예정': final_ft if will_ft else ('(유지:'+cur_ft+')' if cur_ft else '(없음)'),
-            '소속업체저장예정': final_co if will_co else ('(유지)' if cur_co else ''),
-            '추출근거_차종': rv or ('lh매칭' if lh_vt else '없음'),
-            '추출근거_유종': rf or ('lh매칭' if lh_ft else '없음'),
+            '관리번호':mgmt,'성명':c.name,'차량번호':c.vehicle_number,
+            'raw_Unnamed14':raw14,'raw14판정':_vcheck(raw14),
+            'raw_Unnamed15':raw15,'raw15판정':_vcheck(raw15),
+            'raw_Unnamed17':raw17,'raw17판정':_vcheck(raw17),
+            '기존차종':cur_vt,'기존유종':cur_ft,
+            '차종저장예정':final_vt if will_vt else ('(유지:'+cur_vt+')' if cur_vt else '(없음)'),
+            '유종저장예정':final_ft if will_ft else ('(유지:'+cur_ft+')' if cur_ft else '(없음)'),
+            '소속업체저장예정':final_co if will_co else ('(유지)' if cur_co else ''),
+            '추출근거_차종':rv or ('lh매칭' if lh_vt else '없음'),
+            '추출근거_유종':rf or ('lh매칭' if lh_ft else '없음'),
         }
         if mgmt in target:
             debug[mgmt] = sample
-        elif len(gen_samples) < 5 and (will_vt or will_ft):
-            gen_samples.append(sample)
+        elif will_vt and len(gen_ok) < 3:
+            gen_ok.append(sample)
+        elif not will_vt and not cur_vt and len(gen_skip) < 3:
+            gen_skip.append(sample)
 
         if not dry_run:
             if will_vt: c.vehicle_type = final_vt
@@ -1050,7 +1083,7 @@ async def backfill_closure_vehicle_fields(
     if not dry_run:
         db.commit()
 
-    stats['샘플'] = [v for v in debug.values() if v] + gen_samples
+    stats['샘플'] = [v for v in debug.values() if v] + gen_ok + gen_skip
     return stats
 
 
