@@ -372,17 +372,58 @@ def _detect_ctype(active_cols, row):
     return '기타'
 
 def _parse_change_text(text: str):
-    text = text.strip().replace('\r','')
+    """변경내용 단일 텍스트에서 변경유형/변경전/변경후 파싱.
+    패턴1: 유형\n변경전 → 변경후
+    패턴2: 변경전 → 변경후
+    패턴3: 변경전\n변경후
+    """
+    text = text.strip().replace('\r', '')
     ct, bv, av = '기타', '', ''
     lines = [l.strip() for l in text.split('\n') if l.strip()]
-    first = lines[0] if lines else text
+    if not lines:
+        return ct, bv, av
+
+    # 변경유형 탐지: 첫 줄
+    first = lines[0]
     first_norm = _normalize_text(first)
     for _ct, kws in _CK.items():
         if any(_normalize_text(kw) in first_norm for kw in kws):
-            ct = _ct; break
-    m = re.search(r'(.+?)\s*[-→>]+\s*(.+)', text)
-    if m: bv, av = m.group(1).strip(), m.group(2).strip()
-    elif len(lines) > 1: bv = '\n'.join(lines[1:])
+            ct = _ct
+            break
+
+    # 전체 텍스트에서 → / -> / > 패턴으로 분리
+    arrow_m = re.search(r'(.+?)\s*(?:→|->|>|→)\s*(.+)', text, re.DOTALL)
+    if arrow_m:
+        bv = arrow_m.group(1).strip()
+        av = arrow_m.group(2).strip()
+        # 첫 줄이 유형이었으면 bv에서 제거
+        if ct != '기타' and bv.startswith(first):
+            bv = bv[len(first):].strip().lstrip(':：').strip()
+        return ct, bv, av
+
+    # → 없음: 줄 수로 판단
+    if len(lines) == 1:
+        # 단일 줄: 변경유형만 있는 경우
+        bv = ''
+        av = lines[0] if ct == '기타' else ''
+    elif len(lines) == 2:
+        # 2줄: 첫줄=변경전, 둘째줄=변경후
+        if ct != '기타':
+            # 첫줄이 유형 → 두번째가 내용
+            bv = ''
+            av = lines[1]
+        else:
+            bv = lines[0]
+            av = lines[1]
+    elif len(lines) >= 3:
+        # 3줄+: 첫줄=유형, 두번째=변경전, 세번째=변경후
+        if ct != '기타':
+            bv = lines[1] if len(lines) > 1 else ''
+            av = lines[2] if len(lines) > 2 else ''
+        else:
+            bv = lines[0]
+            av = '\n'.join(lines[1:])
+
     return ct, bv, av
 
 # ─────────────────────────────────────────────
