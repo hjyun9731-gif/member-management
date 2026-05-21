@@ -1278,3 +1278,60 @@ async def fix_change_types(db: Session = Depends(get_db), _=Depends(require_admi
 
     db.commit()
     return {"재분류건수": fixed, "message": f"전속키워드없는 전속업체변경 {fixed}건 → 상호변경 재분류"}
+
+
+@router.get("/debug-change-log")
+async def debug_change_log(
+    vehicle: str = "", name: str = "", month: str = "",
+    db: Session = Depends(get_db), _=Depends(require_admin)
+):
+    """변경등록대장 파싱/분류 디버그
+    month 형식: 2026-05
+    """
+    import re as _re
+    from app.routers.dashboard import _ext_year
+
+    q = db.query(models.ChangeHistory).filter(models.ChangeHistory.deleted_at.is_(None))
+
+    def _norm(v): return _re.sub(r'\s+','',str(v or '')).lower()
+
+    rows = q.all()
+    result = []
+    for r in rows:
+        if vehicle and _norm(vehicle) not in _norm(r.vehicle_number): continue
+        if name and name not in (r.name or ''): continue
+        if month:
+            y, mo = month.split('-')
+            date_str = r.change_date or r.receipt_date or ''
+            yr = _ext_year(date_str)
+            # 월 판단
+            m2 = _re.search(r'(\d{1,2})\.\s*(\d{1,2})', date_str)
+            if not m2: continue
+            if int(y) != yr or int(m2.group(1)) != int(mo): continue
+
+        raw = r.raw_data if isinstance(r.raw_data, dict) else {}
+        result.append({
+            "id": r.id, "change_type": r.change_type,
+            "change_date": r.change_date, "receipt_date": r.receipt_date,
+            "region": r.region, "vehicle_number": r.vehicle_number, "name": r.name,
+            "before_value": r.before_value, "after_value": r.after_value, "memo": r.memo,
+            "raw_data_keys": list(raw.keys())[:20],
+            "raw_data": {k: str(raw[k])[:50] for k in list(raw.keys())[:15]},
+        })
+        if len(result) >= 20: break
+
+    # 월별 집계 요약
+    summary = {}
+    if month:
+        summary["월"] = month
+        for r2 in rows:
+            date_str = r2.change_date or r2.receipt_date or ''
+            yr = _ext_year(date_str)
+            m2 = _re.search(r'(\d{1,2})\.\s*(\d{1,2})', date_str)
+            if not m2: continue
+            y2, mo2 = month.split('-')
+            if int(y2) != yr or int(m2.group(1)) != int(mo2): continue
+            ct = r2.change_type or '기타'
+            summary[ct] = summary.get(ct, 0) + 1
+
+    return {"총건수": len(result), "월별집계": summary, "결과": result}

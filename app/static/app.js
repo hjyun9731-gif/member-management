@@ -390,12 +390,28 @@ window.viewClosure=async(id)=>{
 
 window.viewChange=async(id)=>{
   const r=await api('GET',`/api/change-history/${id}`).catch(()=>null);if(!r)return;
+  const raw=(r.raw_data&&typeof r.raw_data==='object')?r.raw_data:{};
   const sections=[
-    {title:'기본 정보',fields:[['변경유형',r.change_type],['처리일자',fvDate(r.change_date,r.receipt_date)],['지역',r.region],['차량번호',r.vehicle_number],['성명',r.name]]},
+    {title:'기본 정보',fields:[
+      ['변경유형',r.change_type],['처리일자',fvDate(r.change_date,r.receipt_date)],
+      ['접수일자',r.receipt_date||''],['지역',r.region],
+      ['차량번호',r.vehicle_number],['성명',r.name],
+    ]},
     {title:'변경 내용',fields:[['변경 전',r.before_value,true],['변경 후',r.after_value,true],['비고',r.memo,true]]},
+    {title:'회원 / 차량 정보',fields:[
+      ['관리번호',raw['관리번호']||raw['management_number']||''],
+      ['차종',raw['차종']||raw['vehicle_type']||''],
+      ['유종',raw['유종']||raw['fuel_type']||''],
+      ['전화번호',raw['전화번호']||raw['phone']||''],
+      ['핸드폰',raw['핸드폰']||raw['휴대폰']||raw['mobile']||''],
+      ['주소',raw['주소']||raw['address']||'',true],
+      ['공문주소',raw['공문주소']||raw['official_address']||'',true],
+      ['소속업체',raw['소속업체']||raw['업체명']||raw['affiliated_company']||''],
+    ]},
+    {title:'원본 엑셀 데이터',fields:Object.entries(raw).filter(([,v])=>v&&String(v).trim()&&String(v).trim()!=='-').map(([k,v])=>[k,v,false])},
   ];
   openModal('변경이력 상세정보',buildDetailSections(sections),
-    `<button class="btn bp btn-sm" onclick="editChange(${id});closeModal()">수정</button><button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'msm');
+    `<button class="btn bp btn-sm" onclick="editChange(${id});closeModal()">수정</button><button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
 };
 
 // ===== NAVIGATION =====

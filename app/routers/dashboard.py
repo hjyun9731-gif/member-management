@@ -589,7 +589,7 @@ async def monthly_report_auto(
 
     month_changes = [c for c in db.query(models.ChangeHistory).filter(
         models.ChangeHistory.deleted_at.is_(None)).all()
-        if matches(c.change_date or '')]
+        if matches(c.change_date or c.receipt_date or '')]
 
     change_by_type: dict = {}
     for c in month_changes:
@@ -598,23 +598,28 @@ async def monthly_report_auto(
 
     admin_work = {
         # 변경등록대장 기반
-        "상호변경":   change_by_type.get("상호변경", 0),
-        "대표자변경":  change_by_type.get("대표자변경", 0),
-        "차량변경":   change_by_type.get("구조변경", 0) + change_by_type.get("번호변경", 0),
-        "주소변경":   change_by_type.get("주소지변경", 0),
-        "자격증재교부": change_by_type.get("자격증재교부", 0) or change_by_type.get("자격재교부", 0),
+        "상호변경":    change_by_type.get("상호변경", 0),
+        "대표자변경":   change_by_type.get("대표자변경", 0),
+        "차량변경":    change_by_type.get("구조변경", 0) + change_by_type.get("번호변경", 0),
+        "주소변경":    change_by_type.get("주소지변경", 0),
+        "자격증재교부":  change_by_type.get("자격증재교부", 0) or change_by_type.get("자격재교부", 0),
+        "이전전출":    change_by_type.get("이전전출", 0) + change_by_type.get("등록이관", 0),
+        "전속업체변경":  change_by_type.get("전속계약 업체변경", 0),
         # 신규등록대장 = 취업신고
-        "취업신고":   len(month_new),
+        "취업신고":    len(month_new),
         # 폐업현황 중 폐-* (폐업)만 퇴사신고
-        "퇴사신고":   sum(1 for c in month_closures
+        "퇴사신고":    sum(1 for c in month_closures
                        if (c.closure_type or '').replace('폐지','폐업') == '폐업'
                        or (c.management_number or '').startswith('폐-')),
         # 양도양수대장 기준
-        "양도양수":   len(month_transfers),
+        "양도양수":    len(month_transfers),
         # 이관 별도 표시
-        "이관":      sum(1 for c in month_closures
-                      if (c.management_number or '').startswith('이-')
-                      or (c.closure_type or '') == '이관'),
+        "이관":       sum(1 for c in month_closures
+                       if (c.management_number or '').startswith('이-')
+                       or (c.closure_type or '') == '이관'),
+        # 전체 변경 건수
+        "_변경등록전체":  len(month_changes),
+        "_변경유형별":   change_by_type,
     }
 
     # 관리번호 자연정렬 (숫자 기준 내림차순)
