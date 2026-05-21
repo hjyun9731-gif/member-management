@@ -1460,3 +1460,26 @@ async def backfill_change_before_after(
     if not dry_run:
         db.commit()
     return stats
+
+
+@router.get("/change-raw-sample")
+async def change_raw_sample(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """변경등록대장 raw_data 실제 구조 샘플 확인"""
+    rows = db.query(models.ChangeHistory).filter(
+        models.ChangeHistory.deleted_at.is_(None)
+    ).limit(5).all()
+
+    samples = []
+    for r in rows:
+        raw = r.raw_data if isinstance(r.raw_data, dict) else {}
+        samples.append({
+            "id": r.id,
+            "change_type": r.change_type,
+            "before_value": r.before_value,
+            "after_value": r.after_value,
+            "memo": r.memo,
+            "change_date": r.change_date,
+            "raw_data_keys": list(raw.keys()),
+            "raw_data_all": {k: str(raw[k])[:80] for k in list(raw.keys())[:20]},
+        })
+    return {"samples": samples}
