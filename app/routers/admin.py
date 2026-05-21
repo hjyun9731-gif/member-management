@@ -839,3 +839,62 @@ async def backfill_transfers(db: Session = Depends(get_db), _=Depends(require_ad
 
     db.commit()
     return {"전체양도양수": total, "매칭성공": matched, "차종채워진건수": vt_filled}
+
+
+@router.post("/backfill-closure-vehicle-fields")
+async def backfill_closure_vehicle_fields(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """폐업현황 raw_data에서 차종/유종 재추출하여 vehicle_type/fuel_type에 저장.
+    우선순위: 기존 DB값 > raw_data 원본 > 전체자명단 매칭
+    """
+    from app.excel_utils import (extract_vehicle_type_from_raw,
+                                  extract_fuel_type_from_raw, normalize_fuel)
+
+    closures = db.query(models.Closure).filter(
+        models.Closure.deleted_at.is_(None)
+    ).all()
+
+    stats = {
+        "전체": len(closures),
+        "차종_채움": 0,
+        "유종_채움": 0,
+        "차종_이미있음": 0,
+        "유종_이미있음": 0,
+        "raw_data없음": 0,
+        "샘플": [],
+    }
+
+    for c in closures:
+        raw = c.raw_data if isinstance(c.raw_data, dict) else {}
+        if not raw:
+            stats["raw_data없음"] += 1
+
+        # 차종
+        cur_vt = getattr(c, 'vehicle_type', '') or ''
+        if cur_vt:
+            stats["차종_이미있음"] += 1
+        else:
+            vt = extract_vehicle_type_from_raw(raw)
+            if vt:
+                c.vehicle_type = vt
+                stats["차종_채움"] += 1
+                if len(stats["샘플"]) < 5:
+                    stats["샘플"].append({
+                        "관리번호": c.management_number,
+                        "성명": c.name,
+                        "차종": vt,
+                    })
+
+        # 유종
+        cur_ft = getattr(c, 'fuel_type', '') or ''
+        if cur_ft:
+            stats["유종_이미있음"] += 1
+        else:
+            ft = extract_fuel_type_from_raw(raw)
+            if ft:
+                # 유종 정규화 시도, 실패하면 원본 저장
+                norm = normalize_fuel(ft)
+                c.fuel_type = norm if norm else ft
+                stats["유종_채움"] += 1
+
+    db.commit()
+    return stats

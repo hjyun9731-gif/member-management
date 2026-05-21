@@ -856,3 +856,22 @@ def mgmt_sort_key(mgmt: str) -> tuple:
     if m:
         return (9998, int(m.group(1)), s)
     return (0, 0, s)  # 인식 불가 → 맨 아래
+
+
+def extract_vehicle_type_from_raw(raw: dict) -> str:
+    """raw_data에서 차종 추출 (폐업현황용). 숫자 시작 연식 포함 형태 허용."""
+    for k in ['차종', 'vehicle_type', '차량종류', '차량형태']:
+        v = raw.get(k, '')
+        if v and str(v).strip() and str(v).strip() not in ('-', '', 'nan', 'None'):
+            return str(v).strip()
+    return ''
+
+
+def extract_fuel_type_from_raw(raw: dict) -> str:
+    """raw_data에서 유종 추출."""
+    for k in ['유종', 'fuel_type', '연료', '연료종류']:
+        v = raw.get(k, '')
+        if v and str(v).strip() and str(v).strip() not in ('-', '', 'nan', 'None'):
+            return str(v).strip()
+    return ''
+
