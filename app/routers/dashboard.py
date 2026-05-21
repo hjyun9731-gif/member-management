@@ -478,28 +478,31 @@ async def monthly_report_auto(
     )
     all_members = lh_q.all()
     total = len(all_members)
-    joined = sum(1 for m in all_members if m.membership_status == "가입")
     individual = sum(1 for m in all_members if m.category == "개인")
     delivery = sum(1 for m in all_members if m.category == "택배")
-
-    # 해당 월 가입자: membership_date(가입일자)가 해당 월인 사람
-    month_joined = sum(1 for m in all_members if matches(m.membership_date or ''))
-    # 해당 월 미가입자: 미가입이고 인가일자가 해당 월인 사람
-    month_not_joined = sum(1 for m in all_members
-                           if m.membership_status != '가입' and matches(m.approval_date or ''))
 
     def _has_val(v):
         return bool(v and str(v).strip() and str(v).strip().lower() not in ('-','x','none','nan'))
 
     # 가입: membership_date(가입일자) 기준
     joined     = sum(1 for m in all_members if _has_val(m.membership_date))
+    ind_joined = sum(1 for m in all_members if m.category == "개인" and _has_val(m.membership_date))
+    del_joined = sum(1 for m in all_members if m.category == "택배" and _has_val(m.membership_date))
+
+    # 해당 월 신규가입 / 미가입발생
+    month_joined     = sum(1 for m in all_members if matches(m.membership_date or ''))
+    month_not_joined = sum(1 for m in all_members
+                           if not _has_val(m.membership_date) and matches(m.approval_date or ''))
+
     # 취업신고: certificate_issue_date(자격증명발급일자) 기준
-    cert_del   = sum(1 for m in all_members if m.category=="택배" and _has_val(m.certificate_issue_date))
-    cert_ind   = sum(1 for m in all_members if m.category=="개인" and _has_val(m.certificate_issue_date))
+    cert_del = sum(1 for m in all_members if m.category=="택배" and _has_val(m.certificate_issue_date))
+    cert_ind = sum(1 for m in all_members if m.category=="개인" and _has_val(m.certificate_issue_date))
 
     member_stats = {
         "total": total, "individual": individual, "delivery": delivery,
         "joined": joined, "not_joined": total - joined,
+        "ind_joined": ind_joined, "ind_not_joined": individual - ind_joined,
+        "del_joined": del_joined, "del_not_joined": delivery - del_joined,
         "month_joined": month_joined, "month_not_joined": month_not_joined,
     }
 

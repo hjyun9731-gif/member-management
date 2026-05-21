@@ -1228,3 +1228,53 @@ async def search_raw_member(
         "검색차량번호": vehicle, "검색성명": name,
         "총발견": len(results), "결과": results
     }
+
+
+@router.get("/verify-change-types")
+async def verify_change_types(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """전속업체변경으로 분류된 건 중 '전속' 키워드 없는 건 검출"""
+    rows = db.query(models.ChangeHistory).filter(
+        models.ChangeHistory.deleted_at.is_(None),
+        models.ChangeHistory.change_type == "전속계약 업체변경",
+    ).all()
+
+    suspicious = []
+    for r in rows:
+        combined = " ".join([
+            r.change_type or "", r.before_value or "",
+            r.after_value or "", r.memo or "",
+        ])
+        has_jeon = "전속" in combined
+        if not has_jeon:
+            suspicious.append({
+                "id": r.id, "change_type": r.change_type,
+                "vehicle_number": r.vehicle_number, "name": r.name,
+                "before_value": r.before_value, "after_value": r.after_value,
+                "memo": r.memo, "change_date": r.change_date,
+                "판정": "상호변경으로 재분류 필요",
+            })
+
+    return {
+        "전속업체변경_전체": len(rows),
+        "전속키워드없음": len(suspicious),
+        "의심목록_20건": suspicious[:20],
+    }
+
+
+@router.post("/fix-change-types")
+async def fix_change_types(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """전속 키워드 없는 전속업체변경 → 상호변경으로 재분류"""
+    rows = db.query(models.ChangeHistory).filter(
+        models.ChangeHistory.deleted_at.is_(None),
+        models.ChangeHistory.change_type == "전속계약 업체변경",
+    ).all()
+
+    fixed = 0
+    for r in rows:
+        combined = " ".join([r.before_value or "", r.after_value or "", r.memo or ""])
+        if "전속" not in combined:
+            r.change_type = "상호변경"
+            fixed += 1
+
+    db.commit()
+    return {"재분류건수": fixed, "message": f"전속키워드없는 전속업체변경 {fixed}건 → 상호변경 재분류"}

@@ -1338,8 +1338,8 @@ async function renderMonthlyReport(){
           <div class="rpt-sec"><table class="rpt-tbl">
             <thead><tr><th>구분</th><th>총 허가</th><th>협회 가입</th><th>미가입</th></tr></thead>
             <tbody>
-              <tr><td class="rl">개인(사업자)</td><td>${ms.individual||0}</td><td>-</td><td>-</td></tr>
-              <tr><td class="rl">택배(차량)</td><td>${ms.delivery||0}</td><td>-</td><td>-</td></tr>
+              <tr><td class="rl">개인(사업자)</td><td>${ms.individual||0}</td><td>${ms.ind_joined||0}</td><td>${ms.ind_not_joined||0}</td></tr>
+              <tr><td class="rl">택배(차량)</td><td>${ms.delivery||0}</td><td>${ms.del_joined||0}</td><td>${ms.del_not_joined||0}</td></tr>
               <tr class="total-row"><td class="rl">합계(전체)</td><td>${ms.total||0}</td><td>${ms.joined||0}</td><td>${ms.not_joined||0}</td></tr><tr style="background:var(--c-bg-2)"><td class="rl">※ ${m}월 신규가입</td><td colspan="3"><strong>${ms.month_joined||0}명</strong> (가입일자 기준)</td></tr><tr style="background:var(--c-bg-2)"><td class="rl">※ ${m}월 미가입발생</td><td colspan="3"><strong>${ms.month_not_joined||0}명</strong> (인가일자 기준)</td></tr>
             </tbody></table></div>
           <div class="rpt-sec"><div class="rpt-sec-ttl">1-1. 택배 차량대수</div>
@@ -1379,19 +1379,24 @@ async function renderMonthlyReport(){
           <div class="stat-card red"><div class="stat-lbl">폐업/양도/이관</div><div class="stat-val">${act.closures||0}</div><div class="stat-sub">접수일자 기준</div></div>
           <div class="stat-card purple"><div class="stat-lbl">변경이력</div><div class="stat-val">${act.changes||0}</div><div class="stat-sub">변경등록대장</div></div>
         </div>
-        <table class="rpt-tbl"><thead><tr><th>업무 구분</th><th>당월 처리</th><th>집계 기준</th></tr></thead>
+        <table class="rpt-tbl"><thead><tr><th>업무 구분</th><th>당월 처리</th></tr></thead>
           <tbody>
-            <tr><td class="rl">취업신고</td><td>${aw.취업신고||0}</td><td style="font-size:11px;color:var(--c-text-3)">신규등록대장 당월 건수</td></tr>
-            <tr><td class="rl">퇴사신고</td><td>${aw.퇴사신고||0}</td><td style="font-size:11px;color:var(--c-text-3)">폐업현황 폐업(폐-*) 당월 건수</td></tr>
-            <tr><td class="rl">양도양수</td><td>${aw.양도양수||0}</td><td style="font-size:11px;color:var(--c-text-3)">양도양수대장 당월 건수</td></tr>
-            <tr><td class="rl">이관</td><td>${aw.이관||0}</td><td style="font-size:11px;color:var(--c-text-3)">폐업현황 이관(이-*) 당월 건수</td></tr>
-            <tr><td class="rl">상호변경</td><td>${aw.상호변경||0}</td><td style="font-size:11px;color:var(--c-text-3)">변경등록대장</td></tr>
-            <tr><td class="rl">대표자변경</td><td>${aw.대표자변경||0}</td><td style="font-size:11px;color:var(--c-text-3)">변경등록대장</td></tr>
-            <tr><td class="rl">차량변경</td><td>${aw.차량변경||0}</td><td style="font-size:11px;color:var(--c-text-3)">변경등록대장</td></tr>
-            <tr><td class="rl">주소변경</td><td>${aw.주소변경||0}</td><td style="font-size:11px;color:var(--c-text-3)">변경등록대장</td></tr>
-            <tr><td class="rl">자격증재교부</td><td>${aw.자격증재교부||0}</td><td style="font-size:11px;color:var(--c-text-3)">변경등록대장</td></tr>
+            <tr><td class="rl">취업신고</td><td>${aw.취업신고||0}</td></tr>
+            <tr><td class="rl">퇴사신고</td><td>${aw.퇴사신고||0}</td></tr>
+            <tr><td class="rl">양도양수</td><td>${aw.양도양수||0}</td></tr>
+            <tr><td class="rl">이관</td><td>${aw.이관||0}</td></tr>
+            <tr><td class="rl">상호변경</td><td>${aw.상호변경||0}</td></tr>
+            <tr><td class="rl">대표자변경</td><td>${aw.대표자변경||0}</td></tr>
+            <tr><td class="rl">차량변경</td><td>${aw.차량변경||0}</td></tr>
+            <tr><td class="rl">주소변경</td><td>${aw.주소변경||0}</td></tr>
+            <tr><td class="rl">자격증재교부</td><td>${aw.자격증재교부||0}</td></tr>
           </tbody>
         </table>
+        <p style="font-size:11px;color:var(--c-text-3);margin-top:8px;line-height:1.8">
+          ※ 집계 기준 &nbsp;·&nbsp; 취업신고: 신규등록대장 당월 &nbsp;·&nbsp; 퇴사신고: 폐업현황 폐-* 당월
+          &nbsp;·&nbsp; 양도양수: 양도양수대장 당월 &nbsp;·&nbsp; 이관: 폐업현황 이-* 당월
+          &nbsp;·&nbsp; 상호/대표자/차량/주소/자격증재교부: 변경등록대장
+        </p>
       </div>
     </div>
 
