@@ -888,12 +888,75 @@ async def backfill_closure_vehicle_fields(
     dry_run: bool = True,
     db: Session = Depends(get_db), _=Depends(require_admin)
 ):
-    """폐업현황 차종/유종 backfill.
-    매칭 소스: license_holders 전체(deleted 포함)
-    정규화: 공백/호 제거, 소문자
-    dry_run=true: 저장 없이 결과만
+    """폐업현황 차종/유종/소속업체 backfill.
+    1순위: raw_data Unnamed:14/15/17 또는 명시적 차종/유종 키
+    2순위: license_holders 차량번호 매칭
+    dry_run=true(기본): 저장 없이 결과만
     """
     import re as _re
+
+    BAD_VT_PAT = [
+        _re.compile(r"^\d{2}\.\d{1,2}\.\d{1,2}\.?$"),
+        _re.compile(r"^\d{4}[-\.]\d{2}[-\.]\d{2}\.?$"),
+        _re.compile(r"^\d{2}-\d{2}-\d{2}$"),
+        _re.compile(r"^\d{2}-\d{2}\([가-힣]\)-"),
+        _re.compile(r"^\d{6}-\d"),
+        _re.compile(r"^\d{10,}$"),
+    ]
+    FT_VALID = ["경유","휘발유","lpg","엘피지","전기","하이브리드","cng","수소","가스","디젤"]
+    VT_WORDS = ["포터","봉고","스타렉스","렉스턴","호룡","마이티","내장","탑","윙",
+                "냉동","냉장","ev","일렉트릭","사다리","고소","트럭","카고","픽업",
+                "밴","미닫이","워크스루","파워게이트","카니발"]
+
+    def _bad_vt(v):
+        if not v: return True
+        v = str(v).strip()
+        if not v or v in ("-","nan","None",""): return True
+        return any(p.match(v) for p in BAD_VT_PAT)
+
+    def _bad_ft(v):
+        vl = str(v or "").strip().lower().replace(" ","")
+        if not vl or vl in ("-","nan","none",""): return True
+        if _re.match(r"^\d", vl): return True
+        return not any(f in vl for f in FT_VALID)
+
+    def _valid_vt(v):
+        if _bad_vt(v): return False
+        s = str(v).strip()
+        if _re.match(r"^\d{2}[,.\s].+", s) and len(s) > 4: return True
+        vl = s.lower()
+        return any(w in vl for w in VT_WORDS)
+
+    def _extract_raw(raw):
+        """raw_data에서 차종/유종/소속업체 추출"""
+        vt = ft = co = ""
+        rv = rf = rc = ""
+        if not isinstance(raw, dict): return vt, ft, co, rv, rf, rc
+
+        # 1. 명시적 키
+        for k in raw:
+            ks = str(k).strip().replace(" ","").lower()
+            v  = str(raw[k] or "").strip()
+            if not vt and any(x in ks for x in ["차종","차량종류","차명"]):
+                if _valid_vt(v): vt, rv = v, f"키:{k}"
+            if not ft and any(x in ks for x in ["유종","연료명","사용연료"]):
+                if not _bad_ft(v): ft, rf = v, f"키:{k}"
+            if not co and any(x in ks for x in ["업체","소속","company"]):
+                if v and v not in ("-","nan"): co, rc = v, f"키:{k}"
+
+        # 2. Unnamed 위치 기반 (신규폐지현황: 14=차종,15=유종,17=소속)
+        for suffix, field in [("14","vt"),("15","ft"),("17","co")]:
+            for k in raw:
+                if str(k).replace(" ","") in [f"Unnamed:{suffix}",f"unnamed:{suffix}"]:
+                    v = str(raw[k] or "").strip()
+                    if field == "vt" and not vt and _valid_vt(v):
+                        vt, rv = v, f"Unnamed:{suffix}"
+                    elif field == "ft" and not ft and not _bad_ft(v):
+                        ft, rf = v, f"Unnamed:{suffix}"
+                    elif field == "co" and not co and v and v not in ("-","nan"):
+                        co, rc = v, f"Unnamed:{suffix}"
+
+        return vt, ft, co, rv, rf, rc
 
     def _norm(v):
         v = str(v or "").strip()
@@ -901,113 +964,102 @@ async def backfill_closure_vehicle_fields(
         v = _re.sub(r"호$", "", v)
         return v.lower()
 
-    # license_holders 전체 인덱스 (deleted 포함)
+    # license_holders 인덱스 (deleted 포함)
     all_lh = db.query(models.LicenseHolder).all()
-    by_norm: dict = {}
+    by_vno: dict = {}
     for m in all_lh:
         key = _norm(m.vehicle_number)
-        if key:
-            by_norm.setdefault(key, []).append(m)
+        if key: by_vno.setdefault(key, []).append(m)
 
-    def _pick(c):
+    def _pick_lh(c):
         key = _norm(c.vehicle_number)
-        if not key:
-            return None, "차량번호없음"
-        cands = by_norm.get(key, [])
-        if not cands:
-            return None, f"미발견(정규화:{key})"
-        if len(cands) == 1:
-            return cands[0], "1건일치"
+        cands = by_vno.get(key, [])
+        if not cands: return None
         name = (c.name or "").strip()
         for m in cands:
-            if (m.name or "").strip() == name:
-                return m, "차량+성명일치"
-        region = (c.region or "").strip()
-        for m in cands:
-            if (m.region or "").strip() == region:
-                return m, "차량+지역일치"
-        return cands[0], f"첫번째선택({len(cands)}명중)"
+            if (m.name or "").strip() == name: return m
+        return cands[0]
 
     closures = db.query(models.Closure).filter(
         models.Closure.deleted_at.is_(None),
     ).all()
 
-    fail_reasons: dict = {}
     stats = {
-        "dry_run": dry_run,
-        "전체": len(closures),
-        "차종없음": 0, "유종없음": 0,
-        "매칭성공": 0, "매칭실패": 0,
+        "dry_run": dry_run, "전체": len(closures),
+        "raw추출성공_차종": 0, "raw추출성공_유종": 0,
+        "lh매칭_차종": 0, "lh매칭_유종": 0,
+        "차종_이미있음": 0, "유종_이미있음": 0,
         "차종채움예정": 0, "유종채움예정": 0,
-        "매칭실패_사유별": {},
-        "샘플": [],
+        "소속업체채움예정": 0, "샘플": [],
     }
 
-    target_mgmt = {"폐-55","폐-56","폐-58","폐-86","폐-91"}
-    debug_samples = {k: None for k in target_mgmt}
-    general_samples = []
+    target = {"폐-55","폐-56","폐-58","폐-86","폐-91"}
+    debug = {k: None for k in target}
+    gen_samples = []
 
     for c in closures:
-        cur_vt = (getattr(c, "vehicle_type", "") or "").strip()
-        cur_ft = (getattr(c, "fuel_type", "") or "").strip()
-        mgmt = c.management_number or ""
+        cur_vt = (getattr(c,"vehicle_type","") or "").strip()
+        cur_ft = (getattr(c,"fuel_type","") or "").strip()
+        cur_co = (getattr(c,"affiliated_company","") or "").strip()
+        mgmt   = c.management_number or ""
 
-        if not cur_vt: stats["차종없음"] += 1
-        if not cur_ft: stats["유종없음"] += 1
+        if cur_vt: stats["차종_이미있음"] += 1
+        if cur_ft: stats["유종_이미있음"] += 1
 
-        if cur_vt and cur_ft:
-            if mgmt in target_mgmt:
-                debug_samples[mgmt] = {
-                    "관리번호": mgmt, "상태": "이미있음",
-                    "차종": cur_vt, "유종": cur_ft,
-                }
-            continue
+        raw = c.raw_data if isinstance(c.raw_data, dict) else {}
+        raw_vt, raw_ft, raw_co, rv, rf, rc = _extract_raw(raw)
 
-        m, reason = _pick(c)
+        if raw_vt: stats["raw추출성공_차종"] += 1
+        if raw_ft: stats["raw추출성공_유종"] += 1
 
-        if not m:
-            stats["매칭실패"] += 1
-            stats["매칭실패_사유별"][reason] = stats["매칭실패_사유별"].get(reason, 0) + 1
-            if mgmt in target_mgmt:
-                debug_samples[mgmt] = {
-                    "관리번호": mgmt, "성명": c.name,
-                    "차량번호_원본": c.vehicle_number,
-                    "차량번호_정규화": _norm(c.vehicle_number),
-                    "매칭": "실패", "사유": reason,
-                    "기존차종": cur_vt, "기존유종": cur_ft,
-                }
-            continue
+        # 2순위: lh 매칭
+        lh_vt = lh_ft = ""
+        if not raw_vt or not raw_ft:
+            m = _pick_lh(c)
+            if m:
+                if not raw_vt: lh_vt = (m.vehicle_type or "").strip()
+                if not raw_ft: lh_ft = (m.fuel_type or "").strip()
+                if lh_vt: stats["lh매칭_차종"] += 1
+                if lh_ft: stats["lh매칭_유종"] += 1
 
-        stats["매칭성공"] += 1
-        new_vt = (m.vehicle_type or "").strip()
-        new_ft = (m.fuel_type or "").strip()
-        will_vt = not cur_vt and bool(new_vt)
-        will_ft = not cur_ft and bool(new_ft)
+        final_vt = raw_vt or lh_vt
+        final_ft = raw_ft or lh_ft
+        final_co = raw_co
+
+        will_vt = not cur_vt and bool(final_vt)
+        will_ft = not cur_ft and bool(final_ft)
+        will_co = not cur_co and bool(final_co)
+
         if will_vt: stats["차종채움예정"] += 1
         if will_ft: stats["유종채움예정"] += 1
+        if will_co: stats["소속업체채움예정"] += 1
 
         sample = {
-            "관리번호": mgmt, "성명": c.name,
-            "차량번호": c.vehicle_number,
+            "관리번호": mgmt, "성명": c.name, "차량번호": c.vehicle_number,
+            "raw_Unnamed14": str(raw.get("Unnamed: 14","") or "").strip(),
+            "raw_Unnamed15": str(raw.get("Unnamed: 15","") or "").strip(),
+            "raw_Unnamed17": str(raw.get("Unnamed: 17","") or "").strip(),
             "기존차종": cur_vt, "기존유종": cur_ft,
-            "매칭차종": new_vt, "매칭유종": new_ft,
-            "차종저장예정": new_vt if will_vt else "(유지)",
-            "유종저장예정": new_ft if will_ft else "(유지)",
-            "매칭근거": reason,
+            "차종저장예정": final_vt if will_vt else ("(유지:"+cur_vt+")" if cur_vt else "(없음)"),
+            "유종저장예정": final_ft if will_ft else ("(유지:"+cur_ft+")" if cur_ft else "(없음)"),
+            "소속업체저장예정": final_co if will_co else "(유지)" if cur_co else "",
+            "추출근거_차종": rv or ("lh매칭" if lh_vt else "없음"),
+            "추출근거_유종": rf or ("lh매칭" if lh_ft else "없음"),
         }
-        if mgmt in target_mgmt:
-            debug_samples[mgmt] = sample
-        elif len(general_samples) < 5:
-            general_samples.append(sample)
+        if mgmt in target:
+            debug[mgmt] = sample
+        elif len(gen_samples) < 5 and (will_vt or will_ft):
+            gen_samples.append(sample)
 
         if not dry_run:
-            if will_vt: c.vehicle_type = new_vt
-            if will_ft: c.fuel_type = new_ft
+            if will_vt: c.vehicle_type = final_vt
+            if will_ft: c.fuel_type = final_ft
+            if will_co: c.affiliated_company = final_co
 
     if not dry_run:
         db.commit()
 
-    stats["샘플"] = [v for v in debug_samples.values() if v] + general_samples
+    stats["샘플"] = [v for v in debug.values() if v] + gen_samples
     return stats
 
 
