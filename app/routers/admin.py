@@ -1409,56 +1409,74 @@ async def backfill_change_before_after(
     dry_run: bool = True,
     db: Session = Depends(get_db), _=Depends(require_admin)
 ):
-    """변경등록대장 raw_data에서 변경전/변경후 재추출하여 DB 복구
-    dry_run=true: 저장 없이 결과만
-    """
-    import re as _re
+    import re as _re, json as _json
 
-    BEFORE_KEYS = ['변경전','변경 전','이전주소','변경전주소','변경전내용','이전내용','종전주소','전주소']
-    AFTER_KEYS  = ['변경후','변경 후','현재주소','변경후주소','변경후내용','현재내용','신주소','새주소']
+    def _nk(k): return _re.sub(r"[\s\u00b7]+", "", str(k or "")).lower()
 
-    def _norm(v): return _re.sub(r'\s+','',str(v or '')).lower()
+    BEFORE_KEYS = ["변경전","변경 전","이전주소","변경전주소","변경전내용","이전내용","종전주소","전주소"]
+    AFTER_KEYS  = ["변경후","변경 후","현재주소","변경후주소","변경후내용","현재내용","신주소","새주소"]
+    CONTENT_KEYS = ["변경내용","변경사항","내용","변경내 용","변 경 내 용"]
+
     def _find(raw, keys):
+        nkeys = [_nk(k) for k in keys]
         for k in raw:
-            if _norm(k) in [_norm(x) for x in keys]:
-                v = str(raw[k] or '').strip()
-                if v and v not in ('-','nan','None'): return v
-        return ''
+            if _nk(k) in nkeys:
+                v = str(raw[k] or "").strip()
+                if v and v not in ("-","nan","None",""): return k, v
+        return None, ""
+
+    def _parse(text):
+        m = _re.search(r"(.+?)\s*[→\->]+\s*(.+)", text, _re.DOTALL)
+        if m: return m.group(1).strip(), m.group(2).strip()
+        return "-", text.strip()
 
     rows = db.query(models.ChangeHistory).filter(
         models.ChangeHistory.deleted_at.is_(None)).all()
 
-    stats = {'dry_run': dry_run, '전체': len(rows),
-             'raw있음': 0, 'before복구': 0, 'after복구': 0, '샘플': []}
+    stats = {"dry_run": dry_run, "전체": len(rows),
+             "raw있음": 0, "before복구": 0, "after복구": 0, "샘플": []}
 
     for r in rows:
-        raw = r.raw_data if isinstance(r.raw_data, dict) else {}
-        if not raw: continue
-        stats['raw있음'] += 1
+        raw = r.raw_data
+        if isinstance(raw, str):
+            try: raw = _json.loads(raw)
+            except: raw = {}
+        if not isinstance(raw, dict) or not raw: continue
+        stats["raw있음"] += 1
 
-        raw_bv = _find(raw, BEFORE_KEYS)
-        raw_av = _find(raw, AFTER_KEYS)
+        cur_bv = (r.before_value or "").strip()
+        cur_av = (r.after_value  or "").strip()
 
-        will_bv = bool(raw_bv and not r.before_value)
-        will_av = bool(raw_av and not r.after_value)
+        # 명시적 변경전/후 키
+        _, raw_bv = _find(raw, BEFORE_KEYS)
+        _, raw_av = _find(raw, AFTER_KEYS)
 
-        if will_bv: stats['before복구'] += 1
-        if will_av: stats['after복구'] += 1
+        # 없으면 변경내용 키에서 파싱
+        raw_content_key, raw_content = _find(raw, CONTENT_KEYS)
+        if raw_content and not raw_bv and not raw_av:
+            raw_bv, raw_av = _parse(raw_content)
 
-        if len(stats['샘플']) < 10 and (will_bv or will_av):
-            stats['샘플'].append({
-                '관리번호': r.vehicle_number, '성명': r.name,
-                '변경유형': r.change_type,
-                '현재before': r.before_value, '복구before': raw_bv if will_bv else '(유지)',
-                '현재after': r.after_value, '복구after': raw_av if will_av else '(유지)',
+        new_bv = raw_bv if raw_bv and not cur_bv else None
+        new_av = raw_av if raw_av and not cur_av else None
+
+        if new_bv: stats["before복구"] += 1
+        if new_av: stats["after복구"] += 1
+
+        if len(stats["샘플"]) < 10 and (new_bv or new_av):
+            stats["샘플"].append({
+                "id": r.id, "change_type": r.change_type,
+                "vehicle_number": r.vehicle_number, "name": r.name,
+                "raw_content_key": raw_content_key, "raw_변경내용": raw_content,
+                "기존_before": cur_bv, "기존_after": cur_av,
+                "새_before": new_bv or "(유지)", "새_after": new_av or "(유지)",
+                "저장예정": {k:v for k,v in [("before_value",new_bv),("after_value",new_av)] if v},
             })
 
         if not dry_run:
-            if will_bv: r.before_value = raw_bv
-            if will_av: r.after_value = raw_av
+            if new_bv: r.before_value = new_bv
+            if new_av: r.after_value  = new_av
 
-    if not dry_run:
-        db.commit()
+    if not dry_run: db.commit()
     return stats
 
 
