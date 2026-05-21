@@ -964,15 +964,16 @@ async function renderTransferLedger(){
 }
 
 window.editTransfer=async(id)=>{
-  let r={seq_number:'',receipt_date:'',region:'',vehicle_number:'',transferor:'',transferee:'',resident_number:'',address:'',phone:'',mobile:'',approval_date:'',membership_date:'',certificate_issue_date:'',certificate_number:'',ledger_update:'',driver_license_number:'',computer_report:'',memo:''};
+  let r={seq_number:'',receipt_date:'',region:'',vehicle_number:'',transferor:'',transferee:'',resident_number:'',address:'',phone:'',mobile:'',approval_date:'',membership_date:'',certificate_issue_date:'',certificate_number:'',ledger_update:'',driver_license_number:'',computer_report:'',memo:'',vehicle_type:'',fuel_type:'',structure_change:'',affiliated_company:''};
   if(id){r=await api('GET',`/api/transfer-ledger/${id}`).catch(()=>null);if(!r)return;}
+  const raw_tl=(r.raw_data&&typeof r.raw_data==='object')?r.raw_data:{};
   openModal(id?'양도양수 수정':'양도양수 등록',`<form id="tlForm"><div class="fg">
     ${fi('management_number','관리번호',r.management_number||'')}
     ${fi('receipt_date','접수일자',r.receipt_date||'')}
     <div class="fi"><label>지역</label>${rsel('region',r.region||'')}</div>
     ${fi('vehicle_number','차량번호',r.vehicle_number||'',true)}
-    <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||r.raw_data?.차종||'')}" placeholder="예: 22,포터Ⅱ내장탑차"></div>
-    <div class="fi"><label>유종</label>${fri('fuel_type',['','경유','LPG','전기','휘발유','CNG','하이브리드'],r.fuel_type||r.raw_data?.유종||'')}</div>
+    <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||raw_tl['차종']||'')}" placeholder="예: 22,포터Ⅱ내장탑차"></div>
+    <div class="fi"><label>유종</label>${fri('fuel_type',['','경유','LPG','전기','휘발유','CNG','하이브리드'],r.fuel_type||raw_tl['유종']||'')}</div>
     <div class="fi cs2"><label>구조변경</label><input class="fc" name="structure_change" value="${e_(r.structure_change||'')}"></div>
     ${fi('transferor','양도자',r.transferor||'')}
     ${fi('transferee','양수자',r.transferee||'')}
@@ -1074,17 +1075,18 @@ async function renderClosures(){
 }
 
 window.editClosure=async(id)=>{
-  let r={management_number:'',closure_type:'폐업',data_type:'신규자료',region:'',vehicle_number:'',name:'',company_name:'',closure_date:'',approval_date:'',reason:'',memo:''};
+  let r={management_number:'',closure_type:'폐업',data_type:'신규자료',region:'',vehicle_number:'',name:'',company_name:'',closure_date:'',approval_date:'',reason:'',memo:'',vehicle_type:'',fuel_type:'',structure_change:'',phone:'',mobile:'',address:'',official_address:'',membership_status:'',membership_date:'',certificate_issue_date:'',certificate_number:'',resident_number:'',driver_license_number:'',affiliated_company:'',agent_name:'',agent_mobile:'',receipt_date:'',transferee:'',transfer_region:''};
   if(id){r=await api('GET',`/api/closures/${id}`).catch(()=>null);if(!r)return;}
   if(!id){const nn=await api('GET',`/api/closures/next-number/폐업`).catch(()=>null);if(nn)r.management_number=nn.next_number;}
+  const raw=(r.raw_data&&typeof r.raw_data==='object')?r.raw_data:{};
   openModal(id?'폐업 수정':'폐업 등록',`<form id="clForm"><div class="fg">
     ${fi('management_number','관리번호',r.management_number||'')}
     <div class="fi"><label>처리구분</label>${ssel('closure_type',CLOSURE_TYPES,r.closure_type||'폐업')}</div>
     <div class="fi"><label>자료구분</label>${ssel('data_type',['신규자료','이전자료'],r.data_type||'신규자료')}</div>
     <div class="fi"><label>지역</label>${rsel('region',r.region||'')}</div>
     ${fi('vehicle_number','차량번호',r.vehicle_number||'',true)} ${fi('name','성명',r.name||'')} ${fi('company_name','상호',r.company_name||'')}
-    <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||r.raw_data?.차종||'')}" placeholder="예: 22,포터Ⅱ내장탑차"></div>
-    <div class="fi"><label>유종</label>${fri('fuel_type',['','경유','LPG','전기','휘발유','CNG','하이브리드'],r.fuel_type||r.raw_data?.유종||'')}</div>
+    <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||raw_tl['차종']||'')}" placeholder="예: 22,포터Ⅱ내장탑차"></div>
+    <div class="fi"><label>유종</label>${fri('fuel_type',['','경유','LPG','전기','휘발유','CNG','하이브리드'],r.fuel_type||raw_tl['유종']||'')}</div>
     <div class="fi cs2"><label>구조변경</label><input class="fc" name="structure_change" value="${e_(r.structure_change||'')}"></div>
     ${fi('phone','전화번호',r.phone||'')} ${fph('mobile','핸드폰',r.mobile||'')}
     <div class="fi cs2"><label>주소</label><input class="fc" name="address" value="${e_(r.address||'')}"></div>

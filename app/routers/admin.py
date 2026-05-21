@@ -687,31 +687,44 @@ async def backfill_closures(db: Session = Depends(get_db), _=Depends(require_adm
         models.Closure.deleted_at.is_(None)
     ).all()
 
-    # 차량번호 → 회원 매핑 (active + closed 모두)
-    members = db.query(models.LicenseHolder).filter(
-        models.LicenseHolder.deleted_at.is_(None)
-    ).all()
-    by_vno = {}
+    def _norm_vno(v):
+        """차량번호 정규화: 공백/호 제거, 소문자화"""
+        import re as _re
+        v = (v or "").strip()
+        v = _re.sub(r'\s+', '', v)      # 공백 제거
+        v = _re.sub(r'호$', '', v)      # 끝 '호' 제거
+        return v.lower()
+
+    # 정규화된 차량번호 → 회원 매핑 (active + closed 모두, deleted 포함)
+    members = db.query(models.LicenseHolder).all()
+    by_vno = {}        # 정확히 일치
+    by_vno_norm = {}   # 정규화 일치
     for m in members:
         vno = (m.vehicle_number or "").strip()
         if vno:
             by_vno.setdefault(vno, []).append(m)
+            by_vno_norm.setdefault(_norm_vno(vno), []).append(m)
 
     def _pick_member(c):
-        """차량번호 기준으로 최적 회원 찾기"""
+        """차량번호 기준으로 최적 회원 찾기 (정규화 포함)"""
         vno = (c.vehicle_number or "").strip()
+        name = (c.name or "").strip()
+        region = (c.region or "").strip()
+
+        # 1. 정확히 일치
         candidates = by_vno.get(vno, [])
+        # 2. 정규화 일치
+        if not candidates:
+            candidates = by_vno_norm.get(_norm_vno(vno), [])
         if not candidates:
             return None
         if len(candidates) == 1:
             return candidates[0]
-        # 여러 명이면 성명 일치 우선
-        name = (c.name or "").strip()
+        # 성명 일치 우선
         for m in candidates:
             if (m.name or "").strip() == name:
                 return m
         # 지역 일치 우선
-        region = (c.region or "").strip()
         for m in candidates:
             if (m.region or "").strip() == region:
                 return m
