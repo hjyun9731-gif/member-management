@@ -1803,3 +1803,49 @@ async def cleanup_auto_change_logs(
     if not dry_run:
         db.commit()
     return stats
+
+
+@router.get("/cert-debug-change")
+async def cert_debug_change(
+    year: int = 2026, month: int = 5,
+    db: Session = Depends(get_db), _=Depends(require_admin)
+):
+    """변경등록대장 당월 집계 디버그"""
+    import re as _re
+    rows = db.query(models.ChangeHistory).filter(
+        models.ChangeHistory.deleted_at.is_(None)
+    ).all()
+
+    def _ym(s):
+        s = str(s or '').strip()
+        m = _re.search(r'(19[0-9]{2}|20[0-9]{2})\s*[\.\-/]\s*(\d{1,2})', s)
+        if m: return int(m.group(1)), int(m.group(2))
+        m = _re.match(r'^(\d{2})\s*[\.\-/]\s*(\d{1,2})', s)
+        if m:
+            yy = int(m.group(1))
+            return (2000+yy if yy<=30 else 1900+yy), int(m.group(2))
+        return None, None
+
+    matched = []
+    unmatched_samples = []
+    for r in rows:
+        date_str = r.change_date or r.receipt_date or ''
+        y, mo = _ym(date_str)
+        if y == year and mo == month:
+            matched.append({'id': r.id, 'change_type': r.change_type,
+                           'change_date': r.change_date, 'receipt_date': r.receipt_date})
+        elif len(unmatched_samples) < 5 and date_str:
+            unmatched_samples.append({'date_str': date_str, 'parsed': (y, mo)})
+
+    by_type = {}
+    for m in matched:
+        ct = m['change_type'] or '기타'
+        by_type[ct] = by_type.get(ct, 0) + 1
+
+    return {
+        'target': f'{year}년 {month}월',
+        '전체': len(rows), '매칭': len(matched),
+        '유형별': by_type,
+        '매칭샘플': matched[:5],
+        '미매칭샘플': unmatched_samples,
+    }
