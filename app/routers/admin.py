@@ -1648,12 +1648,23 @@ async def backfill_closure_transfer_fields(
                     if val and val not in ('-','nan','None',''): return val
         return ''
 
-    # 날짜 패턴
-    DATE_PAT = _re.compile(r'^\d{2}\s*\.\s*\d{1,2}\s*\.\s*\d{1,2}')
+    # 날짜 패턴 (날짜 형식만 허용, 전출말소/폐업 등 문자 제외)
+    DATE_PATS = [
+        _re.compile(r'^\d{2}\s*\.\s*\d{1,2}\s*\.\s*\d{1,2}\.?\s*$'),
+        _re.compile(r'^\d{4}-\d{1,2}-\d{1,2}$'),
+        _re.compile(r'^\d{4}\.\d{1,2}\.\d{1,2}\.?$'),
+    ]
+    NOT_DATE_WORDS = ['전출','말소','폐업','양도','이관','신규','기타','취소']
+
+    def _is_valid_date(v):
+        v = str(v or '').strip()
+        if any(w in v for w in NOT_DATE_WORDS): return False
+        return any(p.match(v) for p in DATE_PATS)
 
     def _extract_date(v):
-        m = DATE_PAT.match(v.strip())
-        return m.group(0).strip() if m else ''
+        v = str(v or '').strip()
+        if _is_valid_date(v): return v
+        return ''  # 날짜 형식 아니면 공란
 
     rows = db.query(models.Closure).filter(
         models.Closure.deleted_at.is_(None),
@@ -1692,11 +1703,17 @@ async def backfill_closure_transfer_fields(
         if not cur_tee and tee: changes['transferee'] = tee
         if not cur_reg and reg: changes['transfer_region'] = reg
         if not cur_dt  and date_val: changes['closure_date'] = date_val
+        # 날짜 아닌 raw_date 값은 memo로
+        if raw_date and not _is_valid_date(raw_date) and not cur_memo and not memo:
+            changes['memo'] = raw_date
         if not cur_memo and memo: changes['memo'] = memo
 
         sample = {
             '관리번호': mgmt, '성명': c.name, '처리구분': ct,
             'raw_transferee원본': raw_tee, 'raw_region원본': raw_reg,
+            'raw_date원본': raw_date,
+            '날짜판정': _is_valid_date(raw_date) if raw_date else False,
+            '날짜판정사유': '날짜형식' if _is_valid_date(raw_date) else ('날짜형식아님' if raw_date else '값없음'),
             '기존_처리일자': cur_dt, '추출_처리일자': date_val,
             '기존_양수인': cur_tee, '추출_양수인': tee,
             '기존_이관양도지역': cur_reg, '추출_이관양도지역': reg,
