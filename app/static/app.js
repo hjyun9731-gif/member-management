@@ -491,7 +491,7 @@ async function renderCandidateSection(){
     ST.fl.cand={region:document.getElementById('cRegF').value,search:document.getElementById('cSrch').value.trim()};
     const q=new URLSearchParams({page:pg,limit:50,...getSortParams(sk),...Object.fromEntries(Object.entries(ST.fl.cand).filter(([,v])=>v))});
     const d=await api('GET',`/api/candidates?${q}`).catch(()=>null);if(!d)return;
-    document.getElementById('cCnt').textContent=`${d.total}건`;
+    _sts('cCnt',`${d.total}건`);
     const tw=document.getElementById('cTbl');
     if(!d.items.length){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">📋</div><p class="empty-txt">예정자가 없습니다.</p></div>`;return;}
     tw.innerHTML=`<div class="tbl-wrap"><table>
@@ -882,7 +882,7 @@ async function renderNewRegistrations(){
     };
     const q=new URLSearchParams({page:pg,limit:50,mgmt_prefix:'신',status:'all',...Object.fromEntries(Object.entries(ST.fl.nr).filter(([,v])=>v))});
     const d=await api('GET',`/api/members?${q}`).catch(()=>null);if(!d)return;
-    document.getElementById('nrCnt').textContent=`${d.total.toLocaleString()}건`;
+    _sts('nrCnt',`${d.total.toLocaleString()}건`);
     const tw=document.getElementById('nrTbl');
     if(!d.items.length){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">📋</div><p class="empty-txt">신규등록 데이터가 없습니다.</p></div>`;return;}
     tw.innerHTML=`<div class="tbl-wrap"><table>
@@ -1181,7 +1181,7 @@ async function renderChangeHistory(){
     ST.fl.ch={region:document.getElementById('chRegF').value,change_type:document.getElementById('chTypF').value,date_order:document.getElementById('chSortF').value,search:document.getElementById('chSrch').value.trim()};
     const q=new URLSearchParams({page:pg,limit:50,...getSortParams(sk),...Object.fromEntries(Object.entries(ST.fl.ch).filter(([,v])=>v))});
     const d=await api('GET',`/api/change-history?${q}`).catch(()=>null);if(!d)return;
-    document.getElementById('chCnt').textContent=`${d.total.toLocaleString()}건`;
+    _sts('chCnt',`${d.total.toLocaleString()}건`);
     const tw=document.getElementById('chTbl');
     if(!d.items.length){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">📝</div><p class="empty-txt">데이터가 없습니다.</p></div>`;return;}
     tw.innerHTML=`<div class="tbl-wrap"><table>
