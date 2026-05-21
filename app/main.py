@@ -55,6 +55,8 @@ def _run_migrations():
         ("transferee",            "closures",         "VARCHAR(100)"),
         ("transfer_region",       "closures",         "VARCHAR(50)"),
         ("receipt_date",          "closures",         "VARCHAR(50)"),
+        ("vehicle_type",          "closures",         "VARCHAR(100)"),
+        ("fuel_type",             "closures",         "VARCHAR(30)"),
         ("membership_date",       "candidates",       "VARCHAR(50)"),
         ("structure_change",      "license_holders",  "TEXT"),
     ]

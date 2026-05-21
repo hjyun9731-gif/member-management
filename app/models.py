@@ -137,6 +137,8 @@ class Closure(Base):
     approval_date = Column(String(50))
     reason = Column(Text)
     memo = Column(Text)
+    vehicle_type = Column(String(100))                  # 차종
+    fuel_type    = Column(String(30))                   # 유종
     transferee = Column(String(100))                  # 양수인 (양도 시)
     transfer_region = Column(String(50))              # 이관지역 / 양도지역
     member_id = Column(Integer, nullable=True)

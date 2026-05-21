@@ -27,6 +27,8 @@ def _fmt(c):
         "vehicle_number": c.vehicle_number or "",
         "name": c.name or "",
         "company_name": c.company_name or "",
+        "vehicle_type": getattr(c, 'vehicle_type', '') or "",
+        "fuel_type":    getattr(c, 'fuel_type', '') or "",
         "closure_date": c.closure_date or "",
         "receipt_date": getattr(c, 'receipt_date', '') or "",       # 접수일자 (공문 접수일)
         "approval_date": c.approval_date or "",
@@ -35,6 +37,7 @@ def _fmt(c):
         "transfer_region": getattr(c, 'transfer_region', '') or "",  # 이관지역 / 양도지역
         "memo": c.memo or "",
         "member_id": getattr(c, 'member_id', None),
+        "raw_data": c.raw_data or {},
         "created_at": str(c.created_at)[:10] if c.created_at else "",
     }
 
