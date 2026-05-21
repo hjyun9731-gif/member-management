@@ -663,3 +663,4 @@ async def cleanup_closures(db: Session = Depends(get_db), _=Depends(require_admi
         "삭제건수": len(to_delete),
         "삭제후": post,
     }
+
