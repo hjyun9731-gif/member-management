@@ -842,123 +842,150 @@ async def backfill_transfers(db: Session = Depends(get_db), _=Depends(require_ad
 
 
 
+
+@router.post("/cleanup-bad-vehicle-type")
+async def cleanup_bad_vehicle_type(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """backfill로 잘못 저장된 날짜/번호 형태의 vehicle_type 정리"""
+    import re as _re
+
+    BAD_PATTERNS = [
+        _re.compile(r'^\d{2}\.\d{1,2}\.\d{1,2}\.?$'),   # 26.04.06.
+        _re.compile(r'^\d{4}[-\.]\d{2}[-\.]\d{2}\.?$'),  # 2026-04-06
+        _re.compile(r'^\d{2}[-]\d{2}[-]\d{2}$'),          # 26-04-06
+        _re.compile(r'^\d{2}-\d{2}\([가-힣]\)-'),          # 14-17(보)-003182
+        _re.compile(r'^\d{6}-\d'),                          # 주민번호 형태
+    ]
+
+    def _is_bad(v):
+        if not v: return False
+        v = str(v).strip()
+        return any(p.match(v) for p in BAD_PATTERNS)
+
+    rows = db.query(models.Closure).filter(
+        models.Closure.deleted_at.is_(None),
+        models.Closure.vehicle_type.isnot(None),
+        models.Closure.vehicle_type != '',
+    ).all()
+
+    cleaned = 0
+    samples = []
+    for c in rows:
+        vt = (c.vehicle_type or '').strip()
+        if _is_bad(vt):
+            if len(samples) < 10:
+                samples.append({"관리번호": c.management_number, "성명": c.name,
+                                 "잘못된vehicle_type": vt})
+            c.vehicle_type = ''
+            cleaned += 1
+
+    db.commit()
+    return {"정리건수": cleaned, "샘플": samples,
+            "메시지": f"날짜/번호 형태 vehicle_type {cleaned}건 삭제 완료"}
+
+
 @router.post("/backfill-closure-vehicle-fields")
-async def backfill_closure_vehicle_fields(db: Session = Depends(get_db), _=Depends(require_admin)):
-    """폐업현황 raw_data에서 차종/유종 재추출 (디버그 포함)"""
-    import json, re as _re
+async def backfill_closure_vehicle_fields(
+    dry_run: bool = True,
+    db: Session = Depends(get_db), _=Depends(require_admin)
+):
+    """폐업현황 차종/유종 backfill - 차량번호 기준 회원 매칭
+    dry_run=true(기본): 변경 없이 결과만 반환
+    dry_run=false: 실제 저장
+    """
+    import re as _re
 
-    def _ensure_dict(raw):
-        if isinstance(raw, dict): return raw
-        if isinstance(raw, str):
-            try: return json.loads(raw)
-            except: return {}
-        return {}
+    def _norm_vno(v):
+        v = str(v or '').strip()
+        v = _re.sub(r'\s+', '', v)
+        v = _re.sub(r'호$', '', v)
+        v = v.lower()
+        return v
 
-    VT_KEYS = ['차종','차량종류','차량명','차명','자동차명','차종명','차량형식','형식']
-    FT_KEYS = ['유종','연료','연료명','사용연료','연료종류']
-    VT_WORDS = ['포터','봉고','스타렉스','렉스턴','호룡','카니발','내장','탑','윙',
-                '냉동','냉장','ev','일렉트릭','파워게이트','사다리','고소','마이티',
-                '트럭','카고','픽업','밴','미닫이','워크스루']
-    FT_VALID = ['경유','휘발유','lpg','엘피지','전기','하이브리드','cng','수소','가스','디젤']
+    # 전체 회원 (deleted 포함) 차량번호 인덱스
+    members = db.query(models.LicenseHolder).all()
+    by_vno: dict = {}
+    for m in members:
+        key = _norm_vno(m.vehicle_number)
+        if key:
+            by_vno.setdefault(key, []).append(m)
 
-    def _extract_vt(raw):
-        """raw_data dict에서 차종 추출"""
-        for k in raw:
-            nk = str(k).strip().replace(' ','').lower()
-            if any(vk in nk for vk in ['차종','차량종류','차량명','차명','차종명']):
-                v = str(raw[k] or '').strip()
-                if v and v not in ('-','','nan','None'):
-                    return v
-        # 값으로 차종 판단 (YY,차명 패턴 또는 차종 키워드 포함)
-        for k in raw:
-            v = str(raw[k] or '').strip()
-            if _re.match(r'^\d{2}[,.\s]', v) and len(v) > 4:
-                return v
-            vl = v.lower()
-            if any(w in vl for w in VT_WORDS) and len(v) > 2:
-                return v
-        return ''
-
-    def _extract_ft(raw):
-        """raw_data dict에서 유종 추출"""
-        for k in raw:
-            nk = str(k).strip().replace(' ','').lower()
-            if any(fk in nk for fk in ['유종','연료','연료명','사용연료']):
-                v = str(raw[k] or '').strip()
-                vl = v.lower().replace(' ','')
-                if any(f in vl for f in FT_VALID):
-                    return v
-        # 값으로 유종 판단
-        for k in raw:
-            v = str(raw[k] or '').strip()
-            vl = v.lower().replace(' ','')
-            if vl in FT_VALID or any(f == vl for f in FT_VALID):
-                return v
-        return ''
+    def _pick(c):
+        key = _norm_vno(c.vehicle_number)
+        cands = by_vno.get(key, [])
+        if not cands: return None
+        if len(cands) == 1: return cands[0]
+        name = (c.name or '').strip()
+        for m in cands:
+            if (m.name or '').strip() == name: return m
+        region = (c.region or '').strip()
+        for m in cands:
+            if (m.region or '').strip() == region: return m
+        return cands[0]
 
     closures = db.query(models.Closure).filter(
-        models.Closure.deleted_at.is_(None)
+        models.Closure.deleted_at.is_(None),
     ).all()
 
     stats = {
+        "dry_run": dry_run,
         "전체": len(closures),
-        "raw_data_dict": 0, "raw_data_string": 0, "raw_data_없음": 0,
-        "차종후보발견": 0, "유종후보발견": 0,
-        "차종_이미있음": 0, "유종_이미있음": 0,
-        "차종_채움": 0, "유종_채움": 0,
-        "디버그샘플": [],
+        "차종없음": 0, "매칭성공": 0, "매칭실패": 0,
+        "차종채움예정": 0, "유종채움예정": 0,
+        "샘플": [],
     }
 
-    # 특정 관리번호 우선 디버그
     debug_mgmt = {'폐-91', '폐-55', '폐-58'}
-    debug_samples = []
 
     for c in closures:
-        raw_orig = c.raw_data
-        if raw_orig is None:
-            stats["raw_data_없음"] += 1
+        cur_vt = (getattr(c, 'vehicle_type', '') or '').strip()
+        cur_ft = (getattr(c, 'fuel_type', '') or '').strip()
+        if cur_vt and cur_ft:
+            continue  # 둘 다 있으면 건너뜀
+
+        if not cur_vt:
+            stats["차종없음"] += 1
+
+        m = _pick(c)
+        mgmt = c.management_number or ''
+
+        if not m:
+            stats["매칭실패"] += 1
+            if mgmt in debug_mgmt:
+                stats["샘플"].append({
+                    "관리번호": mgmt, "성명": c.name,
+                    "차량번호_원본": c.vehicle_number,
+                    "차량번호_정규화": _norm_vno(c.vehicle_number),
+                    "매칭": "실패", "기존차종": cur_vt, "기존유종": cur_ft,
+                })
             continue
 
-        if isinstance(raw_orig, dict):
-            stats["raw_data_dict"] += 1
-        elif isinstance(raw_orig, str):
-            stats["raw_data_string"] += 1
-        raw = _ensure_dict(raw_orig)
+        stats["매칭성공"] += 1
+        new_vt = (m.vehicle_type or '').strip()
+        new_ft = (m.fuel_type or '').strip()
 
-        vt_extracted = _extract_vt(raw)
-        ft_extracted = _extract_ft(raw)
+        will_fill_vt = bool(not cur_vt and new_vt)
+        will_fill_ft = bool(not cur_ft and new_ft)
 
-        if vt_extracted: stats["차종후보발견"] += 1
-        if ft_extracted: stats["유종후보발견"] += 1
+        if will_fill_vt: stats["차종채움예정"] += 1
+        if will_fill_ft: stats["유종채움예정"] += 1
 
-        # 디버그 샘플
-        mgmt = c.management_number or ''
-        if mgmt in debug_mgmt or (not vt_extracted and len(debug_samples) < 3):
-            debug_samples.append({
-                "관리번호": mgmt, "성명": c.name, "차량번호": c.vehicle_number,
-                "raw_data_type": type(raw_orig).__name__,
-                "raw_data_keys": list(raw.keys())[:20],
-                "추출차종": vt_extracted, "추출유종": ft_extracted,
-                "기존차종": getattr(c,'vehicle_type','') or '',
-                "기존유종": getattr(c,'fuel_type','') or '',
+        # 디버그 샘플 (특정 관리번호 + 일반 5건)
+        if mgmt in debug_mgmt or len(stats["샘플"]) < 5:
+            stats["샘플"].append({
+                "관리번호": mgmt, "성명": c.name,
+                "차량번호": c.vehicle_number,
+                "기존차종": cur_vt, "기존유종": cur_ft,
+                "매칭회원차종": new_vt, "매칭회원유종": new_ft,
+                "차종저장예정": new_vt if will_fill_vt else "(기존유지)",
+                "유종저장예정": new_ft if will_fill_ft else "(기존유지)",
+                "매칭근거": "차량번호 정규화 일치" + (f"+성명({m.name})" if (m.name or '')==(c.name or '') else ""),
             })
 
-        # 실제 채우기
-        cur_vt = getattr(c, 'vehicle_type', '') or ''
-        cur_ft = getattr(c, 'fuel_type', '') or ''
+        if not dry_run:
+            if will_fill_vt: c.vehicle_type = new_vt
+            if will_fill_ft: c.fuel_type = new_ft
 
-        if cur_vt:
-            stats["차종_이미있음"] += 1
-        elif vt_extracted:
-            c.vehicle_type = vt_extracted
-            stats["차종_채움"] += 1
+    if not dry_run:
+        db.commit()
 
-        if cur_ft:
-            stats["유종_이미있음"] += 1
-        elif ft_extracted:
-            c.fuel_type = ft_extracted
-            stats["유종_채움"] += 1
-
-    db.commit()
-    stats["디버그샘플"] = debug_samples
     return stats
