@@ -104,7 +104,17 @@ function rsel(name,sel=''){return `<select name="${name}" class="fc"><option val
 function rselflt(id,sel=''){return `<select id="${id}" class="fsel"><option value="">전체 지역</option>${REGIONS.map(r=>`<option value="${r}" ${r===sel?'selected':''}>${r}</option>`).join('')}</select>`;}
 function ssel(name,opts,sel=''){return `<select name="${name}" class="fc">${opts.map(o=>`<option value="${o}" ${o===sel?'selected':''}>${o}</option>`).join('')}</select>`;}
 function fi(name,label,val='',req=false){return `<div class="fi"><label>${label}${req?'<span class="req">*</span>':''}</label><input class="fc" name="${name}" value="${e_(val)}" ${req?'required':''}></div>`;}
-function fri(name,label,opts,sel=''){return `<div class="fi"><label>${label}</label><select name="${name}" class="fc">${opts.map(o=>`<option value="${o}" ${o===sel?'selected':''}>${o}</option>`).join('')}</select></div>`;}
+function fri(name,label,opts,sel=''){
+  // 3인자 호출 대응: fri(name, opts, sel) → label 자동 생성
+  if(Array.isArray(label)){sel=opts||'';opts=label;label=name;}
+  if(!Array.isArray(opts)){
+    console.warn('[fri] opts is not array',{name,label,opts,sel});
+    sel=sel||opts||'';opts=[''];
+  }
+  const safeOpts=opts.map(o=>o??'');
+  const safeSel=String(sel??'');
+  return `<div class="fi"><label>${label}</label><select name="${name}" class="fc">${safeOpts.map(o=>`<option value="${o}" ${String(o)===safeSel?'selected':''}>${o||'(선택)'}</option>`).join('')}</select></div>`;
+}
 function fta(name,label,val='',cls=''){return `<div class="fi ${cls}"><label>${label}</label><textarea name="${name}" class="fc">${e_(val)}</textarea></div>`;}
 function fph(name,label,val=''){return `<div class="fi"><label>${label}</label><input class="fc fmt-phone" name="${name}" value="${e_(val)}" placeholder="010-0000-0000" inputmode="numeric" maxlength="13"></div>`;}
 function frn(name,label,val=''){return `<div class="fi"><label>${label}</label><input class="fc fmt-resident" name="${name}" value="${e_(val)}" placeholder="000000-0000000" inputmode="numeric" maxlength="14"></div>`;}
@@ -972,8 +982,8 @@ window.editTransfer=async(id)=>{
     ${fi('receipt_date','접수일자',r.receipt_date||'')}
     <div class="fi"><label>지역</label>${rsel('region',r.region||'')}</div>
     ${fi('vehicle_number','차량번호',r.vehicle_number||'',true)}
-    <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||raw_tl['차종']||'')}" placeholder="예: 22,포터Ⅱ내장탑차"></div>
-    <div class="fi"><label>유종</label>${fri('fuel_type',['','경유','LPG','전기','휘발유','CNG','하이브리드'],r.fuel_type||raw_tl['유종']||'')}</div>
+    ${fi('vehicle_type','차종',r.vehicle_type||raw_tl['차종']||'')}
+    ${fri('fuel_type','유종',['','경유','LPG','전기','휘발유','CNG','하이브리드'],r.fuel_type||raw_tl['유종']||'')}
     <div class="fi cs2"><label>구조변경</label><input class="fc" name="structure_change" value="${e_(r.structure_change||'')}"></div>
     ${fi('transferor','양도자',r.transferor||'')}
     ${fi('transferee','양수자',r.transferee||'')}
@@ -1085,8 +1095,8 @@ window.editClosure=async(id)=>{
     <div class="fi"><label>자료구분</label>${ssel('data_type',['신규자료','이전자료'],r.data_type||'신규자료')}</div>
     <div class="fi"><label>지역</label>${rsel('region',r.region||'')}</div>
     ${fi('vehicle_number','차량번호',r.vehicle_number||'',true)} ${fi('name','성명',r.name||'')} ${fi('company_name','상호',r.company_name||'')}
-    <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||raw_tl['차종']||'')}" placeholder="예: 22,포터Ⅱ내장탑차"></div>
-    <div class="fi"><label>유종</label>${fri('fuel_type',['','경유','LPG','전기','휘발유','CNG','하이브리드'],r.fuel_type||raw_tl['유종']||'')}</div>
+    <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||raw['차종']||'')}" placeholder="예: 22,포터Ⅱ내장탑차"></div>
+    ${fri('fuel_type','유종',['','경유','LPG','전기','휘발유','CNG','하이브리드'],r.fuel_type||raw['유종']||'')}
     <div class="fi cs2"><label>구조변경</label><input class="fc" name="structure_change" value="${e_(r.structure_change||'')}"></div>
     ${fi('phone','전화번호',r.phone||'')} ${fph('mobile','핸드폰',r.mobile||'')}
     <div class="fi cs2"><label>주소</label><input class="fc" name="address" value="${e_(r.address||'')}"></div>
