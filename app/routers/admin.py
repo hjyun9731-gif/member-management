@@ -1335,3 +1335,128 @@ async def debug_change_log(
             summary[ct] = summary.get(ct, 0) + 1
 
     return {"총건수": len(result), "월별집계": summary, "결과": result}
+
+
+@router.get("/debug-change-log")
+async def debug_change_log(
+    vehicle: str = "", name: str = "", month: str = "",
+    db: Session = Depends(get_db), _=Depends(require_admin)
+):
+    """변경등록대장 파싱 디버그. month=2026-05 형식"""
+    import re as _re
+    from app.routers.dashboard import _ext_year
+
+    BEFORE_KEYS = ['변경전','변경 전','이전주소','변경전주소','변경전내용','이전내용','종전주소','전주소','이전']
+    AFTER_KEYS  = ['변경후','변경 후','현재주소','변경후주소','변경후내용','현재내용','신주소','새주소','변경된내용']
+
+    def _norm(v): return _re.sub(r'\s+','',str(v or '')).lower()
+    def _find_raw(raw, keys):
+        for k in raw:
+            if _norm(k) in [_norm(x) for x in keys]:
+                v = str(raw[k] or '').strip()
+                if v and v not in ('-','nan'): return v, k
+        return '', ''
+
+    rows = db.query(models.ChangeHistory).filter(
+        models.ChangeHistory.deleted_at.is_(None)).all()
+
+    result = []
+    for r in rows:
+        if vehicle and _norm(vehicle) not in _norm(r.vehicle_number): continue
+        if name and name not in (r.name or ''): continue
+        if month:
+            y2, mo2 = month.split('-')
+            date_str = r.change_date or r.receipt_date or ''
+            yr = _ext_year(date_str)
+            m2 = _re.search(r'(\d{1,2})\.\s*(\d{1,2})', date_str)
+            if not m2 or int(y2) != yr or int(m2.group(1)) != int(mo2): continue
+
+        raw = r.raw_data if isinstance(r.raw_data, dict) else {}
+        raw_bv, raw_bk = _find_raw(raw, BEFORE_KEYS)
+        raw_av, raw_ak = _find_raw(raw, AFTER_KEYS)
+
+        result.append({
+            "id": r.id, "change_type": r.change_type,
+            "vehicle_number": r.vehicle_number, "name": r.name,
+            "change_date": r.change_date,
+            "DB_before_value": r.before_value,
+            "DB_after_value": r.after_value,
+            "DB_memo": r.memo,
+            "raw_before_후보": raw_bv, "raw_before_키": raw_bk,
+            "raw_after_후보": raw_av, "raw_after_키": raw_ak,
+            "raw_keys": list(raw.keys())[:20],
+            "불일치": (r.before_value or '') != raw_bv or (r.after_value or '') != raw_av,
+        })
+        if len(result) >= 20: break
+
+    # 월별 집계
+    summary = {}
+    if month:
+        y2, mo2 = month.split('-')
+        for r2 in rows:
+            date_str = r2.change_date or r2.receipt_date or ''
+            yr = _ext_year(date_str)
+            m2 = _re.search(r'(\d{1,2})\.\s*(\d{1,2})', date_str)
+            if not m2 or int(y2) != yr or int(m2.group(1)) != int(mo2): continue
+            ct = r2.change_type or '기타'
+            summary[ct] = summary.get(ct, 0) + 1
+
+    return {"총건수": len(result), "월별집계": summary, "결과": result}
+
+
+@router.post("/backfill-change-before-after")
+async def backfill_change_before_after(
+    dry_run: bool = True,
+    db: Session = Depends(get_db), _=Depends(require_admin)
+):
+    """변경등록대장 raw_data에서 변경전/변경후 재추출하여 DB 복구
+    dry_run=true: 저장 없이 결과만
+    """
+    import re as _re
+
+    BEFORE_KEYS = ['변경전','변경 전','이전주소','변경전주소','변경전내용','이전내용','종전주소','전주소']
+    AFTER_KEYS  = ['변경후','변경 후','현재주소','변경후주소','변경후내용','현재내용','신주소','새주소']
+
+    def _norm(v): return _re.sub(r'\s+','',str(v or '')).lower()
+    def _find(raw, keys):
+        for k in raw:
+            if _norm(k) in [_norm(x) for x in keys]:
+                v = str(raw[k] or '').strip()
+                if v and v not in ('-','nan','None'): return v
+        return ''
+
+    rows = db.query(models.ChangeHistory).filter(
+        models.ChangeHistory.deleted_at.is_(None)).all()
+
+    stats = {'dry_run': dry_run, '전체': len(rows),
+             'raw있음': 0, 'before복구': 0, 'after복구': 0, '샘플': []}
+
+    for r in rows:
+        raw = r.raw_data if isinstance(r.raw_data, dict) else {}
+        if not raw: continue
+        stats['raw있음'] += 1
+
+        raw_bv = _find(raw, BEFORE_KEYS)
+        raw_av = _find(raw, AFTER_KEYS)
+
+        will_bv = bool(raw_bv and not r.before_value)
+        will_av = bool(raw_av and not r.after_value)
+
+        if will_bv: stats['before복구'] += 1
+        if will_av: stats['after복구'] += 1
+
+        if len(stats['샘플']) < 10 and (will_bv or will_av):
+            stats['샘플'].append({
+                '관리번호': r.vehicle_number, '성명': r.name,
+                '변경유형': r.change_type,
+                '현재before': r.before_value, '복구before': raw_bv if will_bv else '(유지)',
+                '현재after': r.after_value, '복구after': raw_av if will_av else '(유지)',
+            })
+
+        if not dry_run:
+            if will_bv: r.before_value = raw_bv
+            if will_av: r.after_value = raw_av
+
+    if not dry_run:
+        db.commit()
+    return stats

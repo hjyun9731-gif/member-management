@@ -462,9 +462,7 @@ def _df_to_records(df, mapping, file_type='', extra=None):
                 rec.setdefault('after_value', av)
             if file_type in ('주소지변경대장', '주소변경등록대장'):
                 rec['change_type'] = '주소지변경'
-                if rec.get('before_value') and not rec.get('after_value'):
-                    rec['after_value'] = rec['before_value']
-                    rec['before_value'] = ''
+                # before/after 이동 제거 - 원본 컬럼 그대로 유지
             elif not rec.get('change_type'):
                 active = [c for c in cols if raw.get(c,'').strip()]
                 rec['change_type'] = _detect_ctype(active, raw)
