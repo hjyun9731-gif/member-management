@@ -357,15 +357,17 @@ window.viewClosure=async(id)=>{
   const rawSeq=raw['번호']||'';
   const sections=[
     {title:'기본 정보',fields:[['관리번호',r.management_number],['번호',rawSeq],['처리구분',r.closure_type],['자료구분',r.data_type],['지역',r.region],['차량번호',r.vehicle_number],['성명',r.name],['상호',r.company_name]]},
-    {title:'연락처 / 주소',fields:[['전화번호',rawPhone],['핸드폰',rawMobile],['주소',rawAddr,true],['주민등록번호',rawResNo]]},
-    {title:'인가 / 자격',fields:[['인가일자',r.approval_date],['접수일자',rawReceipt],['가입일자',rawMemDate],['차종',raw['차종']||raw['vehicle_type']||''],['유종',raw['유종']||raw['fuel_type']||''],['자격증명발급일자',rawCertDate],['자격증명발급번호',rawCertNo],['운전면허번호',rawDrvLic]]},
+    {title:'차량 정보',fields:[['차종',r.vehicle_type||raw['차종']||''],['유종',r.fuel_type||raw['유종']||''],['구조변경',r.structure_change||raw['구조변경']||'',true]]},
+    {title:'연락처 / 주소',fields:[['전화번호',r.phone||rawPhone],['핸드폰',r.mobile||rawMobile],['주소',r.address||rawAddr,true],['공문주소',r.official_address||'',true],['주민등록번호',r.resident_number||rawResNo]]},
+    {title:'회원 / 자격',fields:[['가입여부',r.membership_status],['가입일자',r.membership_date||rawMemDate],['인가일자',r.approval_date],['자격증명발급일자',r.certificate_issue_date||rawCertDate],['자격증명발급번호',r.certificate_number||rawCertNo],['운전면허번호',r.driver_license_number||rawDrvLic]]},
+    {title:'소속 / 대리인',fields:[['소속업체',r.affiliated_company||''],['대리인',r.agent_name||''],['대리인 핸드폰',r.agent_mobile||'']]},
     {title:'폐업처리 정보',fields:[
-      ['접수일자',r.receipt_date],
+      ['접수일자',r.receipt_date||rawReceipt],
       ['처리일자',r.closure_date],
       ['사유',r.reason,true],
       ...(r.transferee?[['양수인',r.transferee]]:r.closure_type==='양도'?[['양수인','']]:[] ),
       ...(r.transfer_region?[['이관/양도지역',r.transfer_region]]:r.closure_type==='이관'?[['이관지역','']]:[] ),
-      ['비고',r.memo,true],
+      ['비고',r.memo||'',true],
     ]},
   ];
   openModal('폐업현황 상세정보',buildDetailSections(sections),
@@ -966,10 +968,12 @@ window.editTransfer=async(id)=>{
   if(id){r=await api('GET',`/api/transfer-ledger/${id}`).catch(()=>null);if(!r)return;}
   openModal(id?'양도양수 수정':'양도양수 등록',`<form id="tlForm"><div class="fg">
     ${fi('management_number','관리번호',r.management_number||'')}
-    ${fi('seq_number','번호',r.seq_number||'')}
     ${fi('receipt_date','접수일자',r.receipt_date||'')}
     <div class="fi"><label>지역</label>${rsel('region',r.region||'')}</div>
     ${fi('vehicle_number','차량번호',r.vehicle_number||'',true)}
+    <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||r.raw_data?.차종||'')}" placeholder="예: 22,포터Ⅱ내장탑차"></div>
+    <div class="fi"><label>유종</label>${fri('fuel_type',['','경유','LPG','전기','휘발유','CNG','하이브리드'],r.fuel_type||r.raw_data?.유종||'')}</div>
+    <div class="fi cs2"><label>구조변경</label><input class="fc" name="structure_change" value="${e_(r.structure_change||'')}"></div>
     ${fi('transferor','양도자',r.transferor||'')}
     ${fi('transferee','양수자',r.transferee||'')}
     ${frn('resident_number','주민등록번호',r.resident_number||'')}
@@ -1081,6 +1085,18 @@ window.editClosure=async(id)=>{
     ${fi('vehicle_number','차량번호',r.vehicle_number||'',true)} ${fi('name','성명',r.name||'')} ${fi('company_name','상호',r.company_name||'')}
     <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||r.raw_data?.차종||'')}" placeholder="예: 22,포터Ⅱ내장탑차"></div>
     <div class="fi"><label>유종</label>${fri('fuel_type',['','경유','LPG','전기','휘발유','CNG','하이브리드'],r.fuel_type||r.raw_data?.유종||'')}</div>
+    <div class="fi cs2"><label>구조변경</label><input class="fc" name="structure_change" value="${e_(r.structure_change||'')}"></div>
+    ${fi('phone','전화번호',r.phone||'')} ${fph('mobile','핸드폰',r.mobile||'')}
+    <div class="fi cs2"><label>주소</label><input class="fc" name="address" value="${e_(r.address||'')}"></div>
+    <div class="fi cs2"><label>공문주소</label><input class="fc" name="official_address" value="${e_(r.official_address||'')}"></div>
+    <div class="fi"><label>가입여부</label>${ssel('membership_status',['미가입','가입'],r.membership_status||'미가입')}</div>
+    ${fi('membership_date','가입일자',r.membership_date||'')}
+    ${fi('certificate_issue_date','자격증명발급일자',r.certificate_issue_date||'')}
+    ${fi('certificate_number','자격증명발급번호',r.certificate_number||'')}
+    ${frn('resident_number','주민등록번호',r.resident_number||'')}
+    ${fi('driver_license_number','운전면허번호',r.driver_license_number||'')}
+    ${fi('affiliated_company','소속업체',r.affiliated_company||'')}
+    ${fi('agent_name','대리인',r.agent_name||'')} ${fph('agent_mobile','대리인 핸드폰',r.agent_mobile||'')}
     ${fi('receipt_date','접수일자',r.receipt_date||'')} ${fi('closure_date','처리일자',r.closure_date||'')} ${fi('approval_date','인가일자',r.approval_date||'')}
     <div class="fi cs2"><label>사유</label><input class="fc" name="reason" value="${e_(r.reason||'')}"></div>
     ${fi('transferee','양수인',r.transferee||'')} ${fi('transfer_region','이관/양도지역',r.transfer_region||'')}

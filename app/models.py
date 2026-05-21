@@ -112,6 +112,10 @@ class TransferLedger(Base):
     driver_license_number = Column(String(100))          # 운전면허번호
     computer_report = Column(String(100))                # 전산보고
     memo = Column(Text)                                  # 비고
+    vehicle_type = Column(String(100))                  # 차종
+    fuel_type = Column(String(30))                      # 유종
+    structure_change = Column(Text)                     # 구조변경
+    affiliated_company = Column(String(200))            # 소속업체
     management_number = Column(String(50))               # 양YY-N (회원등록 시 부여)
     member_id = Column(Integer, nullable=True)           # 회원등록 완료 시 연결
     upload_id = Column(Integer, nullable=True)     # 업로드 이력 ID
@@ -139,6 +143,20 @@ class Closure(Base):
     memo = Column(Text)
     vehicle_type = Column(String(100))                  # 차종
     fuel_type    = Column(String(30))                   # 유종
+    structure_change = Column(Text)                     # 구조변경
+    phone = Column(String(50))                          # 전화번호
+    mobile = Column(String(50))                         # 핸드폰
+    address = Column(Text)                              # 주소
+    official_address = Column(Text)                     # 공문주소
+    membership_status = Column(String(20))              # 가입여부
+    membership_date = Column(String(50))                # 가입일자
+    certificate_issue_date = Column(String(50))         # 자격증명발급일자
+    certificate_number = Column(String(100))            # 자격증명발급번호
+    driver_license_number = Column(String(100))         # 운전면허번호
+    resident_number = Column(String(30))                # 주민등록번호
+    affiliated_company = Column(String(200))            # 소속업체
+    agent_name = Column(String(100))                    # 대리인
+    agent_mobile = Column(String(50))                   # 대리인 핸드폰
     transferee = Column(String(100))                  # 양수인 (양도 시)
     transfer_region = Column(String(50))              # 이관지역 / 양도지역
     member_id = Column(Integer, nullable=True)

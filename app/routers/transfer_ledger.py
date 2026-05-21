@@ -95,6 +95,10 @@ def _fmt(t):
         "driver_license_number": t.driver_license_number or "",
         "computer_report":       t.computer_report or "",
         "memo":                  t.memo or "",
+        "vehicle_type":          getattr(t, 'vehicle_type', '') or "",
+        "fuel_type":             getattr(t, 'fuel_type', '') or "",
+        "structure_change":      getattr(t, 'structure_change', '') or "",
+        "affiliated_company":    getattr(t, 'affiliated_company', '') or "",
         "member_id":             t.member_id,
         "created_at":            str(t.created_at)[:16] if t.created_at else None,
     }
