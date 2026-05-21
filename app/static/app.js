@@ -495,7 +495,7 @@ async function renderCandidateSection(){
     const q=new URLSearchParams({page:pg,limit:50,...getSortParams(sk),...Object.fromEntries(Object.entries(ST.fl.cand).filter(([,v])=>v))});
     const d=await api('GET',`/api/candidates?${q}`).catch(()=>null);if(!d)return;
     _sts('cCnt',`${d.total}건`);
-    const tw=document.getElementById('cTbl');
+    const tw=document.getElementById('cTbl');if(!tw)return;
     if(!d.items.length){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">📋</div><p class="empty-txt">예정자가 없습니다.</p></div>`;return;}
     tw.innerHTML=`<div class="tbl-wrap"><table>
       <thead><tr>${plainHeaders(hdrs)}</tr></thead>
@@ -685,8 +685,8 @@ async function renderMember(category){
     ST.fl[key]={category,region:document.getElementById(`${key}RegF`).value,membership_status:document.getElementById(`${key}MemF`).value,member_sort:member_sort_val,search:document.getElementById(`${key}Srch`).value.trim()};
     const q=new URLSearchParams({page:pg,limit:50,...Object.fromEntries(Object.entries(ST.fl[key]).filter(([,v])=>v))});
     const d=await api('GET',`/api/members?${q}`).catch(()=>null);if(!d)return;
-    document.getElementById('mCnt').textContent=`${d.total.toLocaleString()}건`;
-    const tw=document.getElementById(`${key}Tbl`);
+    _sts('mCnt',`${d.total.toLocaleString()}건`);
+    const tw=document.getElementById(`${key}Tbl`);if(!tw)return;
     if(!d.items.length){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">${category==='개인'?'👤':'🚚'}</div><p class="empty-txt">데이터가 없습니다.</p></div>`;return;}
     tw.innerHTML=`<div class="tbl-wrap"><table>
       <thead><tr>${plainHeaders(hdrs)}</tr></thead>
@@ -886,7 +886,7 @@ async function renderNewRegistrations(){
     const q=new URLSearchParams({page:pg,limit:50,mgmt_prefix:'신',status:'all',...Object.fromEntries(Object.entries(ST.fl.nr).filter(([,v])=>v))});
     const d=await api('GET',`/api/members?${q}`).catch(()=>null);if(!d)return;
     _sts('nrCnt',`${d.total.toLocaleString()}건`);
-    const tw=document.getElementById('nrTbl');
+    const tw=document.getElementById('nrTbl');if(!tw)return;
     if(!d.items.length){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">📋</div><p class="empty-txt">신규등록 데이터가 없습니다.</p></div>`;return;}
     tw.innerHTML=`<div class="tbl-wrap"><table>
       <thead><tr>${plainHeaders(hdrs)}</tr></thead>
@@ -951,7 +951,7 @@ async function renderTransferLedger(){
   const doSearch=async(pg=1)=>{
     const tlSort=document.getElementById('tlDateF')?.value||'mgmt_desc';const tlIsDate=(tlSort==='desc'||tlSort==='asc');ST.fl.tl={region:document.getElementById('tlRegF').value,member_sort:tlIsDate?undefined:tlSort,date_order:tlIsDate?tlSort:undefined,search:document.getElementById('tlSrch').value.trim()};
     const q=new URLSearchParams({page:pg,limit:50,...Object.fromEntries(Object.entries(ST.fl.tl).filter(([,v])=>v))});
-    const tw=document.getElementById('tlTbl');
+    const tw=document.getElementById('tlTbl');if(!tw)return;
     let d=null;
     try{d=await Promise.race([api('GET',`/api/transfer-ledger?${q}`),new Promise((_,r)=>setTimeout(()=>r(new Error('timeout')),8000))]);}
     catch(e){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">⚠️</div><p class="empty-txt">데이터 조회 실패. 새로고침 해주세요.</p></div>`;return;}
@@ -1076,7 +1076,7 @@ async function renderClosures(){
     const q=new URLSearchParams({page:pg,limit:50,...getSortParams(sk),...Object.fromEntries(Object.entries(ST.fl.cl).filter(([,v])=>v))});
     const d=await api('GET',`/api/closures?${q}`).catch(()=>null);if(!d)return;
     document.getElementById('clCnt').textContent=`${d.total.toLocaleString()}건`;
-    const tw=document.getElementById('clTbl');
+    const tw=document.getElementById('clTbl');if(!tw)return;
     if(!d.items.length){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">🚫</div><p class="empty-txt">데이터가 없습니다.</p></div>`;return;}
     tw.innerHTML=`<div class="tbl-wrap"><table>
       <thead><tr>${plainHeaders(hdrs)}</tr></thead>
@@ -1185,7 +1185,7 @@ async function renderChangeHistory(){
     const q=new URLSearchParams({page:pg,limit:50,...getSortParams(sk),...Object.fromEntries(Object.entries(ST.fl.ch).filter(([,v])=>v))});
     const d=await api('GET',`/api/change-history?${q}`).catch(()=>null);if(!d)return;
     _sts('chCnt',`${d.total.toLocaleString()}건`);
-    const tw=document.getElementById('chTbl');
+    const tw=document.getElementById('chTbl');if(!tw)return;
     if(!d.items.length){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">📝</div><p class="empty-txt">데이터가 없습니다.</p></div>`;return;}
     tw.innerHTML=`<div class="tbl-wrap"><table>
       <thead><tr>${plainHeaders(hdrs)}</tr></thead>
@@ -1652,7 +1652,7 @@ async function renderUpload(){
 async function renderUploadHistory(){
   document.getElementById('content').innerHTML=`<div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">📊</span><span class="card-ttl">업로드 이력</span></div></div><div id="histTbl"><div class="loading-box"><div class="spin"></div></div></div></div>`;
   const d=await api('GET','/api/dashboard/upload-history').catch(()=>null);
-  const tw=document.getElementById('histTbl');
+  const tw=document.getElementById('histTbl');if(!tw)return;
   if(!d||!d.length){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">📂</div><p class="empty-txt">이력이 없습니다.</p></div>`;return;}
   tw.innerHTML=`<div class="tbl-wrap"><table><thead><tr><th>파일종류</th><th>파일명</th><th>전체</th><th>성공</th><th>중복</th><th>오류</th><th>업로더</th><th>일시</th></tr></thead>
     <tbody>${d.map(h=>`<tr><td>${h.file_type||'-'}</td><td>${h.filename||'-'}</td>
@@ -1664,7 +1664,7 @@ async function renderUploadHistory(){
 async function renderUploadErrors(){
   document.getElementById('content').innerHTML=`<div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">⚠️</span><span class="card-ttl">오류 확인</span></div></div><div id="errTbl"><div class="loading-box"><div class="spin"></div></div></div></div>`;
   const d=await api('GET','/api/dashboard/upload-history').catch(()=>null);
-  const tw=document.getElementById('errTbl');
+  const tw=document.getElementById('errTbl');if(!tw)return;
   const withErr=(d||[]).filter(h=>h.error_count>0&&h.error_details?.length);
   if(!withErr.length){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">✅</div><p class="empty-txt">오류 없음</p></div>`;return;}
   tw.innerHTML=withErr.map(h=>`<div style="margin-bottom:14px">
