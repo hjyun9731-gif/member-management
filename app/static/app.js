@@ -1195,8 +1195,8 @@ async function renderChangeHistory(){
         <td>${fv(r.region)}</td>
         <td><a class="click-link" onclick="viewChange(${r.id});return false">${fv(r.vehicle_number)}</a></td>
         <td><a class="click-link" onclick="viewChange(${r.id});return false">${fv(r.name)}</a></td>
-        <td title="${e_(r.before_value)}" style="max-width:160px;overflow:hidden;text-overflow:ellipsis">${fv(r.before_value)}</td>
-        <td title="${e_(r.after_value)}" style="max-width:160px;overflow:hidden;text-overflow:ellipsis">${fv(r.after_value)}</td>
+        <td title="${e_(r.before_value)}" style="max-width:160px;overflow:hidden;text-overflow:ellipsis">${r.before_value?fv(r.before_value):'<span style="color:var(--c-text-4);font-size:11px">원본 미기재</span>'}</td>
+        <td title="${e_(r.after_value)}" style="max-width:160px;overflow:hidden;text-overflow:ellipsis">${r.after_value?fv(r.after_value):'<span style="color:var(--c-text-4);font-size:11px">원본 미기재</span>'}</td>
         <td title="${e_(r.memo)}">${fv(r.memo)}</td>
         <td class="td-act">
           <button class="btn bp btn-xs" onclick="editChange(${r.id})">수정</button>

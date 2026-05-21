@@ -1280,130 +1280,6 @@ async def fix_change_types(db: Session = Depends(get_db), _=Depends(require_admi
     return {"재분류건수": fixed, "message": f"전속키워드없는 전속업체변경 {fixed}건 → 상호변경 재분류"}
 
 
-@router.get("/debug-change-log")
-async def debug_change_log(
-    vehicle: str = "", name: str = "", month: str = "",
-    db: Session = Depends(get_db), _=Depends(require_admin)
-):
-    """변경등록대장 파싱/분류 디버그
-    month 형식: 2026-05
-    """
-    import re as _re
-    from app.routers.dashboard import _ext_year
-
-    q = db.query(models.ChangeHistory).filter(models.ChangeHistory.deleted_at.is_(None))
-
-    def _norm(v): return _re.sub(r'\s+','',str(v or '')).lower()
-
-    rows = q.all()
-    result = []
-    for r in rows:
-        if vehicle and _norm(vehicle) not in _norm(r.vehicle_number): continue
-        if name and name not in (r.name or ''): continue
-        if month:
-            y, mo = month.split('-')
-            date_str = r.change_date or r.receipt_date or ''
-            yr = _ext_year(date_str)
-            # 월 판단
-            m2 = _re.search(r'(\d{1,2})\.\s*(\d{1,2})', date_str)
-            if not m2: continue
-            if int(y) != yr or int(m2.group(1)) != int(mo): continue
-
-        raw = r.raw_data if isinstance(r.raw_data, dict) else {}
-        result.append({
-            "id": r.id, "change_type": r.change_type,
-            "change_date": r.change_date, "receipt_date": r.receipt_date,
-            "region": r.region, "vehicle_number": r.vehicle_number, "name": r.name,
-            "before_value": r.before_value, "after_value": r.after_value, "memo": r.memo,
-            "raw_data_keys": list(raw.keys())[:20],
-            "raw_data": {k: str(raw[k])[:50] for k in list(raw.keys())[:15]},
-        })
-        if len(result) >= 20: break
-
-    # 월별 집계 요약
-    summary = {}
-    if month:
-        summary["월"] = month
-        for r2 in rows:
-            date_str = r2.change_date or r2.receipt_date or ''
-            yr = _ext_year(date_str)
-            m2 = _re.search(r'(\d{1,2})\.\s*(\d{1,2})', date_str)
-            if not m2: continue
-            y2, mo2 = month.split('-')
-            if int(y2) != yr or int(m2.group(1)) != int(mo2): continue
-            ct = r2.change_type or '기타'
-            summary[ct] = summary.get(ct, 0) + 1
-
-    return {"총건수": len(result), "월별집계": summary, "결과": result}
-
-
-@router.get("/debug-change-log")
-async def debug_change_log(
-    vehicle: str = "", name: str = "", month: str = "",
-    db: Session = Depends(get_db), _=Depends(require_admin)
-):
-    """변경등록대장 파싱 디버그. month=2026-05 형식"""
-    import re as _re
-    from app.routers.dashboard import _ext_year
-
-    BEFORE_KEYS = ['변경전','변경 전','이전주소','변경전주소','변경전내용','이전내용','종전주소','전주소','이전']
-    AFTER_KEYS  = ['변경후','변경 후','현재주소','변경후주소','변경후내용','현재내용','신주소','새주소','변경된내용']
-
-    def _norm(v): return _re.sub(r'\s+','',str(v or '')).lower()
-    def _find_raw(raw, keys):
-        for k in raw:
-            if _norm(k) in [_norm(x) for x in keys]:
-                v = str(raw[k] or '').strip()
-                if v and v not in ('-','nan'): return v, k
-        return '', ''
-
-    rows = db.query(models.ChangeHistory).filter(
-        models.ChangeHistory.deleted_at.is_(None)).all()
-
-    result = []
-    for r in rows:
-        if vehicle and _norm(vehicle) not in _norm(r.vehicle_number): continue
-        if name and name not in (r.name or ''): continue
-        if month:
-            y2, mo2 = month.split('-')
-            date_str = r.change_date or r.receipt_date or ''
-            yr = _ext_year(date_str)
-            m2 = _re.search(r'(\d{1,2})\.\s*(\d{1,2})', date_str)
-            if not m2 or int(y2) != yr or int(m2.group(1)) != int(mo2): continue
-
-        raw = r.raw_data if isinstance(r.raw_data, dict) else {}
-        raw_bv, raw_bk = _find_raw(raw, BEFORE_KEYS)
-        raw_av, raw_ak = _find_raw(raw, AFTER_KEYS)
-
-        result.append({
-            "id": r.id, "change_type": r.change_type,
-            "vehicle_number": r.vehicle_number, "name": r.name,
-            "change_date": r.change_date,
-            "DB_before_value": r.before_value,
-            "DB_after_value": r.after_value,
-            "DB_memo": r.memo,
-            "raw_before_후보": raw_bv, "raw_before_키": raw_bk,
-            "raw_after_후보": raw_av, "raw_after_키": raw_ak,
-            "raw_keys": list(raw.keys())[:20],
-            "불일치": (r.before_value or '') != raw_bv or (r.after_value or '') != raw_av,
-        })
-        if len(result) >= 20: break
-
-    # 월별 집계
-    summary = {}
-    if month:
-        y2, mo2 = month.split('-')
-        for r2 in rows:
-            date_str = r2.change_date or r2.receipt_date or ''
-            yr = _ext_year(date_str)
-            m2 = _re.search(r'(\d{1,2})\.\s*(\d{1,2})', date_str)
-            if not m2 or int(y2) != yr or int(m2.group(1)) != int(mo2): continue
-            ct = r2.change_type or '기타'
-            summary[ct] = summary.get(ct, 0) + 1
-
-    return {"총건수": len(result), "월별집계": summary, "결과": result}
-
-
 @router.post("/backfill-change-before-after")
 async def backfill_change_before_after(
     dry_run: bool = True,
@@ -1820,3 +1696,57 @@ async def cleanup_bad_change_before_after(
     if not dry_run:
         db.commit()
     return stats
+
+
+@router.get("/debug-change-log")
+async def debug_change_log_v2(
+    type: str = "", month: str = "", vehicle: str = "", name: str = "",
+    db: Session = Depends(get_db), _=Depends(require_admin)
+):
+    """변경등록대장 raw_data 샘플 확인 (복구 가능 여부 포함)"""
+    import re as _re
+    from app.excel_utils import _normalize_text
+
+    CONTENT_KEYS = ['변경내용','변경사항','내용','변경내 용','변 경 내 용']
+    BEFORE_KEYS  = ['변경전','변경 전','이전','전주소','종전주소','이전내용']
+    AFTER_KEYS   = ['변경후','변경 후','현재','신주소','변경후내용','현재내용']
+
+    def _find(raw, keys):
+        for k in raw:
+            kn = _normalize_text(k)
+            for c in keys:
+                if _normalize_text(c) in kn:
+                    v = str(raw[k] or '').strip()
+                    if v and v not in ('-','nan','None',''): return v
+        return ''
+
+    q = db.query(models.ChangeHistory).filter(
+        models.ChangeHistory.deleted_at.is_(None))
+    if type:
+        q = q.filter(models.ChangeHistory.change_type == type)
+
+    rows = q.order_by(models.ChangeHistory.id.desc()).limit(30).all()
+
+    result = []
+    for r in rows:
+        raw = r.raw_data if isinstance(r.raw_data, dict) else {}
+        raw_bv  = _find(raw, BEFORE_KEYS)
+        raw_av  = _find(raw, AFTER_KEYS)
+        raw_ct  = _find(raw, CONTENT_KEYS)
+        # 복구 가능 여부
+        recoverable = bool(raw_bv or raw_av or (raw_ct and raw_ct not in {'상호변경','주소지변경','주소변경','차량변경','구조변경','대표자변경'}))
+        result.append({
+            'id': r.id, 'change_type': r.change_type,
+            'vehicle_number': r.vehicle_number, 'name': r.name,
+            'before_value': r.before_value or '', 'after_value': r.after_value or '',
+            'memo': r.memo or '',
+            'raw_keys': list(raw.keys()),
+            'raw_values': {k: str(raw[k])[:60] for k in list(raw.keys())[:20]},
+            'raw_content후보': raw_ct,
+            'raw_before후보': raw_bv,
+            'raw_after후보': raw_av,
+            '복구가능': recoverable,
+            '복구불가사유': '' if recoverable else 'raw_data에 변경전/후 값 없음',
+        })
+
+    return {'type': type, '총건수': len(result), '결과': result}
