@@ -1,5 +1,8 @@
 ﻿// ===== 강원도 개인소형화물협회 업무관리 시스템 v6 =====
 
+// null-safe 텍스트 설정 유틸
+function _sts(id, val) { const e = document.getElementById(id); if (e) e.textContent = val ?? ''; }
+
 const REGIONS = ['춘천시','원주시','강릉시','동해시','태백시','속초시','삼척시',
                  '홍천군','횡성군','영월군','평창군','정선군','철원군','화천군',
                  '양구군','인제군','고성군','양양군'];
