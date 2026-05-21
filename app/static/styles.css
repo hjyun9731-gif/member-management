@@ -327,6 +327,9 @@ a.tbl-link:hover{text-decoration:underline;color:var(--c-text-2)}
   box-shadow:var(--sh-xl);border:1px solid var(--c-border);
 }
 .modal.mlg{max-width:960px}
+.modal.mxl{max-width:1200px;width:92vw;max-height:88vh;overflow-y:auto;overflow-x:hidden}
+.modal.mxl .fg{grid-template-columns:repeat(4,minmax(0,1fr))}
+.modal.mxl .fg input,.modal.mxl .fg select,.modal.mxl .fg textarea{max-width:100%;box-sizing:border-box}
 .modal.msm{max-width:460px}
 .modal.mxs{max-width:360px}
 .modal-hd{

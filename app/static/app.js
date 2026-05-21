@@ -270,15 +270,14 @@ function buildDetailSections(sections){
   return `<div class="dtl-sections">${sections.map(sec=>{
     const visFields=sec.fields.filter(([,v])=>v&&fv(v)!=='-');
     if(!visFields.length) return '';
-    return `<div class="dtl-sec">
-      <div class="dtl-sec-hd">${sec.title}</div>
-      <div class="dtl-grid">${visFields.map(([l,v,full])=>`
+    const body=`<div class="dtl-grid">${visFields.map(([l,v,full])=>`
         <div class="dtl-item ${full?'full':''}">
           <div class="dtl-lbl">${l}</div>
           <div class="dtl-val${l==='관리번호'||l==='자격증번호'?' mono':''}">${e_(fv(v))}</div>
-        </div>`).join('')}
-      </div>
-    </div>`;
+        </div>`).join('')}</div>`;
+    if(sec.title==='원본 엑셀 데이터')
+      return `<details class="dtl-sec"><summary class="dtl-sec-hd" style="cursor:pointer">📄 원본 엑셀 데이터 보기</summary>${body}</details>`;
+    return `<div class="dtl-sec"><div class="dtl-sec-hd">${sec.title}</div>${body}</div>`;
   }).join('')}</div>`;
 }
 
@@ -341,7 +340,7 @@ window.viewTransfer=async(id)=>{
     .filter(([k,v])=>v&&fv(v)!=='-'&&!['id','seq_number','region','vehicle_number','transferor','transferee','receipt_date','approval_date','membership_date','certificate_issue_date','certificate_number','driver_license_number','ledger_update','computer_report','memo','resident_number','phone','mobile','address','management_number','허가번호'].includes(k))
     .slice(0,20);
   const sections=[
-    {title:'기본 정보',fields:[['번호',r.seq_number],['관리번호',r.management_number],['접수일자',r.receipt_date],['지역',r.region],['차량번호',r.vehicle_number],['차종',raw['차종']||raw['vehicle_type']||''],['유종',raw['유종']||raw['fuel_type']||'']]},
+    {title:'기본 정보',fields:[['관리번호',r.management_number],['접수일자',r.receipt_date],['지역',r.region],['차량번호',r.vehicle_number],['차종',raw['차종']||raw['vehicle_type']||''],['유종',raw['유종']||raw['fuel_type']||'']]},
     {title:'양도자 / 양수자',fields:[['양도자',r.transferor],['양수자',r.transferee],['주민등록번호',r.resident_number],['전화번호',r.phone],['핸드폰',r.mobile],['주소',r.address,true]]},
     {title:'인허가 정보',fields:[['인가일자',r.approval_date],['가입일자',r.membership_date],['자격증발급일자',r.certificate_issue_date],['자격증발급번호',r.certificate_number],['운전면허번호',r.driver_license_number]]},
     {title:'행정 정보',fields:[['장부정리',r.ledger_update],['전산보고',r.computer_report],['비고',r.memo,true]]},
@@ -366,8 +365,8 @@ window.viewClosure=async(id)=>{
   const rawReceipt=raw['접수일자']||raw['접수일']||'';
   const rawSeq=raw['번호']||'';
   const sections=[
-    {title:'기본 정보',fields:[['관리번호',r.management_number],['번호',rawSeq],['처리구분',r.closure_type],['자료구분',r.data_type],['지역',r.region],['차량번호',r.vehicle_number],['성명',r.name],['상호',r.company_name]]},
-    {title:'차량 정보',fields:[['차종',r.vehicle_type||raw['차종']||''],['유종',r.fuel_type||raw['유종']||''],['구조변경',r.structure_change||raw['구조변경']||'',true]]},
+    {title:'기본 정보',fields:[['관리번호',r.management_number],['처리구분',r.closure_type],['자료구분',r.data_type],['지역',r.region],['차량번호',r.vehicle_number],['성명',r.name],['상호',r.company_name]]},
+    {title:'차량 정보',fields:[['차종',r.vehicle_type||raw['차종']||raw['차량종류']||''],['유종',r.fuel_type||raw['유종']||raw['연료']||''],['구조변경',r.structure_change||raw['구조변경']||'',true]]},
     {title:'연락처 / 주소',fields:[['전화번호',r.phone||rawPhone],['핸드폰',r.mobile||rawMobile],['주소',r.address||rawAddr,true],['공문주소',r.official_address||'',true],['주민등록번호',r.resident_number||rawResNo]]},
     {title:'회원 / 자격',fields:[['가입여부',r.membership_status],['가입일자',r.membership_date||rawMemDate],['인가일자',r.approval_date],['자격증명발급일자',r.certificate_issue_date||rawCertDate],['자격증명발급번호',r.certificate_number||rawCertNo],['운전면허번호',r.driver_license_number||rawDrvLic]]},
     {title:'소속 / 대리인',fields:[['소속업체',r.affiliated_company||''],['대리인',r.agent_name||''],['대리인 핸드폰',r.agent_mobile||'']]},
@@ -1114,7 +1113,7 @@ window.editClosure=async(id)=>{
     ${fi('transferee','양수인',r.transferee||'')} ${fi('transfer_region','이관/양도지역',r.transfer_region||'')}
     ${fta('memo','비고',r.memo||'','cs4')}
   </div></form>`,
-  `<button class="btn bg btn-sm" id="_clS">${id?'저장':'등록'}</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`);
+  `<button class="btn bg btn-sm" id="_clS">${id?'저장':'등록'}</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mxl');
   if(!id){
     document.querySelector('[name=closure_type]').onchange=async e=>{
       const nn=await api('GET',`/api/closures/next-number/${encodeURIComponent(e.target.value)}`).catch(()=>null);

@@ -841,13 +841,60 @@ async def backfill_transfers(db: Session = Depends(get_db), _=Depends(require_ad
     return {"전체양도양수": total, "매칭성공": matched, "차종채워진건수": vt_filled}
 
 
+
 @router.post("/backfill-closure-vehicle-fields")
 async def backfill_closure_vehicle_fields(db: Session = Depends(get_db), _=Depends(require_admin)):
-    """폐업현황 raw_data에서 차종/유종 재추출하여 vehicle_type/fuel_type에 저장.
-    우선순위: 기존 DB값 > raw_data 원본 > 전체자명단 매칭
-    """
-    from app.excel_utils import (extract_vehicle_type_from_raw,
-                                  extract_fuel_type_from_raw, normalize_fuel)
+    """폐업현황 raw_data에서 차종/유종 재추출 (디버그 포함)"""
+    import json, re as _re
+
+    def _ensure_dict(raw):
+        if isinstance(raw, dict): return raw
+        if isinstance(raw, str):
+            try: return json.loads(raw)
+            except: return {}
+        return {}
+
+    VT_KEYS = ['차종','차량종류','차량명','차명','자동차명','차종명','차량형식','형식']
+    FT_KEYS = ['유종','연료','연료명','사용연료','연료종류']
+    VT_WORDS = ['포터','봉고','스타렉스','렉스턴','호룡','카니발','내장','탑','윙',
+                '냉동','냉장','ev','일렉트릭','파워게이트','사다리','고소','마이티',
+                '트럭','카고','픽업','밴','미닫이','워크스루']
+    FT_VALID = ['경유','휘발유','lpg','엘피지','전기','하이브리드','cng','수소','가스','디젤']
+
+    def _extract_vt(raw):
+        """raw_data dict에서 차종 추출"""
+        for k in raw:
+            nk = str(k).strip().replace(' ','').lower()
+            if any(vk in nk for vk in ['차종','차량종류','차량명','차명','차종명']):
+                v = str(raw[k] or '').strip()
+                if v and v not in ('-','','nan','None'):
+                    return v
+        # 값으로 차종 판단 (YY,차명 패턴 또는 차종 키워드 포함)
+        for k in raw:
+            v = str(raw[k] or '').strip()
+            if _re.match(r'^\d{2}[,.\s]', v) and len(v) > 4:
+                return v
+            vl = v.lower()
+            if any(w in vl for w in VT_WORDS) and len(v) > 2:
+                return v
+        return ''
+
+    def _extract_ft(raw):
+        """raw_data dict에서 유종 추출"""
+        for k in raw:
+            nk = str(k).strip().replace(' ','').lower()
+            if any(fk in nk for fk in ['유종','연료','연료명','사용연료']):
+                v = str(raw[k] or '').strip()
+                vl = v.lower().replace(' ','')
+                if any(f in vl for f in FT_VALID):
+                    return v
+        # 값으로 유종 판단
+        for k in raw:
+            v = str(raw[k] or '').strip()
+            vl = v.lower().replace(' ','')
+            if vl in FT_VALID or any(f == vl for f in FT_VALID):
+                return v
+        return ''
 
     closures = db.query(models.Closure).filter(
         models.Closure.deleted_at.is_(None)
@@ -855,46 +902,63 @@ async def backfill_closure_vehicle_fields(db: Session = Depends(get_db), _=Depen
 
     stats = {
         "전체": len(closures),
-        "차종_채움": 0,
-        "유종_채움": 0,
-        "차종_이미있음": 0,
-        "유종_이미있음": 0,
-        "raw_data없음": 0,
-        "샘플": [],
+        "raw_data_dict": 0, "raw_data_string": 0, "raw_data_없음": 0,
+        "차종후보발견": 0, "유종후보발견": 0,
+        "차종_이미있음": 0, "유종_이미있음": 0,
+        "차종_채움": 0, "유종_채움": 0,
+        "디버그샘플": [],
     }
 
-    for c in closures:
-        raw = c.raw_data if isinstance(c.raw_data, dict) else {}
-        if not raw:
-            stats["raw_data없음"] += 1
+    # 특정 관리번호 우선 디버그
+    debug_mgmt = {'폐-91', '폐-55', '폐-58'}
+    debug_samples = []
 
-        # 차종
+    for c in closures:
+        raw_orig = c.raw_data
+        if raw_orig is None:
+            stats["raw_data_없음"] += 1
+            continue
+
+        if isinstance(raw_orig, dict):
+            stats["raw_data_dict"] += 1
+        elif isinstance(raw_orig, str):
+            stats["raw_data_string"] += 1
+        raw = _ensure_dict(raw_orig)
+
+        vt_extracted = _extract_vt(raw)
+        ft_extracted = _extract_ft(raw)
+
+        if vt_extracted: stats["차종후보발견"] += 1
+        if ft_extracted: stats["유종후보발견"] += 1
+
+        # 디버그 샘플
+        mgmt = c.management_number or ''
+        if mgmt in debug_mgmt or (not vt_extracted and len(debug_samples) < 3):
+            debug_samples.append({
+                "관리번호": mgmt, "성명": c.name, "차량번호": c.vehicle_number,
+                "raw_data_type": type(raw_orig).__name__,
+                "raw_data_keys": list(raw.keys())[:20],
+                "추출차종": vt_extracted, "추출유종": ft_extracted,
+                "기존차종": getattr(c,'vehicle_type','') or '',
+                "기존유종": getattr(c,'fuel_type','') or '',
+            })
+
+        # 실제 채우기
         cur_vt = getattr(c, 'vehicle_type', '') or ''
+        cur_ft = getattr(c, 'fuel_type', '') or ''
+
         if cur_vt:
             stats["차종_이미있음"] += 1
-        else:
-            vt = extract_vehicle_type_from_raw(raw)
-            if vt:
-                c.vehicle_type = vt
-                stats["차종_채움"] += 1
-                if len(stats["샘플"]) < 5:
-                    stats["샘플"].append({
-                        "관리번호": c.management_number,
-                        "성명": c.name,
-                        "차종": vt,
-                    })
+        elif vt_extracted:
+            c.vehicle_type = vt_extracted
+            stats["차종_채움"] += 1
 
-        # 유종
-        cur_ft = getattr(c, 'fuel_type', '') or ''
         if cur_ft:
             stats["유종_이미있음"] += 1
-        else:
-            ft = extract_fuel_type_from_raw(raw)
-            if ft:
-                # 유종 정규화 시도, 실패하면 원본 저장
-                norm = normalize_fuel(ft)
-                c.fuel_type = norm if norm else ft
-                stats["유종_채움"] += 1
+        elif ft_extracted:
+            c.fuel_type = ft_extracted
+            stats["유종_채움"] += 1
 
     db.commit()
+    stats["디버그샘플"] = debug_samples
     return stats
