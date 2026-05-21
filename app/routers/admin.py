@@ -1551,3 +1551,147 @@ async def backfill_change_before_after(
 
     if not dry_run: db.commit()
     return stats
+
+
+@router.get("/debug-closure-raw")
+async def debug_closure_raw(
+    vehicle: str = "", name: str = "", mgmt: str = "",
+    db: Session = Depends(get_db), _=Depends(require_admin)
+):
+    """이전폐지현황 raw_data 구조 + 필드 후보 확인"""
+    import re as _re
+    from app.routers.dashboard import classify_vt, classify_fuel
+
+    def _norm(v): return _re.sub(r'\s+','', str(v or '')).lower()
+
+    q = db.query(models.Closure).filter(models.Closure.deleted_at.is_(None))
+    rows = q.all()
+    result = []
+    for c in rows:
+        if mgmt and c.management_number != mgmt: continue
+        if vehicle and _norm(vehicle) not in _norm(c.vehicle_number): continue
+        if name and name not in (c.name or ''): continue
+        raw = c.raw_data if isinstance(c.raw_data, dict) else {}
+        result.append({
+            "관리번호": c.management_number, "성명": c.name,
+            "차량번호": c.vehicle_number, "처리구분": c.closure_type,
+            "처리일자_DB": c.closure_date, "접수일자_DB": c.receipt_date,
+            "양수인_DB": c.transferee, "이관지역_DB": c.transfer_region,
+            "차종_DB": c.vehicle_type, "유종_DB": c.fuel_type,
+            "raw_data_keys": list(raw.keys()),
+            "raw_data_all": {k: str(raw[k])[:60] for k in list(raw.keys())[:25]},
+        })
+        if len(result) >= 5: break
+    return {"총발견": len(result), "결과": result}
+
+
+@router.post("/backfill-closure-transfer-fields")
+async def backfill_closure_transfer_fields(
+    dry_run: bool = True,
+    db: Session = Depends(get_db), _=Depends(require_admin)
+):
+    """이전폐지현황 raw_data에서 양수인/이관지역/처리일자 backfill"""
+    import re as _re
+    from app.excel_utils import _normalize_text
+
+    TRANSFEREE_KEYS = ['양수인','양수자','양수인성명','양수자성명','성명(양수)']
+    REGION_KEYS = ['이관지역','이관/양도지역','양도지역','전출지역','이전지역','이전지','이관지']
+    DATE_KEYS = ['처리일자','폐지일자','처리일']
+
+    def _find(raw, keys):
+        for k in raw:
+            kn = _normalize_text(k)
+            for c in keys:
+                if _normalize_text(c) in kn or _normalize_text(c) == kn:
+                    v = str(raw[k] or '').strip()
+                    if v and v not in ('-','nan','None',''): return v
+        return ''
+
+    rows = db.query(models.Closure).filter(
+        models.Closure.deleted_at.is_(None),
+    ).all()
+
+    stats = {'dry_run': dry_run, '전체': len(rows), '수정예정': 0, '샘플': []}
+    for c in rows:
+        raw = c.raw_data if isinstance(c.raw_data, dict) else {}
+        if not raw: continue
+        changes = {}
+        if not (c.transferee or '').strip():
+            v = _find(raw, TRANSFEREE_KEYS)
+            if v: changes['transferee'] = v
+        if not (c.transfer_region or '').strip():
+            v = _find(raw, REGION_KEYS)
+            if v: changes['transfer_region'] = v
+        if not (c.closure_date or '').strip():
+            v = _find(raw, DATE_KEYS)
+            if v: changes['closure_date'] = v
+        if changes:
+            stats['수정예정'] += 1
+            if len(stats['샘플']) < 10:
+                stats['샘플'].append({
+                    '관리번호': c.management_number, '성명': c.name,
+                    '처리구분': c.closure_type, '변경항목': changes,
+                    'raw_keys': list(raw.keys())[:10],
+                })
+            if not dry_run:
+                for k, v in changes.items():
+                    setattr(c, k, v)
+    if not dry_run: db.commit()
+    return stats
+
+
+@router.post("/backfill-change-before-after")
+async def backfill_change_before_after(
+    dry_run: bool = True,
+    db: Session = Depends(get_db), _=Depends(require_admin)
+):
+    """변경등록대장 before_value/after_value raw_data 기준으로 재추출"""
+    from app.excel_utils import _parse_change_text, _normalize_text
+
+    BEFORE_KEYS = ['변경전','변경 전','이전주소','변경전주소','변경전내용','이전내용']
+    AFTER_KEYS  = ['변경후','변경 후','현재주소','변경후주소','변경후내용','현재내용','변경내용','변 경 내 용']
+    CONTENT_KEYS = ['변경내용','변경사항','내용','변 경 내 용']
+
+    def _find_key(raw, candidates):
+        for k in raw:
+            kn = _normalize_text(k)
+            for c in candidates:
+                if _normalize_text(c) == kn or _normalize_text(c) in kn:
+                    v = str(raw[k] or '').strip()
+                    if v and v not in ('-','nan','None',''): return v
+        return ''
+
+    rows = db.query(models.ChangeHistory).filter(
+        models.ChangeHistory.deleted_at.is_(None)
+    ).all()
+
+    stats = {'dry_run': dry_run, '전체': len(rows), '수정예정': 0, '샘플': []}
+    for r in rows:
+        raw = r.raw_data if isinstance(r.raw_data, dict) else {}
+        if not raw: continue
+        new_bv = _find_key(raw, BEFORE_KEYS)
+        new_av = _find_key(raw, AFTER_KEYS)
+
+        # before/after 없으면 content에서 파싱
+        if not new_bv and not new_av:
+            content = _find_key(raw, CONTENT_KEYS)
+            if content:
+                _, new_bv, new_av = _parse_change_text(content)
+
+        cur_bv = (r.before_value or '').strip()
+        cur_av = (r.after_value  or '').strip()
+        changed = (new_bv and new_bv != cur_bv) or (new_av and new_av != cur_av)
+        if changed:
+            stats['수정예정'] += 1
+            if len(stats['샘플']) < 10:
+                stats['샘플'].append({
+                    'id': r.id, 'change_type': r.change_type,
+                    'vehicle_number': r.vehicle_number, 'name': r.name,
+                    '기존_before': cur_bv, '기존_after': cur_av,
+                    '새_before': new_bv, '새_after': new_av,
+                })
+            if not dry_run:
+                if new_bv: r.before_value = new_bv
+                if new_av: r.after_value  = new_av
+    if not dry_run: db.commit()
+    return stats
