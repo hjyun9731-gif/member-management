@@ -1285,127 +1285,127 @@ async def backfill_change_before_after(
     dry_run: bool = True,
     db: Session = Depends(get_db), _=Depends(require_admin)
 ):
-    """변경등록대장 before_value/after_value raw_data 기준으로 재추출.
-    버전: change-backfill-v3
+    """변경등록대장 before/after backfill v6.
+    우선순위:
+    1. 명시적 변경전/변경후 컬럼
+    2. '주 소' 컬럼에 -> 또는 → 있으면 분리
+    3. '변 경 내 용' 컬럼이 실제 변경값이면 사용
+    4. '내 용'이 업무유형명뿐이면 skip
     """
     from app.excel_utils import _parse_change_text
 
-    def _nc(s):
-        import re as _r
-        return _r.sub(r'[\s\r\n\t]+', '', str(s or '')).lower()
+    BUSINESS_TYPES = {
+        '상호변경','주소지변경','주소변경','차량변경','구조변경','대표자변경',
+        '전속계약업체변경','전속업체변경','자격증재교부','이전전출','등록이관',
+        '변경내용','변경사항','기타','성명변경','번호변경',
+    }
 
-    BEFORE_KEYS = ['변경전','변경 전','이전주소','변경전주소','변경전내용','이전내용','이전','전주소','종전주소']
-    AFTER_KEYS  = ['변경후','변경 후','현재주소','변경후주소','변경후내용','현재내용','현재','변경된내용','신주소','새주소']
-    CONTENT_KEYS= ['변경내용','변경사항','내용','변경내용','변경내 용','변 경 내 용']
+    def _nc(s): return ''.join(str(s or '').split()).lower()
 
-    def _find_key(raw, candidates):
+    def _is_biz(v): return _nc(v) in {_nc(b) for b in BUSINESS_TYPES}
+
+    def _is_hdr(v):
+        HDR = {'차량번호','성명','변경내용','변경내 용','신고일자','시군별','번호',
+               'vehicle_number','name','변경사항','내용','번  호'}
+        return _nc(v) in {_nc(h) for h in HDR}
+
+    def _find(raw, keys):
         for k in raw:
             kn = _nc(k)
-            for c in candidates:
+            for c in keys:
                 if _nc(c) == kn or _nc(c) in kn:
                     v = str(raw[k] or '').strip()
-                    if v and v not in ('-','nan','None',''): return v
-        return ''
+                    if v and v not in ('-','nan','None',''): return v, k
+        return '', ''
+
+    def _split_arrow(v):
+        """-> 또는 → 로 분리. 없으면 ('', '') 반환."""
+        import re as _re
+        m = _re.search(r'(.+?)\s*(?:->|→)\s*(.+)', v)
+        if m: return m.group(1).strip(), m.group(2).strip()
+        return '', ''
+
+    BEFORE_KEYS  = ['변경전','변경 전','이전주소','변경전주소','변경전내용','이전내용','이전','전주소','종전주소']
+    AFTER_KEYS   = ['변경후','변경 후','현재주소','변경후주소','변경후내용','현재내용','현재','변경된내용','신주소','새주소']
+    CONTENT_KEYS = ['변경내용','변경사항','내용','변경내 용','변 경 내 용']
+    ADDR_KEYS    = ['주소','주      소','주 소','주  소']  # 구버전 변경내용이 여기 들어있음
 
     rows = db.query(models.ChangeHistory).filter(
         models.ChangeHistory.deleted_at.is_(None)
     ).all()
 
-    # 디버그 카운터
-    cnt_dict = cnt_str = cnt_has_content = cnt_before_null = cnt_after_null = 0
-    cnt_skipped = 0
-    skip_reasons = {}
-
+    TARGET_IDS = {1568, 1639}
     stats = {
-        '버전': 'change-backfill-v5',
+        '버전': 'change-backfill-v6',
         'dry_run': dry_run, '전체': len(rows),
-        'before복구': 0, 'after복구': 0, '샘플': [],
-        'id1_debug': None,
+        'before복구': 0, 'after복구': 0, '샘플': [], 'id_debug': {},
     }
 
     for r in rows:
-        raw_orig = r.raw_data
-        if isinstance(raw_orig, dict):
-            raw = raw_orig; cnt_dict += 1
-        elif isinstance(raw_orig, str):
-            import json
-            try: raw = json.loads(raw_orig); cnt_str += 1
-            except: raw = {}; cnt_str += 1
-        else:
-            raw = {}
-
+        raw = r.raw_data if isinstance(r.raw_data, dict) else {}
         if not raw: continue
 
         cur_bv = (r.before_value or '').strip()
         cur_av = (r.after_value  or '').strip()
-        if not cur_bv: cnt_before_null += 1
-        if not cur_av: cnt_after_null += 1
 
-        # 키 탐색
-        new_bv = _find_key(raw, BEFORE_KEYS)
-        new_av = _find_key(raw, AFTER_KEYS)
+        # 헤더 행 제외
+        if _is_hdr(r.vehicle_number) or _is_hdr(r.name): continue
 
-        content_val = ''
+        new_bv = new_av = ''
+        source = ''
+
+        # 1순위: 명시적 변경전/변경후 컬럼
+        raw_bv, k_bv = _find(raw, BEFORE_KEYS)
+        raw_av, k_av = _find(raw, AFTER_KEYS)
+        if raw_bv or raw_av:
+            new_bv, new_av = raw_bv, raw_av
+            source = f'변경전/후컬럼({k_bv}/{k_av})'
+
+        # 2순위: '주 소' 컬럼에 화살표 있으면 분리
         if not new_bv and not new_av:
-            content_val = _find_key(raw, CONTENT_KEYS)
-            if content_val:
-                # 업무유형명만 있으면 skip (실제 변경내용 아님)
-                _BAD_CONTENT = {
-                    '상호변경','주소지변경','주소변경','차량변경','구조변경','대표자변경',
-                    '전속계약업체변경','전속업체변경','자격증재교부','이전전출','등록이관',
-                    '변경내용','변경사항','기타','성명변경','번호변경',
-                }
-                content_nc = ''.join(content_val.split()).lower()
-                if any(''.join(b.split()).lower() == content_nc for b in _BAD_CONTENT):
-                    content_val = ''  # skip
+            addr_val, k_addr = _find(raw, ADDR_KEYS)
+            if addr_val:
+                bv2, av2 = _split_arrow(addr_val)
+                if bv2 and av2:
+                    new_bv, new_av = bv2, av2
+                    source = f'주소컬럼화살표({k_addr})'
+
+        # 3순위: 변경내용 컬럼 (업무유형명 skip)
+        if not new_bv and not new_av:
+            content_val, k_ct = _find(raw, CONTENT_KEYS)
+            if content_val and not _is_biz(content_val) and not _is_hdr(content_val):
+                bv3, av3 = _split_arrow(content_val)
+                if bv3 and av3:
+                    new_bv, new_av = bv3, av3
+                    source = f'변경내용화살표({k_ct})'
                 else:
-                    cnt_has_content += 1
-                    _, new_bv, new_av = _parse_change_text(content_val)
-                    if not new_bv and not new_av:
-                        new_bv, new_av = '-', content_val
-                    elif not new_bv:
-                        new_bv = '-'
+                    # 화살표 없으면 after에만
+                    new_bv, new_av = '-', content_val
+                    source = f'변경내용단독({k_ct})'
 
-        will_bv = bool(not cur_bv and new_bv and new_bv != cur_bv)
-        will_av = bool(not cur_av and new_av and new_av != cur_av)
+        will_bv = bool(not cur_bv and new_bv)
+        will_av = bool(not cur_av and new_av)
 
-        # 헤더 행 제외: 정규화 후 컬럼명과 일치하는 행
-        _HEADER_NORM = {'차량번호','성명','변경내용','변경내 용','신고일자','시군별','번호',
-                        'vehicle_number','name','변경사항','내용','번  호','시·군별'}
-        def _is_hdr(v): return ''.join(str(v or '').split()) in _HEADER_NORM
-        if _is_hdr(r.vehicle_number) or _is_hdr(r.name) or _is_hdr(content_val):
-            skip_reasons['헤더행제외'] = skip_reasons.get('헤더행제외', 0) + 1
-            cnt_skipped += 1
-            continue
-
-        if not will_bv and not will_av:
-            reason = '이미있음' if (cur_bv or cur_av) else ('content없음' if not content_val else '변화없음')
-            skip_reasons[reason] = skip_reasons.get(reason, 0) + 1
-            cnt_skipped += 1
+        if r.id in TARGET_IDS:
+            addr_val2, k2 = _find(raw, ADDR_KEYS)
+            stats['id_debug'][r.id] = {
+                'id': r.id, 'name': r.name,
+                'raw_주소컬럼키': k2, 'raw_주소값': addr_val2,
+                '기존_before': cur_bv, '기존_after': cur_av,
+                '새_before': new_bv if will_bv else '(유지)',
+                '새_after': new_av if will_av else '(유지)',
+                '추출근거': source,
+            }
 
         if will_bv: stats['before복구'] += 1
         if will_av: stats['after복구'] += 1
-
-        # id=1 디버그
-        if r.id == 1:
-            stats['id1_debug'] = {
-                'id': r.id, 'change_type': r.change_type,
-                'cur_before': cur_bv, 'cur_after': cur_av,
-                'raw_keys': list(raw.keys())[:15],
-                'content_val': content_val,
-                'new_bv': new_bv, 'new_av': new_av,
-                'will_bv': will_bv, 'will_av': will_av,
-                'raw_normalized_keys': [_nc(k) for k in list(raw.keys())[:10]],
-            }
 
         if (will_bv or will_av) and len(stats['샘플']) < 10:
             stats['샘플'].append({
                 'id': r.id, 'change_type': r.change_type,
                 'vehicle_number': r.vehicle_number, 'name': r.name,
-                'raw_content': content_val,
-                '기존_before': cur_bv, '기존_after': cur_av,
-                '새_before': new_bv if will_bv else '(유지)',
-                '새_after': new_av if will_av else '(유지)',
+                '추출근거': source,
+                '새_before': new_bv, '새_after': new_av,
             })
 
         if not dry_run:
@@ -1413,12 +1413,6 @@ async def backfill_change_before_after(
             if will_av: r.after_value  = new_av
 
     if not dry_run: db.commit()
-    stats['디버그'] = {
-        'raw_dict건수': cnt_dict, 'raw_str건수': cnt_str,
-        'content키있음': cnt_has_content,
-        'before_null': cnt_before_null, 'after_null': cnt_after_null,
-        '스킵건수': cnt_skipped, '스킵사유': skip_reasons,
-    }
     return stats
 
 @router.get("/debug-closure-raw")
