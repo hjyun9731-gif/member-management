@@ -1590,53 +1590,132 @@ async def backfill_closure_transfer_fields(
     dry_run: bool = True,
     db: Session = Depends(get_db), _=Depends(require_admin)
 ):
-    """이전폐지현황 raw_data에서 양수인/이관지역/처리일자 backfill"""
+    """이전폐지현황 raw_data에서 양수인/이관지역/처리일자 backfill.
+    처리구분별 분리:
+      양도: 값에 / 있으면 앞=이관양도지역, 뒤=양수인
+      이관: 전체=이관지역, 양수인=공란
+      폐업: 전체=비고, 양수인/지역=공란
+    """
     import re as _re
     from app.excel_utils import _normalize_text
 
-    TRANSFEREE_KEYS = ['양수인','양수자','양수인성명','양수자성명','성명(양수)']
+    TRANSFEREE_KEYS = ['양수인','양수자','양수인성명','양수자성명','성명(양수)',
+                       '타도전출일자및양수자','양도양수자','이관지역및양수자']
     REGION_KEYS = ['이관지역','이관/양도지역','양도지역','전출지역','이전지역','이전지','이관지']
-    DATE_KEYS = ['처리일자','폐지일자','처리일']
+    DATE_KEYS = ['처리일자','폐지일자','처리일','타도전출일자']
+
+    REGIONS = ['경기','서울','인천','충북','충남','전북','전남','경북','경남','강원',
+               '대전','대구','부산','광주','울산','세종','제주','경기도','충청','전라','경상']
+
+    def _is_region(v):
+        v = v.strip()
+        if any(v.startswith(r) for r in REGIONS): return True
+        if _re.search(r'(시|군|구|도)$', v): return True
+        return False
+
+    def _is_name(v):
+        v = _re.sub(r'\(.*?\)', '', v).strip()
+        return bool(_re.match(r'^[가-힣]{2,4}$', v))
+
+    def _parse_val(raw_val, closure_type):
+        v = (raw_val or '').strip()
+        if not v or v in ('-', '', 'nan', 'None'):
+            return '', '', '', ''
+        ct = (closure_type or '').replace('폐지','폐업')
+        if ct == '폐업':
+            return '', '', v, ''   # transferee, region, memo, reason
+        if ct == '이관':
+            return '', v, '', ''
+        # 양도
+        if '/' in v:
+            parts = v.split('/', 1)
+            region = parts[0].strip()
+            name_part = parts[1].strip()
+            memo_m = _re.search(r'\((.+?)\)', name_part)
+            memo = memo_m.group(1) if memo_m else ''
+            name = _re.sub(r'\(.*?\)', '', name_part).strip()
+            return name, region, memo, ''
+        if _is_region(v): return '', v, '', ''
+        if _is_name(v): return v, '', '', ''
+        return '', '', v, ''   # 불명확하면 비고로
 
     def _find(raw, keys):
         for k in raw:
             kn = _normalize_text(k)
             for c in keys:
                 if _normalize_text(c) in kn or _normalize_text(c) == kn:
-                    v = str(raw[k] or '').strip()
-                    if v and v not in ('-','nan','None',''): return v
+                    val = str(raw[k] or '').strip()
+                    if val and val not in ('-','nan','None',''): return val
         return ''
+
+    # 날짜 패턴
+    DATE_PAT = _re.compile(r'^\d{2}\s*\.\s*\d{1,2}\s*\.\s*\d{1,2}')
+
+    def _extract_date(v):
+        m = DATE_PAT.match(v.strip())
+        return m.group(0).strip() if m else ''
 
     rows = db.query(models.Closure).filter(
         models.Closure.deleted_at.is_(None),
     ).all()
 
+    target = {'양-18','양-19','양-31','이-2','폐-77'}
     stats = {'dry_run': dry_run, '전체': len(rows), '수정예정': 0, '샘플': []}
+    debug = {k: None for k in target}
+
     for c in rows:
         raw = c.raw_data if isinstance(c.raw_data, dict) else {}
         if not raw: continue
+        ct = (c.closure_type or '').replace('폐지','폐업')
+        mgmt = c.management_number or ''
+
+        # 원본 raw에서 후보값 찾기
+        raw_tee = _find(raw, TRANSFEREE_KEYS)
+        raw_reg = _find(raw, REGION_KEYS)
+        raw_date = _find(raw, DATE_KEYS)
+
+        # 처리구분별 분리
+        tee, reg, memo, reason = _parse_val(raw_tee, ct)
+        if not reg and raw_reg: reg = raw_reg
+        # 날짜 추출
+        date_val = ''
+        if raw_date:
+            date_val = _extract_date(raw_date)
+            if not date_val: date_val = raw_date
+
         changes = {}
-        if not (c.transferee or '').strip():
-            v = _find(raw, TRANSFEREE_KEYS)
-            if v: changes['transferee'] = v
-        if not (c.transfer_region or '').strip():
-            v = _find(raw, REGION_KEYS)
-            if v: changes['transfer_region'] = v
-        if not (c.closure_date or '').strip():
-            v = _find(raw, DATE_KEYS)
-            if v: changes['closure_date'] = v
+        cur_tee = (c.transferee or '').strip()
+        cur_reg = (c.transfer_region or '').strip()
+        cur_dt  = (c.closure_date or '').strip()
+        cur_memo = (c.memo or '').strip()
+
+        if not cur_tee and tee: changes['transferee'] = tee
+        if not cur_reg and reg: changes['transfer_region'] = reg
+        if not cur_dt  and date_val: changes['closure_date'] = date_val
+        if not cur_memo and memo: changes['memo'] = memo
+
+        sample = {
+            '관리번호': mgmt, '성명': c.name, '처리구분': ct,
+            'raw_transferee원본': raw_tee, 'raw_region원본': raw_reg,
+            '기존_처리일자': cur_dt, '추출_처리일자': date_val,
+            '기존_양수인': cur_tee, '추출_양수인': tee,
+            '기존_이관양도지역': cur_reg, '추출_이관양도지역': reg,
+            '기존_비고': cur_memo, '추출_비고': memo,
+            '저장예정': changes,
+        }
+        if mgmt in target:
+            debug[mgmt] = sample
+
         if changes:
             stats['수정예정'] += 1
-            if len(stats['샘플']) < 10:
-                stats['샘플'].append({
-                    '관리번호': c.management_number, '성명': c.name,
-                    '처리구분': c.closure_type, '변경항목': changes,
-                    'raw_keys': list(raw.keys())[:10],
-                })
+            if len(stats['샘플']) < 5 and mgmt not in target:
+                stats['샘플'].append(sample)
             if not dry_run:
                 for k, v in changes.items():
                     setattr(c, k, v)
+
     if not dry_run: db.commit()
+    stats['샘플'] = [v for v in debug.values() if v] + stats['샘플']
     return stats
 
 
