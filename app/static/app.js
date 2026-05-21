@@ -1169,6 +1169,7 @@ async function renderChangeHistory(){
       <div class="frow">
         ${rselflt('chRegF',f.region||'')}
         <select id="chTypF" class="fsel"><option value="">전체 유형</option>${CHANGE_TYPES.map(t=>`<option value="${t}">${t}</option>`).join('')}</select>
+        <select id="chSrcF" class="fsel"><option value="">전체</option><option value="upload">업로드 원본</option><option value="member_auto_log">회원수정 자동기록</option></select>
         ${dateOrderSel('chSortF',f.date_order||'desc')}
         <input class="srch" id="chSrch" placeholder="성명, 차량번호, 변경 전/후" value="${e_(f.search||'')}">
         <button class="btn bp btn-sm" id="chSrchBtn">조회</button>
@@ -1181,7 +1182,7 @@ async function renderChangeHistory(){
   const hdrs=[{field:'change_type',label:'변경유형'},{field:'change_date',label:'처리일자'},{field:'region',label:'지역'},{field:'vehicle_number',label:'차량번호'},{field:'name',label:'성명'},{field:'before_value',label:'변경 전'},{field:'after_value',label:'변경 후'},{field:'memo',label:'비고'},{label:'관리',noSort:true}];
 
   const doSearch=async(pg=1)=>{
-    ST.fl.ch={region:document.getElementById('chRegF').value,change_type:document.getElementById('chTypF').value,date_order:document.getElementById('chSortF').value,search:document.getElementById('chSrch').value.trim()};
+    ST.fl.ch={region:document.getElementById('chRegF').value,change_type:document.getElementById('chTypF').value,source:document.getElementById('chSrcF')?.value||'',date_order:document.getElementById('chSortF').value,search:document.getElementById('chSrch').value.trim()};
     const q=new URLSearchParams({page:pg,limit:50,...getSortParams(sk),...Object.fromEntries(Object.entries(ST.fl.ch).filter(([,v])=>v))});
     const d=await api('GET',`/api/change-history?${q}`).catch(()=>null);if(!d)return;
     _sts('chCnt',`${d.total.toLocaleString()}건`);

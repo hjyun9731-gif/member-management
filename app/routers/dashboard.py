@@ -589,7 +589,8 @@ async def monthly_report_auto(
 
     month_changes = [c for c in db.query(models.ChangeHistory).filter(
         models.ChangeHistory.deleted_at.is_(None)).all()
-        if matches(c.change_date or c.receipt_date or '')]
+        if matches(c.change_date or c.receipt_date or '')
+        and not (isinstance(c.raw_data, dict) and c.raw_data.get('source') == 'member_auto_log')]
 
     change_by_type: dict = {}
     for c in month_changes:

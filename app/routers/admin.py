@@ -1744,3 +1744,62 @@ async def debug_change_log_v2(
         })
 
     return {'type': type, '총건수': len(result), '결과': result}
+
+
+@router.post("/cleanup-auto-change-logs")
+async def cleanup_auto_change_logs(
+    dry_run: bool = True,
+    db: Session = Depends(get_db), _=Depends(require_admin)
+):
+    """기존 자동기록 after_value에서 [라벨] 제거 + before_value '원본 미기재' 정리"""
+    import re as _re
+    rows = db.query(models.ChangeHistory).filter(
+        models.ChangeHistory.deleted_at.is_(None),
+        models.ChangeHistory.memo == "회원정보 수정 자동기록",
+    ).all()
+
+    stats = {'dry_run': dry_run, '전체': len(rows), '수정예정': 0, '샘플': []}
+    for r in rows:
+        av = r.after_value or ''
+        bv = r.before_value or ''
+        new_av = av
+        new_bv = bv
+
+        # [라벨] 제거: "[주소] 값" → "값"
+        new_av = _re.sub(r'^\[[가-힣a-zA-Z0-9_]+\]\s*', '', new_av).strip()
+        # 여러 줄인 경우 각 줄에서 라벨 제거
+        if '\n' in new_av:
+            lines = []
+            for line in new_av.split('\n'):
+                # "기존값 → 새값" 패턴이면 새값만 추출
+                m = _re.search(r'→\s*(.+)$', line)
+                lines.append(m.group(1).strip() if m else line.strip())
+            new_av = '\n'.join(l for l in lines if l)
+
+        # "원본 미기재" → 공란
+        if new_bv == '원본 미기재':
+            new_bv = ''
+
+        # raw_data source 추가
+        raw = r.raw_data if isinstance(r.raw_data, dict) else {}
+        need_source = raw.get('source') != 'member_auto_log'
+
+        changed = (new_av != av) or (new_bv != bv) or need_source
+        if changed:
+            stats['수정예정'] += 1
+            if len(stats['샘플']) < 10:
+                stats['샘플'].append({
+                    'id': r.id, 'change_type': r.change_type,
+                    'vehicle_number': r.vehicle_number,
+                    '기존_after': av[:80], '새_after': new_av[:80],
+                    '기존_before': bv, '새_before': new_bv,
+                })
+            if not dry_run:
+                r.after_value = new_av
+                r.before_value = new_bv
+                new_raw = dict(raw)
+                new_raw['source'] = 'member_auto_log'
+                r.raw_data = new_raw
+    if not dry_run:
+        db.commit()
+    return stats

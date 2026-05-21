@@ -312,28 +312,35 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
     for field, change_type in _AUTO_CHANGE_FIELDS.items():
         if field not in before_snap:
             continue
-        old_val = before_snap[field]
-        new_val = filtered_data.get(field, old_val)
-        if old_val != new_val and new_val is not None and str(new_val).strip():
-            label = _FIELD_LABELS.get(field, field)
+        old_val = (before_snap[field] or "").strip()
+        new_val = str(filtered_data.get(field, old_val) or "").strip()
+        if old_val != new_val and new_val:
             if change_type not in changes_by_type:
                 changes_by_type[change_type] = []
-            changes_by_type[change_type].append(
-                f"[{label}] {old_val or '(없음)'} → {new_val}"
-            )
+            changes_by_type[change_type].append((field, old_val, new_val))
 
-    for change_type, detail_list in changes_by_type.items():
+    for change_type, field_changes in changes_by_type.items():
         try:
+            if len(field_changes) == 1:
+                # 단일 필드 변경: before/after 직접 저장
+                _, old_val, new_val = field_changes[0]
+                bv = old_val or ""
+                av = new_val
+            else:
+                # 복수 필드: 라벨 없이 콤마 구분
+                bv = " / ".join(ov for _, ov, _ in field_changes if ov)
+                av = " / ".join(nv for _, _, nv in field_changes)
             ch = models.ChangeHistory(
                 change_type=change_type,
                 region=getattr(m, "region", "") or "",
                 vehicle_number=getattr(m, "vehicle_number", "") or "",
                 name=getattr(m, "name", "") or "",
-                before_value="",
-                after_value="\n".join(detail_list),
+                before_value=bv,
+                after_value=av,
                 change_date=today,
                 memo="회원정보 수정 자동기록",
                 member_id=mid,
+                raw_data={"source": "member_auto_log"},
             )
             db.add(ch)
         except Exception as ex:
