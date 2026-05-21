@@ -1069,3 +1069,86 @@ async def debug_closure_match(
         "성명일치": name_match[:5],
         "총매칭": len(exact_match) + len(norm_match),
     }
+
+
+@router.get("/search-raw-member")
+async def search_raw_member(
+    vehicle: str = "",
+    name: str = "",
+    db: Session = Depends(get_db), _=Depends(require_admin)
+):
+    """차량번호/성명으로 전체 테이블 raw_data 검색"""
+    import re as _re
+
+    def _norm(v):
+        v = str(v or "").strip()
+        v = _re.sub(r"\s+", "", v)
+        v = _re.sub(r"호$", "", v)
+        return v.lower()
+
+    search_vno = _norm(vehicle)
+    search_name = name.strip()
+    results = []
+
+    def _match(v, n):
+        vno_ok = search_vno and search_vno in _norm(str(v or ""))
+        name_ok = search_name and search_name in str(n or "")
+        return vno_ok or name_ok
+
+    # 1. license_holders 전체 (deleted 포함)
+    for m in db.query(models.LicenseHolder).all():
+        if _match(m.vehicle_number, m.name):
+            raw = m.raw_data or {}
+            results.append({
+                "테이블": "license_holders",
+                "관리번호": m.management_number, "성명": m.name,
+                "차량번호": m.vehicle_number, "차량번호_정규화": _norm(m.vehicle_number),
+                "차종": m.vehicle_type or "", "유종": m.fuel_type or "",
+                "status": m.status, "deleted_at": str(m.deleted_at)[:10] if m.deleted_at else None,
+                "raw_차종": raw.get("차종","") or raw.get("vehicle_type",""),
+                "raw_유종": raw.get("유종","") or raw.get("fuel_type",""),
+                "raw_keys": list(raw.keys())[:15] if raw else [],
+            })
+
+    # 2. candidates
+    for m in db.query(models.Candidate).all():
+        if _match(m.vehicle_number, m.name):
+            results.append({
+                "테이블": "candidates", "관리번호": "", "성명": m.name,
+                "차량번호": m.vehicle_number, "차종": m.vehicle_type or "",
+                "deleted_at": str(m.deleted_at)[:10] if m.deleted_at else None,
+            })
+
+    # 3. transfer_ledger
+    for t in db.query(models.TransferLedger).all():
+        if _match(t.vehicle_number, t.transferee) or _match(t.vehicle_number, t.transferor):
+            raw = t.raw_data or {}
+            results.append({
+                "테이블": "transfer_ledger", "관리번호": t.management_number,
+                "성명": f"{t.transferor}→{t.transferee}",
+                "차량번호": t.vehicle_number,
+                "차종": getattr(t,"vehicle_type","") or "",
+                "raw_차종": raw.get("차종","") or raw.get("vehicle_type",""),
+                "raw_유종": raw.get("유종","") or raw.get("fuel_type",""),
+                "raw_keys": list(raw.keys())[:15] if raw else [],
+            })
+
+    # 4. closures raw_data
+    for c in db.query(models.Closure).all():
+        if _match(c.vehicle_number, c.name):
+            raw = c.raw_data or {}
+            results.append({
+                "테이블": "closures", "관리번호": c.management_number,
+                "성명": c.name, "차량번호": c.vehicle_number,
+                "차종_DB": getattr(c,"vehicle_type","") or "",
+                "유종_DB": getattr(c,"fuel_type","") or "",
+                "raw_keys": list(raw.keys())[:20] if raw else [],
+                "raw_차종후보": {k: str(raw[k])[:50] for k in raw if "차종" in str(k) or "vehicle" in str(k).lower()},
+                "raw_유종후보": {k: str(raw[k])[:30] for k in raw if "유종" in str(k) or "fuel" in str(k).lower() or "연료" in str(k)},
+                "raw_all_values_sample": {k: str(raw[k])[:30] for k in list(raw.keys())[:25]},
+            })
+
+    return {
+        "검색차량번호": vehicle, "검색성명": name,
+        "총발견": len(results), "결과": results
+    }
