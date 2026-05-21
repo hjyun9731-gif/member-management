@@ -334,16 +334,21 @@ window.viewMember=async(id)=>{
 
 window.viewTransfer=async(id)=>{
   const r=await api('GET',`/api/transfer-ledger/${id}`).catch(()=>null);if(!r)return;
-  const raw=r.raw_data||{};
-  // raw_data에서 추가 업무 필드 추출
+  const raw=(r.raw_data&&typeof r.raw_data==='object')?r.raw_data:{};
   const rawExtra=Object.entries(raw)
-    .filter(([k,v])=>v&&fv(v)!=='-'&&!['id','seq_number','region','vehicle_number','transferor','transferee','receipt_date','approval_date','membership_date','certificate_issue_date','certificate_number','driver_license_number','ledger_update','computer_report','memo','resident_number','phone','mobile','address','management_number','허가번호'].includes(k))
+    .filter(([k,v])=>v&&fv(v)!=='-'&&!['id','seq_number','region','vehicle_number','transferor','transferee','receipt_date','approval_date','membership_date','certificate_issue_date','certificate_number','driver_license_number','ledger_update','computer_report','memo','resident_number','phone','mobile','address','management_number','허가번호','차종','vehicle_type','유종','fuel_type','구조변경','structure_change'].includes(k))
     .slice(0,20);
   const sections=[
-    {title:'기본 정보',fields:[['관리번호',r.management_number],['접수일자',r.receipt_date],['지역',r.region],['차량번호',r.vehicle_number],['차종',raw['차종']||raw['vehicle_type']||''],['유종',raw['유종']||raw['fuel_type']||'']]},
-    {title:'양도자 / 양수자',fields:[['양도자',r.transferor],['양수자',r.transferee],['주민등록번호',r.resident_number],['전화번호',r.phone],['핸드폰',r.mobile],['주소',r.address,true]]},
-    {title:'인허가 정보',fields:[['인가일자',r.approval_date],['가입일자',r.membership_date],['자격증발급일자',r.certificate_issue_date],['자격증발급번호',r.certificate_number],['운전면허번호',r.driver_license_number]]},
-    {title:'행정 정보',fields:[['장부정리',r.ledger_update],['전산보고',r.computer_report],['비고',r.memo,true]]},
+    {title:'기본 정보',fields:[['관리번호',r.management_number],['접수일자',r.receipt_date],['지역',r.region]]},
+    {title:'차량 정보',fields:[
+      ['차량번호',r.vehicle_number],
+      ['차종',r.vehicle_type||raw['차종']||raw['vehicle_type']||''],
+      ['유종',r.fuel_type||raw['유종']||raw['fuel_type']||''],
+      ['구조변경',r.structure_change||raw['구조변경']||'',true],
+    ]},
+    {title:'양도자 / 양수자',fields:[['양도자',r.transferor],['양수자',r.transferee],['주민등록번호',r.resident_number],['전화번호',r.phone],['핸드폰',r.mobile],['주소',r.address,true],['공문주소',raw['공문주소']||raw['official_address']||'',true]]},
+    {title:'인허가 / 자격',fields:[['인가일자',r.approval_date],['가입여부',raw['가입여부']||raw['membership_status']||''],['가입일자',r.membership_date],['자격증발급일자',r.certificate_issue_date],['자격증발급번호',r.certificate_number],['운전면허번호',r.driver_license_number]]},
+    {title:'소속 / 행정',fields:[['소속업체',r.affiliated_company||raw['소속업체']||raw['업체명']||''],['장부정리',r.ledger_update],['전산보고',r.computer_report],['비고',r.memo,true]]},
     ...(rawExtra.length?[{title:'원본 엑셀 데이터',fields:rawExtra.map(([k,v])=>[k,v,false])}]:[]),
   ];
   openModal('양도양수 상세정보',buildDetailSections(sections),
@@ -994,6 +999,7 @@ window.editTransfer=async(id)=>{
     ${fi('membership_date','가입일자',r.membership_date||'')}
     ${fi('certificate_issue_date','자격증명발급일자',r.certificate_issue_date||'')}
     ${fi('certificate_number','자격증명발급번호',r.certificate_number||'')}
+    ${fi('affiliated_company','소속업체',r.affiliated_company||raw_tl['소속업체']||raw_tl['업체명']||'')}
     ${fi('ledger_update','장부정리',r.ledger_update||'')}
     ${fi('driver_license_number','운전면허번호',r.driver_license_number||'')}
     ${fi('computer_report','전산보고',r.computer_report||'')}
