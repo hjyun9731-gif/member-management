@@ -1441,7 +1441,7 @@ async def backfill_change_before_after(
     skip_reasons = {}
 
     stats = {
-        '버전': 'change-backfill-v3',
+        '버전': 'change-backfill-v4',
         'dry_run': dry_run, '전체': len(rows),
         'before복구': 0, 'after복구': 0, '샘플': [],
         'id1_debug': None,
@@ -1484,16 +1484,12 @@ async def backfill_change_before_after(
         will_bv = bool(not cur_bv and new_bv and new_bv != cur_bv)
         will_av = bool(not cur_av and new_av and new_av != cur_av)
 
-        # 헤더 행 제외: vehicle_number/name이 컬럼명 그대로인 행
-        HEADER_VALUES = {'차량번호','성명','vehicle_number','name','변 경 내 용','변경내용','신고일자','시군별','번호'}
-        is_header = (
-            (r.vehicle_number or '').strip() in HEADER_VALUES or
-            (r.name or '').strip() in HEADER_VALUES or
-            content_val.strip() in HEADER_VALUES
-        )
-        if is_header:
-            reason = '헤더행제외'
-            skip_reasons[reason] = skip_reasons.get(reason, 0) + 1
+        # 헤더 행 제외: 정규화 후 컬럼명과 일치하는 행
+        _HEADER_NORM = {'차량번호','성명','변경내용','변경내 용','신고일자','시군별','번호',
+                        'vehicle_number','name','변경사항','내용','번  호','시·군별'}
+        def _is_hdr(v): return ''.join(str(v or '').split()) in _HEADER_NORM
+        if _is_hdr(r.vehicle_number) or _is_hdr(r.name) or _is_hdr(content_val):
+            skip_reasons['헤더행제외'] = skip_reasons.get('헤더행제외', 0) + 1
             cnt_skipped += 1
             continue
 
