@@ -674,3 +674,155 @@ async def cleanup_closures(db: Session = Depends(get_db), _=Depends(require_admi
         "삭제후": post,
     }
 
+
+
+@router.post("/backfill-closures")
+async def backfill_closures(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """기존 폐업현황에 회원정보 backfill
+    차량번호 기준으로 license_holders와 매칭하여 누락 필드 채움
+    """
+    import re as _re
+
+    closures = db.query(models.Closure).filter(
+        models.Closure.deleted_at.is_(None)
+    ).all()
+
+    # 차량번호 → 회원 매핑 (active + closed 모두)
+    members = db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.deleted_at.is_(None)
+    ).all()
+    by_vno = {}
+    for m in members:
+        vno = (m.vehicle_number or "").strip()
+        if vno:
+            by_vno.setdefault(vno, []).append(m)
+
+    def _pick_member(c):
+        """차량번호 기준으로 최적 회원 찾기"""
+        vno = (c.vehicle_number or "").strip()
+        candidates = by_vno.get(vno, [])
+        if not candidates:
+            return None
+        if len(candidates) == 1:
+            return candidates[0]
+        # 여러 명이면 성명 일치 우선
+        name = (c.name or "").strip()
+        for m in candidates:
+            if (m.name or "").strip() == name:
+                return m
+        # 지역 일치 우선
+        region = (c.region or "").strip()
+        for m in candidates:
+            if (m.region or "").strip() == region:
+                return m
+        return candidates[0]
+
+    FILL_FIELDS = [
+        'vehicle_type', 'fuel_type', 'structure_change',
+        'phone', 'mobile', 'address', 'official_address',
+        'membership_status', 'membership_date',
+        'certificate_issue_date', 'certificate_number',
+        'driver_license_number', 'resident_number',
+        'affiliated_company', 'agent_name', 'agent_mobile',
+    ]
+
+    total = len(closures)
+    matched = 0
+    failed = 0
+    vt_filled = 0
+    ft_filled = 0
+    failed_list = []
+
+    for c in closures:
+        m = _pick_member(c)
+        if not m:
+            failed += 1
+            failed_list.append({
+                "id": c.id,
+                "management_number": c.management_number,
+                "vehicle_number": c.vehicle_number,
+                "name": c.name,
+            })
+            continue
+
+        matched += 1
+        changed = False
+        for field in FILL_FIELDS:
+            cur = getattr(c, field, None)
+            src = getattr(m, field, None)
+            if not cur and src:  # 기존값 없을 때만 채움
+                setattr(c, field, src)
+                changed = True
+                if field == 'vehicle_type':
+                    vt_filled += 1
+                if field == 'fuel_type':
+                    ft_filled += 1
+
+        # company_name 보정
+        if not c.company_name and m.company_name:
+            c.company_name = m.company_name
+            changed = True
+
+        # 비고: 기존 보존, 회원 비고가 있으면 별도 추가
+        if m.memo and not c.memo:
+            c.memo = m.memo
+            changed = True
+        elif m.memo and c.memo and m.memo not in c.memo:
+            c.memo = f"{c.memo}\n[회원비고] {m.memo}"
+            changed = True
+
+        # member_id 연결 (없으면)
+        if not c.member_id:
+            c.member_id = m.id
+
+    db.commit()
+
+    return {
+        "전체폐업현황": total,
+        "매칭성공": matched,
+        "매칭실패": failed,
+        "차종채워진건수": vt_filled,
+        "유종채워진건수": ft_filled,
+        "매칭실패목록(최대20)": failed_list[:20],
+    }
+
+
+@router.post("/backfill-transfers")
+async def backfill_transfers(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """기존 양도양수대장에 차종/유종/구조변경/소속업체 backfill"""
+    transfers = db.query(models.TransferLedger).filter(
+        models.TransferLedger.deleted_at.is_(None)
+    ).all()
+
+    members = db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.deleted_at.is_(None)
+    ).all()
+    by_vno = {}
+    for m in members:
+        vno = (m.vehicle_number or "").strip()
+        if vno:
+            by_vno.setdefault(vno, []).append(m)
+
+    FILL = ['vehicle_type', 'fuel_type', 'structure_change', 'affiliated_company']
+    total = len(transfers)
+    matched = vt_filled = 0
+
+    for t in transfers:
+        vno = (t.vehicle_number or "").strip()
+        candidates = by_vno.get(vno, [])
+        if not candidates:
+            continue
+        m = candidates[0]
+        if len(candidates) > 1:
+            for c in candidates:
+                if (c.name or "") == (t.transferee or ""):
+                    m = c; break
+        matched += 1
+        for field in FILL:
+            if not getattr(t, field, None) and getattr(m, field, None):
+                setattr(t, field, getattr(m, field))
+                if field == 'vehicle_type':
+                    vt_filled += 1
+
+    db.commit()
+    return {"전체양도양수": total, "매칭성공": matched, "차종채워진건수": vt_filled}
