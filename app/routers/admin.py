@@ -1409,167 +1409,123 @@ async def backfill_change_before_after(
     dry_run: bool = True,
     db: Session = Depends(get_db), _=Depends(require_admin)
 ):
-    import re as _re, json as _json
-
-    def _nk(k): return _re.sub(r"[\s\u00b7]+", "", str(k or "")).lower()
-
-    BEFORE_KEYS = ["변경전","변경 전","이전주소","변경전주소","변경전내용","이전내용","종전주소","전주소"]
-    AFTER_KEYS  = ["변경후","변경 후","현재주소","변경후주소","변경후내용","현재내용","신주소","새주소"]
-    CONTENT_KEYS = ["변경내용","변경사항","내용","변경내 용","변 경 내 용"]
-
-    def _find(raw, keys):
-        nkeys = [_nk(k) for k in keys]
-        for k in raw:
-            if _nk(k) in nkeys:
-                v = str(raw[k] or "").strip()
-                if v and v not in ("-","nan","None",""): return k, v
-        return None, ""
-
-    def _parse(text):
-        m = _re.search(r"(.+?)\s*[→\->]+\s*(.+)", text, _re.DOTALL)
-        if m: return m.group(1).strip(), m.group(2).strip()
-        return "-", text.strip()
-
-    rows = db.query(models.ChangeHistory).filter(
-        models.ChangeHistory.deleted_at.is_(None)).all()
-
-    stats = {"dry_run": dry_run, "전체": len(rows),
-             "raw있음": 0, "before복구": 0, "after복구": 0, "샘플": []}
-
-    for r in rows:
-        raw = r.raw_data
-        if isinstance(raw, str):
-            try: raw = _json.loads(raw)
-            except: raw = {}
-        if not isinstance(raw, dict) or not raw: continue
-        stats["raw있음"] += 1
-
-        cur_bv = (r.before_value or "").strip()
-        cur_av = (r.after_value  or "").strip()
-
-        # 명시적 변경전/후 키
-        _, raw_bv = _find(raw, BEFORE_KEYS)
-        _, raw_av = _find(raw, AFTER_KEYS)
-
-        # 없으면 변경내용 키에서 파싱
-        raw_content_key, raw_content = _find(raw, CONTENT_KEYS)
-        if raw_content and not raw_bv and not raw_av:
-            raw_bv, raw_av = _parse(raw_content)
-
-        new_bv = raw_bv if raw_bv and not cur_bv else None
-        new_av = raw_av if raw_av and not cur_av else None
-
-        if new_bv: stats["before복구"] += 1
-        if new_av: stats["after복구"] += 1
-
-        if len(stats["샘플"]) < 10 and (new_bv or new_av):
-            stats["샘플"].append({
-                "id": r.id, "change_type": r.change_type,
-                "vehicle_number": r.vehicle_number, "name": r.name,
-                "raw_content_key": raw_content_key, "raw_변경내용": raw_content,
-                "기존_before": cur_bv, "기존_after": cur_av,
-                "새_before": new_bv or "(유지)", "새_after": new_av or "(유지)",
-                "저장예정": {k:v for k,v in [("before_value",new_bv),("after_value",new_av)] if v},
-            })
-
-        if not dry_run:
-            if new_bv: r.before_value = new_bv
-            if new_av: r.after_value  = new_av
-
-    if not dry_run: db.commit()
-    return stats
-
-
-@router.get("/change-raw-sample")
-async def change_raw_sample(db: Session = Depends(get_db), _=Depends(require_admin)):
-    """변경등록대장 raw_data 실제 구조 샘플 확인"""
-    rows = db.query(models.ChangeHistory).filter(
-        models.ChangeHistory.deleted_at.is_(None)
-    ).limit(5).all()
-
-    samples = []
-    for r in rows:
-        raw = r.raw_data if isinstance(r.raw_data, dict) else {}
-        samples.append({
-            "id": r.id,
-            "change_type": r.change_type,
-            "before_value": r.before_value,
-            "after_value": r.after_value,
-            "memo": r.memo,
-            "change_date": r.change_date,
-            "raw_data_keys": list(raw.keys()),
-            "raw_data_all": {k: str(raw[k])[:80] for k in list(raw.keys())[:20]},
-        })
-    return {"samples": samples}
-
-
-@router.post("/backfill-change-before-after")
-async def backfill_change_before_after(
-    dry_run: bool = True,
-    db: Session = Depends(get_db), _=Depends(require_admin)
-):
     """변경등록대장 before_value/after_value raw_data 기준으로 재추출.
-    raw_data에 변경전/변경후 컬럼이 따로 있으면 그걸 우선 사용.
-    dry_run=true: 저장 없이 결과만.
+    버전: change-backfill-v3
     """
-    from app.excel_utils import _parse_change_text, _normalize_text
+    from app.excel_utils import _parse_change_text
+
+    def _nc(s):
+        import re as _r
+        return _r.sub(r'[\s\r\n\t]+', '', str(s or '')).lower()
 
     BEFORE_KEYS = ['변경전','변경 전','이전주소','변경전주소','변경전내용','이전내용','이전','전주소','종전주소']
     AFTER_KEYS  = ['변경후','변경 후','현재주소','변경후주소','변경후내용','현재내용','현재','변경된내용','신주소','새주소']
-    CONTENT_KEYS= ['내용','변경내용','변경사항']
+    CONTENT_KEYS= ['변경내용','변경사항','내용','변경내용','변경내 용','변 경 내 용']
 
     def _find_key(raw, candidates):
         for k in raw:
-            kn = _normalize_text(k)
+            kn = _nc(k)
             for c in candidates:
-                if _normalize_text(c) == kn or _normalize_text(c) in kn:
+                if _nc(c) == kn or _nc(c) in kn:
                     v = str(raw[k] or '').strip()
-                    if v and v not in ('-','nan','None',''):
-                        return v
+                    if v and v not in ('-','nan','None',''): return v
         return ''
 
     rows = db.query(models.ChangeHistory).filter(
         models.ChangeHistory.deleted_at.is_(None)
     ).all()
 
-    stats = {'dry_run': dry_run, '전체': len(rows), '수정예정': 0, '샘플': []}
+    # 디버그 카운터
+    cnt_dict = cnt_str = cnt_has_content = cnt_before_null = cnt_after_null = 0
+    cnt_skipped = 0
+    skip_reasons = {}
+
+    stats = {
+        '버전': 'change-backfill-v3',
+        'dry_run': dry_run, '전체': len(rows),
+        'before복구': 0, 'after복구': 0, '샘플': [],
+        'id1_debug': None,
+    }
+
     for r in rows:
-        raw = r.raw_data if isinstance(r.raw_data, dict) else {}
+        raw_orig = r.raw_data
+        if isinstance(raw_orig, dict):
+            raw = raw_orig; cnt_dict += 1
+        elif isinstance(raw_orig, str):
+            import json
+            try: raw = json.loads(raw_orig); cnt_str += 1
+            except: raw = {}; cnt_str += 1
+        else:
+            raw = {}
+
         if not raw: continue
-
-        new_bv = _find_key(raw, BEFORE_KEYS)
-        new_av = _find_key(raw, AFTER_KEYS)
-
-        # before/after 컬럼이 없으면 content 컬럼 파싱
-        if not new_bv and not new_av:
-            content = _find_key(raw, CONTENT_KEYS)
-            if content:
-                _, new_bv, new_av = _parse_change_text(content)
 
         cur_bv = (r.before_value or '').strip()
         cur_av = (r.after_value  or '').strip()
+        if not cur_bv: cnt_before_null += 1
+        if not cur_av: cnt_after_null += 1
 
-        changed = False
-        if new_bv and new_bv != cur_bv: changed = True
-        if new_av and new_av != cur_av: changed = True
+        # 키 탐색
+        new_bv = _find_key(raw, BEFORE_KEYS)
+        new_av = _find_key(raw, AFTER_KEYS)
 
-        if changed:
-            stats['수정예정'] += 1
-            if len(stats['샘플']) < 10:
-                stats['샘플'].append({
-                    'id': r.id, 'change_type': r.change_type,
-                    'vehicle_number': r.vehicle_number, 'name': r.name,
-                    '기존_before': cur_bv, '기존_after': cur_av,
-                    '새_before': new_bv, '새_after': new_av,
-                    'raw_keys': list(raw.keys())[:10],
-                })
-            if not dry_run:
-                if new_bv: r.before_value = new_bv
-                if new_av: r.after_value  = new_av
+        content_val = ''
+        if not new_bv and not new_av:
+            content_val = _find_key(raw, CONTENT_KEYS)
+            if content_val:
+                cnt_has_content += 1
+                _, new_bv, new_av = _parse_change_text(content_val)
+                # 화살표 없으면: before='-', after=content_val
+                if not new_bv and not new_av:
+                    new_bv, new_av = '-', content_val
+                elif not new_bv:
+                    new_bv = '-'
+
+        will_bv = bool(not cur_bv and new_bv and new_bv != cur_bv)
+        will_av = bool(not cur_av and new_av and new_av != cur_av)
+
+        if not will_bv and not will_av:
+            reason = '이미있음' if (cur_bv or cur_av) else ('content없음' if not content_val else '변화없음')
+            skip_reasons[reason] = skip_reasons.get(reason, 0) + 1
+            cnt_skipped += 1
+
+        if will_bv: stats['before복구'] += 1
+        if will_av: stats['after복구'] += 1
+
+        # id=1 디버그
+        if r.id == 1:
+            stats['id1_debug'] = {
+                'id': r.id, 'change_type': r.change_type,
+                'cur_before': cur_bv, 'cur_after': cur_av,
+                'raw_keys': list(raw.keys())[:15],
+                'content_val': content_val,
+                'new_bv': new_bv, 'new_av': new_av,
+                'will_bv': will_bv, 'will_av': will_av,
+                'raw_normalized_keys': [_nc(k) for k in list(raw.keys())[:10]],
+            }
+
+        if (will_bv or will_av) and len(stats['샘플']) < 10:
+            stats['샘플'].append({
+                'id': r.id, 'change_type': r.change_type,
+                'vehicle_number': r.vehicle_number, 'name': r.name,
+                'raw_content': content_val,
+                '기존_before': cur_bv, '기존_after': cur_av,
+                '새_before': new_bv if will_bv else '(유지)',
+                '새_after': new_av if will_av else '(유지)',
+            })
+
+        if not dry_run:
+            if will_bv: r.before_value = new_bv
+            if will_av: r.after_value  = new_av
 
     if not dry_run: db.commit()
+    stats['디버그'] = {
+        'raw_dict건수': cnt_dict, 'raw_str건수': cnt_str,
+        'content키있음': cnt_has_content,
+        'before_null': cnt_before_null, 'after_null': cnt_after_null,
+        '스킵건수': cnt_skipped, '스킵사유': skip_reasons,
+    }
     return stats
-
 
 @router.get("/debug-closure-raw")
 async def debug_closure_raw(
@@ -1795,59 +1751,3 @@ async def backfill_closure_transfer_fields(
     stats['샘플'] = [v for v in debug.values() if v] + stats['샘플']
     return stats
 
-
-@router.post("/backfill-change-before-after")
-async def backfill_change_before_after(
-    dry_run: bool = True,
-    db: Session = Depends(get_db), _=Depends(require_admin)
-):
-    """변경등록대장 before_value/after_value raw_data 기준으로 재추출"""
-    from app.excel_utils import _parse_change_text, _normalize_text
-
-    BEFORE_KEYS = ['변경전','변경 전','이전주소','변경전주소','변경전내용','이전내용']
-    AFTER_KEYS  = ['변경후','변경 후','현재주소','변경후주소','변경후내용','현재내용','변경내용','변 경 내 용']
-    CONTENT_KEYS = ['변경내용','변경사항','내용','변 경 내 용']
-
-    def _find_key(raw, candidates):
-        for k in raw:
-            kn = _normalize_text(k)
-            for c in candidates:
-                if _normalize_text(c) == kn or _normalize_text(c) in kn:
-                    v = str(raw[k] or '').strip()
-                    if v and v not in ('-','nan','None',''): return v
-        return ''
-
-    rows = db.query(models.ChangeHistory).filter(
-        models.ChangeHistory.deleted_at.is_(None)
-    ).all()
-
-    stats = {'dry_run': dry_run, '전체': len(rows), '수정예정': 0, '샘플': []}
-    for r in rows:
-        raw = r.raw_data if isinstance(r.raw_data, dict) else {}
-        if not raw: continue
-        new_bv = _find_key(raw, BEFORE_KEYS)
-        new_av = _find_key(raw, AFTER_KEYS)
-
-        # before/after 없으면 content에서 파싱
-        if not new_bv and not new_av:
-            content = _find_key(raw, CONTENT_KEYS)
-            if content:
-                _, new_bv, new_av = _parse_change_text(content)
-
-        cur_bv = (r.before_value or '').strip()
-        cur_av = (r.after_value  or '').strip()
-        changed = (new_bv and new_bv != cur_bv) or (new_av and new_av != cur_av)
-        if changed:
-            stats['수정예정'] += 1
-            if len(stats['샘플']) < 10:
-                stats['샘플'].append({
-                    'id': r.id, 'change_type': r.change_type,
-                    'vehicle_number': r.vehicle_number, 'name': r.name,
-                    '기존_before': cur_bv, '기존_after': cur_av,
-                    '새_before': new_bv, '새_after': new_av,
-                })
-            if not dry_run:
-                if new_bv: r.before_value = new_bv
-                if new_av: r.after_value  = new_av
-    if not dry_run: db.commit()
-    return stats
