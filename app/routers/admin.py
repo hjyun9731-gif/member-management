@@ -1691,7 +1691,7 @@ async def backfill_closure_transfer_fields(
     ).all()
 
     target = {'양-18','양-19','양-31','이-2','폐-77'}
-    stats = {'dry_run': dry_run, '전체': len(rows), '수정예정': 0, '샘플': []}
+    stats = {'dry_run': dry_run, '버전': 'v5-date-split-aa07160', '전체': len(rows), '수정예정': 0, '샘플': []}
     debug = {k: None for k in target}
 
     for c in rows:
