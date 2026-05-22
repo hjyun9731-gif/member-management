@@ -1905,102 +1905,156 @@ def _raw_find_arrow(raw: dict) -> str:
 
 @router.get("/audit-change-history")
 async def audit_change_history(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """변경등록대장 전체 진단 - 오분류/헤더/파싱의심 강화버전"""
+    import re as _re
+
+    def _nc(v): return "".join(str(v or "").split()).lower()
+
+    def _combined(c):
+        raw = c.raw_data if isinstance(c.raw_data, dict) else {}
+        return " ".join([c.change_type or "", c.before_value or "",
+                         c.after_value or "", c.memo or ""]
+                        + [str(v) for v in raw.values()])
+
+    def _is_hdr(c):
+        HDR = {"차량번호","성명","변경내용","변경내 용","신고일자","시군별","번호",
+               "지역","처리일자","변경유형","비고","내용","변 경 내 용"}
+        vno = _nc(c.vehicle_number)
+        nm  = _nc(c.name)
+        ct  = _nc(c.change_type)
+        return (vno in {_nc(h) for h in HDR} or
+                nm  in {_nc(h) for h in HDR} or
+                ct  in {_nc(h) for h in HDR})
+
+    def _is_auto(c):
+        if isinstance(c.raw_data, dict) and c.raw_data.get("source") == "member_auto_log":
+            return True
+        return "자동기록" in (c.memo or "")
+
+    def _raw_arrow(raw):
+        KEYS = ["주소","주      소","주 소","변경내용","변 경 내 용","내 용","내용"]
+        for k in raw:
+            kn = _nc(k)
+            if any(_nc(a) in kn for a in KEYS):
+                v = str(raw[k] or "").strip()
+                if v and _re.search(r"->|→", v): return v, k
+        return "", ""
+
+    def _fmt(c, reason, sug_ct="", sug_bv="", sug_av=""):
+        raw = c.raw_data if isinstance(c.raw_data, dict) else {}
+        return {
+            "id": c.id, "change_type": c.change_type,
+            "추천유형": sug_ct, "vehicle_number": c.vehicle_number,
+            "name": c.name, "change_date": c.change_date,
+            "before": c.before_value or "", "after": c.after_value or "",
+            "memo": c.memo or "",
+            "raw_sample": {k: str(raw[k])[:50] for k in list(raw.keys())[:10]},
+            "의심사유": reason, "추천_before": sug_bv, "추천_after": sug_av,
+        }
+
+    TEL_KW  = ["핸드폰","휴대폰","전화번호","연락처","번호변경","010","011","016","017","018","019"]
+    CAR_KW  = ["대차","대폐차","대체등록","차량대체","차량번호변경","대체차","폐차대체"]
+    STRUCT_KW = ["리프트","탑차","냉동","냉장","윙","파워게이트","장착","탈거","포장탑","내장탑","수직리프트"]
+    NONSTANDARD = {"-","기타","비고","영업소","내 용","변경내용","번  호"}
+
     rows = db.query(models.ChangeHistory).filter(
         models.ChangeHistory.deleted_at.is_(None)).all()
 
-    BTYPE_NAMES = {'상호변경','주소지변경','구조변경','전속계약 업체변경','대차/대폐차',
-                   '성명변경','번호변경','연락처변경','대표자변경','자격증재교부','이전전출','등록이관'}
-
     summary = {
-        '전체': len(rows), 'raw있음': 0, 'raw없음': 0,
-        '전후모두있음': 0, '전후모두없음': 0, '전만있음': 0, '후만있음': 0,
-        '헤더의심': 0, '오분류의심': 0, '자동기록': 0, '원본업로드': 0,
+        "전체": len(rows), "raw있음": 0, "raw없음": 0,
+        "전후모두있음": 0, "전후모두없음": 0, "전만있음": 0, "후만있음": 0,
+        "헤더의심": 0, "오분류의심": 0, "자동기록": 0, "원본업로드": 0,
     }
     by_type: dict = {}
-    suspects: dict = {
-        'A_연락처': [], 'B_대차': [], 'C_상호오분류': [],
-        'D_구조변경의심': [], 'E_헤더': [], 'F_파싱': [],
+
+    # 세부 샘플 버킷
+    buckets: dict = {
+        "헤더의심": [], "기타유형": [], "대시유형": [],
+        "구조변경샘플": [], "번호변경샘플": [], "성명변경샘플": [],
+        "연락처의심": [], "대차의심": [], "구조→대차의심": [],
+        "파싱가능_비어있음": [], "비표준유형": [],
+        "상속/말소/기타비표준": [],
     }
 
-    def _fmt(c, reason, suggested_ct='', suggested_bv='', suggested_av=''):
-        raw = c.raw_data if isinstance(c.raw_data, dict) else {}
-        return {
-            'id': c.id, 'change_type': c.change_type,
-            '추천_type': suggested_ct, 'vehicle_number': c.vehicle_number,
-            'name': c.name, 'change_date': c.change_date,
-            'before_value': c.before_value or '', 'after_value': c.after_value or '',
-            'memo': c.memo or '', 'raw_keys': list(raw.keys())[:10],
-            'raw_sample': {k: str(raw[k])[:40] for k in list(raw.keys())[:8]},
-            '의심사유': reason, '추천_before': suggested_bv, '추천_after': suggested_av,
-            '자동기록': _is_auto_log(c),
-        }
+    NON_STD_PATTERNS = ["상속","말소","폐차","운행정지","영업소","비고","내 용"]
 
     for c in rows:
         raw = c.raw_data if isinstance(c.raw_data, dict) else {}
-        bv  = (c.before_value or '').strip()
-        av  = (c.after_value  or '').strip()
-        ct  = (c.change_type  or '').strip()
+        bv  = (c.before_value or "").strip()
+        av  = (c.after_value  or "").strip()
+        ct  = (c.change_type  or "").strip()
+        combined = _combined(c)
+        cl = combined.lower().replace(" ", "")
 
-        if raw: summary['raw있음'] += 1
-        else:   summary['raw없음'] += 1
+        if raw: summary["raw있음"] += 1
+        else:   summary["raw없음"] += 1
 
-        if bv and av:   summary['전후모두있음'] += 1
-        elif not bv and not av: summary['전후모두없음'] += 1
-        elif bv:        summary['전만있음'] += 1
-        else:           summary['후만있음'] += 1
+        if bv and av:   summary["전후모두있음"] += 1
+        elif not bv and not av: summary["전후모두없음"] += 1
+        elif bv:        summary["전만있음"] += 1
+        else:           summary["후만있음"] += 1
 
-        if _is_auto_log(c): summary['자동기록'] += 1
-        else:               summary['원본업로드'] += 1
+        if _is_auto(c): summary["자동기록"] += 1
+        else:           summary["원본업로드"] += 1
 
         by_type[ct] = by_type.get(ct, 0) + 1
 
-        # 헤더
-        if _is_header_row(c):
-            summary['헤더의심'] += 1
-            if len(suspects['E_헤더']) < 20:
-                suspects['E_헤더'].append(_fmt(c, '헤더행의심'))
+        # 헤더 의심
+        if _is_hdr(c):
+            summary["헤더의심"] += 1
+            if len(buckets["헤더의심"]) < 50:
+                buckets["헤더의심"].append(_fmt(c, "헤더행의심"))
             continue
 
-        combined = _combined(c)
+        # 비표준 유형
+        if any(_nc(p) in _nc(ct) for p in NON_STD_PATTERNS) or _nc(ct) in {_nc(n) for n in NONSTANDARD}:
+            summary["오분류의심"] += 1
+            if len(buckets["비표준유형"]) < 50:
+                buckets["비표준유형"].append(_fmt(c, f"비표준유형:{ct}"))
+            if any(k in _nc(ct) for k in ["상속","말소","폐차","운행정지","영업소"]):
+                if len(buckets["상속/말소/기타비표준"]) < 50:
+                    buckets["상속/말소/기타비표준"].append(_fmt(c, f"비표준:{ct}"))
 
-        # A. 연락처 오분류
-        if ct not in ('연락처변경','번호변경') and any(k in combined for k in ['핸드폰','휴대폰','전화번호','번호변경']):
-            if len(suspects['A_연락처']) < 20:
-                suspects['A_연락처'].append(_fmt(c, '연락처변경의심', '연락처변경'))
-            summary['오분류의심'] += 1
+        # 세부 샘플
+        if ct == "기타" and len(buckets["기타유형"]) < 50:
+            buckets["기타유형"].append(_fmt(c, "기타유형"))
+        if ct in ("-","- ") and len(buckets["대시유형"]) < 50:
+            buckets["대시유형"].append(_fmt(c, "대시유형"))
+        if ct == "구조변경" and len(buckets["구조변경샘플"]) < 50:
+            buckets["구조변경샘플"].append(_fmt(c, "구조변경샘플"))
+        if ct in ("번호변경","성명변경") and len(buckets[f"{ct}샘플"]) < 50:
+            buckets[f"{ct}샘플"].append(_fmt(c, f"{ct}샘플"))
 
-        # B. 대차/대폐차 오분류
-        elif ct not in ('대차/대폐차','번호변경') and any(k in combined.replace(' ','') for k in ['대차','대폐차','대체등록','차량대체']):
-            if len(suspects['B_대차']) < 20:
-                suspects['B_대차'].append(_fmt(c, '대차/대폐차의심', '대차/대폐차'))
-            summary['오분류의심'] += 1
+        # A. 연락처 의심
+        if any(k in cl for k in [_nc(t) for t in TEL_KW]):
+            if ct not in ("연락처변경","번호변경"):
+                summary["오분류의심"] += 1
+                if len(buckets["연락처의심"]) < 50:
+                    buckets["연락처의심"].append(_fmt(c, f"연락처의심(현재:{ct})", "연락처변경"))
 
-        # C. 상호 오분류 (전속계약인데 전속 키워드 없음)
-        elif ct == '전속계약 업체변경' and '전속' not in combined:
-            if len(suspects['C_상호오분류']) < 20:
-                suspects['C_상호오분류'].append(_fmt(c, '상호변경으로 오분류의심', '상호변경'))
-            summary['오분류의심'] += 1
+        # B. 대차 의심
+        if any(k in cl for k in [_nc(t) for t in CAR_KW]):
+            summary["오분류의심"] += 1
+            if len(buckets["대차의심"]) < 50:
+                buckets["대차의심"].append(_fmt(c, f"대차/대폐차의심(현재:{ct})", "대차/대폐차"))
+            if ct == "구조변경" and len(buckets["구조→대차의심"]) < 50:
+                buckets["구조→대차의심"].append(_fmt(c, "구조변경→대차의심", "대차/대폐차"))
 
-        # D. 구조변경인데 대차처럼 보임
-        elif ct == '구조변경' and any(k in combined.replace(' ','') for k in ['대차','대폐차','차량번호변경']):
-            if len(suspects['D_구조변경의심']) < 20:
-                suspects['D_구조변경의심'].append(_fmt(c, '구조변경→대차의심', '대차/대폐차'))
-            summary['오분류의심'] += 1
-
-        # F. 파싱 의심: 전후 없는데 raw에 화살표 값 있음
+        # F. 파싱 가능한데 비어있음
         if not bv and not av:
-            arrow_val = _raw_find_arrow(raw)
-            if arrow_val:
-                import re as _re
-                m = _re.search(r'(.+?)\s*(?:->|→)\s*(.+)', arrow_val)
-                nbv = m.group(1).strip() if m else ''
-                nav = m.group(2).strip() if m else ''
-                if len(suspects['F_파싱']) < 20:
-                    suspects['F_파싱'].append(_fmt(c, 'raw화살표_파싱가능', '', nbv, nav))
+            av2, k2 = _raw_arrow(raw)
+            if av2:
+                m = _re.search(r"(.+?)\s*(?:->|→)\s*(.+)", av2)
+                nbv = m.group(1).strip() if m else ""
+                nav = m.group(2).strip() if m else ""
+                if len(buckets["파싱가능_비어있음"]) < 50:
+                    buckets["파싱가능_비어있음"].append(
+                        _fmt(c, f"raw화살표파싱가능({k2})", "", nbv, nav))
 
     return {
-        '요약': summary, '유형별건수': dict(sorted(by_type.items(), key=lambda x:-x[1])),
-        '오분류의심': {k: v for k, v in suspects.items() if v},
+        "요약": summary,
+        "유형별건수": dict(sorted(by_type.items(), key=lambda x: -x[1])),
+        "세부샘플": {k: v for k, v in buckets.items() if v},
     }
 
 
@@ -2075,3 +2129,42 @@ async def fix_change_history_audit(
 
     if not dry_run: db.commit()
     return stats
+
+
+@router.post("/cleanup-change-header-rows")
+async def cleanup_change_header_rows(
+    dry_run: bool = True,
+    db: Session = Depends(get_db), _=Depends(require_admin)
+):
+    """변경등록대장 헤더행 정리"""
+    from datetime import datetime, timezone
+
+    def _nc(v): return "".join(str(v or "").split()).lower()
+    HDR = {"차량번호","성명","변경내용","변경내 용","신고일자","시군별","번호",
+           "지역","처리일자","변경유형","비고","내용","변 경 내 용"}
+    hdr_nc = {_nc(h) for h in HDR}
+
+    rows = db.query(models.ChangeHistory).filter(
+        models.ChangeHistory.deleted_at.is_(None)).all()
+
+    to_delete = []
+    for c in rows:
+        vno = _nc(c.vehicle_number)
+        nm  = _nc(c.name)
+        ct  = _nc(c.change_type)
+        if vno in hdr_nc or nm in hdr_nc or ct in hdr_nc:
+            to_delete.append(c)
+
+    samples = [{"id": c.id, "change_type": c.change_type,
+                "vehicle_number": c.vehicle_number, "name": c.name,
+                "before": c.before_value, "after": c.after_value}
+               for c in to_delete[:50]]
+
+    if not dry_run:
+        now = datetime.now(timezone.utc)
+        for c in to_delete:
+            c.deleted_at = now
+        db.commit()
+
+    return {"dry_run": dry_run, "헤더행수": len(to_delete),
+            "삭제예정": len(to_delete), "샘플": samples}
