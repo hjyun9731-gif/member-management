@@ -587,19 +587,11 @@ async def monthly_report_auto(
         models.Closure.deleted_at.is_(None)).all()
         if matches((c.receipt_date or c.closure_date or ''))]
 
-    all_month_ch = [c for c in db.query(models.ChangeHistory).filter(
+    month_changes = [c for c in db.query(models.ChangeHistory).filter(
         models.ChangeHistory.deleted_at.is_(None)).all()
         if matches(c.change_date or c.receipt_date or '')]
 
-    # 자동기록과 원본 변경등록대장 분리
-    def _is_auto(c):
-        if isinstance(c.raw_data, dict) and c.raw_data.get('source') == 'member_auto_log':
-            return True
-        memo = (c.memo or '')
-        return '회원정보 수정 자동기록' in memo or '자동기록' in memo
-
-    month_changes     = [c for c in all_month_ch if not _is_auto(c)]
-    month_changes_auto = [c for c in all_month_ch if _is_auto(c)]
+    month_changes_auto = []  # 구분용 (집계에는 포함)
 
     change_by_type: dict = {}
     for c in month_changes:
