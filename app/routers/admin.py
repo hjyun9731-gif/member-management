@@ -2286,3 +2286,40 @@ async def nonstandard_change_types(db: Session = Depends(get_db), _=Depends(requ
         '유형별건수': dict(sorted(by_ct.items(), key=lambda x: -x[1])),
         '전체목록': result,
     }
+
+
+@router.post("/fix-specific-change-rows")
+async def fix_specific_change_rows(
+    dry_run: bool = True,
+    db: Session = Depends(get_db), _=Depends(require_admin)
+):
+    """특정 비정상 변경이력 행 처리.
+    id 3636: 안내/메모 행 → soft-delete
+    id 2321: 기타→구조변경, raw 주소컬럼 before/after 복구
+    """
+    from datetime import datetime, timezone
+    results = []
+
+    # id 3636 - 안내 행 삭제
+    r3636 = db.query(models.ChangeHistory).filter(models.ChangeHistory.id==3636).first()
+    if r3636:
+        results.append({'id':3636,'action':'soft-delete','current_type':r3636.change_type,
+                        'vehicle_number':r3636.vehicle_number,'name':r3636.name})
+        if not dry_run:
+            r3636.deleted_at = datetime.now(timezone.utc)
+
+    # id 2321 - 기타→구조변경, 카고→내장탑 복구
+    r2321 = db.query(models.ChangeHistory).filter(models.ChangeHistory.id==2321).first()
+    if r2321:
+        results.append({'id':2321,'action':'fix','current_type':r2321.change_type,
+                        'current_before':r2321.before_value,'current_after':r2321.after_value,
+                        '새_type':'구조변경','새_before':'카고','새_after':'내장탑',
+                        '새_memo':'개별화물 (공문 잘못 옴)'})
+        if not dry_run:
+            r2321.change_type = '구조변경'
+            r2321.before_value = '카고'
+            r2321.after_value  = '내장탑'
+            r2321.memo         = '개별화물 (공문 잘못 옴)'
+
+    if not dry_run: db.commit()
+    return {'dry_run': dry_run, '결과': results}

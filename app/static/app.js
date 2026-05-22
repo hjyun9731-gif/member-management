@@ -1817,24 +1817,70 @@ async function viewDeadline(id){
 }
 
 function _dlForm(r={}){
-  const fi=(name,lbl,val,type='text')=>`<div class="form-group cs2"><label class="form-lbl">${lbl}</label><input class="form-ctrl" id="dl_${name}" type="${type}" value="${e_(val||'')}"></div>`;
-  const fs=(name,lbl,val,opts)=>`<div class="form-group cs2"><label class="form-lbl">${lbl}</label><select class="form-ctrl" id="dl_${name}">${opts.map(o=>`<option value="${o}" ${val===o?'selected':''}>${o}</option>`).join('')}</select></div>`;
-  const fta=(name,lbl,val)=>`<div class="form-group cs4"><label class="form-lbl">${lbl}</label><textarea class="form-ctrl" id="dl_${name}" rows="2">${e_(val||'')}</textarea></div>`;
-  return `<div class="form-grid">
-    ${fs('task_type','업무구분',r.task_type||'',DL_TYPES)}
-    ${fi('title','제목',r.title)}
-    ${fi('vehicle_number','차량번호',r.vehicle_number)}
-    ${fi('name','성명',r.name)}
-    ${fi('region','지역',r.region)}
-    ${fi('mobile','핸드폰',r.mobile)}
-    ${fi('start_date','시작일',r.start_date,'date')}
-    ${fi('due_date','기한일',r.due_date,'date')}
-    ${fi('reminder_days','사전알림(일)',r.reminder_days||'7,3,0')}
+  const f=(name,lbl,val,type='text',extra='')=>`
+    <div class="dl-field">
+      <label class="dl-lbl">${lbl}</label>
+      <input class="dl-inp" id="dl_${name}" type="${type}" value="${e_(val||'')}" ${extra}>
+    </div>`;
+  const fs=(name,lbl,val,opts)=>`
+    <div class="dl-field">
+      <label class="dl-lbl">${lbl}</label>
+      <select class="dl-inp" id="dl_${name}" onchange="_dlAutoTitle()">
+        ${opts.map(o=>`<option value="${o}" ${val===o?'selected':''}>${o}</option>`).join('')}
+      </select>
+    </div>`;
+  const fta=(name,lbl,val,rows=3)=>`
+    <div class="dl-field dl-full">
+      <label class="dl-lbl">${lbl}</label>
+      <textarea class="dl-inp dl-ta" id="dl_${name}" rows="${rows}">${e_(val||'')}</textarea>
+    </div>`;
+  const defType = r.task_type || '휴업만료';
+  const defTitle = r.title || (r.name ? `${defType} - ${r.name}${r.vehicle_number?' / '+r.vehicle_number:''}` : '');
+  return `
+  <style>
+    .dl-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 18px;padding:4px 2px}
+    .dl-full{grid-column:1/-1}
+    .dl-field{display:flex;flex-direction:column;gap:4px}
+    .dl-lbl{font-size:11px;font-weight:600;color:var(--c-text-3,#64748b)}
+    .dl-inp{width:100%;height:38px;border:1px solid var(--c-border,#d8dee9);border-radius:8px;padding:8px 10px;font-size:14px;box-sizing:border-box;background:var(--c-bg,#fff);color:var(--c-text,#1a1a1a)}
+    .dl-inp:focus{outline:none;border-color:var(--c-primary,#6c63ff);box-shadow:0 0 0 2px rgba(108,99,255,.15)}
+    .dl-ta{height:auto;min-height:72px;resize:vertical}
+    @media(max-width:600px){.dl-grid{grid-template-columns:1fr}.dl-full{grid-column:1}}
+  </style>
+  <div class="dl-grid">
+    ${fs('task_type','업무구분',defType,DL_TYPES)}
     ${fs('status','상태',r.status||'예정',['예정','진행중','완료','기한초과','연장'])}
-    ${fta('content','내용',r.content)}
-    ${fta('memo','메모',r.memo)}
+    <div class="dl-field dl-full">
+      <label class="dl-lbl">제목</label>
+      <input class="dl-inp" id="dl_title" value="${e_(defTitle)}" placeholder="제목 (업무구분+성명 자동 생성)">
+    </div>
+    ${f('vehicle_number','차량번호',r.vehicle_number,'text','onchange="_dlAutoTitle()"')}
+    ${f('name','성명',r.name,'text','onchange="_dlAutoTitle()"')}
+    ${f('region','지역',r.region)}
+    ${f('mobile','핸드폰',r.mobile,'tel')}
+    ${f('reminder_days','사전알림(일)',r.reminder_days||'7,3,0','text','placeholder="예: 7,3,0"')}
+    ${f('start_date','시작일',r.start_date,'date')}
+    ${f('due_date','기한일 *',r.due_date,'date')}
+    ${fta('content','내용',r.content,3)}
+    ${fta('memo','메모',r.memo,2)}
   </div>`;
 }
+
+function _dlAutoTitle(){
+  const t=document.getElementById('dl_task_type')?.value||'';
+  const n=document.getElementById('dl_name')?.value||'';
+  const v=document.getElementById('dl_vehicle_number')?.value||'';
+  const el=document.getElementById('dl_title');
+  if(el&&!el.dataset.manual){
+    const parts=[t,n&&v?`${n} / ${v}`:n||v].filter(Boolean);
+    el.value=parts.join(' - ');
+  }
+}
+
+// 사용자가 직접 수정하면 자동생성 중단
+document.addEventListener('input',e=>{
+  if(e.target.id==='dl_title') e.target.dataset.manual='1';
+});
 
 function _dlVal(){
   const g=id=>document.getElementById(id)?.value||'';
