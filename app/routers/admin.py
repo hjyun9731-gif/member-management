@@ -2078,33 +2078,37 @@ async def fix_change_history_audit(
     dry_run: bool = True,
     db: Session = Depends(get_db), _=Depends(require_admin)
 ):
-    """비표준 change_type 표준화 v2 (before/after/memo 처리 기준 확정)"""
+    """비표준 change_type 표준화 v3 - before/after/memo 처리 확정"""
     import re as _re
 
     def _nc(v): return "".join(str(v or "").split()).lower()
+
+    REGION_KW = ["경남","경북","충남","충북","전남","전북","강원","경기","서울","인천",
+                 "대전","대구","부산","광주","울산","세종","제주","춘천","강릉","원주",
+                 "포천","포항","안산","수원","성남","용인","화성","고양","부천"]
+    ADDR_KW = ["길","로","번길","읍","면","동","리","호","아파트","빌라","주공","타운"]
+
+    def _is_person(v):
+        v = str(v or "").strip()
+        if not v: return False
+        if v in REGION_KW or any(r in v for r in REGION_KW): return False
+        return bool(_re.match(r"^[가-힣]{2,4}$", v))
+
     def _is_addr(v):
-        ADDR = ["길","로","번길","읍","면","동","리","호","아파트","빌라","주공","타운"]
-        return any(k in str(v or "") for k in ADDR)
-    def _is_biz_name(v):
-        BIZ = {"말소","폐차","허가취소","허가실효","운전면허취소","업종변경","주사무소변경",
-               "직권말소","운행정지","상속","이름변경","구조변경","상호변경","주소지변경"}
-        return _nc(v) in BIZ or _nc(v) == "-"
+        return any(k in str(v or "") for k in ADDR_KW)
 
-    MALSO_KW  = ["말소","폐차","허가취소","허가실효","운전면허취소","영업용말소",
-                 "차령초과","감차","재허가미신청","직권말소","폐업에의한"]
-    SANGSU_KW = ["상속"]
-    EOPJONG_KW = ["업종변경","일반화물","용달화물","개인용달"]
-    UNJUNG_KW  = ["운행정지"]
-
-    STANDARD_NC = {"주소지변경","상호변경","구조변경","전속계약업체변경","성명변경",
-                   "이름변경","번호변경","대표자변경","자격증재교부","이전전출","등록이관",
-                   "연락처변경","대차/대폐차","자진말소","말소/폐차","상속","업종변경",
-                   "운행정지","영업소변경","기타"}
+    MALSO_NC  = {"말소","폐차","허가취소","허가실효","운전면허취소","영업용말소",
+                 "차령초과","감차","재허가미신청","직권말소","폐업에의한","폐업"}
+    EOPJONG_REAL = {"일반화물","용달화물","개인용달"}
+    EOPJONG_BIZ  = {"업종변경"}
+    STANDARD_NC  = {"주소지변경","상호변경","구조변경","전속계약업체변경","성명변경",
+                    "이름변경","번호변경","대표자변경","자격증재교부","이전전출","등록이관",
+                    "연락처변경","대차/대폐차","말소/폐차","상속","업종변경","운행정지","영업소변경","기타"}
 
     rows = db.query(models.ChangeHistory).filter(
         models.ChangeHistory.deleted_at.is_(None)).all()
 
-    stats = {"dry_run": dry_run, "버전": "fix-audit-v2",
+    stats = {"dry_run": dry_run, "버전": "fix-audit-v3",
              "전체": len(rows), "수정예정": 0, "유형수정": {}, "샘플": []}
 
     for r in rows:
@@ -2113,101 +2117,102 @@ async def fix_change_history_audit(
         av   = (r.after_value  or "").strip()
         memo = (r.memo         or "").strip()
         ct_nc = _nc(ct)
+        av_nc = _nc(av)
 
         if ct_nc in STANDARD_NC:
             continue
 
-        new_ct   = ct
-        new_bv   = bv
-        new_av   = av
-        new_memo = memo
-        reason   = ""
+        new_ct = new_bv = new_av = new_memo = ""
+        reason = ""
 
         # ── 말소/폐차 계열 ──
-        if any(k in ct_nc for k in [_nc(k) for k in MALSO_KW]) or            any(k in _nc(av) for k in [_nc(k) for k in MALSO_KW]):
+        is_malso_ct = any(k in ct_nc for k in MALSO_NC)
+        is_malso_av = any(k in av_nc for k in MALSO_NC)
+        if is_malso_ct or is_malso_av:
             new_ct = "말소/폐차"
-            # memo: 원문(ct 또는 av) 보존
             orig = ct if ct not in ("-","") else av
-            new_memo = orig if orig else memo
-            # before/after가 주소면 공란
-            addr_note = ""
-            if _is_addr(bv) or _is_addr(av):
-                addr_note = f" / 주소참고: {bv}-{av}".strip("/ -")
-                new_bv, new_av = "", ""
-            elif _is_biz_name(bv): new_bv = ""
-            elif _is_biz_name(av): new_av = ""
-            new_memo = (new_memo + addr_note).strip()
-            reason = "말소/폐차계열"
+            new_memo = orig if orig and _nc(orig) != "-" else (memo or "")
+            new_bv, new_av = "", ""
+            reason = "말소/폐차"
 
         # ── 상속 계열 ──
-        elif any(k in ct_nc for k in SANGSU_KW):
+        elif any(k in ct_nc for k in ["상속"]):
             new_ct = "상속"
-            # 지역이동 문구는 memo에
-            new_memo = ct if ct != "상속" else memo
-            # before/after에 이름이면 유지, 아니면 공란
-            reason = "상속계열"
+            new_bv = bv if _is_person(bv) else ""
+            new_av = av if _is_person(av) else ""
+            new_memo = ct if _nc(ct) != "상속" else memo
+            reason = "상속"
 
         # ── 운행정지 ──
-        elif any(k in ct_nc for k in UNJUNG_KW):
+        elif "운행정지" in ct_nc:
             new_ct = "운행정지"
+            new_bv, new_av = bv, av
             new_memo = ct
             reason = "운행정지"
 
         # ── 주사무소 → 주소지변경 ──
-        elif "주사무소" in ct_nc or "주사무소" in _nc(av):
+        elif "주사무소" in ct_nc or "주사무소" in av_nc:
             new_ct = "주소지변경"
             new_memo = "주사무소 변경"
-            # 주소가 아니면 before/after 공란
-            if not _is_addr(bv): new_bv = ""
-            if not _is_addr(av): new_av = ""
-            reason = "주사무소변경→주소지변경"
+            new_bv = "" if not _is_addr(bv) else bv
+            new_av = av if _is_addr(av) else ""
+            reason = "주사무소→주소지변경"
 
         # ── 영업소 ──
         elif "영업소" in ct_nc:
             new_ct = "영업소변경"
+            new_bv, new_av, new_memo = bv, av, memo
             reason = "영업소"
 
         # ── 업종변경 계열 ──
-        elif any(k in ct_nc for k in [_nc(k) for k in EOPJONG_KW]) or              any(k in _nc(av) for k in [_nc(k) for k in EOPJONG_KW]):
+        elif any(k in ct_nc for k in ["업종변경","일반화물","용달화물","개인용달"]) or              any(k in av_nc for k in ["업종변경","일반화물","용달화물","개인용달"]):
             new_ct = "업종변경"
-            orig_memo = ct if ct not in ("-","") else ""
-            new_memo = orig_memo if orig_memo else memo
-            # after가 "업종변경" 같은 비즈명이면 공란
-            if _is_biz_name(av) and av not in ("일반화물","용달화물","개인용달"):
+            orig = ct if ct not in ("-","") else ""
+            new_memo = orig if orig else memo
+            new_bv = bv  # before는 유지 (용달화물 등)
+            # after: 실제 업종명이면 유지, 비즈명이면 공란
+            if av_nc in {_nc(b) for b in EOPJONG_BIZ}:
                 new_av = ""
-            reason = "업종변경계열"
+                new_memo = av or new_memo
+            elif av_nc in {_nc(b) for b in EOPJONG_REAL}:
+                new_av = av
+            else:
+                new_av = ""
+            reason = "업종변경"
 
         # ── "-" 유형 ──
         elif ct in ("-", "", "- "):
-            av_nc = _nc(av)
-            if any(k in av_nc for k in [_nc(k) for k in MALSO_KW]):
+            if any(k in av_nc for k in MALSO_NC):
                 new_ct = "말소/폐차"
-                new_memo = av if av else memo
-                # av가 비즈명이면 after 공란
-                if _is_biz_name(av): new_av = ""
+                new_memo = av if av and _nc(av) != "-" else memo
+                new_bv, new_av = "", ""
                 reason = "-→말소/폐차"
-            elif any(k in av_nc for k in [_nc(k) for k in EOPJONG_KW]):
+            elif any(k in av_nc for k in ["업종변경","일반화물","용달화물"]):
                 new_ct = "업종변경"
                 new_memo = av
-                if _is_biz_name(av): new_av = ""
+                new_bv = bv
+                new_av = av if av_nc in {_nc(b) for b in EOPJONG_REAL} else ""
                 reason = "-→업종변경"
             elif "주사무소" in av_nc:
                 new_ct = "주소지변경"
                 new_memo = av
-                new_av = ""
+                new_bv, new_av = "", ""
                 reason = "-→주소지변경"
-            elif any(k in av_nc for k in SANGSU_KW):
+            elif any(k in av_nc for k in ["상속"]):
                 new_ct = "상속"
                 new_memo = av
+                new_bv = bv if _is_person(bv) else ""
+                new_av = av if _is_person(av) else ""
                 reason = "-→상속"
             else:
                 new_ct = "기타"
-                new_memo = av if av else memo
+                new_memo = av if (av and _nc(av) != "-") else memo
+                new_bv, new_av = bv, av
                 reason = "-→기타"
         else:
-            continue  # 나머지는 건드리지 않음
+            continue
 
-        # 변경사항 없으면 skip
+        # 변경없으면 skip
         if (new_ct == ct and new_bv == bv and new_av == av and new_memo == memo):
             continue
 
@@ -2217,11 +2222,10 @@ async def fix_change_history_audit(
 
         if len(stats["샘플"]) < 100:
             stats["샘플"].append({
-                "id": r.id,
-                "기존_type": ct, "새_type": new_ct,
+                "id": r.id, "기존_type": ct, "새_type": new_ct,
                 "기존_before": bv, "새_before": new_bv,
-                "기존_after": av, "새_after": new_av,
-                "기존_memo": memo, "새_memo": new_memo,
+                "기존_after": av,  "새_after":  new_av,
+                "기존_memo": memo, "새_memo":  new_memo,
                 "수정사유": reason,
                 "vehicle_number": r.vehicle_number, "name": r.name,
             })
