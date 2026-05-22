@@ -2183,3 +2183,62 @@ async def cleanup_change_header_rows(
 
     return {"dry_run": dry_run, "헤더행수": len(to_delete),
             "삭제예정": len(to_delete), "샘플": samples}
+
+
+@router.get("/nonstandard-change-types")
+async def nonstandard_change_types(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """비표준 change_type 전체 목록"""
+
+    STANDARD = {
+        '주소지변경','상호변경','구조변경','전속계약 업체변경','성명변경','이름변경',
+        '번호변경','대표자변경','자격증재교부','이전전출','등록이관','연락처변경',
+        '대차/대폐차','자진말소',
+    }
+
+    def _suggest(ct, combined):
+        ct_nc = ''.join(ct.split()).lower()
+        c_nc  = ''.join(combined.split()).lower()
+        if '말소' in ct_nc or '폐차' in ct_nc:            return '자진말소'
+        if '상속' in ct_nc:                               return '상속(참고)'
+        if '운행정지' in ct_nc:                            return '운행정지(참고)'
+        if '영업소' in ct_nc or '주사무소' in ct_nc:        return '상호변경'
+        if '변경허가' in ct_nc:                            return '기타(참고)'
+        if ct_nc in ('-',''):                             return '기타'
+        if '폐업' in ct_nc:                               return '자진말소'
+        return '기타'
+
+    rows = db.query(models.ChangeHistory).filter(
+        models.ChangeHistory.deleted_at.is_(None)).all()
+
+    result = []
+    for r in rows:
+        ct = (r.change_type or '').strip()
+        if ct in STANDARD: continue
+        raw = r.raw_data if isinstance(r.raw_data, dict) else {}
+        combined = ' '.join([ct, r.before_value or '', r.after_value or '', r.memo or '']
+                            + [str(v) for v in raw.values()])
+        result.append({
+            'id': r.id,
+            '현재_type': ct,
+            '추천_type': _suggest(ct, combined),
+            'vehicle_number': r.vehicle_number,
+            'name': r.name,
+            'change_date': r.change_date,
+            'before': r.before_value or '',
+            'after':  r.after_value  or '',
+            'memo':   r.memo         or '',
+            'raw_data': {k: str(raw[k])[:60] for k in list(raw.keys())[:12]},
+            '추천사유': _suggest(ct, combined),
+        })
+
+    # 유형별 집계
+    by_ct: dict = {}
+    for r2 in result:
+        ct2 = r2['현재_type']
+        by_ct[ct2] = by_ct.get(ct2, 0) + 1
+
+    return {
+        '비표준총건수': len(result),
+        '유형별건수': dict(sorted(by_ct.items(), key=lambda x: -x[1])),
+        '전체목록': result,
+    }
