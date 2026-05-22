@@ -1415,7 +1415,8 @@ async function renderMonthlyReport(){
         <p style="font-size:11px;color:var(--c-text-3);margin-top:8px;line-height:1.8">
           ※ 집계 기준 &nbsp;·&nbsp; 취업신고: 신규등록대장 당월 &nbsp;·&nbsp; 퇴사신고: 폐업현황 폐-* 당월
           &nbsp;·&nbsp; 양도양수: 양도양수대장 당월 &nbsp;·&nbsp; 이관: 폐업현황 이-* 당월
-          &nbsp;·&nbsp; 상호/대표자/차량/주소/자격증재교부: 변경등록대장
+          &nbsp;·&nbsp; 상호/대표자/차량/주소/자격증재교부: 변경등록대장 (회원수정 자동기록 제외)
+          ${aw._자동기록제외?` &nbsp;·&nbsp; <span style="color:var(--c-warn)">이번 달 자동기록 ${aw._자동기록제외}건 제외됨</span>`:''}
         </p>
       </div>
     </div>

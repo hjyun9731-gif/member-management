@@ -587,10 +587,19 @@ async def monthly_report_auto(
         models.Closure.deleted_at.is_(None)).all()
         if matches((c.receipt_date or c.closure_date or ''))]
 
-    month_changes = [c for c in db.query(models.ChangeHistory).filter(
+    all_month_ch = [c for c in db.query(models.ChangeHistory).filter(
         models.ChangeHistory.deleted_at.is_(None)).all()
-        if matches(c.change_date or c.receipt_date or '')
-        and not (isinstance(c.raw_data, dict) and c.raw_data.get('source') == 'member_auto_log')]
+        if matches(c.change_date or c.receipt_date or '')]
+
+    # 자동기록과 원본 변경등록대장 분리
+    def _is_auto(c):
+        if isinstance(c.raw_data, dict) and c.raw_data.get('source') == 'member_auto_log':
+            return True
+        memo = (c.memo or '')
+        return '회원정보 수정 자동기록' in memo or '자동기록' in memo
+
+    month_changes     = [c for c in all_month_ch if not _is_auto(c)]
+    month_changes_auto = [c for c in all_month_ch if _is_auto(c)]
 
     change_by_type: dict = {}
     for c in month_changes:
@@ -619,8 +628,9 @@ async def monthly_report_auto(
                        if (c.management_number or '').startswith('이-')
                        or (c.closure_type or '') == '이관'),
         # 전체 변경 건수
-        "_변경등록전체":  len(month_changes),
-        "_변경유형별":   change_by_type,
+        "_변경등록전체":   len(month_changes),
+        "_자동기록제외":   len(month_changes_auto),
+        "_변경유형별":    change_by_type,
     }
 
     # 관리번호 자연정렬 (숫자 기준 내림차순)
