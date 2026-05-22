@@ -1334,7 +1334,7 @@ async def backfill_change_before_after(
         models.ChangeHistory.deleted_at.is_(None)
     ).all()
 
-    TARGET_IDS = {1568, 1639}
+    TARGET_IDS = {1568, 1639, 3016, 3067}
     stats = {
         '버전': 'change-backfill-v6',
         'dry_run': dry_run, '전체': len(rows),
@@ -1347,6 +1347,13 @@ async def backfill_change_before_after(
 
         cur_bv = (r.before_value or '').strip()
         cur_av = (r.after_value  or '').strip()
+        # '-' 또는 업무유형명은 공란 취급 (재복구 허용)
+        BAD_AV = {'상호변경','주소지변경','주소변경','차량변경','구조변경','대표자변경',
+                  '전속계약업체변경','전속업체변경','자격증재교부','이전전출','등록이관',
+                  '성명변경','이름변경','번호변경','연락처변경','대차/대폐차','기타','-'}
+        def _nc2(v): return ''.join(v.split()).lower()
+        if _nc2(cur_bv) in {_nc2(b) for b in BAD_AV}: cur_bv = ''
+        if _nc2(cur_av) in {_nc2(b) for b in BAD_AV}: cur_av = ''
 
         # 헤더 행 제외
         if _is_hdr(r.vehicle_number) or _is_hdr(r.name): continue
