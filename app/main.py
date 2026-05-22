@@ -188,6 +188,9 @@ async def startup():
         db.close()
 
 
+@app.get("/health")
+async def health(): return {"status": "ok"}
+
 @app.get("/login")
 def login_page():
     return FileResponse(os.path.join(static_dir, "login.html"))
