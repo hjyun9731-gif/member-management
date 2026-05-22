@@ -1849,3 +1849,229 @@ async def cert_debug_change(
         '매칭샘플': matched[:5],
         '미매칭샘플': unmatched_samples,
     }
+
+
+# ── 변경등록대장 전체 진단 ──────────────────────────────────────
+_AUTO_CT_RULES = [
+    # (change_type, keywords_any)
+    ('연락처변경', ['핸드폰','휴대폰','전화번호','연락처','번호변경','010','011','016','017','018','019']),
+    ('대차/대폐차', ['대차','대폐차','대체등록','차량대체','차량번호변경','차량변경']),
+    ('주소지변경',  ['주소','도로명','번지','아파트', '길','로','동','호수']),
+    ('전속계약 업체변경', ['전속','전속계약','전속업체']),
+    ('상호변경',    ['상호','업체명','사업자명','간판']),
+    ('구조변경',    ['구조변경','리프트','탑차','냉동','냉장','윙','파워게이트','장착','탈거','포장탑','내장탑']),
+    ('성명변경',    ['개명','성명변경','이름변경']),
+]
+
+def _suggest_ct(combined: str) -> str:
+    cl = combined.lower().replace(' ','')
+    for ct, kws in _AUTO_CT_RULES:
+        if any(k.replace(' ','') in cl for k in kws):
+            return ct
+    return ''
+
+def _is_auto_log(c) -> bool:
+    if isinstance(c.raw_data, dict) and c.raw_data.get('source') == 'member_auto_log':
+        return True
+    return '자동기록' in (c.memo or '')
+
+def _is_header_row(c) -> bool:
+    HDR = {'차량번호','성명','변경내용','변 경 내 용','신고일자','시군별','번호'}
+    def nc(v): return ''.join(str(v or '').split()).lower()
+    return nc(c.vehicle_number) in {nc(h) for h in HDR} or nc(c.name) in {nc(h) for h in HDR}
+
+def _combined(c) -> str:
+    raw = c.raw_data if isinstance(c.raw_data, dict) else {}
+    parts = [c.change_type or '', c.before_value or '', c.after_value or '',
+             c.memo or ''] + [str(v) for v in raw.values()]
+    return ' '.join(parts)
+
+def _has_arrow(v: str) -> bool:
+    import re as _r
+    return bool(_r.search(r'->|→', str(v or '')))
+
+def _raw_find_arrow(raw: dict) -> str:
+    """주소/내용 컬럼에서 화살표 포함 값 찾기"""
+    ADDR = ['주소','주      소','주 소','변경내용','변 경 내 용','내 용','내용']
+    for k in raw:
+        kn = ''.join(str(k).split()).lower()
+        for a in ADDR:
+            if ''.join(a.split()).lower() in kn:
+                v = str(raw[k] or '').strip()
+                if v and _has_arrow(v):
+                    return v
+    return ''
+
+
+@router.get("/audit-change-history")
+async def audit_change_history(db: Session = Depends(get_db), _=Depends(require_admin)):
+    rows = db.query(models.ChangeHistory).filter(
+        models.ChangeHistory.deleted_at.is_(None)).all()
+
+    BTYPE_NAMES = {'상호변경','주소지변경','구조변경','전속계약 업체변경','대차/대폐차',
+                   '성명변경','번호변경','연락처변경','대표자변경','자격증재교부','이전전출','등록이관'}
+
+    summary = {
+        '전체': len(rows), 'raw있음': 0, 'raw없음': 0,
+        '전후모두있음': 0, '전후모두없음': 0, '전만있음': 0, '후만있음': 0,
+        '헤더의심': 0, '오분류의심': 0, '자동기록': 0, '원본업로드': 0,
+    }
+    by_type: dict = {}
+    suspects: dict = {
+        'A_연락처': [], 'B_대차': [], 'C_상호오분류': [],
+        'D_구조변경의심': [], 'E_헤더': [], 'F_파싱': [],
+    }
+
+    def _fmt(c, reason, suggested_ct='', suggested_bv='', suggested_av=''):
+        raw = c.raw_data if isinstance(c.raw_data, dict) else {}
+        return {
+            'id': c.id, 'change_type': c.change_type,
+            '추천_type': suggested_ct, 'vehicle_number': c.vehicle_number,
+            'name': c.name, 'change_date': c.change_date,
+            'before_value': c.before_value or '', 'after_value': c.after_value or '',
+            'memo': c.memo or '', 'raw_keys': list(raw.keys())[:10],
+            'raw_sample': {k: str(raw[k])[:40] for k in list(raw.keys())[:8]},
+            '의심사유': reason, '추천_before': suggested_bv, '추천_after': suggested_av,
+            '자동기록': _is_auto_log(c),
+        }
+
+    for c in rows:
+        raw = c.raw_data if isinstance(c.raw_data, dict) else {}
+        bv  = (c.before_value or '').strip()
+        av  = (c.after_value  or '').strip()
+        ct  = (c.change_type  or '').strip()
+
+        if raw: summary['raw있음'] += 1
+        else:   summary['raw없음'] += 1
+
+        if bv and av:   summary['전후모두있음'] += 1
+        elif not bv and not av: summary['전후모두없음'] += 1
+        elif bv:        summary['전만있음'] += 1
+        else:           summary['후만있음'] += 1
+
+        if _is_auto_log(c): summary['자동기록'] += 1
+        else:               summary['원본업로드'] += 1
+
+        by_type[ct] = by_type.get(ct, 0) + 1
+
+        # 헤더
+        if _is_header_row(c):
+            summary['헤더의심'] += 1
+            if len(suspects['E_헤더']) < 20:
+                suspects['E_헤더'].append(_fmt(c, '헤더행의심'))
+            continue
+
+        combined = _combined(c)
+
+        # A. 연락처 오분류
+        if ct not in ('연락처변경','번호변경') and any(k in combined for k in ['핸드폰','휴대폰','전화번호','번호변경']):
+            if len(suspects['A_연락처']) < 20:
+                suspects['A_연락처'].append(_fmt(c, '연락처변경의심', '연락처변경'))
+            summary['오분류의심'] += 1
+
+        # B. 대차/대폐차 오분류
+        elif ct not in ('대차/대폐차','번호변경') and any(k in combined.replace(' ','') for k in ['대차','대폐차','대체등록','차량대체']):
+            if len(suspects['B_대차']) < 20:
+                suspects['B_대차'].append(_fmt(c, '대차/대폐차의심', '대차/대폐차'))
+            summary['오분류의심'] += 1
+
+        # C. 상호 오분류 (전속계약인데 전속 키워드 없음)
+        elif ct == '전속계약 업체변경' and '전속' not in combined:
+            if len(suspects['C_상호오분류']) < 20:
+                suspects['C_상호오분류'].append(_fmt(c, '상호변경으로 오분류의심', '상호변경'))
+            summary['오분류의심'] += 1
+
+        # D. 구조변경인데 대차처럼 보임
+        elif ct == '구조변경' and any(k in combined.replace(' ','') for k in ['대차','대폐차','차량번호변경']):
+            if len(suspects['D_구조변경의심']) < 20:
+                suspects['D_구조변경의심'].append(_fmt(c, '구조변경→대차의심', '대차/대폐차'))
+            summary['오분류의심'] += 1
+
+        # F. 파싱 의심: 전후 없는데 raw에 화살표 값 있음
+        if not bv and not av:
+            arrow_val = _raw_find_arrow(raw)
+            if arrow_val:
+                import re as _re
+                m = _re.search(r'(.+?)\s*(?:->|→)\s*(.+)', arrow_val)
+                nbv = m.group(1).strip() if m else ''
+                nav = m.group(2).strip() if m else ''
+                if len(suspects['F_파싱']) < 20:
+                    suspects['F_파싱'].append(_fmt(c, 'raw화살표_파싱가능', '', nbv, nav))
+
+    return {
+        '요약': summary, '유형별건수': dict(sorted(by_type.items(), key=lambda x:-x[1])),
+        '오분류의심': {k: v for k, v in suspects.items() if v},
+    }
+
+
+@router.post("/fix-change-history-audit")
+async def fix_change_history_audit(
+    dry_run: bool = True,
+    db: Session = Depends(get_db), _=Depends(require_admin)
+):
+    """audit 결과 기반 변경등록대장 재분류 + before/after 복구"""
+    import re as _re
+
+    def _nc(v): return ''.join(str(v or '').split()).lower()
+    def _combined(c):
+        raw = c.raw_data if isinstance(c.raw_data, dict) else {}
+        return ' '.join([c.change_type or '', c.before_value or '',
+                         c.after_value or '', c.memo or ''] + [str(v) for v in raw.values()])
+    def _raw_arrow(raw):
+        KEYS = ['주소','주      소','주 소','변경내용','변 경 내 용','내 용','내용']
+        for k in raw:
+            kn = _nc(k)
+            for a in KEYS:
+                if _nc(a) in kn:
+                    v = str(raw[k] or '').strip()
+                    if v and _re.search(r'->|→', v): return v
+        return ''
+
+    rows = db.query(models.ChangeHistory).filter(
+        models.ChangeHistory.deleted_at.is_(None)).all()
+
+    BTYPE = {'상호변경','주소지변경','구조변경','전속계약 업체변경','성명변경',
+             '번호변경','연락처변경','대표자변경','자격증재교부','이전전출','등록이관','대차/대폐차'}
+
+    stats = {'dry_run': dry_run, '전체': len(rows), '수정예정': 0,
+             '유형수정': 0, 'before/after복구': 0, '샘플': []}
+
+    for c in rows:
+        raw = c.raw_data if isinstance(c.raw_data, dict) else {}
+        if _is_header_row(c): continue
+        ct  = (c.change_type  or '').strip()
+        bv  = (c.before_value or '').strip()
+        av  = (c.after_value  or '').strip()
+        combined = _combined(c)
+        changes = {}
+
+        # 유형 재분류
+        new_ct = _suggest_ct(combined)
+        if new_ct and new_ct != ct and ct not in BTYPE:
+            changes['change_type'] = new_ct
+
+        # before/after 복구 (raw 화살표)
+        if not bv and not av:
+            arrow = _raw_arrow(raw)
+            if arrow:
+                m = _re.search(r'(.+?)\s*(?:->|→)\s*(.+)', arrow)
+                if m:
+                    changes['before_value'] = m.group(1).strip()
+                    changes['after_value']  = m.group(2).strip()
+
+        if changes:
+            stats['수정예정'] += 1
+            if 'change_type' in changes: stats['유형수정'] += 1
+            if 'before_value' in changes: stats['before/after복구'] += 1
+            if len(stats['샘플']) < 50:
+                stats['샘플'].append({
+                    'id': c.id, 'change_type': ct,
+                    'vehicle_number': c.vehicle_number, 'name': c.name,
+                    '기존_before': bv, '기존_after': av,
+                    '수정예정': changes, '수정사유': _suggest_ct(combined) or 'raw복구',
+                })
+            if not dry_run:
+                for k, v in changes.items(): setattr(c, k, v)
+
+    if not dry_run: db.commit()
+    return stats
