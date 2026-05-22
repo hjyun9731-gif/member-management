@@ -165,6 +165,10 @@ app.include_router(reports.router,        prefix="/api/reports",        tags=["�
 app.include_router(excel.router,          prefix="/api/excel",          tags=["엑셀"])
 app.include_router(admin.router,          prefix="/api/admin",          tags=["관리자"])
 
+# 기한관리
+from app.routers import deadlines
+app.include_router(deadlines.router)
+
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 

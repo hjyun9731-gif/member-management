@@ -12,10 +12,11 @@ const FUEL_TYPES = ['경유','휘발유','LPG','전기','하이브리드','CNG',
 const VEH_TYPES = ['1톤','1톤미만','카고형','밴형','특장차','냉동차','기타'];
 
 const CATS = {
-  members: {label:'회원관리',   tabs:[{id:'candidates',label:'예정자/양도양수'},{id:'individual',label:'개인회원'},{id:'delivery',label:'택배회원'}]},
-  permits: {label:'인허가/변경', tabs:[{id:'new-registrations',label:'신규등록대장'},{id:'transfer-ledger',label:'양도양수대장'},{id:'closures',label:'폐업현황'},{id:'change-history',label:'변경이력대장'}]},
-  reports: {label:'보고/집계',   tabs:[{id:'dashboard',label:'회원대시보드'},{id:'monthly-report',label:'월례보고서'}]},
-  excel:   {label:'엑셀 업로드', tabs:[{id:'upload',label:'파일 업로드'},{id:'history',label:'업로드 이력'},{id:'errors',label:'오류 확인'}]},
+  members:   {label:'회원관리',   tabs:[{id:'candidates',label:'예정자/양도양수'},{id:'individual',label:'개인회원'},{id:'delivery',label:'택배회원'}]},
+  permits:   {label:'인허가/변경', tabs:[{id:'new-registrations',label:'신규등록대장'},{id:'transfer-ledger',label:'양도양수대장'},{id:'closures',label:'폐업현황'},{id:'change-history',label:'변경이력대장'}]},
+  reports:   {label:'보고/집계',   tabs:[{id:'dashboard',label:'회원대시보드'},{id:'monthly-report',label:'월례보고서'}]},
+  deadlines: {label:'기한관리',    tabs:[{id:'deadlines',label:'캘린더/목록'},{id:'dl-today',label:'오늘 할 일'},{id:'dl-3days',label:'3일 이내'},{id:'dl-7days',label:'7일 이내'},{id:'dl-over',label:'기한초과'},{id:'dl-done',label:'완료'}]},
+  excel:     {label:'엑셀 업로드', tabs:[{id:'upload',label:'파일 업로드'},{id:'history',label:'업로드 이력'},{id:'errors',label:'오류 확인'}]},
 };
 
 const ST = {
@@ -432,6 +433,12 @@ function navigate(cat,sub){
     'transfer-ledger':renderTransferLedger, closures:renderClosures, 'change-history':renderChangeHistory,
     dashboard:renderDashboard, 'monthly-report':renderMonthlyReport,
     upload:renderUpload, history:renderUploadHistory, errors:renderUploadErrors,
+    deadlines:renderDeadlines,
+    'dl-today':()=>renderDeadlines('오늘'),
+    'dl-3days':()=>renderDeadlines('3일이내'),
+    'dl-7days':()=>renderDeadlines('7일이내'),
+    'dl-over': ()=>renderDeadlines('기한초과'),
+    'dl-done': ()=>renderDeadlines('완료'),
   }[sub]||(() => document.getElementById('content').innerHTML='<p style="padding:20px">준비 중</p>'))();
 }
 
@@ -1688,3 +1695,229 @@ document.addEventListener('DOMContentLoaded',()=>{
 
 
 
+
+// ===== 기한관리 =====
+const DL_TYPES = ['휴업만료','대폐차기한','대폐차기간연장','차량출고지연확인서','보완서류제출','자격증명발급대기','공문회신기한','시청확인요청','전자서명기한','기타'];
+const DL_COLORS = {'휴업만료':'#e74c3c','대폐차기한':'#e67e22','대폐차기간연장':'#f39c12','차량출고지연확인서':'#9b59b6','보완서류제출':'#3498db','자격증명발급대기':'#1abc9c','공문회신기한':'#2ecc71','시청확인요청':'#27ae60','전자서명기한':'#8e44ad','기타':'#95a5a6'};
+
+function _ddayBadge(dd, status){
+  if(status==='완료') return '<span class="badge b-green">완료</span>';
+  if(dd===null) return '<span class="badge b-gray">-</span>';
+  if(dd<0) return `<span class="badge b-red">D${dd}</span>`;
+  if(dd===0) return '<span class="badge b-red">D-day</span>';
+  if(dd<=3) return `<span class="badge b-orange">D-${dd}</span>`;
+  if(dd<=7) return `<span class="badge b-yellow">D-${dd}</span>`;
+  return `<span class="badge b-gray">D-${dd}</span>`;
+}
+
+async function renderDeadlines(filter='전체'){
+  const ct = document.getElementById('content'); if(!ct)return;
+  const summary = await api('GET','/api/deadlines/summary').catch(()=>({오늘기한:0,'3일이내':0,'7일이내':0,기한초과:0,완료:0}));
+  ST.fl = ST.fl||{}; ST.fl.dl = ST.fl.dl||{filter, view:'list', year:new Date().getFullYear(), month:new Date().getMonth()+1};
+  if(filter!=='전체') ST.fl.dl.filter=filter;
+  const fl = ST.fl.dl;
+
+  ct.innerHTML=`
+  <div class="page-hd"><div class="page-hd-l"><span class="page-ico">📅</span><span class="page-ttl">기한관리</span></div>
+    <button class="btn bp" onclick="openNewDeadline()">+ 기한 등록</button></div>
+  <div class="stat-grid" style="grid-template-columns:repeat(5,1fr);margin-bottom:12px">
+    <div class="stat-card red" onclick="renderDeadlines('오늘')" style="cursor:pointer"><div class="stat-lbl">오늘 기한</div><div class="stat-val">${summary.오늘기한}</div></div>
+    <div class="stat-card orange" onclick="renderDeadlines('3일이내')" style="cursor:pointer"><div class="stat-lbl">3일 이내</div><div class="stat-val">${summary['3일이내']}</div></div>
+    <div class="stat-card yellow" onclick="renderDeadlines('7일이내')" style="cursor:pointer"><div class="stat-lbl">7일 이내</div><div class="stat-val">${summary['7일이내']}</div></div>
+    <div class="stat-card sky" onclick="renderDeadlines('기한초과')" style="cursor:pointer"><div class="stat-lbl">기한초과</div><div class="stat-val">${summary.기한초과}</div></div>
+    <div class="stat-card" onclick="renderDeadlines('완료')" style="cursor:pointer"><div class="stat-lbl">완료</div><div class="stat-val">${summary.완료}</div></div>
+  </div>
+  <div class="filter-bar" style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap">
+    ${['전체','오늘','3일이내','7일이내','기한초과','완료','휴업만료','대폐차기한','보완서류제출','공문회신기한','전자서명기한'].map(f=>
+      `<button class="btn btn-sm ${fl.filter===f?'bp':'bo'}" onclick="renderDeadlines('${f}')">${f}</button>`).join('')}
+    <button class="btn btn-sm ${fl.view==='calendar'?'bp':'bo'}" onclick="ST.fl.dl.view='calendar';renderDeadlines(ST.fl.dl.filter)">📆 캘린더</button>
+  </div>
+  <div id="dlBody"><div class="loading-box"><div class="spin"></div></div></div>`;
+
+  if(fl.view==='calendar') await _renderDlCalendar();
+  else await _renderDlList(fl.filter);
+}
+
+async function _renderDlList(filter){
+  const d = await api('GET',`/api/deadlines?filter=${encodeURIComponent(filter)}&size=200`).catch(()=>null);
+  const el = document.getElementById('dlBody'); if(!el||!d) return;
+  if(!d.items.length){el.innerHTML='<div class="empty-box"><div class="empty-ico">📋</div><p class="empty-txt">해당 기한 건이 없습니다.</p></div>';return;}
+  el.innerHTML=`<div class="tbl-wrap"><table>
+    <thead><tr><th>상태</th><th>D-day</th><th>기한일</th><th>업무구분</th><th>지역</th><th>차량번호</th><th>성명</th><th>핸드폰</th><th>제목</th><th>메모</th><th>관리</th></tr></thead>
+    <tbody>${d.items.map(r=>`<tr>
+      <td>${r.status}</td>
+      <td>${_ddayBadge(r.dday,r.status)}</td>
+      <td>${fv(r.due_date)}</td>
+      <td><span style="color:${DL_COLORS[r.task_type]||'#666'};font-weight:600">${fv(r.task_type)}</span></td>
+      <td>${fv(r.region)}</td>
+      <td>${fv(r.vehicle_number)}</td>
+      <td>${fv(r.name)}</td>
+      <td>${fv(r.mobile)}</td>
+      <td><a class="tbl-link" onclick="viewDeadline(${r.id});return false">${fv(r.title)}</a></td>
+      <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis">${fv(r.memo)}</td>
+      <td>
+        ${r.status!=='완료'?`<button class="btn bp btn-xs" onclick="completeDeadline(${r.id})">완료</button>`:''}
+        ${r.task_type.includes('대폐차')?`<button class="btn bo btn-xs" onclick="extendDeadline(${r.id})">연장</button>`:''}
+        <button class="btn bo btn-xs" onclick="editDeadline(${r.id})">수정</button>
+        <button class="btn br btn-xs" onclick="deleteDeadline(${r.id})">삭제</button>
+      </td>
+    </tr>`).join('')}</tbody>
+  </table></div><p style="font-size:12px;color:var(--c-text-3);margin-top:6px">총 ${d.total}건</p>`;
+}
+
+async function _renderDlCalendar(){
+  const fl = ST.fl.dl;
+  const y=fl.year, m=fl.month;
+  const d = await api('GET',`/api/deadlines?filter=전체&size=500`).catch(()=>({items:[]}));
+  const byDate={};
+  (d.items||[]).forEach(t=>{
+    const k=(t.due_date||'').slice(0,10);
+    if(!byDate[k]) byDate[k]=[];
+    byDate[k].push(t);
+  });
+  const first=new Date(y,m-1,1).getDay();
+  const days=new Date(y,m,0).getDate();
+  let cal=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <button class="btn bo btn-sm" onclick="ST.fl.dl.month--;if(ST.fl.dl.month<1){ST.fl.dl.month=12;ST.fl.dl.year--;}renderDeadlines(ST.fl.dl.filter)">◀</button>
+    <strong>${y}년 ${m}월</strong>
+    <button class="btn bo btn-sm" onclick="ST.fl.dl.month++;if(ST.fl.dl.month>12){ST.fl.dl.month=1;ST.fl.dl.year++;}renderDeadlines(ST.fl.dl.filter)">▶</button>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center">
+    ${['일','월','화','수','목','금','토'].map(d=>`<div style="padding:4px;font-weight:600;font-size:12px">${d}</div>`).join('')}
+    ${Array(first).fill('<div></div>').join('')}
+    ${Array.from({length:days},(_,i)=>{
+      const dt=`${y}-${String(m).padStart(2,'0')}-${String(i+1).padStart(2,'0')}`;
+      const items=byDate[dt]||[];
+      const isToday=dt===new Date().toISOString().slice(0,10);
+      return `<div style="border:1px solid var(--c-border);border-radius:6px;padding:4px 2px;min-height:60px;background:${isToday?'var(--c-sky-bg)':''}">
+        <div style="font-size:11px;font-weight:${isToday?'700':'400'}">${i+1}</div>
+        ${items.slice(0,3).map(t=>`<div style="font-size:9px;background:${DL_COLORS[t.task_type]||'#999'};color:#fff;border-radius:3px;margin:1px;padding:1px 3px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" onclick="viewDeadline(${t.id})">${t.name||t.vehicle_number||t.task_type}</div>`).join('')}
+        ${items.length>3?`<div style="font-size:9px;color:var(--c-text-3)">+${items.length-3}건</div>`:''}
+      </div>`;
+    }).join('')}
+  </div>`;
+  const el=document.getElementById('dlBody'); if(!el)return;
+  el.innerHTML=cal;
+}
+
+async function viewDeadline(id){
+  const r=await api('GET',`/api/deadlines/${id}`).catch(()=>null); if(!r)return;
+  const sections=[
+    {title:'기본 정보',fields:[['업무구분',r.task_type],['제목',r.title],['상태',r.status],['D-day',r.dday_label]]},
+    {title:'일정',fields:[['시작일',r.start_date],['기한일',r.due_date],['사전알림',r.reminder_days+'일 전'],['완료일',r.completed_at]]},
+    {title:'대상',fields:[['차량번호',r.vehicle_number],['성명',r.name],['지역',r.region],['핸드폰',r.mobile]]},
+    {title:'내용',fields:[['내용',r.content,true],['메모',r.memo,true]]},
+    ...(r.extended_from?[{title:'연장 이력',fields:[['기존기한',r.extended_from],['연장기한',r.extended_to],['연장사유',r.extension_reason,true]]}]:[]),
+  ];
+  openModal('기한 상세',buildDetailSections(sections),
+    `<button class="btn bp btn-sm" onclick="editDeadline(${id});closeModal()">수정</button>
+     ${r.status!=='완료'?`<button class="btn b-green btn-sm" onclick="completeDeadline(${id});closeModal()">완료처리</button>`:''}
+     ${r.task_type.includes('대폐차')?`<button class="btn bo btn-sm" onclick="extendDeadline(${id});closeModal()">기간연장</button>`:''}
+     <button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
+}
+
+function _dlForm(r={}){
+  const fi=(name,lbl,val,type='text')=>`<div class="form-group cs2"><label class="form-lbl">${lbl}</label><input class="form-ctrl" id="dl_${name}" type="${type}" value="${e_(val||'')}"></div>`;
+  const fs=(name,lbl,val,opts)=>`<div class="form-group cs2"><label class="form-lbl">${lbl}</label><select class="form-ctrl" id="dl_${name}">${opts.map(o=>`<option value="${o}" ${val===o?'selected':''}>${o}</option>`).join('')}</select></div>`;
+  const fta=(name,lbl,val)=>`<div class="form-group cs4"><label class="form-lbl">${lbl}</label><textarea class="form-ctrl" id="dl_${name}" rows="2">${e_(val||'')}</textarea></div>`;
+  return `<div class="form-grid">
+    ${fs('task_type','업무구분',r.task_type||'',DL_TYPES)}
+    ${fi('title','제목',r.title)}
+    ${fi('vehicle_number','차량번호',r.vehicle_number)}
+    ${fi('name','성명',r.name)}
+    ${fi('region','지역',r.region)}
+    ${fi('mobile','핸드폰',r.mobile)}
+    ${fi('start_date','시작일',r.start_date,'date')}
+    ${fi('due_date','기한일',r.due_date,'date')}
+    ${fi('reminder_days','사전알림(일)',r.reminder_days||'7,3,0')}
+    ${fs('status','상태',r.status||'예정',['예정','진행중','완료','기한초과','연장'])}
+    ${fta('content','내용',r.content)}
+    ${fta('memo','메모',r.memo)}
+  </div>`;
+}
+
+function _dlVal(){
+  const g=id=>document.getElementById(id)?.value||'';
+  return {task_type:g('dl_task_type'),title:g('dl_title'),vehicle_number:g('dl_vehicle_number'),
+    name:g('dl_name'),region:g('dl_region'),mobile:g('dl_mobile'),
+    start_date:g('dl_start_date'),due_date:g('dl_due_date'),
+    reminder_days:g('dl_reminder_days'),status:g('dl_status'),
+    content:g('dl_content'),memo:g('dl_memo')};
+}
+
+function openNewDeadline(){
+  openModal('기한 등록',_dlForm(),
+    `<button class="btn bp btn-sm" onclick="saveNewDeadline()">저장</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
+}
+window.saveNewDeadline=async()=>{
+  const data=_dlVal();
+  if(!data.title||!data.due_date){toast('제목과 기한일을 입력해주세요','warning');return;}
+  const r=await api('POST','/api/deadlines',data).catch(()=>null);
+  if(r){toast('기한 등록 완료');closeModal();renderDeadlines(ST.fl?.dl?.filter||'전체');}
+};
+
+window.editDeadline=async(id)=>{
+  const r=await api('GET',`/api/deadlines/${id}`).catch(()=>null); if(!r)return;
+  openModal('기한 수정',_dlForm(r),
+    `<button class="btn bp btn-sm" onclick="saveEditDeadline(${id})">저장</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
+};
+window.saveEditDeadline=async(id)=>{
+  const res=await api('PUT',`/api/deadlines/${id}`,_dlVal()).catch(()=>null);
+  if(res){toast('수정 완료');closeModal();renderDeadlines(ST.fl?.dl?.filter||'전체');}
+};
+
+window.completeDeadline=async(id)=>{
+  if(!await cfm('완료 처리하시겠습니까?'))return;
+  const r=await api('POST',`/api/deadlines/${id}/complete`).catch(()=>null);
+  if(r){toast('완료 처리됨');renderDeadlines(ST.fl?.dl?.filter||'전체');}
+};
+
+window.extendDeadline=async(id)=>{
+  const r=await api('GET',`/api/deadlines/${id}`).catch(()=>null); if(!r)return;
+  openModal('기간 연장',`<div class="form-grid">
+    <div class="form-group cs2"><label class="form-lbl">기존 기한</label><input class="form-ctrl" value="${e_(r.due_date)}" disabled></div>
+    <div class="form-group cs2"><label class="form-lbl">연장 기한</label><input class="form-ctrl" id="ext_to" type="date" value="${r.due_date}"></div>
+    <div class="form-group cs4"><label class="form-lbl">연장 사유</label><textarea class="form-ctrl" id="ext_reason" rows="2"></textarea></div>
+  </div>`,
+    `<button class="btn bp btn-sm" onclick="saveExtend(${id})">연장 저장</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'msm');
+};
+window.saveExtend=async(id)=>{
+  const to=document.getElementById('ext_to')?.value;
+  const reason=document.getElementById('ext_reason')?.value;
+  if(!to){toast('연장 기한을 입력해주세요','warning');return;}
+  const r=await api('POST',`/api/deadlines/${id}/extend`,{extended_to:to,reason}).catch(()=>null);
+  if(r){toast('기간 연장 완료');closeModal();renderDeadlines(ST.fl?.dl?.filter||'전체');}
+};
+
+window.deleteDeadline=async(id)=>{
+  if(!await cfm('삭제하시겠습니까?'))return;
+  await api('DELETE',`/api/deadlines/${id}`).catch(()=>null);
+  toast('삭제됨');renderDeadlines(ST.fl?.dl?.filter||'전체');
+};
+
+window.viewDeadline=viewDeadline;
+
+// 회원 상세에서 기한 영역 로드
+window.loadMemberDeadlines=async(memberId, containerId)=>{
+  const el=document.getElementById(containerId); if(!el)return;
+  const d=await api('GET',`/api/deadlines/member/${memberId}`).catch(()=>({items:[]}));
+  if(!d.items.length){
+    el.innerHTML='<p style="font-size:12px;color:var(--c-text-3)">등록된 기한 없음 <button class="btn bp btn-xs" onclick="openNewDeadlineForMember('+memberId+')">+ 등록</button></p>';
+    return;
+  }
+  el.innerHTML=d.items.slice(0,5).map(t=>`
+    <div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--c-border)">
+      ${_ddayBadge(t.dday,t.status)}
+      <span style="font-size:12px;color:${DL_COLORS[t.task_type]||'#666'}">${t.task_type}</span>
+      <span style="font-size:12px">${t.due_date}</span>
+      <span style="font-size:12px;flex:1">${t.title}</span>
+      <button class="btn bp btn-xs" onclick="viewDeadline(${t.id})">상세</button>
+    </div>`).join('')+
+    `<button class="btn bp btn-xs" style="margin-top:6px" onclick="openNewDeadlineForMember(${memberId})">+ 기한 등록</button>`;
+};
+
+window.openNewDeadlineForMember=async(memberId)=>{
+  const m=await api('GET',`/api/members/${memberId}`).catch(()=>null);
+  openModal('기한 등록',_dlForm({member_id:memberId,vehicle_number:m?.vehicle_number||'',name:m?.name||'',region:m?.region||'',mobile:m?.mobile||''}),
+    `<button class="btn bp btn-sm" onclick="saveNewDeadline()">저장</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
+};

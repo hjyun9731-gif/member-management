@@ -235,3 +235,31 @@ class MonthlyReportEntry(Base):
     custom_data = Column(JSON)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class DeadlineTask(Base):
+    __tablename__ = "deadline_tasks"
+    id               = Column(Integer, primary_key=True, index=True)
+    member_id        = Column(Integer, nullable=True)
+    license_holder_id= Column(Integer, nullable=True)
+    vehicle_number   = Column(String(50))
+    name             = Column(String(100))
+    region           = Column(String(50))
+    mobile           = Column(String(50))
+    task_type        = Column(String(50))  # 휴업만료/대폐차기한 등
+    title            = Column(String(200))
+    content          = Column(Text)
+    start_date       = Column(String(20))
+    due_date         = Column(String(20), index=True)
+    reminder_days    = Column(String(20), default="7,3,0")
+    status           = Column(String(20), default="예정")  # 예정/진행중/완료/기한초과/연장
+    completed_at     = Column(String(20))
+    extended_from    = Column(String(20))
+    extended_to      = Column(String(20))
+    extension_reason = Column(Text)
+    memo             = Column(Text)
+    manager          = Column(String(100))
+    source           = Column(String(100))
+    created_at       = Column(DateTime, default=datetime.utcnow)
+    updated_at       = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    deleted_at       = Column(DateTime, nullable=True)
