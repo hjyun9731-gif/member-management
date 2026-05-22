@@ -2025,9 +2025,10 @@ async def audit_change_history(db: Session = Depends(get_db), _=Depends(require_
         if ct in ("번호변경","성명변경") and len(buckets[f"{ct}샘플"]) < 50:
             buckets[f"{ct}샘플"].append(_fmt(c, f"{ct}샘플"))
 
-        # A. 연락처 의심
-        if any(k in cl for k in [_nc(t) for t in TEL_KW]):
-            if ct not in ("연락처변경","번호변경"):
+        # A. 연락처 의심 - 휴대폰 번호 패턴만 (주소 하이픈 오탐 방지)
+        is_phone = bool(_re.search(r'01[016789]-?\d{3,4}-?\d{4}', combined))
+        has_phone_kw = any(k in combined for k in ['핸드폰','휴대폰','전화번호','연락처','번호변경'])
+        if (is_phone or has_phone_kw) and ct not in ("연락처변경","번호변경"):
                 summary["오분류의심"] += 1
                 if len(buckets["연락처의심"]) < 50:
                     buckets["연락처의심"].append(_fmt(c, f"연락처의심(현재:{ct})", "연락처변경"))
