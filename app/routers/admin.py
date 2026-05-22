@@ -2029,9 +2029,10 @@ async def audit_change_history(db: Session = Depends(get_db), _=Depends(require_
         _ADDR_KW = ['길','로','번길','읍','면','동','리','호','아파트','빌라','주공',
                     '청솔','더샵','롯데캐슬','e편한','대호빌라','타운','오피스텔']
         has_addr_kw = any(k in combined for k in _ADDR_KW) or ct == '주소지변경'
-        has_mobile  = bool(_re.search(r'\b01[016789][-.\s]?\d{3,4}[-.\s]?\d{4}\b', combined))
+        # 주민번호 패턴 제거 후 휴대폰 검색
+        _combined_no_resident = _re.sub(r'\d{6}-\d{7}', '', combined)
+        has_mobile  = bool(_re.search(r'\b01[016789][-.\s]?\d{3,4}[-.\s]?\d{4}\b', _combined_no_resident))
         has_phone_kw_direct = any(k in combined for k in ['핸드폰','휴대폰','전화번호','연락처','번호변경'])
-        # 명시 키워드는 주소 여부 무관, 휴대폰 패턴은 주소 없을 때만
         is_phone_suspect = has_phone_kw_direct or (has_mobile and not has_addr_kw)
         if is_phone_suspect and ct not in ('연락처변경','번호변경'):
                 summary["오분류의심"] += 1
@@ -2058,7 +2059,7 @@ async def audit_change_history(db: Session = Depends(get_db), _=Depends(require_
                         _fmt(c, f"raw화살표파싱가능({k2})", "", nbv, nav))
 
     return {
-        "audit_version": "contact-regex-v3",
+        "audit_version": "contact-regex-v4-resident-exclude",
         "요약": summary,
         "유형별건수": dict(sorted(by_type.items(), key=lambda x: -x[1])),
         "세부샘플": {k: v for k, v in buckets.items() if v},
