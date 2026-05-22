@@ -1397,7 +1397,7 @@ async function renderMonthlyReport(){
           <div class="stat-card sky"><div class="stat-lbl">신규등록</div><div class="stat-val">${act.new_registrations||0}</div><div class="stat-sub">관리번호 기준</div></div>
           <div class="stat-card"><div class="stat-lbl">양도양수</div><div class="stat-val">${act.transfers||0}</div><div class="stat-sub">관리번호 기준</div></div>
           <div class="stat-card red"><div class="stat-lbl">폐업/양도/이관</div><div class="stat-val">${act.closures||0}</div><div class="stat-sub">접수일자 기준</div></div>
-          <div class="stat-card purple"><div class="stat-lbl">변경이력</div><div class="stat-val">${act.changes||0}</div><div class="stat-sub">변경등록대장</div></div>
+          <div class="stat-card purple"><div class="stat-lbl">변경이력</div><div class="stat-val">${act.changes||0}</div><div class="stat-sub">원본 변경등록대장 기준${aw._자동기록제외?`<br><span style="font-size:10px;color:var(--c-warn)">자동기록 ${aw._자동기록제외}건 제외</span>`:''}</div></div>
         </div>
         <table class="rpt-tbl"><thead><tr><th>업무 구분</th><th>당월 처리</th></tr></thead>
           <tbody>
@@ -1412,12 +1412,23 @@ async function renderMonthlyReport(){
             <tr><td class="rl">자격증재교부</td><td>${aw.자격증재교부||0}</td></tr>
           </tbody>
         </table>
-        <p style="font-size:11px;color:var(--c-text-3);margin-top:8px;line-height:1.8">
-          ※ 집계 기준 &nbsp;·&nbsp; 취업신고: 신규등록대장 당월 &nbsp;·&nbsp; 퇴사신고: 폐업현황 폐-* 당월
-          &nbsp;·&nbsp; 양도양수: 양도양수대장 당월 &nbsp;·&nbsp; 이관: 폐업현황 이-* 당월
-          &nbsp;·&nbsp; 상호/대표자/차량/주소/자격증재교부: 변경등록대장 (회원수정 자동기록 제외)
-          ${aw._자동기록제외?` &nbsp;·&nbsp; <span style="color:var(--c-warn)">이번 달 자동기록 ${aw._자동기록제외}건 제외됨</span>`:''}
-        </p>
+        <div style="font-size:11px;color:var(--c-text-3);margin-top:10px;line-height:2">
+          <div>※ 집계 기준</div>
+          <div style="padding-left:12px">
+            · 취업신고: 신규등록대장 당월 건수<br>
+            · 퇴사신고: 폐업현황 폐-* 당월 건수<br>
+            · 양도양수: 양도양수대장 당월 건수<br>
+            · 이관: 폐업현황 이-* 당월 건수<br>
+            · 상호/대표자/차량/주소/자격증재교부: 원본 변경등록대장 기준
+          </div>
+          ${aw._자동기록제외?`
+          <div style="margin-top:6px;padding:6px 10px;background:var(--c-bg-2);border-radius:6px;border-left:3px solid var(--c-warn)">
+            ※ 참고: 회원정보 수정 자동기록 <strong>${aw._자동기록제외}건</strong>은 공식 처리현황에서 제외했습니다.<br>
+            <span style="padding-left:8px">
+              ${Object.entries(aw._변경유형별||{}).map(([k,v])=>`· ${k} ${v}건`).join(' &nbsp; ')}
+            </span>
+          </div>`:''}
+        </div>
       </div>
     </div>
 

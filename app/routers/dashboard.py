@@ -630,6 +630,8 @@ async def monthly_report_auto(
         # 전체 변경 건수
         "_변경등록전체":   len(month_changes),
         "_자동기록제외":   len(month_changes_auto),
+        "_자동기록유형별": {ct: sum(1 for c in month_changes_auto if (c.change_type or '') == ct)
+                        for ct in set(c.change_type or '기타' for c in month_changes_auto)},
         "_변경유형별":    change_by_type,
     }
 
