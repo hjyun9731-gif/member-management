@@ -226,17 +226,38 @@ async def create_member(data: dict, db: Session = Depends(get_db), _=Depends(get
 
 _AUTO_CHANGE_FIELDS = {
     "address":            "주소지변경",
-    "name":               "성명변경",
-    "affiliated_company": "전속계약 업체변경",
+    "official_address":   "주소지변경",
     "company_name":       "상호변경",
-    "vehicle_number":     "번호변경",
-    "region":             "등록이관",
-    "vehicle_type":       "구조변경",      # 차종 변경 (카고→냉동탑 등)
-    "fuel_type":          "구조변경",      # 유종 변경
-    "structure_change":   "구조변경",      # 구조변경 내용
-    "mobile":             "성명변경",      # 핸드폰 변경 (성명변경 유형으로 기록)
-    "phone":              "성명변경",      # 전화번호 변경
+    "affiliated_company": "전속계약 업체변경",
+    "vehicle_number":     "차량번호변경",
+    "mobile":             "연락처변경",
+    "phone":              "연락처변경",
+    # 아래는 변경등록대장 기록 안 함 (내부 수정로그만)
+    # "vehicle_type", "fuel_type" → 차종 변경은 UI에서 선택
+    # "memo", "name", "region" → 내부관리
 }
+
+# 내부 수정로그만 남기는 필드 (변경등록대장 기록 안 함)
+_INTERNAL_LOG_ONLY_FIELDS = {
+    "memo", "name", "region", "membership_status", "membership_date",
+    "approval_date", "certificate_issue_date", "certificate_number",
+    "driver_license_number", "resident_number", "business_number",
+    "reapproval_date", "agent_name", "agent_resident_number", "agent_mobile",
+    "category",
+}
+
+# 차종/구조 변경은 별도 처리 (auto_change_type 파라미터로 수신)
+_STRUCT_FIELDS = {"vehicle_type", "fuel_type", "structure_change"}
+
+def _normalize_for_compare(field: str, v: str) -> str:
+    """공백/하이픈/호 정규화 - 형식만 다른 경우 변경 안 함"""
+    import re
+    v = str(v or "").strip()
+    if field in ("mobile", "phone"):
+        return re.sub(r"[-\s]", "", v)  # 010-1234-5678 == 01012345678
+    if field == "vehicle_number":
+        return re.sub(r"[\s호]", "", v)  # 강원81자 1234호 == 강원81자1234
+    return v
 
 # 수정 시 저장 허용할 모든 필드 목록 (화이트리스트)
 _ALLOWED_UPDATE_FIELDS = {
@@ -287,8 +308,9 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
             filtered_data.pop(col)
             logger.warning(f"컬럼 {col} 없어서 제거됨")
 
-    # 변경 전 값 스냅샷
-    before_snap = {f: getattr(m, f, "") or "" for f in _AUTO_CHANGE_FIELDS}
+    # 변경 전 값 스냅샷 (자동기록 + 내부기록 대상 모두)
+    all_track_fields = set(_AUTO_CHANGE_FIELDS) | _INTERNAL_LOG_ONLY_FIELDS | _STRUCT_FIELDS
+    before_snap = {f: getattr(m, f, "") or "" for f in all_track_fields}
 
     # 기본 필드 업데이트
     for k, v in filtered_data.items():
@@ -299,35 +321,69 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
 
     m.updated_at = datetime.datetime.now(datetime.timezone.utc)
 
-    # 변경된 필드 자동 기록 (유형별 그룹화)
+    # 변경된 필드 분류
     today = datetime.datetime.now().strftime("%Y-%m-%d")
-    _FIELD_LABELS = {
-        "address": "주소", "name": "성명", "affiliated_company": "소속업체",
-        "company_name": "상호", "vehicle_number": "차량번호", "region": "지역",
-        "vehicle_type": "차종", "fuel_type": "유종", "structure_change": "구조변경",
-        "mobile": "핸드폰", "phone": "전화번호",
-    }
-    # 변경유형별로 묶어서 하나의 이력 생성
     changes_by_type: dict = {}
-    for field, change_type in _AUTO_CHANGE_FIELDS.items():
-        if field not in before_snap:
-            continue
-        old_val = (before_snap[field] or "").strip()
+    internal_logs = []
+
+    for field in all_track_fields:
+        old_val = (before_snap.get(field) or "").strip()
         new_val = str(filtered_data.get(field, old_val) or "").strip()
-        if old_val != new_val and new_val:
+
+        # 정규화 비교: 형식만 다른 경우 무시
+        if _normalize_for_compare(field, old_val) == _normalize_for_compare(field, new_val):
+            continue
+        if not new_val:
+            continue
+
+        # 내부 수정로그 항상 기록
+        internal_logs.append((field, old_val, new_val))
+
+        if field in _STRUCT_FIELDS:
+            # 차종/구조 변경: auto_change_type 파라미터로만 기록
+            auto_ct = data.get("auto_change_type")  # 'structureChange'/'vehicleTypeCorrection'/'vehicleReplacement'
+            if auto_ct:
+                ct_map = {"structureChange": "구조변경", "vehicleTypeCorrection": "차종정정",
+                          "vehicleReplacement": "대폐차"}
+                change_type = ct_map.get(auto_ct, "구조변경")
+                if change_type not in changes_by_type:
+                    changes_by_type[change_type] = []
+                changes_by_type[change_type].append((field, old_val, new_val))
+            # auto_change_type 없으면 변경등록대장 기록 안 함
+
+        elif field in _INTERNAL_LOG_ONLY_FIELDS:
+            pass  # 내부 수정로그만
+
+        elif field in _AUTO_CHANGE_FIELDS:
+            change_type = _AUTO_CHANGE_FIELDS[field]
             if change_type not in changes_by_type:
                 changes_by_type[change_type] = []
             changes_by_type[change_type].append((field, old_val, new_val))
 
+    # 내부 수정로그 저장
+    for field, old_val, new_val in internal_logs:
+        recorded = field in _AUTO_CHANGE_FIELDS or (
+            field in _STRUCT_FIELDS and bool(data.get("auto_change_type")))
+        try:
+            log = models.MemberEditLog(
+                member_id=mid, vehicle_number=getattr(m, "vehicle_number", "") or "",
+                name=getattr(m, "name", "") or "", field_name=field,
+                old_value=old_val, new_value=new_val,
+                record_to_change_history=recorded,
+                change_type=_AUTO_CHANGE_FIELDS.get(field, ""),
+                created_by=getattr(current_user, "username", ""),
+            )
+            db.add(log)
+        except Exception as ex:
+            logger.warning(f"내부 수정로그 저장 실패: {ex}")
+
+    # 변경등록대장 자동기록
     for change_type, field_changes in changes_by_type.items():
         try:
             if len(field_changes) == 1:
-                # 단일 필드 변경: before/after 직접 저장
                 _, old_val, new_val = field_changes[0]
-                bv = old_val or ""
-                av = new_val
+                bv, av = old_val or "", new_val
             else:
-                # 복수 필드: 라벨 없이 콤마 구분
                 bv = " / ".join(ov for _, ov, _ in field_changes if ov)
                 av = " / ".join(nv for _, _, nv in field_changes)
             ch = models.ChangeHistory(
@@ -335,8 +391,7 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
                 region=getattr(m, "region", "") or "",
                 vehicle_number=getattr(m, "vehicle_number", "") or "",
                 name=getattr(m, "name", "") or "",
-                before_value=bv,
-                after_value=av,
+                before_value=bv, after_value=av,
                 change_date=today,
                 memo="회원정보 수정 자동기록",
                 member_id=mid,

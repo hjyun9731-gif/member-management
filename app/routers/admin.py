@@ -2330,175 +2330,6 @@ async def fix_change_number_types(
     dry_run: bool = True,
     db: Session = Depends(get_db), _=Depends(require_admin)
 ):
-    """번호변경 유형 분리: 연락처변경 / 차량번호변경 / 말소/폐차"""
-    import re as _re
-
-    def _nc(v): return "".join(str(v or "").split()).lower()
-
-    PHONE_PAT = _re.compile(r'\b01[016789][-.\s]?\d{3,4}[-.\s]?\d{4}\b')
-    VNUM_PAT  = _re.compile(r'[가-힣]{2}\d{2}[가-힣]\s*\d{3,4}')
-    MALSO_NC  = {"번호변경말소","번호변경 말소","말소","번호말소"}
-
-    def _is_addr(v):
-        return any(k in str(v or "") for k in ["길","로","번길","읍","면","동","리","호","아파트","빌라"])
-
-    def _merge(*parts):
-        seen=[]; [seen.append(p) for p in parts if p and p not in seen]
-        return " / ".join(seen)
-
-    rows = db.query(models.ChangeHistory).filter(
-        models.ChangeHistory.deleted_at.is_(None),
-        models.ChangeHistory.change_type == "번호변경",
-    ).all()
-
-    stats = {"dry_run": dry_run, "전체번호변경": len(rows), "수정예정": 0, "유형수정": {}, "샘플": []}
-
-    for r in rows:
-        ct   = (r.change_type  or "").strip()
-        bv   = (r.before_value or "").strip()
-        av   = (r.after_value  or "").strip()
-        memo = (r.memo         or "").strip()
-        raw  = r.raw_data if isinstance(r.raw_data, dict) else {}
-        combined = " ".join([ct, bv, av, memo] + [str(v) for v in raw.values()])
-        combined_nc = _nc(combined)
-
-        new_ct = new_bv = new_av = new_memo = ""
-        reason = ""
-
-        # 번호변경말소
-        if any(k in combined_nc for k in MALSO_NC):
-            new_ct = "말소/폐차"
-            new_bv, new_av = "", ""
-            addr_note = ""
-            if _is_addr(bv) or _is_addr(av):
-                addr_note = f" / 주소참고: {bv}-{av}".strip("/ -")
-            new_memo = _merge("번호변경말소", addr_note)
-            reason = "번호변경말소"
-
-        # 010 전화번호 변경
-        elif PHONE_PAT.search(bv) or PHONE_PAT.search(av) or \
-             any(k in combined for k in ["핸드폰","휴대폰","전화번호"]):
-            new_ct = "연락처변경"
-            new_bv, new_av = bv, av
-            new_memo = memo
-            reason = "전화번호변경"
-
-        # 차량번호 변경
-        elif VNUM_PAT.search(bv) or VNUM_PAT.search(av) or "차량번호변경" in combined_nc or "번호판분실" in combined_nc:
-            new_ct = "차량번호변경"
-            new_bv, new_av = bv, av
-            new_memo = memo
-            reason = "차량번호변경"
-
-        else:
-            continue
-
-        if (new_ct == ct and new_bv == bv and new_av == av and new_memo == memo):
-            continue
-
-        stats["수정예정"] += 1
-        key = f"번호변경 → {new_ct}"
-        stats["유형수정"][key] = stats["유형수정"].get(key, 0) + 1
-
-        if len(stats["샘플"]) < 50:
-            stats["샘플"].append({
-                "id": r.id, "기존_type": ct, "새_type": new_ct,
-                "기존_before": bv, "새_before": new_bv,
-                "기존_after": av,  "새_after":  new_av,
-                "기존_memo": memo, "새_memo":   new_memo,
-                "수정사유": reason, "vehicle_number": r.vehicle_number, "name": r.name,
-            })
-
-        if not dry_run:
-            r.change_type = new_ct; r.before_value = new_bv
-            r.after_value = new_av; r.memo = new_memo
-
-    if not dry_run: db.commit()
-    return stats
-
-
-@router.post("/fix-company-name-address-misclassified")
-async def fix_company_name_address_misclassified(
-    dry_run: bool = True,
-    db: Session = Depends(get_db), _=Depends(require_admin)
-):
-    """상호변경인데 before/after가 주소인 건 → 주소지변경"""
-    ADDR_KW = ["길","로","번길","읍","면","동","리","번지","아파트","빌라","주공","호"]
-
-    def _is_addr(v):
-        return any(k in str(v or "") for k in ADDR_KW)
-
-    rows = db.query(models.ChangeHistory).filter(
-        models.ChangeHistory.deleted_at.is_(None),
-        models.ChangeHistory.change_type == "상호변경",
-    ).all()
-
-    stats = {"dry_run": dry_run, "전체상호변경": len(rows), "수정예정": 0, "샘플": []}
-
-    for r in rows:
-        bv = (r.before_value or "").strip()
-        av = (r.after_value  or "").strip()
-        if _is_addr(bv) or _is_addr(av):
-            stats["수정예정"] += 1
-            if len(stats["샘플"]) < 50:
-                stats["샘플"].append({
-                    "id": r.id, "기존_type": "상호변경", "새_type": "주소지변경",
-                    "before": bv, "after": av, "memo": r.memo or "",
-                    "vehicle_number": r.vehicle_number, "name": r.name,
-                })
-            if not dry_run:
-                r.change_type = "주소지변경"
-
-    if not dry_run: db.commit()
-    return stats
-
-
-@router.post("/fix-structure-address-misclassified")
-async def fix_structure_address_misclassified(
-    dry_run: bool = True,
-    db: Session = Depends(get_db), _=Depends(require_admin)
-):
-    """구조변경인데 before/after가 주소인 건 → 주소지변경"""
-    ADDR_KW = ["길","로","번길","읍","면","동","리","번지","아파트","빌라","주공","호"]
-    STRUCT_KW = ["카고","탑","냉동","냉장","윙","리프트","파워게이트","픽업","덮개","장착","탈거","봉고","포장","호로","가축"]
-
-    def _is_addr(v):
-        return any(k in str(v or "") for k in ADDR_KW)
-    def _is_struct(v):
-        return any(k in str(v or "") for k in STRUCT_KW)
-
-    rows = db.query(models.ChangeHistory).filter(
-        models.ChangeHistory.deleted_at.is_(None),
-        models.ChangeHistory.change_type == "구조변경",
-    ).all()
-
-    stats = {"dry_run": dry_run, "전체구조변경": len(rows), "수정예정": 0, "샘플": []}
-
-    for r in rows:
-        bv = (r.before_value or "").strip()
-        av = (r.after_value  or "").strip()
-        # 주소처럼 보이고 구조변경 키워드가 없으면 의심
-        if (_is_addr(bv) or _is_addr(av)) and not _is_struct(bv) and not _is_struct(av):
-            stats["수정예정"] += 1
-            if len(stats["샘플"]) < 50:
-                stats["샘플"].append({
-                    "id": r.id, "기존_type": "구조변경", "새_type": "주소지변경",
-                    "before": bv, "after": av, "memo": r.memo or "",
-                    "vehicle_number": r.vehicle_number, "name": r.name,
-                })
-            if not dry_run:
-                r.change_type = "주소지변경"
-
-    if not dry_run: db.commit()
-    return stats
-
-
-# ── 번호변경 분리 ────────────────────────────────────────
-@router.post("/fix-change-number-types")
-async def fix_change_number_types(
-    dry_run: bool = True,
-    db: Session = Depends(get_db), _=Depends(require_admin)
-):
     """번호변경 유형을 연락처변경/차량번호변경/말소/폐차로 분리"""
     import re as _re
 
@@ -2521,7 +2352,8 @@ async def fix_change_number_types(
         models.ChangeHistory.change_type == "번호변경",
     ).all()
 
-    stats = {"dry_run": dry_run, "전체": len(rows), "수정예정": 0, "유형수정": {}, "샘플": []}
+    TARGET_IDS = {1614}  # 필수 확인 대상
+    stats = {"dry_run": dry_run, "전체": len(rows), "수정예정": 0, "유형수정": {}, "샘플": [], "target_debug": {}}
 
     for r in rows:
         ct = bv = av = ""
@@ -2564,19 +2396,26 @@ async def fix_change_number_types(
             elif VNUM_PAT.search(inner):
                 ct = "차량번호변경"; reason = "raw차량번호→차량번호변경"
 
-        if not ct: continue
+        if not ct:
+            if r.id in TARGET_IDS:
+                stats["target_debug"][r.id] = {"id": r.id, "name": r.name, "판정": "분류불가",
+                    "combined": combined[:200], "before": r.before_value, "after": r.after_value}
+            continue
+
+        sample = {"id": r.id, "기존_type": r.change_type, "새_type": ct,
+                  "기존_before": r.before_value or "", "새_before": new_bv,
+                  "기존_after":  r.after_value  or "", "새_after":  new_av,
+                  "기존_memo":   r.memo         or "", "새_memo":   new_memo,
+                  "수정사유": reason, "vehicle_number": r.vehicle_number, "name": r.name}
+
+        if r.id in TARGET_IDS:
+            stats["target_debug"][r.id] = sample
 
         stats["수정예정"] += 1
         key = f"번호변경 → {ct}"
         stats["유형수정"][key] = stats["유형수정"].get(key, 0) + 1
         if len(stats["샘플"]) < 50:
-            stats["샘플"].append({
-                "id": r.id, "기존_type": r.change_type, "새_type": ct,
-                "기존_before": r.before_value or "", "새_before": new_bv,
-                "기존_after":  r.after_value  or "", "새_after":  new_av,
-                "기존_memo":   r.memo         or "", "새_memo":   new_memo,
-                "수정사유": reason, "vehicle_number": r.vehicle_number, "name": r.name,
-            })
+            stats["샘플"].append(sample)
         if not dry_run:
             r.change_type = ct; r.before_value = new_bv; r.after_value = new_av; r.memo = new_memo
 
@@ -2599,12 +2438,16 @@ async def fix_company_name_address(
     def _is_company(v):
         return any(k in str(v or "") for k in COMPANY_KW)
 
+    # 필수 확인 대상 차량번호
+    TARGET_VNO = {"강원81자339", "강원90아3177"}
+    def _nc_vno(v): return "".join(str(v or "").split()).lower()
+
     rows = db.query(models.ChangeHistory).filter(
         models.ChangeHistory.deleted_at.is_(None),
         models.ChangeHistory.change_type == "상호변경",
     ).all()
 
-    stats = {"dry_run": dry_run, "전체": len(rows), "수정예정": 0, "샘플": []}
+    stats = {"dry_run": dry_run, "전체": len(rows), "수정예정": 0, "샘플": [], "target_debug": {}}
 
     for r in rows:
         bv = (r.before_value or "").strip()
@@ -2612,14 +2455,15 @@ async def fix_company_name_address(
         if not bv and not av: continue
         if _is_company(bv) or _is_company(av): continue  # 업체명 패턴이면 유지
         if _is_addr(bv) or _is_addr(av):
+            sample = {"id": r.id, "기존_type": "상호변경", "새_type": "주소지변경",
+                      "before": bv, "after": av, "memo": r.memo or "",
+                      "vehicle_number": r.vehicle_number, "name": r.name,
+                      "수정사유": "상호변경인데before/after주소형태"}
+            if _nc_vno(r.vehicle_number) in TARGET_VNO:
+                stats["target_debug"][r.vehicle_number] = sample
             stats["수정예정"] += 1
             if len(stats["샘플"]) < 50:
-                stats["샘플"].append({
-                    "id": r.id, "기존_type": "상호변경", "새_type": "주소지변경",
-                    "before": bv, "after": av, "memo": r.memo or "",
-                    "vehicle_number": r.vehicle_number, "name": r.name,
-                    "수정사유": "상호변경인데before/after주소형태",
-                })
+                stats["샘플"].append(sample)
             if not dry_run: r.change_type = "주소지변경"
 
     if not dry_run: db.commit()
@@ -2640,12 +2484,15 @@ async def fix_structure_address(
     def _is_addr(v): return any(k in str(v or "") for k in ADDR_KW)
     def _is_struct(v): return any(k in str(v or "") for k in STRUCT_KW)
 
+    TARGET_VNO2 = {"강원80자5162", "강원82자8563"}
+    def _nc_vno2(v): return "".join(str(v or "").split()).lower()
+
     rows = db.query(models.ChangeHistory).filter(
         models.ChangeHistory.deleted_at.is_(None),
         models.ChangeHistory.change_type == "구조변경",
     ).all()
 
-    stats = {"dry_run": dry_run, "전체": len(rows), "수정예정": 0, "샘플": []}
+    stats = {"dry_run": dry_run, "전체": len(rows), "수정예정": 0, "샘플": [], "target_debug": {}}
 
     for r in rows:
         bv = (r.before_value or "").strip()
@@ -2653,14 +2500,15 @@ async def fix_structure_address(
         if not bv and not av: continue
         if _is_struct(bv) or _is_struct(av): continue  # 구조변경 키워드 있으면 유지
         if _is_addr(bv) or _is_addr(av):
+            sample = {"id": r.id, "기존_type": "구조변경", "새_type": "주소지변경",
+                      "before": bv, "after": av, "memo": r.memo or "",
+                      "vehicle_number": r.vehicle_number, "name": r.name,
+                      "수정사유": "구조변경인데before/after주소형태"}
+            if _nc_vno2(r.vehicle_number) in TARGET_VNO2:
+                stats["target_debug"][r.vehicle_number] = sample
             stats["수정예정"] += 1
             if len(stats["샘플"]) < 50:
-                stats["샘플"].append({
-                    "id": r.id, "기존_type": "구조변경", "새_type": "주소지변경",
-                    "before": bv, "after": av, "memo": r.memo or "",
-                    "vehicle_number": r.vehicle_number, "name": r.name,
-                    "수정사유": "구조변경인데before/after주소형태",
-                })
+                stats["샘플"].append(sample)
             if not dry_run: r.change_type = "주소지변경"
 
     if not dry_run: db.commit()

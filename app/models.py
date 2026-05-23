@@ -289,3 +289,19 @@ class GlosignDocument(Base):
     created_at         = Column(DateTime, default=datetime.utcnow)
     updated_at         = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     deleted_at         = Column(DateTime, nullable=True)
+
+
+class MemberEditLog(Base):
+    __tablename__ = "member_edit_logs"
+    id           = Column(Integer, primary_key=True, index=True)
+    member_id    = Column(Integer, index=True)
+    vehicle_number = Column(String(50))
+    name         = Column(String(100))
+    field_name   = Column(String(100))   # 수정된 필드명
+    old_value    = Column(Text)
+    new_value    = Column(Text)
+    edit_reason  = Column(String(200))
+    record_to_change_history = Column(Boolean, default=False)
+    change_type  = Column(String(50))    # 변경등록대장에 기록된 경우 유형
+    created_by   = Column(String(100))
+    created_at   = Column(DateTime, default=datetime.utcnow)
