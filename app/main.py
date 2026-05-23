@@ -77,6 +77,11 @@ def _run_migrations():
         ("affiliated_company",    "transfer_ledger",  "VARCHAR(200)"),
         ("membership_date",       "candidates",       "VARCHAR(50)"),
         ("structure_change",      "license_holders",  "TEXT"),
+        # glosign_documents
+        ("contract_method",       "glosign_documents","VARCHAR(30)"),
+        ("deleted_at",            "glosign_documents","DATETIME"),
+        # member_edit_logs
+        ("change_type",           "member_edit_logs", "VARCHAR(50)"),
     ]
 
     for col_name, table_name, col_type in new_cols:
