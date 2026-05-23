@@ -2330,44 +2330,59 @@ async def fix_change_number_types(
     dry_run: bool = True,
     db: Session = Depends(get_db), _=Depends(require_admin)
 ):
-    """번호변경 유형 분리. 버전: number-fix-v3
+    """번호변경 유형 분리. 버전: number-fix-v4
     우선순위:
-    1. before/after/raw 주소컬럼에 차량번호A->B 패턴 → 차량번호변경
+    1. raw_data 전체 또는 before/after에 차량번호A->B 패턴 → 차량번호변경
     2. before/after에 010/011 전화번호 패턴 → 연락처변경
-    3. 번호변경말소 키워드만 있고 차량번호 없음 → 말소/폐차 (before/after 공란)
+    3. 번호변경말소 키워드만 있고 차량번호 없음 → 말소/폐차
+       memo = 번호변경말소 / 주소참고: raw_주소컬럼 (주소컬럼이 실제 주소일 때만)
     """
     import re as _re
 
-    # 차량번호 패턴: 자/배/바/거/하 등 한글포함 번호
-    VNO_PAT  = _re.compile(r'[가-힣]{2,3}\s*\d{2}\s*[가-힣]\s*\d{3,4}')
-    PHONE_PAT = _re.compile(r'01[016789][-.\s]?\d{3,4}[-.\s]?\d{4}')
-    MALSO_KW = ["번호변경말소", "번호변경 말소"]
-    ADDR_KW  = ["길","로","번길","읍","면","동","리","호","아파트","빌라","주공"]
+    # 번호판 패턴 (느슨): 한글+숫자+한글+숫자
+    VNO_PAT = _re.compile(r'(?:[가-힣]{2,3}\s*)?\d{2,3}[가-힣]\s*\d{3,4}(?:\s*호)?')
+    ARROW   = r'\s*[-\u2013\u2192>]+\s*'
+    VNO_ARROW_PAT = _re.compile(
+        r'(' + VNO_PAT.pattern + r')' + ARROW + r'(' + VNO_PAT.pattern + r')'
+    )
+    PHONE_PAT = _re.compile(r'\b01[016789][-.\s]?\d{3,4}[-.\s]?\d{4}\b')
+    MALSO_KW  = ["번호변경말소", "번호변경 말소"]
+    ADDR_KW   = ["길","로","번길","읍","면","동","리","번지","아파트","빌라","주공"]
 
     def _is_addr(v): return any(k in str(v or "") for k in ADDR_KW)
-    def _is_malso_only(bv, av, memo, raw_inner):
-        """차량번호 없이 말소 키워드만 있는 경우"""
-        combined_nc = "".join([bv, av, memo, raw_inner]).replace(" ","").lower()
-        has_malso = any("".join(k.split()) in combined_nc for k in MALSO_KW)
-        has_vno = bool(VNO_PAT.search(bv + av + raw_inner))
-        return has_malso and not has_vno
+    def _is_malso_text(v):
+        return "".join(str(v or "").split()).lower() in ("번호변경말소","번호변경말소")
 
-    def _find_arrow_vno(text):
-        """텍스트에서 차량번호A->B 패턴 추출. (before, after) 반환"""
-        m = _re.search(r'([가-힣]{2,3}\s*\d{2}\s*[가-힣]\s*\d{3,4})\s*[-–>→]+\s*([가-힣]{2,3}\s*\d{2}\s*[가-힣]\s*\d{3,4})', text)
+    def _find_vno_arrow(text):
+        m = VNO_ARROW_PAT.search(str(text or ""))
         if m: return m.group(1).strip(), m.group(2).strip()
-        # 숫자만 포함된 짧은 번호 (예: 92자1055 -> 92자1123)
-        m2 = _re.search(r'(\d{2}[가-힣]\d{3,4})\s*[-–>→]+\s*(\d{2}[가-힣]\d{3,4})', text)
-        if m2: return m2.group(1).strip(), m2.group(2).strip()
         return "", ""
 
-    TARGET_IDS = {1614, 3601, 3617}
+    def _get_raw_content(raw):
+        """raw에서 내 용/비고 컬럼 값"""
+        for k in raw:
+            kn = "".join(str(k).split()).lower()
+            if kn in ("내용","내 용","비고"):
+                v = str(raw[k] or "").strip()
+                if v and v not in ("-","nan"): return v
+        return ""
+
+    def _get_raw_addr(raw):
+        """raw에서 주소 컬럼 값 (실제 주소인지도 확인)"""
+        for k in raw:
+            kn = "".join(str(k).split()).lower()
+            if kn in ("주소","주      소","주 소"):
+                v = str(raw[k] or "").strip()
+                if v and v not in ("-","nan"): return v
+        return ""
+
+    TARGET_IDS = {1577, 1579, 1614, 3601, 3617}
     rows = db.query(models.ChangeHistory).filter(
         models.ChangeHistory.deleted_at.is_(None),
         models.ChangeHistory.change_type == "번호변경",
     ).all()
 
-    stats = {"dry_run": dry_run, "버전": "number-fix-v3",
+    stats = {"dry_run": dry_run, "버전": "number-fix-v4",
              "전체": len(rows), "수정예정": 0, "유형수정": {}, "샘플": [], "target_debug": {}}
 
     for r in rows:
@@ -2375,72 +2390,57 @@ async def fix_change_number_types(
         av   = (r.after_value  or "").strip()
         memo = (r.memo         or "").strip()
         raw  = r.raw_data if isinstance(r.raw_data, dict) else {}
-        raw_inner = " ".join(str(v) for v in raw.values())
+        raw_full = " ".join(str(v) for v in raw.values())
+        raw_addr = _get_raw_addr(raw)
+        raw_content = _get_raw_content(raw)
 
         ct = new_bv = new_av = new_memo = ""
         reason = ""
 
-        # 1순위: 차량번호 A->B 패턴 (before/after 또는 raw 주소컬럼)
-        # raw에서 주소컬럼(주 소, 주소 등) 값 추출
-        raw_addr_val = ""
-        for k in raw:
-            kn = "".join(str(k).split()).lower()
-            if kn in ("주소","주소","주 소","주      소"):
-                raw_addr_val = str(raw[k] or "").strip()
+        # 1순위: 차량번호A->B 패턴 (before/after, raw 전체 순서로 탐색)
+        sources_to_check = [bv + "->" + av, bv + " " + av, raw_full]
+        for src in sources_to_check:
+            vbv, vav = _find_vno_arrow(src)
+            if vbv and vav:
+                ct = "차량번호변경"
+                new_bv, new_av = vbv, vav
+                # memo: raw 내용/비고 컬럼 우선
+                new_memo = raw_content or memo
+                reason = f"차량번호A->B in {src[:40]!r}"
                 break
 
-        # before/after에서 직접 찾기
-        vno_bv, vno_av = _find_arrow_vno(bv + "->" + av) if bv and av else ("","")
-        if not vno_bv:
-            vno_bv, vno_av = _find_arrow_vno(bv + " " + av)
-        # raw 주소컬럼에서 찾기
-        if not vno_bv and raw_addr_val:
-            vno_bv, vno_av = _find_arrow_vno(raw_addr_val)
-        # raw 전체에서 찾기
-        if not vno_bv:
-            vno_bv, vno_av = _find_arrow_vno(raw_inner)
-
-        if vno_bv and vno_av:
-            ct = "차량번호변경"
-            new_bv = vno_bv
-            new_av = vno_av
-            # memo: raw의 '내 용' 또는 '비고' 컬럼 값
-            for k in raw:
-                kn = "".join(str(k).split()).lower()
-                if kn in ("내용","내 용","비고"):
-                    v = str(raw[k] or "").strip()
-                    if v and v not in ("-","nan"): new_memo = v; break
-            if not new_memo: new_memo = memo
-            reason = f"차량번호A->B({raw_addr_val or bv+'->'+av})"
-
         # 2순위: 전화번호 패턴
-        elif PHONE_PAT.search(bv) or PHONE_PAT.search(av):
-            ct = "연락처변경"
-            new_bv, new_av, new_memo = bv, av, memo
-            reason = "전화번호패턴"
+        if not ct:
+            if PHONE_PAT.search(bv) or PHONE_PAT.search(av):
+                ct = "연락처변경"
+                new_bv, new_av, new_memo = bv, av, memo
+                reason = "전화번호패턴"
 
         # 3순위: 번호변경말소 (차량번호 없음)
-        elif _is_malso_only(bv, av, memo, raw_inner):
-            ct = "말소/폐차"
-            new_bv, new_av = "", ""
-            # memo: 주소가 아닌 경우만 원문 보존
-            parts = ["번호변경말소"]
-            if _is_addr(bv) and bv: parts.append(f"주소참고: {bv}")
-            if _is_addr(av) and av: parts.append(f"주소참고: {av}")
-            new_memo = " / ".join(parts)
-            reason = "번호변경말소→말소/폐차"
+        if not ct:
+            combined = " ".join([bv, av, memo, raw_full])
+            has_malso = any("".join(k.split()) in "".join(combined.split()).lower() for k in MALSO_KW)
+            has_vno = bool(VNO_ARROW_PAT.search(combined))
+            if has_malso and not has_vno:
+                ct = "말소/폐차"
+                new_bv, new_av = "", ""
+                # memo: 주소참고는 raw_addr이 실제 주소일 때만
+                parts = ["번호변경말소"]
+                if raw_addr and _is_addr(raw_addr) and not _is_malso_text(raw_addr):
+                    parts.append(f"주소참고: {raw_addr}")
+                new_memo = " / ".join(parts)
+                reason = "번호변경말소→말소/폐차"
 
-        target_info = {
+        sample = {
             "id": r.id, "name": r.name, "vehicle_number": r.vehicle_number,
             "기존_type": "번호변경", "새_type": ct if ct else "분류불가",
             "기존_before": bv, "새_before": new_bv,
             "기존_after": av, "새_after": new_av,
             "기존_memo": memo, "새_memo": new_memo,
-            "raw_주소컬럼": raw_addr_val, "raw_inner일부": raw_inner[:100],
-            "수정사유": reason,
+            "raw_주소컬럼": raw_addr, "수정사유": reason,
         }
         if r.id in TARGET_IDS:
-            stats["target_debug"][r.id] = target_info
+            stats["target_debug"][r.id] = sample
 
         if not ct: continue
 
@@ -2448,8 +2448,7 @@ async def fix_change_number_types(
         key = f"번호변경 → {ct}"
         stats["유형수정"][key] = stats["유형수정"].get(key, 0) + 1
         if len(stats["샘플"]) < 30:
-            stats["샘플"].append(target_info)
-
+            stats["샘플"].append(sample)
         if not dry_run:
             r.change_type = ct; r.before_value = new_bv
             r.after_value = new_av; r.memo = new_memo
