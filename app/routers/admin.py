@@ -2567,7 +2567,7 @@ async def fix_structure_address(
 
 
 @router.get("/change-history-types")
-async def change_history_types(db: Session = Depends(get_db), _=Depends(get_current_user)):
+async def change_history_types(db: Session = Depends(get_db), _=Depends(require_admin)):
     """변경등록대장의 distinct change_type 목록 반환 (건수 내림차순)"""
     from sqlalchemy import func as _func
     rows = db.query(
