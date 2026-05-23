@@ -16,6 +16,7 @@ const CATS = {
   permits:   {label:'인허가/변경', tabs:[{id:'new-registrations',label:'신규등록대장'},{id:'transfer-ledger',label:'양도양수대장'},{id:'closures',label:'폐업현황'},{id:'change-history',label:'변경이력대장'}]},
   reports:   {label:'보고/집계',   tabs:[{id:'dashboard',label:'회원대시보드'},{id:'monthly-report',label:'월례보고서'}]},
   deadlines: {label:'기한관리',    tabs:[{id:'deadlines',label:'캘린더/목록'},{id:'dl-today',label:'오늘 할 일'},{id:'dl-3days',label:'3일 이내'},{id:'dl-7days',label:'7일 이내'},{id:'dl-over',label:'기한초과'},{id:'dl-done',label:'완료'}]},
+  glosign:   {label:'전자서명',    tabs:[{id:'glosign',label:'전체'},{id:'gs-wait',label:'서명대기'},{id:'gs-done',label:'완료'},{id:'gs-over',label:'기한초과'},{id:'gs-err',label:'오류'}]},
   excel:     {label:'엑셀 업로드', tabs:[{id:'upload',label:'파일 업로드'},{id:'history',label:'업로드 이력'},{id:'errors',label:'오류 확인'}]},
 };
 
@@ -439,6 +440,9 @@ function navigate(cat,sub){
     'dl-7days':()=>renderDeadlines('7일이내'),
     'dl-over': ()=>renderDeadlines('기한초과'),
     'dl-done': ()=>renderDeadlines('완료'),
+    glosign:()=>renderGlosign('전체'), 'gs-wait':()=>renderGlosign('서명대기'),
+    'gs-done':()=>renderGlosign('완료'), 'gs-over':()=>renderGlosign('기한초과'),
+    'gs-err':()=>renderGlosign('오류'),
   }[sub]||(() => document.getElementById('content').innerHTML='<p style="padding:20px">준비 중</p>'))();
 }
 
@@ -1966,4 +1970,107 @@ window.openNewDeadlineForMember=async(memberId)=>{
   const m=await api('GET',`/api/members/${memberId}`).catch(()=>null);
   openModal('기한 등록',_dlForm({member_id:memberId,vehicle_number:m?.vehicle_number||'',name:m?.name||'',region:m?.region||'',mobile:m?.mobile||''}),
     `<button class="btn bp btn-sm" onclick="saveNewDeadline()">저장</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
+};
+
+// ===== 전자서명 관리 =====
+const GS_STATUS = ['요청대기','서명대기','일부완료','완료','거절','취소','만료','오류'];
+const GS_COLORS = {'서명대기':'#e67e22','완료':'#27ae60','기한초과':'#e74c3c','오류':'#c0392b','요청대기':'#95a5a6','거절':'#7f8c8d','취소':'#bdc3c7','만료':'#e74c3c'};
+
+async function renderGlosign(filter='전체'){
+  const ct=document.getElementById('content');if(!ct)return;
+  ct.innerHTML=`
+  <div class="page-hd"><div class="page-hd-l"><span class="page-ico">✍️</span><span class="stat-ttl">전자서명 관리</span></div>
+    <div style="display:flex;gap:6px">
+      <button class="btn bo btn-sm" onclick="testGlosign()">🔗 연결 테스트</button>
+      <button class="btn bp" onclick="openNewGlosign()">+ 서명 건 등록</button>
+    </div>
+  </div>
+  <div class="filter-bar" style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap">
+    ${['전체','서명대기','완료','기한초과','오류'].map(f=>
+      `<button class="btn btn-sm ${filter===f?'bp':'bo'}" onclick="renderGlosign('${f}')">${f}</button>`).join('')}
+  </div>
+  <div id="gsBody"><div class="loading-box"><div class="spin"></div></div></div>`;
+  const statusMap={'서명대기':'서명대기','완료':'완료','오류':'오류','기한초과':''};
+  const qs=filter!=='전체'&&statusMap[filter]?`status=${encodeURIComponent(statusMap[filter])}`:'';
+  const d=await api('GET',`/api/integrations/glosign/documents${qs?'?'+qs:''}`).catch(()=>null);
+  const el=document.getElementById('gsBody');if(!el||!d)return;
+  if(!d.items.length){el.innerHTML='<div class="empty-box"><p class="empty-txt">등록된 전자서명 건이 없습니다.</p></div>';return;}
+  el.innerHTML=`<div class="tbl-wrap"><table>
+    <thead><tr><th>상태</th><th>요청일</th><th>기한일</th><th>완료일</th><th>문서명</th><th>지역</th><th>차량번호</th><th>성명</th><th>핸드폰</th><th>글로싸인ID</th><th>관리</th></tr></thead>
+    <tbody>${d.items.map(r=>`<tr>
+      <td><span style="color:${GS_COLORS[r.status]||'#666'};font-weight:600">${r.status}</span></td>
+      <td>${fv(r.requested_at)}</td><td>${fv(r.due_date)}</td><td>${fv(r.completed_at)}</td>
+      <td><a class="tbl-link" onclick="viewGlosign(${r.id});return false">${fv(r.document_title)}</a></td>
+      <td>${fv(r.region)}</td><td>${fv(r.vehicle_number)}</td><td>${fv(r.name)}</td><td>${fv(r.mobile)}</td>
+      <td style="font-size:11px;color:var(--c-text-3)">${fv(r.glosign_document_id)}</td>
+      <td style="white-space:nowrap">
+        <button class="btn bo btn-xs" onclick="refreshGlosign(${r.id})">🔄</button>
+        ${r.document_url?`<a class="btn bo btn-xs" href="${e_(r.document_url)}" target="_blank">보기</a>`:''}
+        <button class="btn bo btn-xs" onclick="editGlosign(${r.id})">수정</button>
+      </td>
+    </tr>`).join('')}</tbody>
+  </table></div><p style="font-size:12px;color:var(--c-text-3);margin-top:6px">총 ${d.total}건</p>`;
+}
+
+window.testGlosign=async()=>{
+  const r=await api('GET','/api/integrations/glosign/test').catch(()=>null);
+  toast(r?.ok ? '글로싸인 연결 성공 ✅' : `연결 실패: ${r?.message||''}`, r?.ok?'':'warning');
+};
+
+window.refreshGlosign=async(id)=>{
+  const r=await api('POST',`/api/integrations/glosign/documents/${id}/refresh`).catch(()=>null);
+  if(r){toast(r.ok?`상태: ${r.status}`:`새로고침 실패: ${r.message||''}`);renderGlosign('전체');}
+};
+
+function _gsForm(r={}){
+  const f=(n,l,v,t='text')=>`<div class="dl-field"><label class="dl-lbl">${l}</label><input class="dl-inp" id="gs_${n}" type="${t}" value="${e_(v||'')}"></div>`;
+  const fs=(n,l,v)=>`<div class="dl-field"><label class="dl-lbl">${l}</label><select class="dl-inp" id="gs_${n}">${GS_STATUS.map(s=>`<option value="${s}" ${v===s?'selected':''}>${s}</option>`).join('')}</select></div>`;
+  return `<div class="dl-grid">
+    ${f('document_title','문서명',r.document_title)}<div class="dl-field dl-full"></div>
+    ${f('vehicle_number','차량번호',r.vehicle_number)}${f('name','성명',r.name)}
+    ${f('region','지역',r.region)}${f('mobile','핸드폰',r.mobile,'tel')}
+    ${f('glosign_document_id','글로싸인 문서ID',r.glosign_document_id)}${f('glosign_request_id','요청ID',r.glosign_request_id)}
+    ${f('requested_at','요청일',r.requested_at,'date')}${f('due_date','서명기한',r.due_date,'date')}
+    ${fs('status','상태',r.status||'요청대기')}
+    <div class="dl-field"><label class="dl-lbl">메모</label><textarea class="dl-inp dl-ta" id="gs_memo" rows="2">${e_(r.memo||'')}</textarea></div>
+  </div>`;
+}
+
+function _gsVal(){
+  const g=id=>document.getElementById(id)?.value||'';
+  return {document_title:g('gs_document_title'),vehicle_number:g('gs_vehicle_number'),name:g('gs_name'),
+    region:g('gs_region'),mobile:g('gs_mobile'),glosign_document_id:g('gs_glosign_document_id'),
+    glosign_request_id:g('gs_glosign_request_id'),requested_at:g('gs_requested_at'),
+    due_date:g('gs_due_date'),status:g('gs_status'),memo:g('gs_memo')};
+}
+
+function openNewGlosign(){
+  openModal('전자서명 건 등록',_gsForm(),
+    `<button class="btn bp btn-sm" onclick="saveNewGlosign()">저장</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
+}
+window.saveNewGlosign=async()=>{
+  const data=_gsVal();
+  if(!data.document_title){toast('문서명을 입력해주세요','warning');return;}
+  const r=await api('POST','/api/integrations/glosign/documents',data).catch(()=>null);
+  if(r){toast('등록 완료');closeModal();renderGlosign('전체');}
+};
+window.editGlosign=async(id)=>{
+  const r=await api('GET',`/api/integrations/glosign/documents`).catch(()=>null);
+  const item=r?.items?.find(x=>x.id===id); if(!item)return;
+  openModal('전자서명 수정',_gsForm(item),
+    `<button class="btn bp btn-sm" onclick="saveEditGlosign(${id})">저장</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
+};
+window.saveEditGlosign=async(id)=>{
+  const r=await api('PUT',`/api/integrations/glosign/documents/${id}`,_gsVal()).catch(()=>null);
+  if(r){toast('수정 완료');closeModal();renderGlosign('전체');}
+};
+window.viewGlosign=async(id)=>{
+  const d=await api('GET',`/api/integrations/glosign/documents`).catch(()=>null);
+  const r=d?.items?.find(x=>x.id===id); if(!r)return;
+  openModal('전자서명 상세',buildDetailSections([
+    {title:'문서',fields:[['문서명',r.document_title],['글로싸인 ID',r.glosign_document_id],['상태',r.status]]},
+    {title:'일정',fields:[['요청일',r.requested_at],['서명기한',r.due_date],['완료일',r.completed_at]]},
+    {title:'대상',fields:[['차량번호',r.vehicle_number],['성명',r.name],['지역',r.region],['핸드폰',r.mobile]]},
+    {title:'메모',fields:[['메모',r.memo,true]]},
+  ]),`<button class="btn bo btn-sm" onclick="refreshGlosign(${r.id});closeModal()">상태 새로고침</button><button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
 };

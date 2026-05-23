@@ -264,3 +264,28 @@ class DeadlineTask(Base):
     created_at       = Column(DateTime, default=datetime.utcnow)
     updated_at       = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     deleted_at       = Column(DateTime, nullable=True)
+
+
+class GlosignDocument(Base):
+    __tablename__ = "glosign_documents"
+    id                 = Column(Integer, primary_key=True, index=True)
+    member_id          = Column(Integer, nullable=True)
+    license_holder_id  = Column(Integer, nullable=True)
+    vehicle_number     = Column(String(50))
+    name               = Column(String(100))
+    mobile             = Column(String(50))
+    region             = Column(String(50))
+    document_title     = Column(String(200))
+    glosign_document_id= Column(String(100), index=True)
+    glosign_request_id = Column(String(100))
+    status             = Column(String(30), default="요청대기")
+    requested_at       = Column(String(20))
+    due_date           = Column(String(20))
+    completed_at       = Column(String(20))
+    document_url       = Column(Text)
+    completed_file_url = Column(Text)
+    memo               = Column(Text)
+    raw_response       = Column(JSON)
+    created_at         = Column(DateTime, default=datetime.utcnow)
+    updated_at         = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    deleted_at         = Column(DateTime, nullable=True)

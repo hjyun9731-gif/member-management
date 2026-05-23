@@ -169,6 +169,10 @@ app.include_router(admin.router,          prefix="/api/admin",          tags=["�
 from app.routers import deadlines
 app.include_router(deadlines.router)
 
+# 연동 (글로싸인 등)
+from app.routers import integrations
+app.include_router(integrations.router)
+
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
