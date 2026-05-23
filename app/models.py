@@ -285,6 +285,7 @@ class GlosignDocument(Base):
     document_url       = Column(Text)
     completed_file_url = Column(Text)
     memo               = Column(Text)
+    contract_method    = Column(String(30), default='비대면')
     raw_response       = Column(JSON)
     created_at         = Column(DateTime, default=datetime.utcnow)
     updated_at         = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

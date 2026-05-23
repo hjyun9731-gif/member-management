@@ -16,6 +16,8 @@ def _fmt(d) -> dict:
         "status": d.status or "", "requested_at": d.requested_at or "",
         "due_date": d.due_date or "", "completed_at": d.completed_at or "",
         "document_url": d.document_url or "", "memo": d.memo or "",
+        "contract_method": getattr(d, "contract_method", "") or "비대면",
+        "updated_at": str(d.updated_at)[:16] if d.updated_at else "",
         "created_at": str(d.created_at)[:16] if d.created_at else "",
     }
 
@@ -171,6 +173,16 @@ async def glosign_webhook(
     return {"ok": True, "matched": False,
             "contract": contract_id, "state": state,
             "note": "매칭 문서 없음 - raw payload 보존"}
+
+
+@router.delete("/glosign/documents/{did}")
+async def delete_glosign_doc(did: int, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    d = db.query(models.GlosignDocument).filter(models.GlosignDocument.id==did).first()
+    if not d: raise HTTPException(404)
+    from datetime import datetime as _dt, timezone as _tz
+    d.deleted_at = _dt.now(_tz.utc)
+    db.commit()
+    return {"ok": True}
 
 
 @router.get("/glosign/webhook/test")
