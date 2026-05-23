@@ -84,16 +84,77 @@ async def update_doc(did: int, data: dict, db: Session = Depends(get_db), _=Depe
     d.updated_at = datetime.now(timezone.utc)
     db.commit(); return _fmt(d)
 
-# Webhook (구조 준비)
+# Webhook (글로싸인 서버 → 우리 서버)
 @router.post("/glosign/webhook")
-async def glosign_webhook(payload: dict, db: Session = Depends(get_db)):
-    doc_id = payload.get("document_id") or payload.get("documentId")
-    if not doc_id: return {"ok": False}
-    d = db.query(models.GlosignDocument).filter(
-        models.GlosignDocument.glosign_document_id == doc_id).first()
-    if d:
-        d.status = payload.get("status", d.status)
-        if payload.get("completed_at"): d.completed_at = payload["completed_at"][:10]
-        d.raw_response = payload; d.updated_at = datetime.now(timezone.utc)
+async def glosign_webhook(
+    payload: dict,
+    secret: str = "",
+    db: Session = Depends(get_db)
+):
+    """글로싸인 Webhook 수신.
+    payload 예: {"contract":"c123...","hook_type":"contract","state":"complete"}
+    인증: GLOSIGN_WEBHOOK_SECRET 설정 시 secret 파라미터 검증
+    """
+    import os as _os
+    from datetime import date as _date
+
+    # Secret 검증
+    webhook_secret = _os.getenv("GLOSIGN_WEBHOOK_SECRET", "")
+    if webhook_secret and secret != webhook_secret:
+        from fastapi import HTTPException as _HTTPEx
+        raise _HTTPEx(403, "Webhook secret 불일치")
+
+    contract_id = payload.get("contract") or payload.get("document_id") or payload.get("documentId")
+    state = (payload.get("state") or payload.get("status") or "").lower()
+
+    STATE_MAP = {
+        "complete":  "완료",
+        "completed": "완료",
+        "reject":    "거절",
+        "rejected":  "거절",
+        "cancel":    "취소",
+        "cancelled": "취소",
+        "expired":   "만료",
+        "waiting":   "서명대기",
+        "progress":  "서명대기",
+        "partial":   "일부완료",
+    }
+    new_status = STATE_MAP.get(state, "오류")
+
+    doc = None
+    if contract_id:
+        doc = db.query(models.GlosignDocument).filter(
+            (models.GlosignDocument.glosign_document_id == contract_id) |
+            (models.GlosignDocument.glosign_request_id  == contract_id)
+        ).first()
+
+    if doc:
+        doc.status = new_status
+        doc.raw_response = payload
+        from datetime import datetime as _dt, timezone as _tz
+        doc.updated_at = _dt.now(_tz.utc)
+        if new_status == "완료":
+            doc.completed_at = str(_date.today())
+            # 연결된 deadline_task 완료 처리
+            tasks = db.query(models.DeadlineTask).filter(
+                models.DeadlineTask.source == f"glosign:{doc.id}",
+                models.DeadlineTask.deleted_at.is_(None),
+            ).all()
+            for t in tasks:
+                t.status = "완료"
+                t.completed_at = str(_date.today())
         db.commit()
-    return {"ok": True}
+        return {"ok": True, "matched": True, "document_id": doc.id, "new_status": new_status}
+
+    # 매칭 실패 시 raw 보존
+    if contract_id:
+        unmatched = models.GlosignDocument(
+            glosign_document_id=contract_id,
+            document_title=f"Webhook 수신 (매칭 실패)",
+            status="오류",
+            memo=f"Webhook 수신됐으나 매칭 문서 없음. state={state}",
+            raw_response=payload,
+        )
+        db.add(unmatched); db.commit()
+
+    return {"ok": True, "matched": False, "note": "매칭 문서 없음"}

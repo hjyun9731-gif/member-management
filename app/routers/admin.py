@@ -2564,3 +2564,18 @@ async def fix_structure_address(
 
     if not dry_run: db.commit()
     return stats
+
+
+@router.get("/change-history-types")
+async def change_history_types(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """변경등록대장의 distinct change_type 목록 반환 (건수 내림차순)"""
+    from sqlalchemy import func as _func
+    rows = db.query(
+        models.ChangeHistory.change_type,
+        _func.count(models.ChangeHistory.id).label("cnt")
+    ).filter(
+        models.ChangeHistory.deleted_at.is_(None),
+        models.ChangeHistory.change_type.isnot(None),
+        models.ChangeHistory.change_type != "",
+    ).group_by(models.ChangeHistory.change_type).order_by(_func.count(models.ChangeHistory.id).desc()).all()
+    return {"types": [r.change_type for r in rows if r.change_type]}
