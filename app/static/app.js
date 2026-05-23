@@ -1988,35 +1988,54 @@ window.openNewDeadlineForMember=async(memberId)=>{
 const GS_STATUS = ['요청대기','서명대기','일부완료','완료','거절','취소','만료','오류'];
 const GS_COLORS = {'서명대기':'#e67e22','완료':'#27ae60','기한초과':'#e74c3c','오류':'#c0392b','요청대기':'#95a5a6','거절':'#7f8c8d','취소':'#bdc3c7','만료':'#e74c3c'};
 
+const WEBHOOK_URL = 'https://member-management-production.up.railway.app/api/integrations/glosign/webhook';
+
 async function renderGlosign(filter='전체'){
   const ct=document.getElementById('content');if(!ct)return;
   ct.innerHTML=`
-  <div class="page-hd"><div class="page-hd-l"><span class="page-ico">✍️</span><span class="stat-ttl">전자서명 관리</span></div>
+  <div class="page-hd">
+    <div class="page-hd-l"><span class="page-ico">✍️</span><span class="page-ttl">전자서명 관리</span></div>
     <div style="display:flex;gap:6px">
-      <button class="btn bo btn-sm" onclick="testGlosign()">🔗 연결 테스트</button>
+      <button class="btn bo btn-sm" onclick="testGlosign()">🔗 API 연결 테스트</button>
       <button class="btn bp" onclick="openNewGlosign()">+ 서명 건 등록</button>
     </div>
   </div>
+  <div class="stat-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:12px">
+    <div class="stat-card sky"><div class="stat-lbl">API 직접조회</div><div class="stat-val" id="gsApiStatus" style="font-size:14px">-</div><div class="stat-sub">연결 테스트 필요</div></div>
+    <div class="stat-card" style="border-left:4px solid #27ae60"><div class="stat-lbl">Webhook 수신</div><div class="stat-val" style="font-size:14px;color:#27ae60">✅ 정상</div><div class="stat-sub">수신 가능</div></div>
+    <div class="stat-card" style="border-left:4px solid #6c63ff"><div class="stat-lbl">수동 관리</div><div class="stat-val" style="font-size:14px;color:#6c63ff">✅ 가능</div><div class="stat-sub">등록/완료처리 가능</div></div>
+  </div>
+  <div style="background:var(--c-bg-2);border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:12px;color:var(--c-text-3);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    <span>📡 Webhook URL:</span>
+    <code style="background:var(--c-bg);padding:2px 8px;border-radius:4px;font-size:11px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${WEBHOOK_URL}</code>
+    <button class="btn bo btn-xs" onclick="navigator.clipboard.writeText(WEBHOOK_URL).then(()=>toast('URL 복사됨'))">복사</button>
+    <button class="btn bo btn-xs" onclick="testWebhook()">Webhook 테스트</button>
+  </div>
+  <div id="gsApiMsg" style="display:none;margin-bottom:10px"></div>
   <div class="filter-bar" style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap">
-    ${['전체','서명대기','완료','기한초과','오류'].map(f=>
+    ${['전체','서명대기','완료','기한초과','거절','오류'].map(f=>
       `<button class="btn btn-sm ${filter===f?'bp':'bo'}" onclick="renderGlosign('${f}')">${f}</button>`).join('')}
   </div>
   <div id="gsBody"><div class="loading-box"><div class="spin"></div></div></div>`;
-  const statusMap={'서명대기':'서명대기','완료':'완료','오류':'오류','기한초과':''};
+
+  const statusMap={'서명대기':'서명대기','완료':'완료','오류':'오류','거절':'거절','기한초과':''};
   const qs=filter!=='전체'&&statusMap[filter]?`status=${encodeURIComponent(statusMap[filter])}`:'';
   const d=await api('GET',`/api/integrations/glosign/documents${qs?'?'+qs:''}`).catch(()=>null);
   const el=document.getElementById('gsBody');if(!el||!d)return;
-  if(!d.items.length){el.innerHTML='<div class="empty-box"><p class="empty-txt">등록된 전자서명 건이 없습니다.</p></div>';return;}
+  if(!d.items.length){
+    el.innerHTML='<div class="empty-box"><div class="empty-ico">✍️</div><p class="empty-txt">등록된 전자서명 건이 없습니다.<br><small>+ 서명 건 등록으로 수동 등록하세요.</small></p></div>';
+    return;
+  }
   el.innerHTML=`<div class="tbl-wrap"><table>
-    <thead><tr><th>상태</th><th>요청일</th><th>기한일</th><th>완료일</th><th>문서명</th><th>지역</th><th>차량번호</th><th>성명</th><th>핸드폰</th><th>글로싸인ID</th><th>관리</th></tr></thead>
+    <thead><tr><th>상태</th><th>요청일</th><th>기한일</th><th>완료일</th><th>문서명</th><th>지역</th><th>차량번호</th><th>성명</th><th>핸드폰</th><th>계약ID</th><th>관리</th></tr></thead>
     <tbody>${d.items.map(r=>`<tr>
       <td><span style="color:${GS_COLORS[r.status]||'#666'};font-weight:600">${r.status}</span></td>
       <td>${fv(r.requested_at)}</td><td>${fv(r.due_date)}</td><td>${fv(r.completed_at)}</td>
       <td><a class="tbl-link" onclick="viewGlosign(${r.id});return false">${fv(r.document_title)}</a></td>
       <td>${fv(r.region)}</td><td>${fv(r.vehicle_number)}</td><td>${fv(r.name)}</td><td>${fv(r.mobile)}</td>
-      <td style="font-size:11px;color:var(--c-text-3)">${fv(r.glosign_document_id)}</td>
+      <td style="font-size:11px;color:var(--c-text-3);max-width:120px;overflow:hidden;text-overflow:ellipsis">${fv(r.glosign_document_id)}</td>
       <td style="white-space:nowrap">
-        <button class="btn bo btn-xs" onclick="refreshGlosign(${r.id})">🔄</button>
+        <button class="btn bo btn-xs" onclick="refreshGlosign(${r.id})" title="상태 새로고침">🔄</button>
         ${r.document_url?`<a class="btn bo btn-xs" href="${e_(r.document_url)}" target="_blank">보기</a>`:''}
         <button class="btn bo btn-xs" onclick="editGlosign(${r.id})">수정</button>
       </td>
@@ -2026,7 +2045,32 @@ async function renderGlosign(filter='전체'){
 
 window.testGlosign=async()=>{
   const r=await api('GET','/api/integrations/glosign/test').catch(()=>null);
-  toast(r?.ok ? '글로싸인 연결 성공 ✅' : `연결 실패: ${r?.message||''}`, r?.ok?'':'warning');
+  const el=document.getElementById('gsApiStatus');
+  const msgEl=document.getElementById('gsApiMsg');
+  const sc=r?.endpoints_tested?.[0]?.status_code||'';
+  if(r?.ok){
+    if(el) el.innerHTML='<span style="color:#27ae60">✅ 연결 성공</span>';
+    if(msgEl) msgEl.style.display='none';
+    toast('글로싸인 API 연결 성공 ✅');
+  } else {
+    if(el) el.innerHTML=`<span style="color:${sc===403?'#e67e22':'#e74c3c'}">${sc===403?'⚠️ 권한 거절 (403)':'❌ 연결 실패'}</span>`;
+    if(msgEl){
+      msgEl.style.display='block';
+      msgEl.innerHTML=`<div style="background:#fff8e1;border:1px solid #f39c12;border-radius:8px;padding:10px 14px;font-size:13px;color:#7d6608">
+        ⚠️ ${sc===403?'<strong>API 직접조회 권한이 거절되었습니다 (403).</strong><br>Webhook 수신은 정상이며 수동 등록/완료 처리는 사용 가능합니다. 글로싸인 측 API 권한 활성화 후 자동조회가 가능합니다.'
+        :`연결 실패: ${r?.message||''}`}
+      </div>`;
+    }
+  }
+};
+
+window.testWebhook=async()=>{
+  const cid='webhook-test-'+Date.now();
+  const r=await fetch('/api/integrations/glosign/webhook',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({contract:cid,hook_type:'contract',state:'complete'})
+  }).then(x=>x.json()).catch(()=>null);
+  toast(r?.ok?`Webhook 테스트 성공 ✅ matched=${r.matched}`:'Webhook 테스트 실패','warning');
 };
 
 window.refreshGlosign=async(id)=>{
