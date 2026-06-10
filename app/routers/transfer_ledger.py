@@ -241,10 +241,11 @@ async def list_transfers(
 
         all_rows.sort(key=mgmt_sort_fn, reverse=reverse)
     else:
-        # 날짜 정렬: 접수일자 1순위, 없으면 처리일자
+        # 날짜 정렬: 접수일자 1순위, 없으면 인가일자
         all_rows = base_q.with_entities(
             models.TransferLedger.id,
-            models.TransferLedger.receipt_date).all()
+            models.TransferLedger.receipt_date,
+            models.TransferLedger.approval_date).all()
         reverse = (effective_sort or "desc") == "desc"
 
         def sort_key(r):
@@ -254,7 +255,10 @@ async def list_transfers(
                 d = parse_date_sort(r[2] or '')
             return d
 
-        all_rows.sort(key=sort_key, reverse=reverse)
+        try:
+            all_rows.sort(key=sort_key, reverse=reverse)
+        except Exception:
+            all_rows.sort(key=lambda r: r[0] or 0, reverse=reverse)
 
     total = len(all_rows)
     page_ids = [r[0] for r in all_rows[(page-1)*limit: page*limit]]
