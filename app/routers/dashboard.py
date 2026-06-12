@@ -15,7 +15,35 @@ from app import models, crud
 from app.excel_utils import normalize_fuel
 
 router = APIRouter()
+def _has_val(value):
+    """값 존재 여부 판단.
+    월례보고서/대시보드 공통 사용.
+    가입희망, 개별등록, 개별대폐차, x 등은 실제 가입값으로 보지 않음.
+    """
+    if value is None:
+        return False
 
+    s = str(value).strip()
+    if not s:
+        return False
+
+    lowered = s.lower().strip()
+
+    false_values = {
+        "x", "미가입", "없음", "무", "none", "null", "nan", "-", "ㆍ", ".",
+        "가입희망", "가입 희망",
+        "개별등록", "개별 등록",
+        "개별대폐차", "개별 대폐차",
+        "대폐차",
+        "신규등록", "신규 등록",
+        "예정", "신청", "문의", "보류", "확인중", "확인 중",
+        "기타"
+    }
+
+    if lowered in false_values:
+        return False
+
+    return True
 
 def _ext_year(s: str) -> Optional[int]:
     """날짜/연도 문자열에서 연도 추출.
