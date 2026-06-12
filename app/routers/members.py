@@ -401,6 +401,33 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
         except Exception as ex:
             logger.warning(f"변경이력 저장 실패: {ex}")
 
+    # transfer_ledger 동기화 (양도양수에서 온 회원인 경우)
+    _TRANSFER_SYNC_FIELDS = {
+        "region", "vehicle_number", "name", "address", "phone", "mobile",
+        "approval_date", "membership_date", "certificate_issue_date",
+        "certificate_number", "driver_license_number", "vehicle_type",
+        "fuel_type", "affiliated_company", "memo",
+    }
+    if m.transfer_ledger_id:
+        try:
+            tl = db.query(models.TransferLedger).filter(
+                models.TransferLedger.id == m.transfer_ledger_id
+            ).first()
+            if tl:
+                # transferor (양도인): transfer_data에서 직접 전달한 경우
+                if "transferor" in data:
+                    tl.transferor = data["transferor"]
+                # receipt_date: transfer_data에서 직접 전달한 경우
+                if "receipt_date" in data:
+                    tl.receipt_date = data["receipt_date"]
+                # 공통 필드 동기화
+                for tf in _TRANSFER_SYNC_FIELDS:
+                    if tf in filtered_data:
+                        setattr(tl, tf, filtered_data[tf])
+                logger.info(f"transfer_ledger {tl.id} 동기화 완료")
+        except Exception as ex:
+            logger.warning(f"transfer_ledger 동기화 실패: {ex}")
+
     try:
         db.commit()
         db.refresh(m)

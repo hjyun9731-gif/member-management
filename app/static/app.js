@@ -752,7 +752,8 @@ window.editMember=async(id,defaultCat='개인')=>{
     vehicle_type:'',fuel_type:'',business_number:'',affiliated_company:'',
     resident_number:'',memo:'',
     reapproval_date:'',official_address:'',
-    agent_name:'',agent_resident_number:'',agent_mobile:''};
+    agent_name:'',agent_resident_number:'',agent_mobile:'',
+    transfer_info:null};
   if(id){
     r=await api('GET',`/api/members/${id}`).catch(()=>null);
     if(!r)return;
@@ -787,11 +788,17 @@ window.editMember=async(id,defaultCat='개인')=>{
     ${fi('driver_license_number','운전면허번호',r.driver_license_number||'')}
     <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||'')}" placeholder="예: 22,포터Ⅱ내장탑차"></div>
     ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),r.fuel_type||'')}
-    ${fi('affiliated_company','소속업체',r.affiliated_company||'')} ${frn('resident_number','주민등록번호',r.resident_number||'')}
+    ${fi('business_number','사업자번호',r.business_number||'')} ${fi('affiliated_company','소속업체',r.affiliated_company||'')}
+    ${frn('resident_number','주민등록번호',r.resident_number||'')}
     <div class="fi cs2"><label>구조변경</label><input class="fc" name="structure_change" value="${e_(r.structure_change||'')}" placeholder="예: 윙바디 변경, 냉동기 장착, 호로→윙바디"></div>
     ${isTaxi?taxiSection:''}
     ${isInd?indSection:''}
     ${(!id)?(taxiSection+indSection):''}
+    ${(id&&r.transfer_info)?`
+    <div class="fi-section-label cs4" style="color:var(--c-primary);font-weight:600;margin-top:8px;padding-top:8px;border-top:1px solid var(--c-border);font-size:12px">── 양도양수 정보</div>
+    ${fi('transferor','양도인(성명)',r.transfer_info.transferor||'')}
+    ${fi('receipt_date','접수일자',r.transfer_info.receipt_date||'')}
+    `:''}
     ${fta('memo','비고',r.memo||'','cs4')}
   </div></form>`;
 
@@ -803,8 +810,8 @@ window.editMember=async(id,defaultCat='개인')=>{
     const form=document.getElementById('mForm');
     const fd=Object.fromEntries(new FormData(form));
     if(!fd.vehicle_number||!fd.name){toast('차량번호와 성명은 필수입니다','warn');return;}
-    // 신규 등록 시 category 재계산
-    if(!id) fd.category=fd.vehicle_number?.includes('배')?'택배':'개인';
+    // category 재계산 (신규 등록 및 수정 시 차량번호 기준)
+    fd.category=fd.vehicle_number?.includes('배')?'택배':'개인';
     const btn=document.getElementById('_mSave');
     btn.disabled=true; btn.textContent='저장 중...';
     try{

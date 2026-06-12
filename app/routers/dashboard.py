@@ -872,9 +872,9 @@ async def stat_list(
     )
 
     if stat_type == "joined":
-        members = [m for m in base.all() if _has_val(m.membership_date)]
+        members = [m for m in base.all() if _is_association_member(m.membership_date)]
     elif stat_type == "not_joined":
-        members = [m for m in base.all() if not _has_val(m.membership_date)]
+        members = [m for m in base.all() if not _is_association_member(m.membership_date)]
     elif stat_type == "delivery_employed":
         members = [m for m in base.filter(models.LicenseHolder.category=="택배").all()
                    if _has_val(m.certificate_issue_date)]
