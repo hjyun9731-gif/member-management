@@ -1031,6 +1031,7 @@ window.editTransfer=async(id)=>{
     <div class="fi cs2"><label>구조변경</label><input class="fc" name="structure_change" value="${e_(r.structure_change||'')}"></div>
     ${fi('transferor','양도자',r.transferor||'')}
     ${fi('transferee','양수자',r.transferee||'')}
+    ${fi('transfer_region','이관/양도지역',r.transfer_region||'')}
     ${frn('resident_number','주민등록번호',r.resident_number||'')}
     <div class="fi cs2"><label>주소</label><input class="fc" name="address" value="${e_(r.address||'')}"></div>
     ${fi('phone','전화번호',r.phone||'')}

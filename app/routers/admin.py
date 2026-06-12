@@ -2579,3 +2579,70 @@ async def change_history_types(db: Session = Depends(get_db), _=Depends(require_
         models.ChangeHistory.change_type != "",
     ).group_by(models.ChangeHistory.change_type).order_by(_func.count(models.ChangeHistory.id).desc()).all()
     return {"types": [r.change_type for r in rows if r.change_type]}
+
+
+@router.get("/debug-monthly-member-count")
+async def debug_monthly_member_count(
+    year: int = 2026, month: int = 6,
+    db: Session = Depends(get_db), _=Depends(require_admin)
+):
+    """가입 판정 기준 검증 API"""
+    import re as _re
+
+    _NOT_JOINED = {
+        'x','미가입','가입희망','가입 희망','개별등록','개별 등록',
+        '개별대폐차','개별 대폐차','대폐차','신규등록','예정','신청','문의',
+        '보류','확인중','기타','none','nan','-','',
+    }
+
+    def _is_joined(v):
+        v = str(v or '').strip()
+        if not v: return False
+        if v.lower() in _NOT_JOINED: return False
+        if v.lower() in ('o','ㅇ'): return True
+        if _re.search(r'\d{2}[\.\-/]\d{1,2}[\.\-/]\d{1,2}', v): return True
+        if _re.search(r'\d{4}', v): return True
+        return False
+
+    rows = db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.deleted_at.is_(None),
+        models.LicenseHolder.status != 'closed',
+    ).all()
+
+    memo_values = {}    # 문구별 카운트
+    wrong_joined = []   # 가입으로 잘못 잡힌 의심
+    correct_not  = []   # 정상 미가입
+    joined_list  = []   # 정상 가입
+
+    for m in rows:
+        v = str(m.membership_date or '').strip()
+        vl = v.lower()
+        is_j = _is_joined(v)
+        # 숫자/날짜/O 아닌 문구
+        if v and not _re.search(r'\d', v) and vl not in ('o','ㅇ',''):
+            memo_values[v] = memo_values.get(v, 0) + 1
+            if is_j:
+                wrong_joined.append({'id':m.id,'name':m.name,'vehicle_number':m.vehicle_number,'값':v})
+        if is_j:
+            joined_list.append(v)
+
+    from collections import Counter
+    memo_sorted = dict(sorted(memo_values.items(), key=lambda x: -x[1])[:30])
+
+    return {
+        "가입판정기준": {
+            "가입": ["날짜형식", "O", "o", "ㅇ"],
+            "미가입": ["공란", "x", "X", "미가입"],
+            "가입아님_메모성문구": list(_NOT_JOINED - {'','none','nan','-','x'}),
+        },
+        "집계": {
+            "전체": len(rows),
+            "가입자": len(joined_list),
+            "미가입자": len(rows) - len(joined_list),
+        },
+        "의심목록": {
+            "메모성문구_가입일자에_있는건수": sum(memo_values.values()),
+            "메모성문구_종류별": memo_sorted,
+            "문구인데_가입자로_잡힌건": wrong_joined[:20],
+        },
+    }
