@@ -45,6 +45,46 @@ def _has_val(value):
 
     return True
 
+def _is_association_member(value):
+    """협회가입자 판정.
+    날짜 또는 O/o/ㅇ/○ 만 가입자로 본다.
+    가입희망, 개별등록, 개별대폐차, x 등은 가입자로 보지 않는다.
+    """
+    if value is None:
+        return False
+
+    s = str(value).strip()
+    if not s:
+        return False
+
+    lowered = s.lower().strip()
+
+    not_joined_values = {
+        "x", "미가입", "없음", "무", "none", "null", "nan", "-", "ㆍ", ".",
+        "가입희망", "가입 희망",
+        "개별등록", "개별 등록",
+        "개별대폐차", "개별 대폐차",
+        "대폐차",
+        "신규등록", "신규 등록",
+        "예정", "신청", "문의", "보류", "확인중", "확인 중",
+        "기타"
+    }
+
+    if lowered in not_joined_values:
+        return False
+
+    if lowered in {"o", "ㅇ", "○"}:
+        return True
+
+    # 날짜 형식이면 가입자로 인정
+    # 예: 2026.06.01 / 26.06.01 / 2026-06-01 / 2026/06/01
+    if re.search(r"(19|20)\d{2}\s*[.\-/]\s*\d{1,2}\s*[.\-/]\s*\d{1,2}", s):
+        return True
+
+    if re.search(r"^\d{2}\s*[.\-/]\s*\d{1,2}\s*[.\-/]\s*\d{1,2}", s):
+        return True
+
+    return False
 def _ext_year(s: str) -> Optional[int]:
     """날짜/연도 문자열에서 연도 추출.
     - 4자리 연도: 2026년, 2026.03.30, 2026-03-30 등
@@ -248,7 +288,7 @@ async def full_stats(db: Session = Depends(get_db), _=Depends(get_current_user))
         return False
 
     # 가입: membership_date(가입일자) 기준 (날짜/O/o/ㅇ 만)
-    joined     = sum(1 for m in all_lh if _is_joined(m.membership_date))
+    joined     = sum(1 for m in all_lh if _is_association_member(m.membership_date))
     individual = sum(1 for m in all_lh if m.category == "개인")
     delivery   = sum(1 for m in all_lh if m.category == "택배")
 
