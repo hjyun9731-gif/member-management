@@ -118,7 +118,9 @@ class TransferLedger(Base):
     structure_change = Column(Text)                     # 구조변경
     affiliated_company = Column(String(200))            # 소속업체
     management_number = Column(String(50))               # 양YY-N (회원등록 시 부여)
-    member_id = Column(Integer, nullable=True)           # 회원등록 완료 시 연결
+    member_id = Column(Integer, nullable=True)           # 회원등록 완료 시 연결 (양수자, 하위호환용)
+    transferor_member_id = Column(Integer, nullable=True) # 양도자 회원 ID (license_holders.id)
+    transferee_member_id = Column(Integer, nullable=True) # 양수자 회원 ID (license_holders.id)
     upload_id = Column(Integer, nullable=True)     # 업로드 이력 ID
     raw_data = Column(JSON)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -160,6 +162,8 @@ class Closure(Base):
     agent_mobile = Column(String(50))                   # 대리인 핸드폰
     transferee = Column(String(100))                  # 양수인 (양도 시)
     transfer_region = Column(String(50))              # 이관지역 / 양도지역
+    transferee_member_id = Column(Integer, nullable=True)  # 양수인 회원 ID (도내 양도양수 연결)
+    transfer_ledger_id = Column(Integer, nullable=True)     # 연결된 양도양수대장 기록 ID
     member_id = Column(Integer, nullable=True)
     upload_id = Column(Integer, nullable=True)     # 업로드 이력 ID
     raw_data = Column(JSON)

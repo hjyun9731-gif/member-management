@@ -100,6 +100,8 @@ def _fmt(t):
         "structure_change":      getattr(t, 'structure_change', '') or "",
         "affiliated_company":    getattr(t, 'affiliated_company', '') or "",
         "member_id":             t.member_id,
+        "transferor_member_id":  getattr(t, 'transferor_member_id', None),
+        "transferee_member_id":  getattr(t, 'transferee_member_id', None),
         "created_at":            str(t.created_at)[:16] if t.created_at else None,
     }
 
@@ -321,6 +323,114 @@ async def delete_transfer(tid: int, db: Session = Depends(get_db), _=Depends(req
         raise HTTPException(404, "양도양수 기록을 찾을 수 없습니다.")
     crud.soft_delete(db, t)
     return {"ok": True}
+
+
+class DupCheckBody(BaseModel):
+    resident_number: Optional[str] = ""
+    vehicle_number: Optional[str] = ""
+    name: Optional[str] = ""
+    mobile: Optional[str] = ""
+
+
+@router.post("/check-transferee-duplicate")
+async def check_transferee_duplicate(body: DupCheckBody,
+                                      db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """양수자 중복 확인: 주민등록번호/차량번호 완전일치(strong), 성명+핸드폰 조합(weak)"""
+    matches = crud.find_duplicate_transferee(
+        db, resident_number=body.resident_number, vehicle_number=body.vehicle_number,
+        name=body.name, mobile=body.mobile)
+    has_strong = any(m["strength"] == "strong" for m in matches)
+    message = None
+    if matches:
+        message = crud._DUP_STRONG_MSG if has_strong else crud._DUP_WEAK_MSG
+    return {"has_duplicate": bool(matches), "has_strong": has_strong,
+            "matches": matches, "message": message}
+
+
+class DomesticTransferBody(BaseModel):
+    transferor_member_id: int
+    receipt_date: Optional[str] = ""
+    approval_date: Optional[str] = ""
+    membership_date: Optional[str] = ""
+    certificate_issue_date: Optional[str] = ""
+    certificate_number: Optional[str] = ""
+    driver_license_number: Optional[str] = ""
+    vehicle_type: Optional[str] = ""
+    fuel_type: Optional[str] = ""
+    structure_change: Optional[str] = ""
+    affiliated_company: Optional[str] = ""
+    memo: Optional[str] = ""
+    management_number: Optional[str] = None
+
+    transferee_target: str = "member"   # 'member' | 'candidate'
+    transferee_name: Optional[str] = ""
+    transferee_resident_number: Optional[str] = ""
+    transferee_vehicle_number: Optional[str] = ""
+    transferee_region: Optional[str] = ""
+    transferee_address: Optional[str] = ""
+    transferee_phone: Optional[str] = ""
+    transferee_mobile: Optional[str] = ""
+
+    closure_date: str
+    closure_reason: Optional[str] = ""
+
+    link_existing_id: Optional[int] = None
+    link_existing_type: Optional[str] = None   # 'member' | 'candidate'
+    force_new: bool = False
+
+
+@router.post("/domestic")
+async def create_domestic_transfer(body: DomesticTransferBody,
+                                    db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """도내 양도양수 등록 - 양도자 폐업, 폐업현황 등록, 양도양수대장 등록,
+    양수자 회원/예정자 등록·연결을 하나의 트랜잭션으로 처리."""
+    if not body.closure_date:
+        raise HTTPException(400, "처리일자(폐업일자)를 입력하세요.")
+
+    # 신규 등록인 경우 중복 재확인 (강한 중복인데 force_new 아니면 차단)
+    if not body.link_existing_id:
+        matches = crud.find_duplicate_transferee(
+            db, resident_number=body.transferee_resident_number,
+            vehicle_number=body.transferee_vehicle_number,
+            name=body.transferee_name, mobile=body.transferee_mobile)
+        has_strong = any(m["strength"] == "strong" for m in matches)
+        if matches and not body.force_new:
+            raise HTTPException(409, "중복 가능성이 있는 회원정보가 존재합니다. 중복 확인 후 다시 시도해주세요.")
+
+    transfer_fields = {
+        "approval_date": body.approval_date, "membership_date": body.membership_date,
+        "certificate_issue_date": body.certificate_issue_date, "certificate_number": body.certificate_number,
+        "driver_license_number": body.driver_license_number, "vehicle_type": body.vehicle_type,
+        "fuel_type": body.fuel_type, "structure_change": body.structure_change,
+        "affiliated_company": body.affiliated_company, "memo": body.memo,
+    }
+    transferee_fields = {
+        "name": body.transferee_name, "resident_number": body.transferee_resident_number,
+        "vehicle_number": body.transferee_vehicle_number, "region": body.transferee_region,
+        "address": body.transferee_address, "phone": body.transferee_phone,
+        "mobile": body.transferee_mobile,
+    }
+
+    try:
+        result = crud.process_domestic_transfer(
+            db,
+            transferor_member_id=body.transferor_member_id,
+            transfer_fields=transfer_fields,
+            transferee_target=body.transferee_target,
+            transferee_fields=transferee_fields,
+            closure_date=body.closure_date,
+            closure_reason=body.closure_reason,
+            receipt_date=body.receipt_date,
+            management_number=body.management_number,
+            link_existing_id=body.link_existing_id,
+            link_existing_type=body.link_existing_type,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        logger.exception("도내 양도양수 처리 실패")
+        raise HTTPException(500, f"도내 양도양수 처리 중 오류가 발생했습니다: {e}")
+    return result
 
 
 class RegisterMemberBody(BaseModel):

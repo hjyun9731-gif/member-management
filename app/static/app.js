@@ -328,23 +328,30 @@ window.viewMember=async(id)=>{
     ...(rehasa.length?[{title:'재허가 이력',fields:rehasa}]:[]),
     ...(edu.length?[{title:'교육 / 점검',fields:edu}]:[]),
     {title:'비고 / 메모',fields:[['비고',r.memo,true],['전화메모',rawTelMemo,true],['비고2',rawMemo2,true],['비고3',rawMemo3,true]]},
-    // 양도양수 정보 (연결된 양도양수 이력이 있는 경우)
-    ...(r.transfer_info?[{title:'양도양수 정보',fields:[
+    // 양수 정보: 이 회원이 누구에게서 양수받았는지 (연결된 양도양수 이력이 있는 경우)
+    ...(r.transfer_info?[{title:'양수 정보 (누구에게서 양수받았는지)',fields:[
       ['관리번호(양도양수)',r.transfer_info.management_number],
-      ['양도인(성명)',r.transfer_info.transferor],
+      ['양도인(성명)',r.transfer_info.transferor,false,r.transfer_info.transferor_member_id],
       ['양수자(성명)',r.transfer_info.transferee],
       ['접수일자',r.transfer_info.receipt_date],
       ['인가일자',r.transfer_info.approval_date],
       ['가입일자',r.transfer_info.membership_date],
       ['자격증명발급일자',r.transfer_info.certificate_issue_date],
       ['자격증명발급번호',r.transfer_info.certificate_number],
-      ['장부정리',r.transfer_info.ledger_update],
-      ['전산보고',r.transfer_info.computer_report],
       ['비고',r.transfer_info.memo,true],
     ]}]:[]),
+    // 양도 정보: 이 회원이 누구에게 양도했는지 (도내 양도양수로 폐업 처리된 경우)
+    ...(r.transfer_out_info?[{title:'양도 정보 (누구에게 양도했는지)',fields:[
+      ['관리번호(양도양수)',r.transfer_out_info.management_number],
+      ['양수자(성명)',r.transfer_out_info.transferee],
+      ['접수일자',r.transfer_out_info.receipt_date],
+      ['인가일자',r.transfer_out_info.approval_date],
+      ['비고',r.transfer_out_info.memo,true],
+    ]}]:[]),
   ];
+  const transferOutBtn=(r.status!=='closed')?`<button class="btn bxl btn-sm" onclick="openDomesticTransfer(${id});closeModal()">도내양도</button>`:'';
   openModal('회원 상세정보',buildDetailSections(sections),
-    `<button class="btn bp btn-sm" onclick="editMember(${id});closeModal()">수정</button><button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
+    `<button class="btn bp btn-sm" onclick="editMember(${id});closeModal()">수정</button>${transferOutBtn}<button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
 };
 
 window.viewTransfer=async(id)=>{
@@ -363,7 +370,7 @@ window.viewTransfer=async(id)=>{
     ]},
     {title:'양도자 / 양수자',fields:[['양도자',r.transferor],['양수자',r.transferee],['주민등록번호',r.resident_number],['전화번호',r.phone],['핸드폰',r.mobile],['주소',r.address,true],['공문주소',raw['공문주소']||raw['official_address']||'',true]]},
     {title:'인허가 / 자격',fields:[['인가일자',r.approval_date],['가입여부',raw['가입여부']||raw['membership_status']||''],['가입일자',r.membership_date],['자격증발급일자',r.certificate_issue_date],['자격증발급번호',r.certificate_number],['운전면허번호',r.driver_license_number]]},
-    {title:'소속 / 행정',fields:[['소속업체',r.affiliated_company||raw['소속업체']||raw['업체명']||''],['장부정리',r.ledger_update],['전산보고',r.computer_report],['비고',r.memo,true]]},
+    {title:'소속 / 행정',fields:[['소속업체',r.affiliated_company||raw['소속업체']||raw['업체명']||''],['비고',r.memo,true]]},
     ...(rawExtra.length?[{title:'원본 엑셀 데이터',fields:rawExtra.map(([k,v])=>[k,v,false])}]:[]),
   ];
   openModal('양도양수 상세정보',buildDetailSections(sections),
@@ -480,7 +487,7 @@ async function renderCandidateSection(){
         <div class="fi"><label>지역</label>${rsel('region','')}</div>
         ${fi('vehicle_number','차량번호')} ${fi('name','성명')}
         ${frn('resident_number','주민등록번호')}
-        ${fi('phone','전화번호')} ${fph('mobile','핸드폰')}
+        ${fph('mobile','핸드폰')}
         <div class="fi cs2"><label>주소</label><input class="fc" name="address"></div>
         ${fi('certificate_issue_date','자격증발급일자')} ${fi('certificate_number','자격증발급번호')}
         ${fi('driver_license_number','운전면허번호')}
@@ -510,7 +517,7 @@ async function renderCandidateSection(){
   setTimeout(()=>_bindFmt('candForm'),0);
 
   const sk='cand';
-  const hdrs=[{field:'region',label:'지역'},{field:'vehicle_number',label:'차량번호'},{field:'name',label:'성명'},{field:'phone',label:'전화번호'},{field:'mobile',label:'핸드폰'},{field:'vehicle_type',label:'차종'},{field:'certificate_number',label:'자격증번호'},{field:'affiliated_company',label:'소속업체'},{label:'관리',noSort:true}];
+  const hdrs=[{field:'region',label:'지역'},{field:'vehicle_number',label:'차량번호'},{field:'name',label:'성명'},{field:'mobile',label:'핸드폰'},{field:'vehicle_type',label:'차종'},{field:'certificate_number',label:'자격증번호'},{field:'affiliated_company',label:'소속업체'},{label:'관리',noSort:true}];
   const doSearch=async(pg=1)=>{
     ST.fl.cand={region:document.getElementById('cRegF').value,search:document.getElementById('cSrch').value.trim()};
     const q=new URLSearchParams({page:pg,limit:50,...getSortParams(sk),...Object.fromEntries(Object.entries(ST.fl.cand).filter(([,v])=>v))});
@@ -524,7 +531,7 @@ async function renderCandidateSection(){
         <td>${fv(r.region)}</td>
         <td>${fv(r.vehicle_number)}</td>
         <td><a class="click-link" onclick="editCandidate(${r.id});return false">${fv(r.name)}</a></td>
-        <td>${fv(r.phone)}</td><td>${fv(r.mobile)}</td>
+        <td>${fv(r.mobile)}</td>
         <td>${fv(r.vehicle_type)}</td>
         <td>${fv(r.certificate_number)}</td><td>${fv(r.affiliated_company)}</td>
         <td class="td-act">
@@ -554,7 +561,7 @@ window.editCandidate=async(id)=>{
     <div class="fi"><label>지역</label>${rsel('region',r.region||'')}</div>
     ${fi('vehicle_number','차량번호',r.vehicle_number||'')} ${fi('name','성명',r.name||'')}
     ${frn('resident_number','주민등록번호',r.resident_number||'')}
-    ${fi('phone','전화번호',r.phone||'')} ${fph('mobile','핸드폰',r.mobile||'')}
+    ${fph('mobile','핸드폰',r.mobile||'')}
     <div class="fi cs2"><label>주소</label><input class="fc" name="address" value="${e_(r.address||'')}"></div>
     ${fi('certificate_issue_date','자격증발급일자',r.certificate_issue_date||'')} ${fi('certificate_number','자격증발급번호',r.certificate_number||'')}
     ${fi('driver_license_number','운전면허번호',r.driver_license_number||'')}
@@ -729,6 +736,7 @@ async function renderMember(category){
         <td class="td-act">
           <button class="btn bp btn-xs" onclick="editMember(${r.id})">수정</button>
           <button class="btn br btn-xs" onclick="closeMember(${r.id},'${e_(r.name)}','${e_(r.vehicle_number)}')">폐업</button>
+          ${r.status!=='closed'?`<button class="btn bxl btn-xs" onclick="openDomesticTransfer(${r.id})">도내양도</button>`:''}
         </td></tr>`).join('')}</tbody>
     </table></div>${pgn(d,doSearch)}`;
     bindPgn(`${key}Tbl`,doSearch);
@@ -869,7 +877,147 @@ window.closeMember=async(id,name,vn)=>{
   });
 };
 
-// ===== 신규등록대장 =====
+// ===== 도내 양도양수 등록 =====
+window.openDomesticTransfer=async(id)=>{
+  const m=await api('GET',`/api/members/${id}`).catch(()=>null);if(!m)return;
+  if(m.status==='closed'){toast('이미 폐업 처리된 회원입니다.','warn');return;}
+  const today=new Date().toISOString().slice(0,10);
+  openModal('도내 양도양수 등록',`
+    <div class="info-box" style="margin-bottom:10px">
+      <strong>양도자</strong>: ${e_(m.name)} (${e_(m.vehicle_number)}) · 관리번호 ${e_(m.management_number)} · ${e_(m.region)}
+    </div>
+    <form id="dtForm"><div class="fg">
+      <div class="fi-section-label cs4" style="color:var(--c-primary);font-weight:600;font-size:12px">── 양도양수 처리 정보</div>
+      <div class="fi"><label>접수일자</label><input class="fc" name="receipt_date" placeholder="${today}"></div>
+      <div class="fi"><label>인가일자</label><input class="fc" name="approval_date" placeholder="${today}"></div>
+      <div class="fi"><label>가입일자</label><input class="fc" name="membership_date" placeholder="없으면 미가입"></div>
+      <div class="fi"><label>처리일자(폐업일자) <span class="req">*</span></label><input class="fc" name="closure_date" value="${today}"></div>
+      ${fi('certificate_issue_date','자격증명발급일자','')}
+      ${fi('certificate_number','자격증명발급번호','')}
+      ${fi('driver_license_number','운전면허번호','')}
+      <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(m.vehicle_type||'')}"></div>
+      ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),m.fuel_type||'')}
+      <div class="fi cs2"><label>구조변경</label><input class="fc" name="structure_change" value=""></div>
+      <div class="fi"><label>소속업체</label><input class="fc" name="affiliated_company" value="${e_(m.affiliated_company||'')}"></div>
+
+      <div class="fi-section-label cs4" style="color:var(--c-primary);font-weight:600;margin-top:8px;padding-top:8px;border-top:1px solid var(--c-border);font-size:12px">── 양수자 정보</div>
+      <div class="fi"><label>양수자 등록 형태</label>
+        <div style="display:flex;gap:14px;align-items:center;height:34px">
+          <label style="font-size:12.5px;display:flex;align-items:center;gap:4px"><input type="radio" name="transferee_target" value="member" checked>회원으로 즉시등록</label>
+          <label style="font-size:12.5px;display:flex;align-items:center;gap:4px"><input type="radio" name="transferee_target" value="candidate">예정자로 등록</label>
+        </div>
+      </div>
+      <div class="fi"><label>지역</label>${rsel('transferee_region',m.region||'')}</div>
+      ${fi('transferee_name','성명','',true)}
+      ${frn('transferee_resident_number','주민등록번호','')}
+      <div class="fi"><label>차량번호</label><input class="fc" name="transferee_vehicle_number" value="${e_(m.vehicle_number||'')}"></div>
+      ${fph('transferee_mobile','핸드폰','')}
+      <div class="fi cs2"><label>주소</label><input class="fc" name="transferee_address" value="${e_(m.address||'')}"></div>
+      ${fta('memo','비고','','cs4')}
+    </div></form>
+    <div id="dtDupBox"></div>`,
+    `<button class="btn bg btn-sm" id="_dtSave">저장</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
+  setTimeout(()=>_bindFmt(document.getElementById('dtForm')),0);
+
+  let linkExisting=null; // {id,type}
+
+  const collect=()=>{
+    const form=document.getElementById('dtForm');
+    const fd=Object.fromEntries(new FormData(form));
+    fd.transferor_member_id=id;
+    return fd;
+  };
+
+  const doSubmit=async(forceNew)=>{
+    const fd=collect();
+    if(!fd.closure_date){toast('처리일자를 입력하세요','warn');return;}
+    if(!fd.transferee_name){toast('양수자 성명을 입력하세요','warn');return;}
+    const payload={
+      transferor_member_id:id,
+      receipt_date:fd.receipt_date||'', approval_date:fd.approval_date||'',
+      membership_date:fd.membership_date||'', certificate_issue_date:fd.certificate_issue_date||'',
+      certificate_number:fd.certificate_number||'', driver_license_number:fd.driver_license_number||'',
+      vehicle_type:fd.vehicle_type||'', fuel_type:fd.fuel_type||'', structure_change:fd.structure_change||'',
+      affiliated_company:fd.affiliated_company||'', memo:fd.memo||'',
+      transferee_target:fd.transferee_target||'member',
+      transferee_name:fd.transferee_name||'', transferee_resident_number:fd.transferee_resident_number||'',
+      transferee_vehicle_number:fd.transferee_vehicle_number||'', transferee_region:fd.transferee_region||'',
+      transferee_address:fd.transferee_address||'', transferee_mobile:fd.transferee_mobile||'',
+      closure_date:fd.closure_date, closure_reason:'도내 양도양수',
+      force_new: !!forceNew,
+    };
+    if(linkExisting){payload.link_existing_id=linkExisting.id; payload.link_existing_type=linkExisting.type;}
+    const btn=document.getElementById('_dtSave');
+    if(btn){btn.disabled=true;btn.textContent='저장 중...';}
+    try{
+      const res=await api('POST','/api/transfer-ledger/domestic',payload).catch(e=>{throw e;});
+      if(res){
+        toast(`도내 양도양수 등록 완료${res.management_number?` (양수자 관리번호 ${res.management_number})`:''}`);
+        closeModal();
+        navigate(ST.cat,ST.sub);
+      }
+    }catch(e){
+      toast('저장 실패: '+((e&&e.message)||'서버 오류'),'err');
+    }finally{
+      if(btn){btn.disabled=false;btn.textContent='저장';}
+    }
+  };
+
+  const showDupConfirm=(dup)=>{
+    const box=document.getElementById('dtDupBox');
+    const strongCls=dup.has_strong?'warn-box':'info-box';
+    const list=dup.matches.map((mm,i)=>`
+      <div class="fi" style="display:flex;align-items:center;gap:8px;border:1px solid var(--c-border);border-radius:6px;padding:6px 10px;margin-bottom:6px">
+        <span style="flex:1;font-size:12.5px">
+          <strong>${e_(mm.name)}</strong> (${mm.type==='member'?'회원':'예정자'}) · ${e_(mm.vehicle_number||'-')} · ${e_(mm.management_number||'-')}
+          ${mm.strength==='strong'?'<span class="badge b-danger" style="font-size:10px;margin-left:4px">동일정보</span>':'<span class="badge b-gray" style="font-size:10px;margin-left:4px">유사</span>'}
+        </span>
+        <button class="btn bp btn-xs" data-link-idx="${i}">기존 회원과 연결</button>
+      </div>`).join('');
+    box.innerHTML=`<div class="${strongCls}" style="margin-top:10px">
+      <p style="margin-bottom:8px;font-size:13px">${e_(dup.message)}</p>
+      ${list}
+      <div class="flex gap-8" style="justify-content:flex-end;margin-top:6px">
+        <button class="btn bo btn-sm" id="_dtCancelDup">취소</button>
+        <button class="btn br btn-sm" id="_dtForceNew">신규 등록으로 진행</button>
+      </div>
+    </div>`;
+    box.querySelectorAll('[data-link-idx]').forEach(btn=>{
+      btn.onclick=()=>{
+        const mm=dup.matches[Number(btn.dataset.linkIdx)];
+        linkExisting={id:mm.id,type:mm.type};
+        box.innerHTML='';
+        doSubmit(false);
+      };
+    });
+    document.getElementById('_dtCancelDup').onclick=()=>{box.innerHTML='';};
+    document.getElementById('_dtForceNew').onclick=()=>{
+      linkExisting=null;
+      box.innerHTML='';
+      doSubmit(true);
+    };
+  };
+
+  document.getElementById('_dtSave').onclick=async()=>{
+    linkExisting=null;
+    const fd=collect();
+    if(!fd.closure_date){toast('처리일자를 입력하세요','warn');return;}
+    if(!fd.transferee_name){toast('양수자 성명을 입력하세요','warn');return;}
+    const dup=await api('POST','/api/transfer-ledger/check-transferee-duplicate',{
+      resident_number:fd.transferee_resident_number||'',
+      vehicle_number:fd.transferee_vehicle_number||'',
+      name:fd.transferee_name||'',
+      mobile:fd.transferee_mobile||'',
+    }).catch(()=>null);
+    if(dup&&dup.has_duplicate){
+      showDupConfirm(dup);
+      return;
+    }
+    await doSubmit(false);
+  };
+};
+
+
 async function renderNewRegistrations(){
   const f=ST.fl.nr||{};
   document.getElementById('content').innerHTML=`
@@ -970,10 +1118,10 @@ async function renderTransferLedger(){
 
   // 요구사항 컬럼 순서 고정
   const hdrs=[
-    {label:'관리번호'},{label:'번호'},{label:'접수일자'},{label:'지역'},
-    {label:'차량번호'},{label:'양도자'},{label:'양수자'},{label:'핸드폰'},
+    {label:'관리번호'},{label:'접수일자'},{label:'지역'},
+    {label:'차량번호'},{label:'양도자'},{label:'양수자'},{label:'연결관계'},{label:'핸드폰'},
     {label:'인가일자'},{label:'가입일자'},{label:'자격증명발급일자'},{label:'자격증명발급번호'},
-    {label:'장부정리'},{label:'전산보고'},{label:'비고'},{label:'관리',noSort:true}
+    {label:'비고'},{label:'관리',noSort:true}
   ];
 
   const doSearch=async(pg=1)=>{
@@ -988,27 +1136,27 @@ async function renderTransferLedger(){
     if(!d.items.length){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">📋</div><p class="empty-txt">데이터가 없습니다.</p></div>`;return;}
     tw.innerHTML=`<div class="tbl-wrap"><table>
       <thead><tr>${plainHeaders(hdrs)}</tr></thead>
-      <tbody>${d.items.map(r=>`<tr>
+      <tbody>${d.items.map(r=>{
+        const linked=r.transferor_member_id&&r.transferee_member_id;
+        return `<tr>
         <td><strong style="color:var(--c-primary)">${fv(r.management_number)}</strong></td>
-        <td>${fv(r.seq_number)}</td>
         <td><strong>${fv(r.receipt_date)}</strong></td>
         <td>${fv(r.region)}</td>
         <td><a class="tbl-link" onclick="viewTransfer(${r.id});return false">${fv(r.vehicle_number)}</a></td>
-        <td><a class="tbl-link" onclick="viewTransfer(${r.id});return false">${fv(r.transferor)}</a></td>
-        <td><a class="tbl-link" onclick="viewTransfer(${r.id});return false">${fv(r.transferee)}</a></td>
+        <td>${r.transferor_member_id?`<a class="tbl-link" onclick="viewMember(${r.transferor_member_id});return false">${fv(r.transferor)}</a>`:`<a class="tbl-link" onclick="viewTransfer(${r.id});return false">${fv(r.transferor)}</a>`}</td>
+        <td>${r.transferee_member_id?`<a class="tbl-link" onclick="viewMember(${r.transferee_member_id});return false">${fv(r.transferee)}</a>`:`<a class="tbl-link" onclick="viewTransfer(${r.id});return false">${fv(r.transferee)}</a>`}</td>
+        <td>${linked?`<span class="badge b-teal" style="font-size:10px" title="양도자-양수자 연결됨">🔗 연결됨</span>`:`<span class="badge b-gray" style="font-size:10px">-</span>`}</td>
         <td>${fv(r.mobile)}</td>
         <td>${fv(r.approval_date)}</td>
         <td>${fv(r.membership_date)}</td>
         <td>${fv(r.certificate_issue_date)}</td>
         <td>${fv(r.certificate_number)}</td>
-        <td>${fv(r.ledger_update)}</td>
-        <td>${fv(r.computer_report)}</td>
         <td title="${e_(r.memo)}">${fv(r.memo)}</td>
         <td class="td-act" style="white-space:nowrap;min-width:120px">
           <button class="btn bp btn-xs" onclick="editTransfer(${r.id})" title="수정">수정</button>
           ${!r.member_id?`<button class="btn bo btn-xs" onclick="registerTransferMember(${r.id})" title="회원 상세 등록">회원상세</button>`:`<span class="badge b-teal" style="font-size:10px">등록완료</span>`}
           ${isAdmin()?`<button class="btn br btn-xs" onclick="deleteTransfer(${r.id})" title="삭제">삭제</button>`:''}
-        </td></tr>`).join('')}</tbody>
+        </td></tr>`;}).join('')}</tbody>
     </table></div>${pgn(d,doSearch)}`;
     bindPgn('tlTbl',doSearch);
   };
@@ -1048,9 +1196,7 @@ window.editTransfer=async(id)=>{
     ${fi('certificate_issue_date','자격증명발급일자',r.certificate_issue_date||'')}
     ${fi('certificate_number','자격증명발급번호',r.certificate_number||'')}
     ${fi('affiliated_company','소속업체',r.affiliated_company||raw_tl['소속업체']||raw_tl['업체명']||'')}
-    ${fi('ledger_update','장부정리',r.ledger_update||'')}
     ${fi('driver_license_number','운전면허번호',r.driver_license_number||'')}
-    ${fi('computer_report','전산보고',r.computer_report||'')}
     ${fta('memo','비고',r.memo||'','cs4')}
   </div></form>`,
   `<button class="btn bg btn-sm" id="_tlS">${id?'저장':'등록'}</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');

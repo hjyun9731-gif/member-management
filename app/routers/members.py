@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from typing import Optional
 import io
 import re
@@ -66,10 +67,10 @@ def _fmt(m):
     }
 
 
-def _fmt_detail(m, transfer=None):
+def _fmt_detail(m, transfer=None, transfer_out=None):
     d = _fmt(m)
     d["raw_data"] = _clean_raw(m.raw_data)
-    # 양도양수 정보 (transfer_ledger와 연결된 경우)
+    # 양수 정보: 이 회원이 누구에게서 양수받았는지 (transfer_ledger와 연결된 경우)
     if transfer:
         d["transfer_info"] = {
             "id":                    transfer.id,
@@ -86,12 +87,24 @@ def _fmt_detail(m, transfer=None):
             "address":               transfer.address or "",
             "phone":                 transfer.phone or "",
             "mobile":                transfer.mobile or "",
-            "ledger_update":         transfer.ledger_update or "",
-            "computer_report":       transfer.computer_report or "",
             "memo":                  transfer.memo or "",
+            "transferor_member_id":  getattr(transfer, 'transferor_member_id', None),
         }
     else:
         d["transfer_info"] = None
+    # 양도 정보: 이 회원이 누구에게 양도했는지 (도내 양도양수로 폐업 처리된 경우)
+    if transfer_out:
+        d["transfer_out_info"] = {
+            "id":                    transfer_out.id,
+            "management_number":     transfer_out.management_number or "",
+            "transferee":            transfer_out.transferee or "",
+            "receipt_date":          transfer_out.receipt_date or "",
+            "approval_date":         transfer_out.approval_date or "",
+            "memo":                  transfer_out.memo or "",
+            "transferee_member_id":  getattr(transfer_out, 'transferee_member_id', None),
+        }
+    else:
+        d["transfer_out_info"] = None
     return d
 
 
@@ -201,16 +214,22 @@ async def get_member(mid: int, db: Session = Depends(get_db), _=Depends(get_curr
     m = crud.get_by_id(db, models.LicenseHolder, mid)
     if not m:
         raise HTTPException(404, "회원을 찾을 수 없습니다.")
-    # 양도양수 정보 조회: transfer_ledger_id 우선, 없으면 member_id로 역조회
+    # 양수 정보 조회 (이 회원이 양수자인 경우): transfer_ledger_id 우선, 없으면 member_id/transferee_member_id로 역조회
     transfer = None
     if m.transfer_ledger_id:
         transfer = crud.get_by_id(db, models.TransferLedger, m.transfer_ledger_id)
     if not transfer:
         transfer = db.query(models.TransferLedger).filter(
-            models.TransferLedger.member_id == mid,
             models.TransferLedger.deleted_at.is_(None),
+            or_(models.TransferLedger.member_id == mid,
+                models.TransferLedger.transferee_member_id == mid),
         ).first()
-    return _fmt_detail(m, transfer)
+    # 양도 정보 조회 (이 회원이 양도자인 경우 - 도내 양도양수로 폐업된 경우)
+    transfer_out = db.query(models.TransferLedger).filter(
+        models.TransferLedger.transferor_member_id == mid,
+        models.TransferLedger.deleted_at.is_(None),
+    ).first()
+    return _fmt_detail(m, transfer, transfer_out)
 
 
 @router.post("")

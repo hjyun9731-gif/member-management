@@ -337,6 +337,23 @@ def get_next_transfer_member_number(db: Session) -> str:
     return f"{prefix}{_max_suffix(items, prefix) + 1}"
 
 
+def lock_transfer_number_sequence(db: Session):
+    """관리번호 동시발급 방지용 잠금.
+    PostgreSQL: 트랜잭션 범위 advisory lock으로 동시 요청을 직렬화.
+    (같은 db 세션의 트랜잭션이 commit/rollback 될 때 자동 해제됨)
+    SQLite: 별도 처리 없이 통과 (단일 파일 기반이라 충돌 가능성 낮음, 개발환경 전용)
+    """
+    try:
+        bind = db.get_bind()
+        if bind is not None and bind.dialect.name == "postgresql":
+            from sqlalchemy import text
+            # 임의의 고정 키로 advisory lock (양도양수 관리번호 발급 전용)
+            db.execute(text("SELECT pg_advisory_xact_lock(hashtext('transfer_member_number_seq'))"))
+    except Exception:
+        # 잠금 실패 시에도 진행 (완전 차단하지 않음) - 아래 중복 체크가 최종 방어선
+        pass
+
+
 def get_next_closure_number(db: Session, closure_type: str) -> str:
     """폐-80, 양-28, 이-4 (연도 없음). '폐지'는 '폐업'과 동일 처리."""
     if closure_type == '폐지':
@@ -459,10 +476,13 @@ def register_transfer_as_member(db: Session, transfer_id: int,
     return member
 
 
-def close_member(db: Session, member_id: int, closure_type: str,
-                  closure_date: str, management_number: str, reason: str = "",
-                  transferee: str = "", transfer_region: str = "",
-                  receipt_date: str = "") -> models.Closure:
+def close_member_no_commit(db: Session, member_id: int, closure_type: str,
+                            closure_date: str, management_number: str, reason: str = "",
+                            transferee: str = "", transfer_region: str = "",
+                            receipt_date: str = "", transferee_member_id: int = None,
+                            transfer_ledger_id: int = None) -> models.Closure:
+    """폐업/양도/이관 처리 (커밋하지 않음 - 상위 트랜잭션에서 일괄 커밋).
+    실패 시 예외를 던지므로 호출측에서 반드시 try/except로 db.rollback() 처리해야 함."""
     member = get_by_id(db, models.LicenseHolder, member_id)
     if not member:
         raise ValueError("회원을 찾을 수 없습니다.")
@@ -480,6 +500,8 @@ def close_member(db: Session, member_id: int, closure_type: str,
         reason=reason,
         transferee=transferee or "",
         transfer_region=transfer_region or "",
+        transferee_member_id=transferee_member_id,
+        transfer_ledger_id=transfer_ledger_id,
         # 회원 기존 정보 복사
         vehicle_type=member.vehicle_type or "",
         fuel_type=member.fuel_type or "",
@@ -504,9 +526,282 @@ def close_member(db: Session, member_id: int, closure_type: str,
     db.flush()
     member.status = "closed"
     member.closure_id = closure.id
+    return closure
+
+
+def close_member(db: Session, member_id: int, closure_type: str,
+                  closure_date: str, management_number: str, reason: str = "",
+                  transferee: str = "", transfer_region: str = "",
+                  receipt_date: str = "") -> models.Closure:
+    closure = close_member_no_commit(
+        db, member_id, closure_type, closure_date, management_number, reason,
+        transferee=transferee, transfer_region=transfer_region, receipt_date=receipt_date,
+    )
     db.commit()
     db.refresh(closure)
     return closure
+
+
+# ===== 도내 양도양수 (거래 단위 일괄 처리) =====
+
+_DUP_STRONG_MSG = ("동일한 주민등록번호 또는 차량번호를 가진 회원/예정자가 이미 존재합니다. "
+                    "실수로 중복 등록되지 않도록 주의하세요.")
+_DUP_WEAK_MSG = ("동일하거나 유사한 회원정보가 이미 존재합니다. 기존 회원과 연결하시겠습니까?")
+
+
+def find_duplicate_transferee(db: Session, resident_number: str = "", vehicle_number: str = "",
+                               name: str = "", mobile: str = "") -> List[dict]:
+    """양수자 중복 확인: 주민등록번호/차량번호 완전일치 → strong,
+    성명+핸드폰 조합 일치 → weak. 회원(LicenseHolder)과 예정자(Candidate) 모두 조회."""
+    resident_number = (resident_number or "").strip()
+    vehicle_number = (vehicle_number or "").strip()
+    name = (name or "").strip()
+    mobile = (mobile or "").strip()
+
+    matches: List[dict] = []
+
+    def _add(kind, item, strength):
+        matches.append({
+            "type": kind,  # 'member' | 'candidate'
+            "id": item.id,
+            "name": getattr(item, "name", "") or "",
+            "vehicle_number": getattr(item, "vehicle_number", "") or "",
+            "management_number": getattr(item, "management_number", "") or "",
+            "region": getattr(item, "region", "") or "",
+            "mobile": getattr(item, "mobile", "") or "",
+            "strength": strength,
+        })
+
+    # 1) 주민등록번호 / 차량번호 완전일치 (strong)
+    if resident_number:
+        q = db.query(models.LicenseHolder).filter(
+            models.LicenseHolder.resident_number == resident_number,
+            models.LicenseHolder.deleted_at.is_(None),
+        ).all()
+        for m in q:
+            _add("member", m, "strong")
+        q2 = db.query(models.Candidate).filter(
+            models.Candidate.resident_number == resident_number,
+            models.Candidate.deleted_at.is_(None),
+            models.Candidate.is_registered == False,
+        ).all()
+        for c in q2:
+            _add("candidate", c, "strong")
+
+    if vehicle_number:
+        q = db.query(models.LicenseHolder).filter(
+            models.LicenseHolder.vehicle_number == vehicle_number,
+            models.LicenseHolder.deleted_at.is_(None),
+            models.LicenseHolder.status == "active",
+        ).all()
+        for m in q:
+            _add("member", m, "strong")
+        q2 = db.query(models.Candidate).filter(
+            models.Candidate.vehicle_number == vehicle_number,
+            models.Candidate.deleted_at.is_(None),
+            models.Candidate.is_registered == False,
+        ).all()
+        for c in q2:
+            _add("candidate", c, "strong")
+
+    # 2) 성명 + 핸드폰 조합 (weak)
+    if name and mobile:
+        q = db.query(models.LicenseHolder).filter(
+            models.LicenseHolder.name == name,
+            models.LicenseHolder.mobile == mobile,
+            models.LicenseHolder.deleted_at.is_(None),
+        ).all()
+        for m in q:
+            _add("member", m, "weak")
+        q2 = db.query(models.Candidate).filter(
+            models.Candidate.name == name,
+            models.Candidate.mobile == mobile,
+            models.Candidate.deleted_at.is_(None),
+            models.Candidate.is_registered == False,
+        ).all()
+        for c in q2:
+            _add("candidate", c, "weak")
+
+    # id+type 기준 중복 제거 (strong 우선)
+    dedup = {}
+    for m in matches:
+        key = (m["type"], m["id"])
+        if key not in dedup or m["strength"] == "strong":
+            dedup[key] = m
+    return list(dedup.values())
+
+
+def process_domestic_transfer(db: Session, *, transferor_member_id: int,
+                               transfer_fields: dict, transferee_target: str,
+                               transferee_fields: dict, closure_date: str,
+                               closure_reason: str = "", receipt_date: str = "",
+                               management_number: str = None,
+                               link_existing_id: int = None,
+                               link_existing_type: str = None) -> dict:
+    """도내 양도양수 등록 - 하나의 트랜잭션으로 처리.
+    성공 시 db.commit(), 실패 시 db.rollback() 후 예외 재발생.
+
+    transferee_target: 'member' (즉시 회원 등록) | 'candidate' (예정자로 등록)
+    link_existing_id/type: 중복확인 후 기존 회원/예정자와 연결하는 경우
+    """
+    try:
+        transferor = get_by_id(db, models.LicenseHolder, transferor_member_id)
+        if not transferor:
+            raise ValueError("양도자 회원을 찾을 수 없습니다.")
+        if transferor.status == "closed":
+            raise ValueError("이미 폐업 처리된 회원입니다.")
+
+        # ── 관리번호 발급 (동시성 잠금) ──
+        lock_transfer_number_sequence(db)
+        mgmt = management_number or get_next_transfer_member_number(db)
+        if check_mgmt_dup(db, models.LicenseHolder, mgmt):
+            raise ValueError(f"관리번호 {mgmt}가 이미 존재합니다. 다시 시도해주세요.")
+
+        closure_mgmt = get_next_closure_number(db, "양도")
+        if check_mgmt_dup(db, models.Closure, closure_mgmt):
+            raise ValueError(f"폐업현황 관리번호 {closure_mgmt}가 이미 존재합니다. 다시 시도해주세요.")
+
+        # ── 1) 양수자 결정: 기존 회원/예정자 연결 or 신규 생성 ──
+        transferee_member = None
+        transferee_candidate = None
+
+        if link_existing_id and link_existing_type == "member":
+            transferee_member = get_by_id(db, models.LicenseHolder, link_existing_id)
+            if not transferee_member:
+                raise ValueError("연결할 기존 회원을 찾을 수 없습니다.")
+        elif link_existing_id and link_existing_type == "candidate":
+            transferee_candidate = get_by_id(db, models.Candidate, link_existing_id)
+            if not transferee_candidate:
+                raise ValueError("연결할 기존 예정자를 찾을 수 없습니다.")
+        else:
+            # 신규 생성
+            name = (transferee_fields.get("name") or "").strip()
+            if not name:
+                raise ValueError("양수자 성명을 입력하세요.")
+            vehicle_number = transferee_fields.get("vehicle_number") or transferor.vehicle_number
+            if transferee_target == "candidate":
+                transferee_candidate = models.Candidate(
+                    region=transferee_fields.get("region") or transferor.region,
+                    vehicle_number=vehicle_number,
+                    name=name,
+                    resident_number=transferee_fields.get("resident_number") or "",
+                    address=transferee_fields.get("address") or transferor.address or "",
+                    phone=transferee_fields.get("phone") or "",
+                    mobile=transferee_fields.get("mobile") or "",
+                    certificate_issue_date=transfer_fields.get("certificate_issue_date") or "",
+                    certificate_number=transfer_fields.get("certificate_number") or "",
+                    driver_license_number=transfer_fields.get("driver_license_number") or "",
+                    vehicle_type=transfer_fields.get("vehicle_type") or transferor.vehicle_type or "",
+                    fuel_type=transfer_fields.get("fuel_type") or transferor.fuel_type or "",
+                    affiliated_company=transfer_fields.get("affiliated_company") or transferor.affiliated_company or "",
+                    membership_date=transfer_fields.get("membership_date") or "",
+                    memo=transfer_fields.get("memo") or "",
+                )
+                db.add(transferee_candidate)
+                db.flush()
+            else:
+                cat = detect_category(vehicle_number)
+                from app.excel_utils import normalize_membership_status
+                ms = normalize_membership_status(transfer_fields.get("membership_date") or "")
+                transferee_member = models.LicenseHolder(
+                    management_number=mgmt,
+                    registration_type="양도양수",
+                    status="active",
+                    category=cat,
+                    region=transferee_fields.get("region") or transferor.region,
+                    vehicle_number=vehicle_number,
+                    name=name,
+                    resident_number=transferee_fields.get("resident_number") or "",
+                    address=transferee_fields.get("address") or transferor.address or "",
+                    phone=transferee_fields.get("phone") or "",
+                    mobile=transferee_fields.get("mobile") or "",
+                    approval_date=transfer_fields.get("approval_date") or "",
+                    membership_date=transfer_fields.get("membership_date") or "",
+                    membership_status=ms,
+                    certificate_issue_date=transfer_fields.get("certificate_issue_date") or "",
+                    certificate_number=transfer_fields.get("certificate_number") or "",
+                    driver_license_number=transfer_fields.get("driver_license_number") or "",
+                    vehicle_type=transfer_fields.get("vehicle_type") or transferor.vehicle_type or "",
+                    fuel_type=transfer_fields.get("fuel_type") or transferor.fuel_type or "",
+                    affiliated_company=transfer_fields.get("affiliated_company") or transferor.affiliated_company or "",
+                    memo=transfer_fields.get("memo") or "",
+                )
+                db.add(transferee_member)
+                db.flush()
+
+        transferee_name = (transferee_member.name if transferee_member
+                            else transferee_candidate.name if transferee_candidate
+                            else transferee_fields.get("name", ""))
+        transferee_member_id_val = transferee_member.id if transferee_member else None
+
+        # ── 2) 양도양수대장 등록 ──
+        ledger = models.TransferLedger(
+            management_number=mgmt if transferee_member else "",
+            receipt_date=receipt_date or "",
+            region=transferee_fields.get("region") or transferor.region,
+            vehicle_number=transferor.vehicle_number,
+            transferor=transferor.name,
+            transferee=transferee_name,
+            resident_number=transferee_fields.get("resident_number") or "",
+            address=transferee_fields.get("address") or "",
+            phone=transferee_fields.get("phone") or "",
+            mobile=transferee_fields.get("mobile") or "",
+            approval_date=transfer_fields.get("approval_date") or "",
+            membership_date=transfer_fields.get("membership_date") or "",
+            certificate_issue_date=transfer_fields.get("certificate_issue_date") or "",
+            certificate_number=transfer_fields.get("certificate_number") or "",
+            driver_license_number=transfer_fields.get("driver_license_number") or "",
+            memo=transfer_fields.get("memo") or "",
+            vehicle_type=transfer_fields.get("vehicle_type") or transferor.vehicle_type or "",
+            fuel_type=transfer_fields.get("fuel_type") or transferor.fuel_type or "",
+            structure_change=transfer_fields.get("structure_change") or "",
+            affiliated_company=transfer_fields.get("affiliated_company") or transferor.affiliated_company or "",
+            transferor_member_id=transferor_member_id,
+            transferee_member_id=transferee_member_id_val,
+            member_id=transferee_member_id_val,
+        )
+        db.add(ledger)
+        db.flush()
+
+        # 예정자 등록인 경우, 예정자에 transfer 참조 남김 (member_id는 실제 등록 시점에 채움)
+        if transferee_candidate:
+            transferee_candidate.member_id = transferee_candidate.member_id  # no-op, 명시적 유지
+
+        if transferee_member:
+            transferee_member.transfer_ledger_id = ledger.id
+
+        # ── 3) 양도자 폐업 처리 (closure_type='양도') ──
+        closure = close_member_no_commit(
+            db, transferor_member_id, "양도", closure_date, closure_mgmt,
+            reason=closure_reason,
+            transferee=transferee_name,
+            transfer_region=transferee_fields.get("region") or transferor.region,
+            receipt_date=receipt_date or "",
+            transferee_member_id=transferee_member_id_val,
+            transfer_ledger_id=ledger.id,
+        )
+
+        db.commit()
+        db.refresh(ledger)
+        db.refresh(closure)
+        if transferee_member:
+            db.refresh(transferee_member)
+        if transferee_candidate:
+            db.refresh(transferee_candidate)
+
+        return {
+            "ok": True,
+            "management_number": mgmt if transferee_member else None,
+            "closure_management_number": closure_mgmt,
+            "transfer_ledger_id": ledger.id,
+            "closure_id": closure.id,
+            "transferee_member_id": transferee_member.id if transferee_member else None,
+            "transferee_candidate_id": transferee_candidate.id if transferee_candidate else None,
+            "transferee_type": "member" if transferee_member else "candidate",
+        }
+    except Exception:
+        db.rollback()
+        raise
 
 
 # ===== DASHBOARD =====

@@ -77,6 +77,11 @@ def _run_migrations():
         ("affiliated_company",    "transfer_ledger",  "VARCHAR(200)"),
         ("membership_date",       "candidates",       "VARCHAR(50)"),
         ("structure_change",      "license_holders",  "TEXT"),
+        # 도내 양도양수 등록 기능: 양도자/양수자 회원 ID 연결
+        ("transferor_member_id",  "transfer_ledger",  "INTEGER"),
+        ("transferee_member_id",  "transfer_ledger",  "INTEGER"),
+        ("transferee_member_id",  "closures",         "INTEGER"),
+        ("transfer_ledger_id",    "closures",         "INTEGER"),
         # glosign_documents
         ("contract_method",       "glosign_documents","VARCHAR(30)"),
         ("deleted_at",            "glosign_documents","DATETIME"),
