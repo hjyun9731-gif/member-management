@@ -433,6 +433,41 @@ async def create_domestic_transfer(body: DomesticTransferBody,
     return result
 
 
+@router.get("/{tid}/link-candidates")
+async def link_candidates(tid: int, role: str = Query(..., pattern="^(transferor|transferee)$"),
+                           db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """양도자/양수자 연결 후보 조회 (연결복구용)."""
+    t = crud.get_by_id(db, models.TransferLedger, tid)
+    if not t:
+        raise HTTPException(404, "양도양수 기록을 찾을 수 없습니다.")
+    exclude_id = t.transferee_member_id if role == "transferor" else t.transferor_member_id
+    candidates = crud.find_link_candidates_for_ledger(db, t, role, exclude_member_id=exclude_id)
+    return {"role": role, "candidates": candidates}
+
+
+class LinkMemberBody(BaseModel):
+    role: str
+    member_id: int
+
+
+@router.post("/{tid}/link")
+async def link_member(tid: int, body: LinkMemberBody,
+                       db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """사용자가 후보 목록에서 직접 선택한 회원으로 양도자/양수자 연결."""
+    try:
+        t = crud.link_transfer_member(db, tid, body.role, body.member_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return _fmt(t)
+
+
+@router.post("/bulk-relink")
+async def bulk_relink(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """기존 양도양수대장 전체에 대해 연결관계 자동 복구 (확실한 후보만 자동 연결)."""
+    result = crud.bulk_relink_transfer_ledger(db)
+    return result
+
+
 class RegisterMemberBody(BaseModel):
     management_number: Optional[str] = None
 

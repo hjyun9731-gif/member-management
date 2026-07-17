@@ -26,7 +26,6 @@ const CATS = {
   permits:   {label:'인허가/변경', tabs:[{id:'new-registrations',label:'신규등록대장'},{id:'transfer-ledger',label:'양도양수대장'},{id:'closures',label:'폐업현황'},{id:'change-history',label:'변경이력대장'}]},
   reports:   {label:'보고/집계',   tabs:[{id:'dashboard',label:'회원대시보드'},{id:'monthly-report',label:'월례보고서'}]},
   deadlines: {label:'기한관리',    tabs:[{id:'deadlines',label:'캘린더/목록'},{id:'dl-today',label:'오늘 할 일'},{id:'dl-3days',label:'3일 이내'},{id:'dl-7days',label:'7일 이내'},{id:'dl-over',label:'기한초과'},{id:'dl-done',label:'완료'}]},
-  glosign:   {label:'전자서명',    tabs:[{id:'glosign',label:'전체'},{id:'gs-wait',label:'서명대기'},{id:'gs-done',label:'완료'},{id:'gs-over',label:'기한초과'},{id:'gs-err',label:'오류'}]},
   excel:     {label:'엑셀 업로드', tabs:[{id:'upload',label:'파일 업로드'},{id:'history',label:'업로드 이력'},{id:'errors',label:'오류 확인'}]},
 };
 
@@ -457,9 +456,6 @@ function navigate(cat,sub){
     'dl-7days':()=>renderDeadlines('7일이내'),
     'dl-over': ()=>renderDeadlines('기한초과'),
     'dl-done': ()=>renderDeadlines('완료'),
-    glosign:()=>renderGlosign('전체'), 'gs-wait':()=>renderGlosign('서명대기'),
-    'gs-done':()=>renderGlosign('완료'), 'gs-over':()=>renderGlosign('기한초과'),
-    'gs-err':()=>renderGlosign('오류'),
   }[sub]||(() => document.getElementById('content').innerHTML='<p style="padding:20px">준비 중</p>'))();
 }
 
@@ -802,10 +798,26 @@ window.editMember=async(id,defaultCat='개인')=>{
     ${isTaxi?taxiSection:''}
     ${isInd?indSection:''}
     ${(!id)?(taxiSection+indSection):''}
-    ${(id&&r.transfer_info)?`
-    <div class="fi-section-label cs4" style="color:var(--c-primary);font-weight:600;margin-top:8px;padding-top:8px;border-top:1px solid var(--c-border);font-size:12px">── 양도양수 정보</div>
-    ${fi('transferor','양도인(성명)',r.transfer_info.transferor||'')}
-    ${fi('receipt_date','접수일자',r.transfer_info.receipt_date||'')}
+    ${(id&&(r.transfer_info||r.transfer_out_info))?`
+    <div class="fi-section-label cs4" style="color:var(--c-primary);font-weight:600;margin-top:8px;padding-top:8px;border-top:1px solid var(--c-border);font-size:12px">── 양도양수 관계정보 (읽기 전용)</div>
+    ${r.transfer_info?`
+    <div class="fi cs2" style="background:var(--c-bg-alt,#f7f8fa);border-radius:6px;padding:8px 10px">
+      <label style="font-weight:600;font-size:11.5px;color:var(--c-primary)">양수 정보 (이 회원이 양수받음)</label>
+      <div style="font-size:12.5px;line-height:1.7">
+        양도인: <strong>${e_(r.transfer_info.transferor||'-')}</strong> ·
+        양도양수대장 관리번호: <strong>${e_(r.transfer_info.management_number||'-')}</strong> ·
+        접수일자: ${e_(r.transfer_info.receipt_date||'-')}
+      </div>
+    </div>`:''}
+    ${r.transfer_out_info?`
+    <div class="fi cs2" style="background:var(--c-bg-alt,#f7f8fa);border-radius:6px;padding:8px 10px">
+      <label style="font-weight:600;font-size:11.5px;color:var(--c-primary)">양도 정보 (이 회원이 양도함)</label>
+      <div style="font-size:12.5px;line-height:1.7">
+        양수인: <strong>${e_(r.transfer_out_info.transferee||'-')}</strong> ·
+        양도양수대장 관리번호: <strong>${e_(r.transfer_out_info.management_number||'-')}</strong> ·
+        접수일자: ${e_(r.transfer_out_info.receipt_date||'-')}
+      </div>
+    </div>`:''}
     `:''}
     ${fta('memo','비고',r.memo||'','cs4')}
   </div></form>`;
@@ -912,7 +924,7 @@ window.openDomesticTransfer=async(id)=>{
       ${frn('transferee_resident_number','주민등록번호','')}
       <div class="fi"><label>차량번호</label><input class="fc" name="transferee_vehicle_number" value="${e_(m.vehicle_number||'')}"></div>
       ${fph('transferee_mobile','핸드폰','')}
-      <div class="fi cs2"><label>주소</label><input class="fc" name="transferee_address" value="${e_(m.address||'')}"></div>
+      <div class="fi cs2"><label>주소</label><input class="fc" name="transferee_address" value="" placeholder="양수자 주소를 입력하세요"></div>
       ${fta('memo','비고','','cs4')}
     </div></form>
     <div id="dtDupBox"></div>`,
@@ -1003,6 +1015,11 @@ window.openDomesticTransfer=async(id)=>{
     const fd=collect();
     if(!fd.closure_date){toast('처리일자를 입력하세요','warn');return;}
     if(!fd.transferee_name){toast('양수자 성명을 입력하세요','warn');return;}
+    const _pd=s=>{if(!s)return null;const t=String(s).trim().replace(/[./]/g,'-').split('-').filter(Boolean);if(t.length<3)return null;let[y,mo,da]=t;if(y.length===2)y='20'+y;const dt=new Date(`${y}-${String(mo).padStart(2,'0')}-${String(da).padStart(2,'0')}`);return isNaN(dt)?null:dt;};
+    const _rd=_pd(fd.receipt_date), _ad=_pd(fd.approval_date);
+    if(_rd && _ad && _ad<_rd){
+      if(!confirm(`인가일자(${fd.approval_date})가 접수일자(${fd.receipt_date})보다 빠릅니다. 날짜를 확인해주세요. 그대로 저장하시겠습니까?`)) return;
+    }
     const dup=await api('POST','/api/transfer-ledger/check-transferee-duplicate',{
       resident_number:fd.transferee_resident_number||'',
       vehicle_number:fd.transferee_vehicle_number||'',
@@ -1103,6 +1120,7 @@ async function renderTransferLedger(){
           <span class="badge b-sky" style="font-size:10px;margin-left:6px">접수일자 기준</span></div>
         <div class="flex gap-8">
           <button class="btn bg btn-sm" id="tlAddBtn">+ 등록</button>
+          ${isAdmin()?`<button class="btn bo btn-sm" id="tlRelinkBtn" title="양도자/양수자 회원 ID 연결 자동 복구">🔗 연결복구</button>`:''}
           <button class="btn bxl btn-sm" id="tlXlBtn">엑셀 다운로드</button>
         </div>
       </div>
@@ -1165,6 +1183,8 @@ async function renderTransferLedger(){
   // 초기화 시 mgmt_desc 유지
   document.getElementById('tlRstBtn').onclick=()=>{ST.fl.tl={member_sort:'mgmt_desc'};renderTransferLedger();};
   document.getElementById('tlAddBtn').onclick=()=>editTransfer(null);
+  const relinkBtn=document.getElementById('tlRelinkBtn');
+  if(relinkBtn) relinkBtn.onclick=()=>bulkRelinkTransfers();
   document.getElementById('tlXlBtn').onclick=()=>{
     const q=new URLSearchParams(Object.fromEntries(Object.entries(ST.fl.tl||{}).filter(([,v])=>v)));
     dl(`/api/transfer-ledger/export/excel?${q}`,'양도양수대장.xlsx');
@@ -1870,6 +1890,10 @@ document.addEventListener('DOMContentLoaded',()=>{
 const DL_TYPES = ['휴업만료','대폐차기한','대폐차기간연장','차량출고지연확인서','보완서류제출','자격증명발급대기','공문회신기한','시청확인요청','전자서명기한','기타'];
 const DL_COLORS = {'휴업만료':'#e74c3c','대폐차기한':'#e67e22','대폐차기간연장':'#f39c12','차량출고지연확인서':'#9b59b6','보완서류제출':'#3498db','자격증명발급대기':'#1abc9c','공문회신기한':'#2ecc71','시청확인요청':'#27ae60','전자서명기한':'#8e44ad','기타':'#95a5a6'};
 
+function _dlStatusBadge(status){
+  const m={'완료':'b-success','기한초과':'b-red','진행중':'b-pri','연장':'b-warn','예정':'b-gray'};
+  return `<span class="badge ${m[status]||'b-gray'}">${status}</span>`;
+}
 function _ddayBadge(dd, status){
   if(status==='완료') return '<span class="badge b-green">완료</span>';
   if(dd===null) return '<span class="badge b-gray">-</span>';
@@ -1888,21 +1912,25 @@ async function renderDeadlines(filter='전체'){
   const fl = ST.fl.dl;
 
   ct.innerHTML=`
-  <div class="page-hd"><div class="page-hd-l"><span class="page-ico">📅</span><span class="page-ttl">기한관리</span></div>
-    <button class="btn bp" onclick="openNewDeadline()">+ 기한 등록</button></div>
-  <div class="stat-grid" style="grid-template-columns:repeat(5,1fr);margin-bottom:12px">
-    <div class="stat-card red" onclick="renderDeadlines('오늘')" style="cursor:pointer"><div class="stat-lbl">오늘 기한</div><div class="stat-val">${summary.오늘기한}</div></div>
-    <div class="stat-card orange" onclick="renderDeadlines('3일이내')" style="cursor:pointer"><div class="stat-lbl">3일 이내</div><div class="stat-val">${summary['3일이내']}</div></div>
-    <div class="stat-card yellow" onclick="renderDeadlines('7일이내')" style="cursor:pointer"><div class="stat-lbl">7일 이내</div><div class="stat-val">${summary['7일이내']}</div></div>
-    <div class="stat-card sky" onclick="renderDeadlines('기한초과')" style="cursor:pointer"><div class="stat-lbl">기한초과</div><div class="stat-val">${summary.기한초과}</div></div>
-    <div class="stat-card" onclick="renderDeadlines('완료')" style="cursor:pointer"><div class="stat-lbl">완료</div><div class="stat-val">${summary.완료}</div></div>
-  </div>
-  <div class="filter-bar" style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap">
-    ${['전체','오늘','3일이내','7일이내','기한초과','완료','휴업만료','대폐차기한','보완서류제출','공문회신기한','전자서명기한'].map(f=>
-      `<button class="btn btn-sm ${fl.filter===f?'bp':'bo'}" onclick="renderDeadlines('${f}')">${f}</button>`).join('')}
-    <button class="btn btn-sm ${fl.view==='calendar'?'bp':'bo'}" onclick="ST.fl.dl.view='calendar';renderDeadlines(ST.fl.dl.filter)">📆 캘린더</button>
-  </div>
-  <div id="dlBody"><div class="loading-box"><div class="spin"></div></div></div>`;
+  <div class="card">
+    <div class="card-hd">
+      <div class="card-hd-l"><span class="card-ico">📅</span><span class="card-ttl">기한관리</span></div>
+      <button class="btn bp btn-sm" onclick="openNewDeadline()">+ 기한 등록</button>
+    </div>
+    <div class="dl-summary">
+      <div class="dl-card" onclick="renderDeadlines('오늘')"><span class="dl-card-lbl">오늘 기한</span><span class="dl-card-val v-red">${summary.오늘기한}</span></div>
+      <div class="dl-card" onclick="renderDeadlines('3일이내')"><span class="dl-card-lbl">3일 이내</span><span class="dl-card-val v-orange">${summary['3일이내']}</span></div>
+      <div class="dl-card" onclick="renderDeadlines('7일이내')"><span class="dl-card-lbl">7일 이내</span><span class="dl-card-val v-yellow">${summary['7일이내']}</span></div>
+      <div class="dl-card" onclick="renderDeadlines('기한초과')"><span class="dl-card-lbl">기한초과</span><span class="dl-card-val v-sky">${summary.기한초과}</span></div>
+      <div class="dl-card" onclick="renderDeadlines('완료')"><span class="dl-card-lbl">완료</span><span class="dl-card-val v-gray">${summary.완료}</span></div>
+    </div>
+    <div class="frow dl-filters">
+      ${['전체','오늘','3일이내','7일이내','기한초과','완료','휴업만료','대폐차기한','보완서류제출','공문회신기한','전자서명기한'].map(f=>
+        `<button class="btn btn-sm ${fl.filter===f?'bp':'bo'}" onclick="renderDeadlines('${f}')">${f}</button>`).join('')}
+      <button class="btn btn-sm ${fl.view==='calendar'?'bp':'bo'}" style="margin-left:auto" onclick="ST.fl.dl.view='calendar';renderDeadlines(ST.fl.dl.filter)">📆 캘린더</button>
+    </div>
+    <div id="dlBody"><div class="loading-box"><div class="spin"></div></div></div>
+  </div>`;
 
   if(fl.view==='calendar') await _renderDlCalendar();
   else await _renderDlList(fl.filter);
@@ -1915,7 +1943,7 @@ async function _renderDlList(filter){
   el.innerHTML=`<div class="tbl-wrap"><table>
     <thead><tr><th>상태</th><th>D-day</th><th>기한일</th><th>업무구분</th><th>지역</th><th>차량번호</th><th>성명</th><th>핸드폰</th><th>제목</th><th>메모</th><th>관리</th></tr></thead>
     <tbody>${d.items.map(r=>`<tr>
-      <td>${r.status}</td>
+      <td>${_dlStatusBadge(r.status)}</td>
       <td>${_ddayBadge(r.dday,r.status)}</td>
       <td>${fv(r.due_date)}</td>
       <td><span style="color:${DL_COLORS[r.task_type]||'#666'};font-weight:600">${fv(r.task_type)}</span></td>

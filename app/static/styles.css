@@ -275,6 +275,8 @@ a.tbl-link:hover{text-decoration:underline;color:var(--c-text-2)}
 .b-danger {background:var(--c-danger-bg);color:var(--c-danger);border-color:#FECACA}
 .b-warn   {background:var(--c-warn-bg);color:var(--c-warn);border-color:#FDE68A}
 .b-gray   {background:var(--c-bg);color:var(--c-text-3);border-color:var(--c-border)}
+.b-red    {background:var(--c-danger-bg);color:var(--c-danger);border-color:#FECACA}
+.b-orange {background:#FFF7ED;color:#C2410C;border-color:#FED7AA}
 
 /* ── STAT CARDS ── */
 .stat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:14px}
@@ -468,10 +470,30 @@ hr.div{border:none;border-top:1px solid var(--c-border-l);margin:10px 0}
 .tag-pink{background:var(--c-pink-bg);color:var(--c-pink)}
 .tag-yellow{background:var(--c-yellow-bg);color:var(--c-yellow)}
 
+/* ── DEADLINES (기한관리) ── */
+.dl-summary{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;padding:12px 16px}
+.dl-card{
+  background:var(--c-bg);border:1px solid var(--c-border);border-radius:8px;
+  padding:10px 12px;height:60px;
+  display:flex;flex-direction:column;justify-content:center;gap:4px;
+  text-align:center;cursor:pointer;transition:border-color .12s,background .12s;
+}
+.dl-card:hover{border-color:var(--c-pri);background:var(--c-pri-bg)}
+.dl-card-lbl{font-size:11px;color:var(--c-text-3);font-weight:500}
+.dl-card-val{font-size:19px;font-weight:800;color:var(--c-text-2);letter-spacing:-.3px}
+.dl-card-val.v-red{color:var(--c-danger)}
+.dl-card-val.v-orange{color:#C2410C}
+.dl-card-val.v-yellow{color:var(--c-yellow)}
+.dl-card-val.v-sky{color:var(--c-sky)}
+.dl-card-val.v-gray{color:var(--c-text-3)}
+.dl-filters{gap:6px}
+.dl-filters .btn{margin:0}
+
 @media(max-width:900px){
   .cat-nav{gap:0}.cat-btn{padding:6px 10px;font-size:12px}
   .fg{grid-template-columns:repeat(2,1fr)}
   .grid2,.grid3{grid-template-columns:1fr}
   .stat-grid{grid-template-columns:repeat(2,1fr)}
   .dtl-grid{grid-template-columns:repeat(2,1fr)}
+  .dl-summary{grid-template-columns:repeat(2,1fr)}
 }

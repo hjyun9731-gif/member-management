@@ -85,9 +85,15 @@ async def register_as_member(cid: int, body: RegisterBody,
     mgmt = body.management_number or crud.get_next_new_member_number(db)
     if crud.check_mgmt_dup(db, models.LicenseHolder, mgmt):
         raise HTTPException(400, f"관리번호 {mgmt}가 이미 존재합니다.")
-    member = crud.register_candidate_as_member(
-        db, cid, body.approval_date, mgmt,
-        membership_date=body.membership_date or ""
-    )
+    try:
+        member = crud.register_candidate_as_member(
+            db, cid, body.approval_date, mgmt,
+            membership_date=body.membership_date or ""
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(500, f"예정자 등록 처리 중 오류가 발생했습니다: {e}")
     return {"ok": True, "management_number": mgmt, "member_id": member.id,
-            "category": member.category}
+            "category": member.category,
+            "transfer_ledger_created": bool(member.transfer_ledger_id)}

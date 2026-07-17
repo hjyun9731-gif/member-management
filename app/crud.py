@@ -394,47 +394,141 @@ def check_mgmt_dup(db: Session, model: Type, mgmt_num: str, exclude_id: int = No
 def register_candidate_as_member(db: Session, candidate_id: int,
                                   approval_date: str, management_number: str,
                                   membership_date: str = "") -> models.LicenseHolder:
-    cand = get_by_id(db, models.Candidate, candidate_id)
-    if not cand:
-        raise ValueError("예정자를 찾을 수 없습니다.")
-    cat = detect_category(cand.vehicle_number)
-    # 등록완료 모달 입력값 우선, 없으면 예정자 저장 시 입력한 가입일자 이어받기
-    final_membership_date = membership_date or getattr(cand, 'membership_date', '') or ''
-    # ★ 가입일자 기준으로만 판정: 없으면 무조건 미가입
-    from app.excel_utils import normalize_membership_status
-    ms = normalize_membership_status(final_membership_date)
-    member = models.LicenseHolder(
-        management_number=management_number,
-        registration_type="신규",
-        status="active",
-        category=cat,
-        region=cand.region,
-        vehicle_number=cand.vehicle_number,
-        name=cand.name,
-        resident_number=cand.resident_number,
-        address=cand.address,
-        phone=cand.phone,
-        mobile=cand.mobile,
-        approval_date=approval_date,
-        membership_date=final_membership_date or None,
-        membership_status=ms,       # 가입일자 기준 (없으면 미가입)
-        certificate_issue_date=cand.certificate_issue_date,
-        certificate_number=cand.certificate_number,
-        driver_license_number=cand.driver_license_number,
-        vehicle_type=cand.vehicle_type,
-        fuel_type=cand.fuel_type,
-        business_number=cand.business_number,
-        affiliated_company=cand.affiliated_company,
-        memo=cand.memo,
-        candidate_id=candidate_id,
-    )
-    db.add(member)
-    db.flush()
-    cand.is_registered = True
-    cand.member_id = member.id
-    db.commit()
-    db.refresh(member)
-    return member
+    """예정자 → 회원 등록완료 처리.
+
+    관리번호 접두어에 따라 분기:
+    - '신YY-N' : 기존과 동일하게 회원 등록만 처리 (양도양수대장 생성 안 함)
+    - '양YY-N' : 회원 등록과 동시에 양도양수대장에도 한 건 자동 생성 (양수자=현재 예정자,
+                 양도자 정보는 없으므로 비워둠). 회원 등록 + 대장 등록을 하나의 트랜잭션으로 처리하며
+                 실패 시 전체 rollback한다.
+
+    새로운 UI/선택항목/구분필드는 추가하지 않는다 - 관리번호 문자열의 접두어만으로 판단한다.
+    """
+    try:
+        # 동시 중복등록 방지: PostgreSQL에서는 예정자 행을 잠그고 진행 (개발환경 SQLite는 통과)
+        q = db.query(models.Candidate).filter(models.Candidate.id == candidate_id)
+        try:
+            bind = db.get_bind()
+            if bind is not None and bind.dialect.name == "postgresql":
+                q = q.with_for_update()
+        except Exception:
+            pass
+        cand = q.first()
+        if not cand:
+            raise ValueError("예정자를 찾을 수 없습니다.")
+        if cand.is_registered:
+            raise ValueError("이미 등록 처리된 예정자입니다.")
+
+        cat = detect_category(cand.vehicle_number)
+        # 등록완료 모달 입력값 우선, 없으면 예정자 저장 시 입력한 가입일자 이어받기
+        final_membership_date = membership_date or getattr(cand, 'membership_date', '') or ''
+        # ★ 가입일자 기준으로만 판정: 없으면 무조건 미가입
+        from app.excel_utils import normalize_membership_status
+        ms = normalize_membership_status(final_membership_date)
+        member = models.LicenseHolder(
+            management_number=management_number,
+            registration_type="신규",
+            status="active",
+            category=cat,
+            region=cand.region,
+            vehicle_number=cand.vehicle_number,
+            name=cand.name,
+            resident_number=cand.resident_number,
+            address=cand.address,
+            phone=cand.phone,
+            mobile=cand.mobile,
+            approval_date=approval_date,
+            membership_date=final_membership_date or None,
+            membership_status=ms,       # 가입일자 기준 (없으면 미가입)
+            certificate_issue_date=cand.certificate_issue_date,
+            certificate_number=cand.certificate_number,
+            driver_license_number=cand.driver_license_number,
+            vehicle_type=cand.vehicle_type,
+            fuel_type=cand.fuel_type,
+            business_number=cand.business_number,
+            affiliated_company=cand.affiliated_company,
+            memo=cand.memo,
+            candidate_id=candidate_id,
+        )
+        db.add(member)
+        db.flush()
+
+        # ── 관리번호가 '양'으로 시작하면 양도양수대장에도 자동 생성 ──
+        mgmt_clean = (management_number or "").strip()
+        if mgmt_clean.startswith("양"):
+            dup_ledger = db.query(models.TransferLedger).filter(
+                models.TransferLedger.management_number == mgmt_clean,
+                models.TransferLedger.deleted_at.is_(None),
+            ).first()
+            if dup_ledger:
+                raise ValueError(f"양도양수대장에 관리번호 {mgmt_clean} 기록이 이미 존재합니다.")
+            ledger = models.TransferLedger(
+                management_number=mgmt_clean,
+                receipt_date="",
+                region=cand.region or "",
+                vehicle_number=cand.vehicle_number or "",
+                transferor="",                      # 양도자 정보 없음 - 빈칸
+                transferee=cand.name or "",
+                resident_number=cand.resident_number or "",
+                address=cand.address or "",
+                phone=cand.phone or "",
+                mobile=cand.mobile or "",
+                approval_date=approval_date or "",
+                membership_date=final_membership_date or "",
+                certificate_issue_date=cand.certificate_issue_date or "",
+                certificate_number=cand.certificate_number or "",
+                driver_license_number=cand.driver_license_number or "",
+                memo=cand.memo or "",
+                vehicle_type=cand.vehicle_type or "",
+                fuel_type=cand.fuel_type or "",
+                affiliated_company=cand.affiliated_company or "",
+                transferor_member_id=None,           # 양도자 정보 없음 - null 허용
+                transferee_member_id=member.id,
+                member_id=member.id,
+            )
+            db.add(ledger)
+            db.flush()
+            member.transfer_ledger_id = ledger.id
+
+            # ── 폐업현황에도 '양도' 기록 생성 (양도자를 내부 회원으로 특정할 수 없으므로
+            #    member_id는 null, 양도자 성명 등도 확보된 정보가 없으므로 빈칸으로 둔다.
+            #    새로 등록되는 양수자는 절대 폐업/비활성 처리하지 않는다) ──
+            dup_closure = db.query(models.Closure).filter(
+                models.Closure.transfer_ledger_id == ledger.id,
+                models.Closure.deleted_at.is_(None),
+            ).first()
+            if not dup_closure:
+                import datetime as _dt
+                closure_mgmt = get_next_closure_number(db, "양도")
+                if check_mgmt_dup(db, models.Closure, closure_mgmt):
+                    raise ValueError(f"폐업현황 관리번호 {closure_mgmt}가 이미 존재합니다. 다시 시도해주세요.")
+                closure = models.Closure(
+                    management_number=closure_mgmt,
+                    closure_type="양도",
+                    data_type="신규자료",
+                    region=cand.region or "",
+                    vehicle_number=cand.vehicle_number or "",
+                    name="",                       # 양도자 성명 정보 없음 - 빈칸 유지
+                    closure_date=_dt.date.today().isoformat(),
+                    receipt_date="",
+                    approval_date=approval_date or "",
+                    transferee=cand.name or "",
+                    transfer_region=cand.region or "",
+                    transferee_member_id=member.id,
+                    transfer_ledger_id=ledger.id,
+                    member_id=None,                # 내부 양도자 특정 불가 - null 허용
+                )
+                db.add(closure)
+                db.flush()
+
+        cand.is_registered = True
+        cand.member_id = member.id
+        db.commit()
+        db.refresh(member)
+        return member
+    except Exception:
+        db.rollback()
+        raise
 
 
 def register_transfer_as_member(db: Session, transfer_id: int,
@@ -685,7 +779,7 @@ def process_domestic_transfer(db: Session, *, transferor_member_id: int,
                     vehicle_number=vehicle_number,
                     name=name,
                     resident_number=transferee_fields.get("resident_number") or "",
-                    address=transferee_fields.get("address") or transferor.address or "",
+                    address=transferee_fields.get("address") or "",  # 개인정보(주소) 자동복사 금지: 입력 없으면 빈칸 유지
                     phone=transferee_fields.get("phone") or "",
                     mobile=transferee_fields.get("mobile") or "",
                     certificate_issue_date=transfer_fields.get("certificate_issue_date") or "",
@@ -712,7 +806,7 @@ def process_domestic_transfer(db: Session, *, transferor_member_id: int,
                     vehicle_number=vehicle_number,
                     name=name,
                     resident_number=transferee_fields.get("resident_number") or "",
-                    address=transferee_fields.get("address") or transferor.address or "",
+                    address=transferee_fields.get("address") or "",  # 개인정보(주소) 자동복사 금지: 입력 없으면 빈칸 유지
                     phone=transferee_fields.get("phone") or "",
                     mobile=transferee_fields.get("mobile") or "",
                     approval_date=transfer_fields.get("approval_date") or "",
@@ -802,6 +896,201 @@ def process_domestic_transfer(db: Session, *, transferor_member_id: int,
     except Exception:
         db.rollback()
         raise
+
+
+# ===== 양도양수대장 기존자료 연결관계 복구 =====
+
+def _mask_rn(rn: str) -> str:
+    """주민등록번호 표시용 마스킹 (앞 6자리만 노출)"""
+    rn = (rn or "").strip()
+    if len(rn) >= 7:
+        return rn[:6] + "-" + "*" * (len(rn) - 7)
+    return rn
+
+
+def _link_candidate_dict(member, matched_by: str) -> dict:
+    return {
+        "id": member.id,
+        "name": member.name or "",
+        "vehicle_number": member.vehicle_number or "",
+        "management_number": member.management_number or "",
+        "region": member.region or "",
+        "mobile": member.mobile or "",
+        "resident_number_masked": _mask_rn(member.resident_number or ""),
+        "matched_by": matched_by,   # resident_number / vehicle_number / name_mobile / name_region_date
+    }
+
+
+def find_link_candidates_for_ledger(db: Session, ledger: "models.TransferLedger", role: str,
+                                     exclude_member_id: int = None) -> List[dict]:
+    """양도양수대장 한 건에 대해 회원(LicenseHolder) 연결 후보를 찾는다.
+    role: 'transferor' | 'transferee'
+    우선순위: 주민등록번호 완전일치+성명일치 > 성명+핸드폰 완전일치 > 성명+지역 일치
+             > 성명 일치(차량번호는 후보가 여러 명일 때만 보조적으로 좁히는 용도).
+    차량번호 단독 일치만으로는 절대 자동 확정하지 않는다 (양도자·양수자가 같은 차량번호를
+    공유할 수 있으므로 성명이 다르면 그 차량번호 일치는 무시한다).
+    exclude_member_id: 반대쪽 역할에 이미 배정된(또는 배정하려는) 회원 ID - 자기 자신이
+    양도자·양수자로 동시에 연결되는 것을 막기 위해 결과에서 제외한다.
+    앞 단계에서 후보가 나오면(1명이든 여러 명이든) 그 단계에서 확정하고 다음 단계로 넘어가지 않는다.
+    기존 데이터는 조회만 하며 수정하지 않는다."""
+    name = ((ledger.transferee if role == "transferee" else ledger.transferor) or "").strip()
+    if not name:
+        return []
+
+    vehicle_number = (ledger.vehicle_number or "").strip()
+    region = (ledger.region or "").strip()
+    # transferee 쪽에만 주민등록번호/핸드폰 컬럼이 실질적으로 채워짐 (양도자는 이름 정보만 있는 경우가 많음)
+    resident_number = (ledger.resident_number or "").strip() if role == "transferee" else ""
+    mobile = (ledger.mobile or "").strip() if role == "transferee" else ""
+
+    def base_q():
+        q = db.query(models.LicenseHolder).filter(models.LicenseHolder.deleted_at.is_(None))
+        if exclude_member_id:
+            q = q.filter(models.LicenseHolder.id != exclude_member_id)
+        return q
+
+    # 1) 주민등록번호 완전일치 + 성명 일치
+    if resident_number:
+        rows = base_q().filter(models.LicenseHolder.resident_number == resident_number,
+                                models.LicenseHolder.name == name).all()
+        if rows:
+            return [_link_candidate_dict(r, "resident_number") for r in rows]
+
+    # 2) 성명 + 핸드폰 완전일치
+    if name and mobile:
+        rows = base_q().filter(models.LicenseHolder.name == name,
+                                models.LicenseHolder.mobile == mobile).all()
+        if rows:
+            return [_link_candidate_dict(r, "name_mobile") for r in rows]
+
+    # 3) 성명 + 지역 일치 (날짜 근접 확인은 후보가 여러 명일 때 화면에서 사용자가 최종 판단)
+    if name and region:
+        rows = base_q().filter(models.LicenseHolder.name == name,
+                                models.LicenseHolder.region == region).all()
+        if rows:
+            return [_link_candidate_dict(r, "name_region_date") for r in rows]
+
+    # 4) 성명 일치만 - 차량번호는 여러 명일 때 보조자료로만 사용해 좁힘 (단독 매칭 금지)
+    if name:
+        rows = base_q().filter(models.LicenseHolder.name == name).all()
+        if len(rows) > 1 and vehicle_number:
+            narrowed = [r for r in rows if (r.vehicle_number or "").strip() == vehicle_number]
+            if len(narrowed) == 1:
+                return [_link_candidate_dict(narrowed[0], "name_vehicle_number")]
+        if rows:
+            return [_link_candidate_dict(r, "name") for r in rows]
+
+    return []
+
+
+def link_transfer_member(db: Session, ledger_id: int, role: str, member_id: int) -> "models.TransferLedger":
+    """사용자가 후보 목록에서 직접 선택한 회원으로 연결 (양도자/양수자 각각 별도 연결 가능)."""
+    if role not in ("transferor", "transferee"):
+        raise ValueError("role은 transferor 또는 transferee만 가능합니다.")
+    ledger = get_by_id(db, models.TransferLedger, ledger_id)
+    if not ledger:
+        raise ValueError("양도양수 기록을 찾을 수 없습니다.")
+    member = get_by_id(db, models.LicenseHolder, member_id)
+    if not member:
+        raise ValueError("연결할 회원을 찾을 수 없습니다.")
+    # self-guard: 같은 회원을 양도자·양수자로 동시에 연결하지 않음
+    other_id = ledger.transferee_member_id if role == "transferor" else ledger.transferor_member_id
+    if other_id and other_id == member_id:
+        raise ValueError("동일한 회원을 양도자와 양수자로 동시에 연결할 수 없습니다.")
+    if role == "transferor":
+        ledger.transferor_member_id = member_id
+    else:
+        ledger.transferee_member_id = member_id
+    db.commit()
+    db.refresh(ledger)
+    return ledger
+
+
+def bulk_relink_transfer_ledger(db: Session) -> dict:
+    """기존 양도양수대장 자료 전체를 대상으로 연결 복구를 일괄 시도.
+    확실한 후보(1명)만 자동 연결하고, 애매한 자료(후보 여러 명/일치 없음)는 그대로 둔다.
+    같은 회원이 양도자·양수자로 동시에 연결되는 경우는 self_conflict로 분류하고 자동 연결하지 않는다.
+    기존 원문 데이터는 수정/삭제하지 않으며 *_member_id 필드만 채운다."""
+    ledgers = db.query(models.TransferLedger).filter(models.TransferLedger.deleted_at.is_(None)).all()
+
+    def _is_fully_linked(t):
+        ok_or = (not (t.transferor or "").strip()) or bool(t.transferor_member_id)
+        ok_ee = (not (t.transferee or "").strip()) or bool(t.transferee_member_id)
+        return ok_or and ok_ee
+
+    before_linked = sum(1 for t in ledgers if _is_fully_linked(t))
+
+    counts = {"auto_linked": 0, "multiple_candidates": 0, "no_match": 0,
+              "already_linked": 0, "self_conflict": 0}
+
+    for t in ledgers:
+        need_transferor = bool((t.transferor or "").strip()) and not t.transferor_member_id
+        need_transferee = bool((t.transferee or "").strip()) and not t.transferee_member_id
+
+        if not need_transferor and not need_transferee:
+            counts["already_linked"] += 1
+            continue
+
+        linked_any = False
+        saw_multi = False
+        saw_none = False
+        saw_conflict = False
+
+        transferor_candidate_id = None
+        if need_transferor:
+            cands = find_link_candidates_for_ledger(db, t, "transferor",
+                                                      exclude_member_id=t.transferee_member_id)
+            if len(cands) == 1:
+                transferor_candidate_id = cands[0]["id"]
+            elif len(cands) > 1:
+                saw_multi = True
+            else:
+                saw_none = True
+
+        transferee_candidate_id = None
+        if need_transferee:
+            cands = find_link_candidates_for_ledger(db, t, "transferee",
+                                                      exclude_member_id=t.transferor_member_id)
+            if len(cands) == 1:
+                transferee_candidate_id = cands[0]["id"]
+            elif len(cands) > 1:
+                saw_multi = True
+            else:
+                saw_none = True
+
+        # self-guard: 이번에 확정하려는 양도자 후보와 양수자 후보가 같은 사람이면 둘 다 보류
+        if (transferor_candidate_id and transferee_candidate_id
+                and transferor_candidate_id == transferee_candidate_id):
+            saw_conflict = True
+            transferor_candidate_id = None
+            transferee_candidate_id = None
+
+        if transferor_candidate_id:
+            t.transferor_member_id = transferor_candidate_id
+            linked_any = True
+        if transferee_candidate_id:
+            t.transferee_member_id = transferee_candidate_id
+            linked_any = True
+
+        if linked_any:
+            counts["auto_linked"] += 1
+        elif saw_conflict:
+            counts["self_conflict"] += 1
+        elif saw_multi:
+            counts["multiple_candidates"] += 1
+        elif saw_none:
+            counts["no_match"] += 1
+
+    db.commit()
+
+    after_linked = sum(1 for t in ledgers if _is_fully_linked(t))
+
+    return {
+        "total_records": len(ledgers),
+        "before_fully_linked": before_linked,
+        "after_fully_linked": after_linked,
+        **counts,
+    }
 
 
 # ===== DASHBOARD =====

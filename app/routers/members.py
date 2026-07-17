@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, and_
 from typing import Optional
 import io
 import re
@@ -215,18 +215,29 @@ async def get_member(mid: int, db: Session = Depends(get_db), _=Depends(get_curr
     if not m:
         raise HTTPException(404, "회원을 찾을 수 없습니다.")
     # 양수 정보 조회 (이 회원이 양수자인 경우): transfer_ledger_id 우선, 없으면 member_id/transferee_member_id로 역조회
+    # 주의: 동일 회원이 같은 거래의 양도자이기도 한 경우(데이터 오류 방지용 self-guard)는 양수 정보로 취급하지 않음
     transfer = None
     if m.transfer_ledger_id:
-        transfer = crud.get_by_id(db, models.TransferLedger, m.transfer_ledger_id)
+        cand = crud.get_by_id(db, models.TransferLedger, m.transfer_ledger_id)
+        if cand and cand.transferor_member_id != mid:
+            transfer = cand
     if not transfer:
         transfer = db.query(models.TransferLedger).filter(
             models.TransferLedger.deleted_at.is_(None),
-            or_(models.TransferLedger.member_id == mid,
-                models.TransferLedger.transferee_member_id == mid),
+            models.TransferLedger.transferor_member_id != mid,
+            or_(
+                models.TransferLedger.transferee_member_id == mid,
+                # 하위호환: transferee_member_id가 없는 구자료는 레거시 member_id로만 판정
+                and_(models.TransferLedger.transferee_member_id.is_(None),
+                     models.TransferLedger.member_id == mid),
+            ),
         ).first()
     # 양도 정보 조회 (이 회원이 양도자인 경우 - 도내 양도양수로 폐업된 경우)
+    # self-guard: 동일 회원이 양수자로도 잡혀있는 레코드는 양도 정보로 취급하지 않음
     transfer_out = db.query(models.TransferLedger).filter(
         models.TransferLedger.transferor_member_id == mid,
+        or_(models.TransferLedger.transferee_member_id.is_(None),
+            models.TransferLedger.transferee_member_id != mid),
         models.TransferLedger.deleted_at.is_(None),
     ).first()
     return _fmt_detail(m, transfer, transfer_out)
