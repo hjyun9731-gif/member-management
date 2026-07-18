@@ -194,6 +194,23 @@ input.fmt-phone:not(:placeholder-shown),input.fmt-resident:not(:placeholder-show
   font-family:monospace;letter-spacing:.5px;
 }
 
+/* ── 폼 섹션 그룹 (수정/등록 모달 - 처리정보/회원정보/가입정보 등) ── */
+.form-section{margin-bottom:18px}
+.form-section:last-of-type{margin-bottom:0}
+.form-section-hd{
+  font-size:12.5px;font-weight:700;color:var(--c-text-2);
+  letter-spacing:.2px;
+  padding-bottom:7px;margin-bottom:14px;
+  border-bottom:1px solid var(--c-border-l);
+  display:flex;align-items:center;gap:6px;
+}
+.form-section-hd .fs-ico{font-size:12.5px;opacity:.75}
+.form-section .fg{row-gap:16px}
+.form-section-note{
+  grid-column:1/-1;font-size:12px;color:var(--c-text-3);
+  background:var(--c-bg);border-radius:6px;padding:9px 11px;line-height:1.6;
+}
+
 /* ── BUTTONS ── */
 .btn{
   display:inline-flex;align-items:center;justify-content:center;gap:4px;
@@ -353,7 +370,7 @@ a.tbl-link:hover{text-decoration:underline;color:var(--c-text-2)}
 }
 .modal-x:hover{background:var(--c-bg);color:var(--c-text-2)}
 .modal-bd{padding:20px 22px;overflow-y:auto;flex:1}
-.modal-ft{padding:12px 18px;border-top:1px solid var(--c-border-l);display:flex;gap:8px;justify-content:flex-end}
+.modal-ft{padding:14px 22px;border-top:1px solid var(--c-border-l);display:flex;gap:8px;justify-content:flex-end}
 
 /* ── DETAIL VIEW SECTIONS ── */
 .dtl-sections{display:flex;flex-direction:column;gap:16px}
