@@ -5,6 +5,7 @@ from sqlalchemy import or_
 from datetime import datetime, timezone
 
 from app import models
+from app.excel_utils import is_association_member, has_value
 
 REGIONS = [
     "춘천시","원주시","강릉시","동해시","태백시","속초시","삼척시",
@@ -1114,17 +1115,14 @@ def get_dashboard_stats(db: Session) -> dict:
     individual = sum(1 for m in lh_all if m.category == "개인")
     delivery   = sum(1 for m in lh_all if m.category == "택배")
 
-    # 가입: membership_date(가입일자) 값 있음
-    def _has_val(v):
-        return bool(v and str(v).strip() and str(v).strip().lower() not in ('-','x','none','nan'))
-
-    joined     = sum(1 for m in lh_all if _has_val(m.membership_date))
+    # 가입: membership_date(가입일자) 기준 - 공통 판정 함수 사용 (다른 화면과 동일 기준)
+    joined     = sum(1 for m in lh_all if is_association_member(m.membership_date))
     not_joined = total - joined
 
     # 취업신고: certificate_issue_date(자격증명발급일자) 값 있음
-    cert_all   = sum(1 for m in lh_all if _has_val(m.certificate_issue_date))
-    cert_ind   = sum(1 for m in lh_all if m.category == "개인" and _has_val(m.certificate_issue_date))
-    cert_del   = sum(1 for m in lh_all if m.category == "택배" and _has_val(m.certificate_issue_date))
+    cert_all   = sum(1 for m in lh_all if has_value(m.certificate_issue_date))
+    cert_ind   = sum(1 for m in lh_all if m.category == "개인" and has_value(m.certificate_issue_date))
+    cert_del   = sum(1 for m in lh_all if m.category == "택배" and has_value(m.certificate_issue_date))
 
     candidates = db.query(models.Candidate).filter(
         models.Candidate.deleted_at.is_(None),
@@ -1157,10 +1155,12 @@ def get_regional_stats(db: Session) -> List[dict]:
             models.LicenseHolder.status == "active",
             models.LicenseHolder.region == region,
         )
-        total = base.count()
-        joined = base.filter(models.LicenseHolder.membership_status == "가입").count()
-        ind = base.filter(models.LicenseHolder.category == "개인").count()
-        dlv = base.filter(models.LicenseHolder.category == "택배").count()
+        rows = base.all()
+        total = len(rows)
+        # 가입 판정: 공통 판정 함수 사용 (membership_status 필드는 과거 데이터와 어긋날 수 있어 신뢰하지 않음)
+        joined = sum(1 for m in rows if is_association_member(m.membership_date))
+        ind = sum(1 for m in rows if m.category == "개인")
+        dlv = sum(1 for m in rows if m.category == "택배")
         cl = db.query(models.Closure).filter(
             models.Closure.deleted_at.is_(None), models.Closure.region == region).count()
         result.append({"region": region, "total": total, "joined": joined,

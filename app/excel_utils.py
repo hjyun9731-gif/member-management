@@ -36,33 +36,87 @@ def _cv(v) -> str:
     if s.lower() in ('nan','none','null','nat','#n/a','n/a'): return ''
     return s.replace('\n',' ').replace('\r',' ').strip()
 
-def normalize_membership_status(val: str) -> str:
-    """가입/미가입 처리:
-    - 날짜 형식(숫자/점/하이픈 포함)이 있으면 → '가입'
-    - 빈칸, 공백, null, '미가입', '0' 등 → '미가입'
-    - '가입'이 명시된 경우 → '가입'
+def has_value(value) -> bool:
+    """값 존재 여부 판단 (자격증명발급일자 등 단순 존재 체크용).
+    회원대시보드/월례보고서/지역별현황 공통 사용.
     """
-    if not val or not val.strip():
-        return '미가입'
-    v = val.strip()
-    if v.lower() in ('nan', 'none', 'null', 'nat', '#n/a', 'n/a', '', '0', 'x', '-'):
-        return '미가입'
-    # 날짜 패턴이 있으면 가입으로 처리
-    if re.search(r'\d{2,4}[\.\-/]\d{1,2}', v):
-        return '가입'
-    # 숫자만 있어도 날짜로 간주 (예: 엑셀 날짜 serial number)
-    if re.match(r'^\d{5}$', v):
-        return '가입'
-    # 명시적 가입
-    if '가입' in v and '미가입' not in v:
-        return '가입'
-    # 명시적 미가입
-    if '미가입' in v or '미' in v:
-        return '미가입'
-    # 그 외 값이 있으면 가입으로 간주
-    if v:
-        return '가입'
-    return '미가입'
+    if value is None:
+        return False
+    s = str(value).strip()
+    if not s:
+        return False
+    if s.lower() in ('-', 'x', 'none', 'nan', 'null', '0'):
+        return False
+    return True
+
+
+def is_association_member(value) -> bool:
+    """협회가입자 판정 - 회원대시보드/월례보고서/지역별현황/엑셀다운로드 공통 판정 함수.
+    이 함수 하나만 가입/미가입 판정에 사용해야 하며, 화면마다 별도 정규식을
+    두지 않는다 (여러 판정식이 존재하면 화면 간 통계 불일치가 발생함).
+
+    가입: membership_date(가입일자)에 유효한 날짜 또는 O/o/ㅇ/○ 표기가 있는 경우
+    미가입: 빈칸/공백/null/가입희망/개별등록 등 날짜가 아닌 값인 경우
+    """
+    if value is None:
+        return False
+
+    s = str(value).strip()
+    if not s:
+        return False
+
+    lowered = s.lower().strip()
+
+    not_joined_values = {
+        "x", "미가입", "없음", "무", "none", "null", "nan", "-", "ㆍ", ".", "0",
+        "가입희망", "가입 희망",
+        "개별등록", "개별 등록",
+        "개별대폐차", "개별 대폐차",
+        "대폐차",
+        "신규등록", "신규 등록",
+        "예정", "신청", "문의", "보류", "확인중", "확인 중",
+        "기타"
+    }
+
+    if lowered in not_joined_values:
+        return False
+
+    if lowered in {"o", "ㅇ", "○"}:
+        return True
+
+    # 날짜 형식이면 가입자로 인정 (공백 허용: "2026. 06. 01" 같은 표기도 포함)
+    # 4자리 연도: 2026.06.01 / 26.06.01 / 2026-06-01 / 2026/06/01
+    if re.search(r"(19|20)\d{2}\s*[.\-/]\s*\d{1,2}\s*[.\-/]\s*\d{1,2}", s):
+        return True
+
+    # 2자리 연도 (문자열 시작 기준)
+    if re.search(r"^\d{2}\s*[.\-/]\s*\d{1,2}\s*[.\-/]\s*\d{1,2}", s):
+        return True
+
+    return False
+
+
+def classify_member_type(category: str) -> str:
+    """개인/택배 공통 분류 함수. 회원의 category 필드를 그대로 신뢰한다.
+    화면마다 다른 조건으로 개인/택배를 재분류하지 않기 위한 공통 진입점.
+    """
+    c = (category or "").strip()
+    if c == "택배":
+        return "택배"
+    if c == "개인":
+        return "개인"
+    return c or "미분류"
+
+
+
+def normalize_membership_status(val: str) -> str:
+    """가입/미가입 처리 (엑셀 업로드/회원수정 시 membership_status 필드에 저장하는 값).
+    통계/집계는 이 필드를 신뢰하지 않고 항상 is_association_member(membership_date)로
+    재계산한다 (저장된 값이 과거 데이터와 어긋나 있을 수 있으므로).
+    이 함수 자체는 is_association_member와 동일한 기준으로 판정하여
+    앞으로 저장되는 값이 통계 기준과 어긋나지 않도록 한다.
+    """
+    return '가입' if is_association_member(val) else '미가입'
 
 def normalize_closure_type(val: str) -> str:
     """폐지 → 폐업으로 통일"""

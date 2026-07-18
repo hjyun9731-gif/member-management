@@ -497,3 +497,20 @@ hr.div{border:none;border-top:1px solid var(--c-border-l);margin:10px 0}
   .dtl-grid{grid-template-columns:repeat(2,1fr)}
   .dl-summary{grid-template-columns:repeat(2,1fr)}
 }
+
+/* 도내 양도양수 등록 팝업 - 양수자 등록 형태 라디오 옵션 줄바꿈 방지 */
+.transfer-register-options{
+  display:flex;
+  align-items:center;
+  gap:18px;
+  flex-wrap:wrap;
+  height:auto;
+}
+.transfer-register-options label{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  white-space:nowrap;
+  word-break:keep-all;
+  min-width:max-content;
+}

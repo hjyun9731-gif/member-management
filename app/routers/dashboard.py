@@ -5,6 +5,7 @@
 import re
 from datetime import datetime
 from typing import Optional
+import logging
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -12,79 +13,48 @@ from sqlalchemy import func
 from app.database import get_db
 from app.auth import get_current_user
 from app import models, crud
-from app.excel_utils import normalize_fuel
+from app.excel_utils import normalize_fuel, is_association_member as _is_association_member, has_value as _has_val
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
-def _has_val(value):
-    """값 존재 여부 판단.
-    월례보고서/대시보드 공통 사용.
-    가입희망, 개별등록, 개별대폐차, x 등은 실제 가입값으로 보지 않음.
+
+
+def _validate_population_stats(summary: dict, regional: Optional[list] = None, context: str = "") -> list:
+    """통계 검증: 전체=가입+미가입, 전체=개인+택배, 택배=취업신고+미신고,
+    지역별 합계=전체 합계. 불일치 발견 시 서버 로그에 기록하고 이슈 목록을 반환한다.
+    (화면에는 검증 불일치를 조용히 숨기지 않고 표시하기 위함)
     """
-    if value is None:
-        return False
+    issues = []
+    total = summary.get("total", 0) or 0
+    joined = summary.get("joined", 0) or 0
+    not_joined = summary.get("not_joined", 0) or 0
+    individual = summary.get("individual", 0) or 0
+    delivery = summary.get("delivery", 0) or 0
 
-    s = str(value).strip()
-    if not s:
-        return False
+    if joined + not_joined != total:
+        issues.append(f"전체({total}) != 가입({joined})+미가입({not_joined})")
+    if individual + delivery != total:
+        issues.append(f"전체({total}) != 개인({individual})+택배({delivery})")
 
-    lowered = s.lower().strip()
+    de = summary.get("delivery_employed")
+    dn = summary.get("delivery_not_employed")
+    if de is not None and dn is not None and (de + dn) != delivery:
+        issues.append(f"택배({delivery}) != 택배취업신고({de})+택배미신고({dn})")
 
-    false_values = {
-        "x", "미가입", "없음", "무", "none", "null", "nan", "-", "ㆍ", ".",
-        "가입희망", "가입 희망",
-        "개별등록", "개별 등록",
-        "개별대폐차", "개별 대폐차",
-        "대폐차",
-        "신규등록", "신규 등록",
-        "예정", "신청", "문의", "보류", "확인중", "확인 중",
-        "기타"
-    }
+    if regional is not None:
+        r_total = sum(r.get("total", 0) for r in regional)
+        r_joined = sum(r.get("joined", 0) for r in regional)
+        r_not = sum(r.get("not_joined", 0) for r in regional)
+        if r_total != total:
+            issues.append(f"지역별 전체합계({r_total}) != 전체({total})")
+        if r_joined != joined:
+            issues.append(f"지역별 가입합계({r_joined}) != 전체가입({joined})")
+        if r_not != not_joined:
+            issues.append(f"지역별 미가입합계({r_not}) != 전체미가입({not_joined})")
 
-    if lowered in false_values:
-        return False
-
-    return True
-
-def _is_association_member(value):
-    """협회가입자 판정.
-    날짜 또는 O/o/ㅇ/○ 만 가입자로 본다.
-    가입희망, 개별등록, 개별대폐차, x 등은 가입자로 보지 않는다.
-    """
-    if value is None:
-        return False
-
-    s = str(value).strip()
-    if not s:
-        return False
-
-    lowered = s.lower().strip()
-
-    not_joined_values = {
-        "x", "미가입", "없음", "무", "none", "null", "nan", "-", "ㆍ", ".",
-        "가입희망", "가입 희망",
-        "개별등록", "개별 등록",
-        "개별대폐차", "개별 대폐차",
-        "대폐차",
-        "신규등록", "신규 등록",
-        "예정", "신청", "문의", "보류", "확인중", "확인 중",
-        "기타"
-    }
-
-    if lowered in not_joined_values:
-        return False
-
-    if lowered in {"o", "ㅇ", "○"}:
-        return True
-
-    # 날짜 형식이면 가입자로 인정
-    # 예: 2026.06.01 / 26.06.01 / 2026-06-01 / 2026/06/01
-    if re.search(r"(19|20)\d{2}\s*[.\-/]\s*\d{1,2}\s*[.\-/]\s*\d{1,2}", s):
-        return True
-
-    if re.search(r"^\d{2}\s*[.\-/]\s*\d{1,2}\s*[.\-/]\s*\d{1,2}", s):
-        return True
-
-    return False
+    if issues:
+        logger.warning("[통계 검증 불일치][%s] %s", context, " / ".join(issues))
+    return issues
 def _ext_year(s: str) -> Optional[int]:
     """날짜/연도 문자열에서 연도 추출.
     - 4자리 연도: 2026년, 2026.03.30, 2026-03-30 등
@@ -268,26 +238,7 @@ async def full_stats(db: Session = Depends(get_db), _=Depends(get_current_user))
     total = lh_q.count()
     all_lh = lh_q.all()
 
-    import re as _re2
-    _NOT_JOINED_SET = {
-        'x','미가입','가입희망','가입 희망','개별등록','개별 등록',
-        '개별대폐차','개별 대폐차','대폐차','신규등록','예정','신청','문의',
-        '보류','확인중','기타','none','nan','-','',
-    }
-
-    def _has_val(v):
-        return bool(v and str(v).strip() and str(v).strip().lower() not in ('-','x','none','nan'))
-
-    def _is_joined(v):
-        v = str(v or '').strip()
-        if not v: return False
-        if v.lower() in _NOT_JOINED_SET: return False
-        if v.lower() in ('o','ㅇ'): return True
-        if _re2.search(r'\d{2}[\.\-/]\d{1,2}[\.\-/]\d{1,2}', v): return True
-        if _re2.search(r'\d{4}', v): return True
-        return False
-
-    # 가입: membership_date(가입일자) 기준 (날짜/O/o/ㅇ 만)
+    # 가입: membership_date(가입일자) 기준 - 공통 판정 함수 사용 (is_association_member)
     joined     = sum(1 for m in all_lh if _is_association_member(m.membership_date))
     individual = sum(1 for m in all_lh if m.category == "개인")
     delivery   = sum(1 for m in all_lh if m.category == "택배")
@@ -381,9 +332,9 @@ async def full_stats(db: Session = Depends(get_db), _=Depends(get_current_user))
 
     allocation = {
         "협회가입": joined,
-        "양도": transfer_count,
-        "타도(이관)": transfer_out_count,
-        "폐업": closed_count,
+        "양도누계": transfer_count,       # 양도양수대장 누적 전체 건수 (과거 전체 누계, 현재 인원 아님)
+        "이관누계": transfer_out_count,   # 이관(폐업유형) 누적 건수
+        "폐업누계": closed_count,         # 폐업 누적 건수
         "탈퇴": None,  # 데이터 없음
         "택배신규": db.query(models.LicenseHolder).filter(
             models.LicenseHolder.deleted_at.is_(None),
@@ -392,20 +343,23 @@ async def full_stats(db: Session = Depends(get_db), _=Depends(get_current_user))
         ).count(),
         "관리비폐지": None,  # 데이터 없음
         "70세": over_70,
-        "협회기본대수": total,
-        "총부과대수": total,
+        "협회기본대수": total,   # 현재 유효 사업자 기준 (폐업·양도·이관 제외)
+        "총부과대수": total,     # 현재 유효 사업자 기준 (폐업·양도·이관 제외)
         "택배관리": delivery,
     }
 
+    summary = {
+        "total": total, "joined": joined, "not_joined": total - joined,
+        "individual": individual, "delivery": delivery,
+        "delivery_employed": delivery_employed,
+        "delivery_unemployed": delivery - delivery_employed,
+        "delivery_not_employed": delivery - delivery_employed,  # 프론트 호환
+    }
+    regional = crud.get_regional_stats(db)
+    validation_issues = _validate_population_stats(summary, regional=regional, context="dashboard/full-stats")
+
     return {
-        "summary": {
-            "total": total, "joined": joined, "not_joined": total - joined,
-            "individual": individual, "delivery": delivery,
-            "delivery_employed": delivery_employed,
-            "delivery_unemployed": delivery - delivery_employed,
-            "delivery_not_employed": delivery - delivery_employed,  # 프론트 호환
-            "not_joined": total - joined,
-        },
+        "summary": summary,
         "vehicle_types": [{"type": k, "count": v}
                           for k, v in sorted(vtype_counts.items(), key=lambda x: -x[1])
                           if k != "전기차"],
@@ -416,6 +370,7 @@ async def full_stats(db: Session = Depends(get_db), _=Depends(get_current_user))
         "vehicle_age": veh_year_dist,
         "closure_by_type": closure_by_type,
         "allocation": allocation,
+        "validation_issues": validation_issues,
     }
 
 
@@ -565,29 +520,15 @@ async def monthly_report_auto(
     individual = sum(1 for m in all_members if m.category == "개인")
     delivery = sum(1 for m in all_members if m.category == "택배")
 
-    # 가입 판정: 날짜 또는 O/o/ㅇ 만 협회가입자로 인정
-    import re as _re
-    _NOT_JOINED = {
-        'x','X','미가입','가입희망','가입 희망','개별등록','개별 등록',
-        '개별대폐차','개별 대폐차','대폐차','신규등록','예정','신청','문의',
-        '보류','확인중','기타','none','nan','-','',
-    }
-
-    def _is_joined(v):
-        v = str(v or '').strip()
-        if not v: return False
-        vl = v.lower()
-        if vl in {x.lower() for x in _NOT_JOINED}: return False
-        if vl in ('o','ㅇ'): return True  # 오래된 가입자 표시
-        # 날짜 패턴: 4자리 연도 또는 2자리 연도
-        if _re.search(r'\d{2}[\.\-/]\d{1,2}[\.\-/]\d{1,2}', v): return True
-        if _re.search(r'\d{4}', v): return True  # 연도만 있는 경우
-        return False
+    # 가입 판정: 공통 판정 함수(is_association_member) 사용
+    # 주의: 과거에는 이 함수 내부에 별도의 완화된 _is_joined 정규식이 있어
+    # 회원대시보드(_is_association_member)와 다른 결과를 냈다 (357명 차이의 원인).
+    # 반드시 회원대시보드와 동일한 판정 함수를 사용해야 한다.
 
     # 가입: membership_date(가입일자) 기준
-    joined     = sum(1 for m in all_members if _is_joined(m.membership_date))
-    ind_joined = sum(1 for m in all_members if m.category == "개인" and _is_joined(m.membership_date))
-    del_joined = sum(1 for m in all_members if m.category == "택배" and _is_joined(m.membership_date))
+    joined     = sum(1 for m in all_members if _is_association_member(m.membership_date))
+    ind_joined = sum(1 for m in all_members if m.category == "개인" and _is_association_member(m.membership_date))
+    del_joined = sum(1 for m in all_members if m.category == "택배" and _is_association_member(m.membership_date))
 
     # 해당 월 신규가입 / 미가입발생
     month_joined     = sum(1 for m in all_members if matches(m.membership_date or ''))
@@ -754,10 +695,18 @@ async def monthly_report_auto(
             "data_type": data_label,
         })
 
+    _mr_issues = _validate_population_stats(member_stats, context="dashboard/monthly-report-auto")
+
     return {
         "period": {"year": target_year, "month": target_month},
         "member_stats": member_stats,
         "taxi_stats": taxi_stats,
+        "date_basis": {
+            "신규등록": "인가일자 기준", "회원가입": "가입일자 기준",
+            "양도양수": "접수일자 기준", "폐업": "접수일자(또는 처리일자) 기준",
+            "변경이력": "처리일자 기준",
+        },
+        "validation_issues": _mr_issues,
         "vehicle_types": [{"type": k, "count": v}
                           for k, v in sorted(vtype_counts.items(), key=lambda x: -x[1])],
         "age_groups": age_groups,
@@ -863,9 +812,6 @@ async def stat_list(
     db: Session = Depends(get_db), _=Depends(get_current_user),
 ):
     """대시보드 통계 클릭 시 대상자 목록"""
-    def _has_val(v):
-        return bool(v and str(v).strip() and str(v).strip().lower() not in ('-','x','none','nan'))
-
     base = db.query(models.LicenseHolder).filter(
         models.LicenseHolder.deleted_at.is_(None),
         models.LicenseHolder.status == "active",

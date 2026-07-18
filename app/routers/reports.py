@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from app.database import get_db
 from app.auth import get_current_user
 from app import models, crud
+from app.excel_utils import is_association_member
 
 router = APIRouter()
 
@@ -46,9 +47,9 @@ async def monthly(year: int = Query(...), month: int = Query(...),
     # 해당 월 가입자: membership_date(가입일자)가 해당 월인 사람
     month_joined = sum(1 for m in all_members
                        if _in_month(m.membership_date or '', year, month))
-    # 해당 월 미가입자: membership_status가 미가입이고 approval_date(인가일자)가 해당 월인 사람
+    # 해당 월 미가입자: 가입일자가 없고(공통 판정 함수 기준) approval_date(인가일자)가 해당 월인 사람
     month_not_joined = sum(1 for m in all_members
-                           if m.membership_status != '가입' and _in_month(m.approval_date or '', year, month))
+                           if not is_association_member(m.membership_date) and _in_month(m.approval_date or '', year, month))
 
     entry = db.query(models.MonthlyReportEntry).filter(
         models.MonthlyReportEntry.year == year, models.MonthlyReportEntry.month == month
@@ -73,7 +74,7 @@ async def monthly(year: int = Query(...), month: int = Query(...),
         "year": year, "month": month,
         "member_stats": {
             "total": len(all_members),
-            "joined": sum(1 for m in all_members if m.membership_status == "가입"),
+            "joined": sum(1 for m in all_members if is_association_member(m.membership_date)),
             "individual": sum(1 for m in all_members if m.category == "개인"),
             "delivery": sum(1 for m in all_members if m.category == "택배"),
             "month_joined": month_joined,

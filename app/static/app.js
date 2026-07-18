@@ -894,9 +894,13 @@ window.openDomesticTransfer=async(id)=>{
   const m=await api('GET',`/api/members/${id}`).catch(()=>null);if(!m)return;
   if(m.status==='closed'){toast('이미 폐업 처리된 회원입니다.','warn');return;}
   const today=new Date().toISOString().slice(0,10);
+  const _okv=v=>{const s=(v==null?'':String(v)).trim();return (s&&s!=='0')?s:'';};
+  const _transferorBits=[];
+  if(_okv(m.management_number)) _transferorBits.push(`관리번호 ${e_(_okv(m.management_number))}`);
+  if(_okv(m.region)) _transferorBits.push(e_(_okv(m.region)));
   openModal('도내 양도양수 등록',`
     <div class="info-box" style="margin-bottom:10px">
-      <strong>양도자</strong>: ${e_(m.name)} (${e_(m.vehicle_number)}) · 관리번호 ${e_(m.management_number)} · ${e_(m.region)}
+      <strong>양도자</strong>: ${e_(_okv(m.name))}${_transferorBits.length?' · '+_transferorBits.join(' · '):''}
     </div>
     <form id="dtForm"><div class="fg">
       <div class="fi-section-label cs4" style="color:var(--c-primary);font-weight:600;font-size:12px">── 양도양수 처리 정보</div>
@@ -914,9 +918,9 @@ window.openDomesticTransfer=async(id)=>{
 
       <div class="fi-section-label cs4" style="color:var(--c-primary);font-weight:600;margin-top:8px;padding-top:8px;border-top:1px solid var(--c-border);font-size:12px">── 양수자 정보</div>
       <div class="fi"><label>양수자 등록 형태</label>
-        <div style="display:flex;gap:14px;align-items:center;height:34px">
-          <label style="font-size:12.5px;display:flex;align-items:center;gap:4px"><input type="radio" name="transferee_target" value="member" checked>회원으로 즉시등록</label>
-          <label style="font-size:12.5px;display:flex;align-items:center;gap:4px"><input type="radio" name="transferee_target" value="candidate">예정자로 등록</label>
+        <div class="transfer-register-options">
+          <label><input type="radio" name="transferee_target" value="member" checked>회원으로 즉시등록</label>
+          <label><input type="radio" name="transferee_target" value="candidate">예정자로 등록</label>
         </div>
       </div>
       <div class="fi"><label>지역</label>${rsel('transferee_region',m.region||'')}</div>
@@ -1445,14 +1449,19 @@ async function renderDashboard(){
   ]).catch(()=>[null,null,null,null,null]);
   if(!full||!reg)return;
   const s=full.summary;const alloc=full.allocation||{};
+  const vIssues=full.validation_issues||[];
+  const vBanner=vIssues.length?`<div class="warn-box" style="margin-bottom:10px;font-size:12.5px">
+    <strong>⚠ 집계 불일치 감지 (검증 필요)</strong><br>${vIssues.map(e_).join('<br>')}
+  </div>`:'';
 
   document.getElementById('content').innerHTML=`
+    ${vBanner}
     <div class="stat-grid">
-      <div class="stat-card" onclick="navigate('members','individual')"><div class="stat-lbl">총 사업자</div><div class="stat-val">${s.total.toLocaleString()}</div><div class="stat-sub">폐업 제외</div></div>
+      <div class="stat-card" onclick="navigate('members','individual')"><div class="stat-lbl">총 사업자</div><div class="stat-val">${s.total.toLocaleString()}</div><div class="stat-sub">폐업·양도·이관 제외</div></div>
       <div class="stat-card sky" onclick="showStatList('joined')"><div class="stat-lbl">협회 가입</div><div class="stat-val">${s.joined.toLocaleString()}</div><div class="stat-sub">가입일자 기준</div></div>
       <div class="stat-card pink" onclick="showStatList('not_joined')"><div class="stat-lbl">미가입</div><div class="stat-val">${s.not_joined.toLocaleString()}</div><div class="stat-sub">가입일자 없음</div></div>
-      <div class="stat-card" onclick="navigate('members','individual')"><div class="stat-lbl">개인회원</div><div class="stat-val">${s.individual.toLocaleString()}</div></div>
-      <div class="stat-card yellow" onclick="navigate('members','delivery')"><div class="stat-lbl">택배회원</div><div class="stat-val">${s.delivery.toLocaleString()}</div></div>
+      <div class="stat-card" onclick="navigate('members','individual')"><div class="stat-lbl">개인회원</div><div class="stat-val">${s.individual.toLocaleString()}</div><div class="stat-sub">차량 구분 기준</div></div>
+      <div class="stat-card yellow" onclick="navigate('members','delivery')"><div class="stat-lbl">택배회원</div><div class="stat-val">${s.delivery.toLocaleString()}</div><div class="stat-sub">차량 구분 기준</div></div>
       <div class="stat-card gray" onclick="showStatList('delivery_employed')"><div class="stat-lbl">택배 취업신고</div><div class="stat-val">${(s.delivery_employed||0).toLocaleString()}</div><div class="stat-sub">자격증명발급일자 기준</div></div>
       <div class="stat-card red" onclick="showStatList('delivery_not_employed')"><div class="stat-lbl">택배 미신고</div><div class="stat-val">${(s.delivery_not_employed||0).toLocaleString()}</div><div class="stat-sub">자격증명발급일자 없음</div></div>
     </div>
@@ -1486,8 +1495,8 @@ async function renderDashboard(){
       <div class="card-hd"><div class="card-hd-l"><span class="card-ico">📊</span><span class="card-ttl">부과대수 자동 파악</span><span class="badge b-teal" style="font-size:10px;margin-left:6px">자동 계산</span></div></div>
       <div class="card-bd">
         <div class="alloc-grid">
-          ${[['협회가입',alloc['협회가입']],['양도',alloc['양도']],['타도(이관)',alloc['타도(이관)']],['폐업',alloc['폐업']],['탈퇴',alloc['탈퇴']],['택배신규',alloc['택배신규']],['관리비폐지',alloc['관리비폐지']],['70세',alloc['70세']],['협회기본대수',alloc['협회기본대수']],['총부과대수',alloc['총부과대수']],['택배관리',alloc['택배관리']]].map(([l,v])=>`
-          <div class="alloc-card"><div class="alloc-lbl">${l}</div>
+          ${[['협회가입',alloc['협회가입'],'가입일자 기준'],['양도누계',alloc['양도누계'],'양도양수대장 누계'],['이관누계',alloc['이관누계'],'이관 누계'],['폐업누계',alloc['폐업누계'],'폐업 누계'],['탈퇴',alloc['탈퇴'],''],['택배신규',alloc['택배신규'],''],['관리비폐지',alloc['관리비폐지'],''],['70세',alloc['70세'],''],['협회기본대수',alloc['협회기본대수'],'현재 유효 사업자'],['총부과대수',alloc['총부과대수'],'현재 유효 사업자'],['택배관리',alloc['택배관리'],'']].map(([l,v,sub])=>`
+          <div class="alloc-card"><div class="alloc-lbl">${l}${sub?`<span style="display:block;font-size:9.5px;color:var(--c-text-3);font-weight:400;margin-top:1px">${sub}</span>`:''}</div>
             ${v===null||v===undefined?`<div class="alloc-na">확인 필요</div>`:`<div class="alloc-val">${Number(v).toLocaleString()}</div>`}
           </div>`).join('')}
         </div>
@@ -1536,8 +1545,13 @@ async function renderMonthlyReport(){
   const ageG=d.age_groups||{},vAge=d.vehicle_age||{};
 
   function numOrNA(v){return v===null||v===undefined?`<span class="rpt-na">확인 필요</span>`:`<strong>${Number(v).toLocaleString()}</strong>`;}
+  const mvIssues=d.validation_issues||[];
+  const mvBanner=mvIssues.length?`<div class="warn-box" style="margin-bottom:10px;font-size:12.5px">
+    <strong>⚠ 집계 불일치 감지 (검증 필요)</strong><br>${mvIssues.map(e_).join('<br>')}
+  </div>`:'';
 
   document.getElementById('content').innerHTML=`
+    ${mvBanner}
     <div class="card">
       <div class="rpt-nav">
         <button class="btn bo btn-sm" onclick="ST.reportMonth--;if(ST.reportMonth<1){ST.reportMonth=12;ST.reportYear--;}renderMonthlyReport()">◀ 이전</button>

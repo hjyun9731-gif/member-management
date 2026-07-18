@@ -2588,6 +2588,7 @@ async def debug_monthly_member_count(
 ):
     """가입 판정 기준 검증 API"""
     import re as _re
+    from app.excel_utils import is_association_member as _is_joined
 
     _NOT_JOINED = {
         'x','미가입','가입희망','가입 희망','개별등록','개별 등록',
@@ -2595,14 +2596,6 @@ async def debug_monthly_member_count(
         '보류','확인중','기타','none','nan','-','',
     }
 
-    def _is_joined(v):
-        v = str(v or '').strip()
-        if not v: return False
-        if v.lower() in _NOT_JOINED: return False
-        if v.lower() in ('o','ㅇ'): return True
-        if _re.search(r'\d{2}[\.\-/]\d{1,2}[\.\-/]\d{1,2}', v): return True
-        if _re.search(r'\d{4}', v): return True
-        return False
 
     rows = db.query(models.LicenseHolder).filter(
         models.LicenseHolder.deleted_at.is_(None),
