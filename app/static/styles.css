@@ -162,25 +162,33 @@ a{text-decoration:none;color:inherit}
 .fsel:focus{border-color:var(--c-pri)}
 
 /* ── FORM ── */
-.fg{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
-.fg3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-.fg2{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.fg{display:grid;grid-template-columns:repeat(4,1fr);gap:16px 14px}
+.fg3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px 14px}
+.fg2{display:grid;grid-template-columns:repeat(2,1fr);gap:16px 14px}
 .cs2{grid-column:span 2}.cs3{grid-column:span 3}.cs4{grid-column:1/-1}
-.fi{display:flex;flex-direction:column;gap:3px}
-.fi label{font-size:11px;font-weight:600;color:var(--c-text-3);letter-spacing:.2px}
+.fi{display:flex;flex-direction:column;gap:5px}
+.fi label{font-size:12.5px;font-weight:600;color:var(--c-text-2);letter-spacing:.1px}
 .fi label .req{color:var(--c-danger)}
 .fc{
-  height:30px;padding:0 9px;
+  height:34px;padding:0 11px;
   border:1px solid var(--c-border);border-radius:6px;
-  font-size:13px;font-family:inherit;outline:none;
+  font-size:13.5px;font-family:inherit;outline:none;
   background:var(--c-surface);transition:border-color .15s,box-shadow .15s;
   color:var(--c-text);
 }
 .fc:focus{border-color:var(--c-pri);box-shadow:0 0 0 3px var(--c-pri-bg)}
 .fc[readonly]{background:var(--c-bg);color:var(--c-text-3)}
-.fc::placeholder{color:var(--c-text-4);font-size:11.5px}
-textarea.fc{height:56px;resize:vertical;padding-top:7px;line-height:1.4}
+.fc::placeholder{color:var(--c-text-4);font-size:12px}
+textarea.fc{height:60px;resize:vertical;padding-top:8px;line-height:1.5}
 select.fc{cursor:pointer}
+/* 폼 섹션 제목 - 항목 그룹을 명확히 구분 */
+.fi-section-title{
+  grid-column:1/-1;display:flex;align-items:center;gap:8px;
+  margin-top:14px;padding:8px 12px;
+  background:var(--c-pri-bg);border-left:3px solid var(--c-pri);
+  border-radius:5px;
+  font-size:12.5px;font-weight:700;color:var(--c-pri);letter-spacing:.2px;
+}
 /* 포맷 입력 필드 - 값이 있으면 약간 강조 */
 input.fmt-phone:not(:placeholder-shown),input.fmt-resident:not(:placeholder-shown){
   font-family:monospace;letter-spacing:.5px;
@@ -336,15 +344,15 @@ a.tbl-link:hover{text-decoration:underline;color:var(--c-text-2)}
 .modal.mxs{max-width:360px}
 .modal-hd{
   display:flex;align-items:center;justify-content:space-between;
-  padding:14px 18px;border-bottom:1px solid var(--c-border-l);
+  padding:16px 20px;border-bottom:1px solid var(--c-border-l);
 }
-.modal-hd h3{font-size:15px;font-weight:700;color:var(--c-text)}
+.modal-hd h3{font-size:16.5px;font-weight:700;color:var(--c-text)}
 .modal-x{
   background:none;border:none;font-size:18px;cursor:pointer;
   color:var(--c-text-4);padding:4px;border-radius:4px;transition:all .12s;
 }
 .modal-x:hover{background:var(--c-bg);color:var(--c-text-2)}
-.modal-bd{padding:16px 18px;overflow-y:auto;flex:1}
+.modal-bd{padding:20px 22px;overflow-y:auto;flex:1}
 .modal-ft{padding:12px 18px;border-top:1px solid var(--c-border-l);display:flex;gap:8px;justify-content:flex-end}
 
 /* ── DETAIL VIEW SECTIONS ── */

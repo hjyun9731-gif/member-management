@@ -768,13 +768,13 @@ window.editMember=async(id,defaultCat='개인')=>{
 
   // 택배 전용 섹션 HTML
   const taxiSection=`
-    <div class="fi-section-label cs4" style="color:var(--c-primary);font-weight:600;margin-top:8px;padding-top:8px;border-top:1px solid var(--c-border);font-size:12px">── 택배 전용 항목</div>
+    <div class="fi-section-title">🚚 택배 전용 항목</div>
     ${fi('reapproval_date','재허가',r.reapproval_date||'')}
     <div class="fi cs2"><label>공문주소</label><input class="fc" name="official_address" value="${e_(r.official_address||'')}" placeholder="공문 발송 주소"></div>`;
 
   // 개인 전용 섹션 HTML
   const indSection=`
-    <div class="fi-section-label cs4" style="color:var(--c-primary);font-weight:600;margin-top:8px;padding-top:8px;border-top:1px solid var(--c-border);font-size:12px">── 개인 전용 항목 (대리인)</div>
+    <div class="fi-section-title">👤 개인 전용 항목 (대리인)</div>
     ${fi('agent_name','대리인',r.agent_name||'')}
     ${frn('agent_resident_number','대리인 주민등록번호',r.agent_resident_number||'')}
     ${fph('agent_mobile','대리인 핸드폰번호',r.agent_mobile||'')}`;
@@ -799,7 +799,7 @@ window.editMember=async(id,defaultCat='개인')=>{
     ${isInd?indSection:''}
     ${(!id)?(taxiSection+indSection):''}
     ${(id&&(r.transfer_info||r.transfer_out_info))?`
-    <div class="fi-section-label cs4" style="color:var(--c-primary);font-weight:600;margin-top:8px;padding-top:8px;border-top:1px solid var(--c-border);font-size:12px">── 양도양수 관계정보 (읽기 전용)</div>
+    <div class="fi-section-title">🔗 양도양수 관계정보 (읽기 전용)</div>
     ${r.transfer_info?`
     <div class="fi cs2" style="background:var(--c-bg-alt,#f7f8fa);border-radius:6px;padding:8px 10px">
       <label style="font-weight:600;font-size:11.5px;color:var(--c-primary)">양수 정보 (이 회원이 양수받음)</label>
@@ -903,7 +903,7 @@ window.openDomesticTransfer=async(id)=>{
       <strong>양도자</strong>: ${e_(_okv(m.name))}${_transferorBits.length?' · '+_transferorBits.join(' · '):''}
     </div>
     <form id="dtForm"><div class="fg">
-      <div class="fi-section-label cs4" style="color:var(--c-primary);font-weight:600;font-size:12px">── 양도양수 처리 정보</div>
+      <div class="fi-section-title">📋 양도양수 처리 정보</div>
       <div class="fi"><label>접수일자</label><input class="fc" name="receipt_date" placeholder="${today}"></div>
       <div class="fi"><label>인가일자</label><input class="fc" name="approval_date" placeholder="${today}"></div>
       <div class="fi"><label>가입일자</label><input class="fc" name="membership_date" placeholder="없으면 미가입"></div>
@@ -916,7 +916,7 @@ window.openDomesticTransfer=async(id)=>{
       <div class="fi cs2"><label>구조변경</label><input class="fc" name="structure_change" value=""></div>
       <div class="fi"><label>소속업체</label><input class="fc" name="affiliated_company" value="${e_(m.affiliated_company||'')}"></div>
 
-      <div class="fi-section-label cs4" style="color:var(--c-primary);font-weight:600;margin-top:8px;padding-top:8px;border-top:1px solid var(--c-border);font-size:12px">── 양수자 정보</div>
+      <div class="fi-section-title">🔗 양수자 정보</div>
       <div class="fi"><label>양수자 등록 형태</label>
         <div class="transfer-register-options">
           <label><input type="radio" name="transferee_target" value="member" checked>회원으로 즉시등록</label>
