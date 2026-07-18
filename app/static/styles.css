@@ -162,26 +162,26 @@ a{text-decoration:none;color:inherit}
 .fsel:focus{border-color:var(--c-pri)}
 
 /* ── FORM ── */
-.fg{display:grid;grid-template-columns:repeat(4,1fr);gap:16px 14px}
-.fg3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px 14px}
-.fg2{display:grid;grid-template-columns:repeat(2,1fr);gap:16px 14px}
+.fg{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.fg3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.fg2{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
 .cs2{grid-column:span 2}.cs3{grid-column:span 3}.cs4{grid-column:1/-1}
-.fi{display:flex;flex-direction:column;gap:5px}
-.fi label{font-size:12.5px;font-weight:600;color:var(--c-text-2);letter-spacing:.1px}
+.fi{display:flex;flex-direction:column;gap:3px}
+.fi label{font-size:11px;font-weight:600;color:var(--c-text-3);letter-spacing:.2px}
 .fi label .req{color:var(--c-danger)}
 .fc{
-  height:34px;padding:0 11px;
+  height:30px;padding:0 9px;
   border:1px solid var(--c-border);border-radius:6px;
-  font-size:13.5px;font-family:inherit;outline:none;
+  font-size:13px;font-family:inherit;outline:none;
   background:var(--c-surface);transition:border-color .15s,box-shadow .15s;
   color:var(--c-text);
 }
 .fc:focus{border-color:var(--c-pri);box-shadow:0 0 0 3px var(--c-pri-bg)}
 .fc[readonly]{background:var(--c-bg);color:var(--c-text-3)}
-.fc::placeholder{color:var(--c-text-4);font-size:12px}
-textarea.fc{height:60px;resize:vertical;padding-top:8px;line-height:1.5}
+.fc::placeholder{color:var(--c-text-4);font-size:11.5px}
+textarea.fc{height:56px;resize:vertical;padding-top:7px;line-height:1.4}
 select.fc{cursor:pointer}
-/* 폼 섹션 제목 - 항목 그룹을 명확히 구분 */
+/* 폼 섹션 제목 - 항목 그룹을 명확히 구분 (기존 배지 팔레트 재사용, 하위호환용) */
 .fi-section-title{
   grid-column:1/-1;display:flex;align-items:center;gap:8px;
   margin-top:14px;padding:8px 12px;
@@ -195,17 +195,24 @@ input.fmt-phone:not(:placeholder-shown),input.fmt-resident:not(:placeholder-show
 }
 
 /* ── 폼 섹션 그룹 (수정/등록 모달 - 처리정보/회원정보/가입정보 등) ── */
-.form-section{margin-bottom:18px}
+.form-section{margin-bottom:16px}
 .form-section:last-of-type{margin-bottom:0}
 .form-section-hd{
-  font-size:12.5px;font-weight:700;color:var(--c-text-2);
-  letter-spacing:.2px;
-  padding-bottom:7px;margin-bottom:14px;
-  border-bottom:1px solid var(--c-border-l);
+  font-size:11.5px;font-weight:700;letter-spacing:.2px;
+  padding:6px 10px;margin-bottom:10px;
+  border-left:3px solid var(--c-text-4);border-radius:5px;
+  background:var(--c-bg);color:var(--c-text-2);
   display:flex;align-items:center;gap:6px;
 }
-.form-section-hd .fs-ico{font-size:12.5px;opacity:.75}
-.form-section .fg{row-gap:16px}
+.form-section-hd .fs-ico{font-size:12px;opacity:.85}
+/* 카테고리별 색상 - 기존 배지(.b-*) 팔레트와 동일 */
+.form-section-hd.fsh-sky   {background:var(--c-sky-bg);   border-left-color:var(--c-sky);   color:var(--c-sky)}
+.form-section-hd.fsh-pri   {background:var(--c-pri-bg);   border-left-color:var(--c-pri);   color:var(--c-pri-h)}
+.form-section-hd.fsh-purple{background:var(--c-purple-bg);border-left-color:var(--c-purple);color:var(--c-purple)}
+.form-section-hd.fsh-yellow{background:var(--c-yellow-bg);border-left-color:var(--c-yellow);color:var(--c-yellow)}
+.form-section-hd.fsh-teal  {background:var(--c-teal-bg);  border-left-color:var(--c-teal);  color:var(--c-teal)}
+.form-section-hd.fsh-pink  {background:var(--c-pink-bg);  border-left-color:var(--c-pink);  color:var(--c-pink)}
+.form-section .fg{row-gap:10px}
 .form-section-note{
   grid-column:1/-1;font-size:12px;color:var(--c-text-3);
   background:var(--c-bg);border-radius:6px;padding:9px 11px;line-height:1.6;

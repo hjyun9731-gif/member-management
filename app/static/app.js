@@ -132,7 +132,7 @@ function fri(name,label,opts,sel=''){
 function fta(name,label,val='',cls=''){return `<div class="fi ${cls}"><label>${label}</label><textarea name="${name}" class="fc">${e_(val)}</textarea></div>`;}
 function fph(name,label,val=''){return `<div class="fi"><label>${label}</label><input class="fc fmt-phone" name="${name}" value="${e_(val)}" placeholder="010-0000-0000" inputmode="numeric" maxlength="13"></div>`;}
 function frn(name,label,val=''){return `<div class="fi"><label>${label}</label><input class="fc fmt-resident" name="${name}" value="${e_(val)}" placeholder="000000-0000000" inputmode="numeric" maxlength="14"></div>`;}
-function sec(title,inner,icon=''){return `<div class="form-section"><div class="form-section-hd">${icon?`<span class="fs-ico">${icon}</span>`:''}${title}</div><div class="fg">${inner}</div></div>`;}
+function sec(title,inner,icon='',color=''){return `<div class="form-section"><div class="form-section-hd${color?` fsh-${color}`:''}">${icon?`<span class="fs-ico">${icon}</span>`:''}${title}</div><div class="fg">${inner}</div></div>`;}
 
 // 전화번호 자동 하이픈 포맷
 function _autoPhone(v){
@@ -770,13 +770,13 @@ window.editMember=async(id,defaultCat='개인')=>{
   // 택배 전용 섹션 HTML
   const taxiSection=sec('택배 전용 항목',`
     ${fi('reapproval_date','재허가',r.reapproval_date||'')}
-    <div class="fi cs2"><label>공문주소</label><input class="fc" name="official_address" value="${e_(r.official_address||'')}" placeholder="공문 발송 주소"></div>`,'🚚');
+    <div class="fi cs2"><label>공문주소</label><input class="fc" name="official_address" value="${e_(r.official_address||'')}" placeholder="공문 발송 주소"></div>`,'🚚','pink');
 
   // 개인 전용 섹션 HTML
   const indSection=sec('개인 전용 항목 (대리인)',`
     ${fi('agent_name','대리인',r.agent_name||'')}
     ${frn('agent_resident_number','대리인 주민등록번호',r.agent_resident_number||'')}
-    ${fph('agent_mobile','대리인 핸드폰번호',r.agent_mobile||'')}`,'👤');
+    ${fph('agent_mobile','대리인 핸드폰번호',r.agent_mobile||'')}`,'👤','pink');
 
   const relationSection=(id&&(r.transfer_info||r.transfer_out_info))?sec('양도양수 관계정보 (읽기 전용)',`
     ${r.transfer_info?`
@@ -797,7 +797,7 @@ window.editMember=async(id,defaultCat='개인')=>{
         접수일자: ${e_(r.transfer_out_info.receipt_date||'-')}
       </div>
     </div>`:''}
-    `,'🔗'):'';
+    `,'🔗','teal'):'';
 
   const formHtml=`<form id="mForm">
     <input type="hidden" name="category" value="${e_(cat)}">
@@ -807,12 +807,12 @@ window.editMember=async(id,defaultCat='개인')=>{
       ${fi('vehicle_number','차량번호',r.vehicle_number||'',true)} ${fi('name','성명',r.name||'',true)}
       ${fi('phone','전화번호',r.phone||'')} ${fph('mobile','핸드폰',r.mobile||'')}
       <div class="fi cs2"><label>주소</label><input class="fc" name="address" value="${e_(r.address||'')}"></div>
-    `,'👤')}
+    `,'👤','pri')}
     ${sec('가입정보',`
       ${fri('membership_status','가입여부',['가입','미가입'],r.membership_status||'가입')}
       ${fi('membership_date','가입일자',r.membership_date||'')} ${fi('approval_date','인가일자',r.approval_date||'')}
       ${fi('certificate_issue_date','자격증발급일자',r.certificate_issue_date||'')} ${fi('certificate_number','자격증발급번호',r.certificate_number||'')}
-    `,'📋')}
+    `,'📋','purple')}
     ${sec('면허정보',`
       ${fi('driver_license_number','운전면허번호',r.driver_license_number||'')}
       <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||'')}" placeholder="예: 22,포터Ⅱ내장탑차"></div>
@@ -820,7 +820,7 @@ window.editMember=async(id,defaultCat='개인')=>{
       ${fi('business_number','사업자번호',r.business_number||'')} ${fi('affiliated_company','소속업체',r.affiliated_company||'')}
       ${frn('resident_number','주민등록번호',r.resident_number||'')}
       <div class="fi cs2"><label>구조변경</label><input class="fc" name="structure_change" value="${e_(r.structure_change||'')}" placeholder="예: 윙바디 변경, 냉동기 장착, 호로→윙바디"></div>
-    `,'🪪')}
+    `,'🪪','yellow')}
     ${isTaxi?taxiSection:''}
     ${isInd?indSection:''}
     ${(!id)?(taxiSection+indSection):''}
@@ -914,7 +914,7 @@ window.openDomesticTransfer=async(id)=>{
       <div class="fi"><label>인가일자</label><input class="fc" name="approval_date" placeholder="${today}"></div>
       <div class="fi"><label>가입일자</label><input class="fc" name="membership_date" placeholder="없으면 미가입"></div>
       <div class="fi"><label>처리일자(폐업일자) <span class="req">*</span></label><input class="fc" name="closure_date" value="${today}"></div>
-      `,'📋')}
+      `,'📋','sky')}
       ${sec('양도자 면허정보',`
       ${fi('certificate_issue_date','자격증명발급일자','')}
       ${fi('certificate_number','자격증명발급번호','')}
@@ -923,7 +923,7 @@ window.openDomesticTransfer=async(id)=>{
       ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),m.fuel_type||'')}
       <div class="fi cs2"><label>구조변경</label><input class="fc" name="structure_change" value=""></div>
       <div class="fi"><label>소속업체</label><input class="fc" name="affiliated_company" value="${e_(m.affiliated_company||'')}"></div>
-      `,'🪪')}
+      `,'🪪','yellow')}
       ${sec('양수자 정보',`
       <div class="fi cs2"><label>양수자 등록 형태</label>
         <div class="transfer-register-options">
@@ -937,7 +937,7 @@ window.openDomesticTransfer=async(id)=>{
       <div class="fi"><label>차량번호</label><input class="fc" name="transferee_vehicle_number" value="${e_(m.vehicle_number||'')}"></div>
       ${fph('transferee_mobile','핸드폰','')}
       <div class="fi cs2"><label>주소</label><input class="fc" name="transferee_address" value="" placeholder="양수자 주소를 입력하세요"></div>
-      `,'🔗')}
+      `,'🔗','teal')}
       ${sec('기타',`${fta('memo','비고','','cs4')}`,'📝')}
     </form>
     <div id="dtDupBox"></div>`,
@@ -1214,7 +1214,7 @@ window.editTransfer=async(id)=>{
       ${fi('management_number','관리번호',r.management_number||'')}
       ${fi('receipt_date','접수일자',r.receipt_date||'')}
       <div class="fi"><label>지역</label>${rsel('region',r.region||'')}</div>
-    `,'📋')}
+    `,'📋','sky')}
     ${sec('회원정보',`
       ${fi('vehicle_number','차량번호',r.vehicle_number||'',true)}
       ${fi('transferor','양도자',r.transferor||'')}
@@ -1222,13 +1222,13 @@ window.editTransfer=async(id)=>{
       ${fi('phone','전화번호',r.phone||'')}
       ${fph('mobile','핸드폰',r.mobile||'')}
       <div class="fi cs2"><label>주소</label><input class="fc" name="address" value="${e_(r.address||'')}"></div>
-    `,'👤')}
+    `,'👤','pri')}
     ${sec('가입정보',`
       ${fi('approval_date','인가일자',r.approval_date||'')}
       ${fi('membership_date','가입일자',r.membership_date||'')}
       ${fi('certificate_issue_date','자격증명발급일자',r.certificate_issue_date||'')}
       ${fi('certificate_number','자격증명발급번호',r.certificate_number||'')}
-    `,'✅')}
+    `,'✅','purple')}
     ${sec('면허정보',`
       ${fi('driver_license_number','운전면허번호',r.driver_license_number||'')}
       ${frn('resident_number','주민등록번호',r.resident_number||'')}
@@ -1236,10 +1236,10 @@ window.editTransfer=async(id)=>{
       ${fri('fuel_type','유종',['','경유','LPG','전기','휘발유','CNG','하이브리드'],r.fuel_type||raw_tl['유종']||'')}
       ${fi('affiliated_company','소속업체',r.affiliated_company||raw_tl['소속업체']||raw_tl['업체명']||'')}
       <div class="fi cs2"><label>구조변경</label><input class="fc" name="structure_change" value="${e_(r.structure_change||'')}"></div>
-    `,'🪪')}
+    `,'🪪','yellow')}
     ${sec('업무정보',`
       ${fi('transfer_region','이관/양도지역',r.transfer_region||'')}
-    `,'🔄')}
+    `,'🔄','teal')}
     ${sec('기타',`${fta('memo','비고',r.memo||'','cs4')}`,'📝')}
   </form>`,
   `<button class="btn bg btn-sm" id="_tlS">${id?'저장':'등록'}</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
@@ -1337,7 +1337,7 @@ window.editClosure=async(id)=>{
       <div class="fi"><label>처리구분</label>${ssel('closure_type',CLOSURE_TYPES,r.closure_type||'폐업')}</div>
       <div class="fi"><label>자료구분</label>${ssel('data_type',['신규자료','이전자료'],r.data_type||'신규자료')}</div>
       ${fi('receipt_date','접수일자',r.receipt_date||'')} ${fi('closure_date','처리일자',r.closure_date||'')}
-    `,'📋')}
+    `,'📋','sky')}
     ${sec('회원정보',`
       <div class="fi"><label>지역</label>${rsel('region',r.region||'')}</div>
       ${fi('vehicle_number','차량번호',r.vehicle_number||'',true)} ${fi('name','성명',r.name||'')} ${fi('company_name','상호',r.company_name||'')}
@@ -1345,13 +1345,13 @@ window.editClosure=async(id)=>{
       <div class="fi cs2"><label>주소</label><input class="fc" name="address" value="${e_(r.address||'')}"></div>
       <div class="fi cs2"><label>공문주소</label><input class="fc" name="official_address" value="${e_(r.official_address||'')}"></div>
       ${fi('agent_name','대리인',r.agent_name||'')} ${fph('agent_mobile','대리인 핸드폰',r.agent_mobile||'')}
-    `,'👤')}
+    `,'👤','pri')}
     ${sec('가입정보',`
       <div class="fi"><label>가입여부</label>${ssel('membership_status',['미가입','가입'],r.membership_status||'미가입')}</div>
       ${fi('membership_date','가입일자',r.membership_date||'')} ${fi('approval_date','인가일자',r.approval_date||'')}
       ${fi('certificate_issue_date','자격증명발급일자',r.certificate_issue_date||'')}
       ${fi('certificate_number','자격증명발급번호',r.certificate_number||'')}
-    `,'✅')}
+    `,'✅','purple')}
     ${sec('면허정보',`
       ${frn('resident_number','주민등록번호',r.resident_number||'')}
       ${fi('driver_license_number','운전면허번호',r.driver_license_number||'')}
@@ -1359,11 +1359,11 @@ window.editClosure=async(id)=>{
       ${fri('fuel_type','유종',['','경유','LPG','전기','휘발유','CNG','하이브리드'],r.fuel_type||raw['유종']||'')}
       ${fi('affiliated_company','소속업체',r.affiliated_company||'')}
       <div class="fi cs2"><label>구조변경</label><input class="fc" name="structure_change" value="${e_(r.structure_change||'')}"></div>
-    `,'🪪')}
+    `,'🪪','yellow')}
     ${sec('업무정보',`
       ${fi('transferee','양수인',r.transferee||'')} ${fi('transfer_region','이관/양도지역',r.transfer_region||'')}
       <div class="fi cs2"><label>사유</label><input class="fc" name="reason" value="${e_(r.reason||'')}"></div>
-    `,'🔄')}
+    `,'🔄','teal')}
     ${sec('기타',`${fta('memo','비고',r.memo||'','cs4')}`,'📝')}
   </form>`,
   `<button class="btn bg btn-sm" id="_clS">${id?'저장':'등록'}</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mxl');
