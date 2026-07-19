@@ -480,20 +480,27 @@ async function renderCandidateSection(){
   document.getElementById('innerContent').innerHTML=`
     <div class="card">
       <div class="card-hd"><div class="card-hd-l"><span class="card-ico">✏️</span><span class="card-ttl">예정자 입력</span></div></div>
-      <div class="card-bd"><form id="candForm"><div class="fg">
+      <div class="card-bd"><form id="candForm">
+        ${sec('기본정보',`
         <div class="fi"><label>지역</label>${rsel('region','')}</div>
         ${fi('vehicle_number','차량번호')} ${fi('name','성명')}
         ${frn('resident_number','주민등록번호')}
+        `,'👤','sky')}
+        ${sec('연락처·주소',`
         ${fph('mobile','핸드폰')}
-        <div class="fi cs2"><label>주소</label><input class="fc" name="address"></div>
+        <div class="fi cs3"><label>주소</label><input class="fc" name="address"></div>
+        `,'📞','pri')}
+        ${sec('자격증·면허정보',`
         ${fi('certificate_issue_date','자격증발급일자')} ${fi('certificate_number','자격증발급번호')}
         ${fi('driver_license_number','운전면허번호')}
         <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" placeholder="예: 22,포터Ⅱ내장탑차 / 봉고 / 냉동탑차"></div>
         ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),'')}
+        `,'🪪','yellow')}
+        ${sec('사업정보',`
         ${fi('business_number','사업자번호')} ${fi('affiliated_company','소속업체')}
         ${fi('membership_date','가입일자','')}<span style="font-size:11px;color:var(--c-text-3);align-self:center">&nbsp;없으면 미가입</span>
-        ${fta('memo','비고','','cs4')}
-      </div>
+        `,'🏢','teal')}
+        ${sec('비고',`${fta('memo','비고','','cs4')}`,'📝')}
       <div class="flex gap-8 mt8" style="justify-content:flex-end">
         <button type="button" class="btn bo btn-sm" onclick="document.getElementById('candForm').reset()">초기화</button>
         <button type="button" class="btn bg btn-sm" id="candSaveBtn">+ 저장</button>
