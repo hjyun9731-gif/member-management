@@ -198,20 +198,20 @@ input.fmt-phone:not(:placeholder-shown),input.fmt-resident:not(:placeholder-show
 .form-section{margin-bottom:16px}
 .form-section:last-of-type{margin-bottom:0}
 .form-section-hd{
-  font-size:11.5px;font-weight:700;letter-spacing:.2px;
-  padding:6px 10px;margin-bottom:10px;
-  border-left:3px solid var(--c-text-4);border-radius:5px;
+  font-size:11px;font-weight:700;letter-spacing:.2px;
+  padding:5px 12px;margin-bottom:12px;
+  border-radius:999px;
   background:var(--c-bg);color:var(--c-text-2);
-  display:inline-flex;align-items:center;gap:6px;width:fit-content;max-width:100%;
+  display:inline-flex;align-items:center;gap:5px;width:fit-content;max-width:100%;
 }
-.form-section-hd .fs-ico{font-size:12px;opacity:.85}
-/* 카테고리별 색상 - 기존 배지(.b-*) 팔레트와 동일 */
-.form-section-hd.fsh-sky   {background:var(--c-sky-bg);   border-left-color:var(--c-sky);   color:var(--c-sky)}
-.form-section-hd.fsh-pri   {background:var(--c-pri-bg);   border-left-color:var(--c-pri);   color:var(--c-pri-h)}
-.form-section-hd.fsh-purple{background:var(--c-purple-bg);border-left-color:var(--c-purple);color:var(--c-purple)}
-.form-section-hd.fsh-yellow{background:var(--c-yellow-bg);border-left-color:var(--c-yellow);color:var(--c-yellow)}
-.form-section-hd.fsh-teal  {background:var(--c-teal-bg);  border-left-color:var(--c-teal);  color:var(--c-teal)}
-.form-section-hd.fsh-pink  {background:var(--c-pink-bg);  border-left-color:var(--c-pink);  color:var(--c-pink)}
+.form-section-hd .fs-ico{font-size:11px;opacity:.9}
+/* 카테고리별 색상 - 기존 배지(.b-*) 팔레트와 동일 (연한 배경 + 진한 글자, 테두리 없이 부드러운 알약형) */
+.form-section-hd.fsh-sky   {background:var(--c-sky-bg);   color:var(--c-sky)}
+.form-section-hd.fsh-pri   {background:var(--c-pri-bg);   color:var(--c-pri-h)}
+.form-section-hd.fsh-purple{background:var(--c-purple-bg);color:var(--c-purple)}
+.form-section-hd.fsh-yellow{background:var(--c-yellow-bg);color:var(--c-yellow)}
+.form-section-hd.fsh-teal  {background:var(--c-teal-bg);  color:var(--c-teal)}
+.form-section-hd.fsh-pink  {background:var(--c-pink-bg);  color:var(--c-pink)}
 .form-section .fg{row-gap:10px}
 .form-section-note{
   grid-column:1/-1;font-size:12px;color:var(--c-text-3);

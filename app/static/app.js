@@ -623,29 +623,39 @@ async function renderTransferSection(){
   document.getElementById('innerContent').innerHTML=`
     <div class="card">
       <div class="card-hd"><div class="card-hd-l"><span class="card-ico">✏️</span><span class="card-ttl">양도양수 등록 (타 지역→강원도 전입)</span></div></div>
-      <div class="card-bd"><form id="trSecForm"><div class="fg">
+      <div class="card-bd"><form id="trSecForm">
+        ${sec('기본정보',`
         <div class="fi"><label>지역</label>${rsel('region','')}</div>
         ${fi('vehicle_number','차량번호','')}
         ${fi('transferor','양도인(성명)','')}
         ${fi('name','양수자(성명)','')}
+        ${frn('resident_number','주민등록번호','')}
+        `,'👤','sky')}
+        ${sec('처리정보',`
         ${fi('receipt_date','접수일자',new Date().toISOString().slice(0,10))}
         ${fi('approval_date','인가일자','')}
-        ${fi('membership_date','가입일자','')}
-        ${fi('resident_number','주민등록번호','')}
-        ${fi('phone','전화번호','')} ${fi('mobile','핸드폰','')}
+        ${fi('membership_date','가입일자','')}<span style="font-size:11px;color:var(--c-text-3);align-self:center">&nbsp;없으면 미가입</span>
+        `,'📋','pri')}
+        ${sec('연락처·주소',`
+        ${fi('phone','전화번호','')} ${fph('mobile','핸드폰','')}
         <div class="fi cs2"><label>주소</label><input class="fc" name="address"></div>
+        `,'📞','purple')}
+        ${sec('자격증·면허정보',`
         ${fi('certificate_issue_date','자격증발급일자','')} ${fi('certificate_number','자격증발급번호','')}
         ${fi('driver_license_number','운전면허번호','')}
         <div class="fi"><label>차종 (직접입력)</label><input class="fc" name="vehicle_type" placeholder="예: 22,포터Ⅱ내장탑차 / 1톤 냉동탑차"></div>
         ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),'')}
+        `,'🪪','yellow')}
+        ${sec('사업정보',`
         ${fi('business_number','사업자번호','')} ${fi('affiliated_company','소속업체','')}
-        <div class="fi cs3"><label>비고</label><input class="fc" name="memo" placeholder="예: 경기→강원 이전전입"></div>
-      </div>
+        `,'🏢','teal')}
+        ${sec('비고',`<div class="fi cs3"><label>비고</label><input class="fc" name="memo" placeholder="예: 경기→강원 이전전입"></div>`,'📝')}
       <div class="flex gap-8 mt8" style="justify-content:flex-end">
         <button type="button" class="btn bo btn-sm" onclick="document.getElementById('trSecForm').reset()">초기화</button>
         <button type="button" class="btn bg btn-sm" id="trSecSave">+ 저장</button>
       </div></form></div>
     </div>`;
+  setTimeout(()=>_bindFmt(document.getElementById('trSecForm')),0);
   document.getElementById('trSecSave').onclick=async()=>{
     const fd=Object.fromEntries(new FormData(document.getElementById('trSecForm')));
     if(!fd.vehicle_number){toast('차량번호를 입력하세요','warn');return;}
