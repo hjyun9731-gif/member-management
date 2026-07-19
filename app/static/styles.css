@@ -213,9 +213,13 @@ input.fmt-phone:not(:placeholder-shown),input.fmt-resident:not(:placeholder-show
 .form-section-hd.fsh-teal  {background:var(--c-teal-bg);  color:var(--c-teal)}
 .form-section-hd.fsh-pink  {background:var(--c-pink-bg);  color:var(--c-pink)}
 .form-section .fg{
-  grid-template-columns:repeat(auto-fill,minmax(220px,260px));
-  row-gap:10px;
+  display:flex;flex-wrap:wrap;gap:10px 16px;row-gap:10px;
 }
+.form-section .fg>.fi{flex:0 0 auto;width:230px;max-width:100%}
+.form-section .fg>.fi.cs2{width:480px}
+.form-section .fg>.fi.cs3{width:730px}
+.form-section .fg>.fi.cs4{width:100%;flex-basis:100%}
+.form-section .fg>.fi:not(.cs2):not(.cs3):not(.cs4)>.fc{width:100%}
 .form-section-note{
   grid-column:1/-1;font-size:12px;color:var(--c-text-3);
   background:var(--c-bg);border-radius:6px;padding:9px 11px;line-height:1.6;
