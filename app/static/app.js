@@ -464,9 +464,17 @@ function navigate(cat,sub){
 async function renderCandidates(){
   const inner=ST.inner.candidates||'candidate';
   document.getElementById('content').innerHTML=`
-    <div class="inner-tab-bar">
-      <button class="inner-tab ${inner==='candidate'?'active':''}" id="itCand">📋 예정자</button>
-      <button class="inner-tab ${inner==='transfer'?'active':''}" id="itTrans">🔄 양도양수 등록</button>
+    <div class="mode-switch">
+      <button class="mode-card ${inner==='candidate'?'active':''}" id="itCand">
+        <span class="mode-ico" style="background:var(--c-pri-bg);color:var(--c-pri)">📋</span>
+        <span class="mode-txt"><strong>예정자</strong><small>등록 대기 중인 예정자 입력·조회</small></span>
+        <span class="mode-check">✓</span>
+      </button>
+      <button class="mode-card ${inner==='transfer'?'active':''}" id="itTrans">
+        <span class="mode-ico" style="background:var(--c-teal-bg);color:var(--c-teal)">🔄</span>
+        <span class="mode-txt"><strong>양도양수 등록</strong><small>타 지역 → 강원도 전입 등록</small></span>
+        <span class="mode-check">✓</span>
+      </button>
     </div>
     <div id="innerContent"></div>`;
   document.getElementById('itCand').onclick=()=>{ST.inner.candidates='candidate';renderCandidates();};
@@ -514,7 +522,7 @@ async function renderCandidateSection(){
   setTimeout(()=>_bindFmt('candForm'),0);
 
   const sk='cand';
-  const hdrs=[{field:'region',label:'지역'},{field:'vehicle_number',label:'차량번호'},{field:'name',label:'성명'},{field:'mobile',label:'핸드폰'},{field:'vehicle_type',label:'차종'},{field:'certificate_number',label:'자격증번호'},{field:'affiliated_company',label:'소속업체'},{label:'관리',noSort:true}];
+  const hdrs=[{field:'region',label:'지역'},{field:'vehicle_number',label:'차량번호'},{field:'name',label:'성명'},{field:'resident_number',label:'주민등록번호'},{field:'mobile',label:'핸드폰'},{field:'vehicle_type',label:'차종'},{field:'certificate_number',label:'자격증번호'},{field:'affiliated_company',label:'소속업체'},{label:'관리',noSort:true}];
   const doSearch=async(pg=1)=>{
     ST.fl.cand={region:document.getElementById('cRegF').value,search:document.getElementById('cSrch').value.trim()};
     const q=new URLSearchParams({page:pg,limit:50,...getSortParams(sk),...Object.fromEntries(Object.entries(ST.fl.cand).filter(([,v])=>v))});
@@ -528,6 +536,7 @@ async function renderCandidateSection(){
         <td>${fv(r.region)}</td>
         <td>${fv(r.vehicle_number)}</td>
         <td><a class="click-link" onclick="editCandidate(${r.id});return false">${fv(r.name)}</a></td>
+        <td style="font-size:11px">${fv(r.resident_number)}</td>
         <td>${fv(r.mobile)}</td>
         <td>${fv(r.vehicle_type)}</td>
         <td>${fv(r.certificate_number)}</td><td>${fv(r.affiliated_company)}</td>

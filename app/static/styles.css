@@ -114,6 +114,32 @@ a{text-decoration:none;color:inherit}
 .inner-tab.active{background:var(--c-pri);color:#fff;border-color:var(--c-pri)}
 .inner-tab:hover:not(.active){background:var(--c-pri-bg);color:var(--c-pri);border-color:var(--c-pri)}
 
+/* ── MODE SWITCH (예정자/양도양수 선택 카드) ── */
+.mode-switch{display:flex;gap:12px;margin-bottom:18px}
+.mode-card{
+  flex:1;display:flex;align-items:center;gap:13px;
+  padding:14px 18px;border-radius:12px;border:1.5px solid var(--c-border);
+  background:var(--c-surface);cursor:pointer;text-align:left;transition:.15s;font-family:inherit;
+  box-shadow:var(--sh-xs);
+}
+.mode-card:hover{border-color:var(--c-pri);box-shadow:var(--sh-sm)}
+.mode-card.active{border-color:var(--c-pri);background:var(--c-pri-bg);box-shadow:var(--sh-sm)}
+.mode-ico{
+  width:40px;height:40px;border-radius:11px;display:flex;align-items:center;justify-content:center;
+  font-size:19px;flex-shrink:0;
+}
+.mode-txt{display:flex;flex-direction:column;gap:2px;min-width:0}
+.mode-txt strong{font-size:14px;color:var(--c-text);font-weight:700}
+.mode-txt small{font-size:11.5px;color:var(--c-text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mode-card.active .mode-txt strong{color:var(--c-pri)}
+.mode-card.active .mode-txt small{color:var(--c-pri-h)}
+.mode-check{margin-left:auto;font-size:16px;color:var(--c-pri);flex-shrink:0;opacity:0}
+.mode-card.active .mode-check{opacity:1}
+
+@media(max-width:700px){
+  .mode-switch{flex-direction:column}
+}
+
 /* ── CONTENT ── */
 .content{padding:20px 24px;min-height:calc(100vh - 94px)}
 
