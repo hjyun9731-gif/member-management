@@ -2036,30 +2036,83 @@ async function _renderDlCalendar(){
     if(!byDate[k]) byDate[k]=[];
     byDate[k].push(t);
   });
+  const todayStr=new Date().toISOString().slice(0,10);
   const first=new Date(y,m-1,1).getDay();
-  const days=new Date(y,m,0).getDate();
-  let cal=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-    <button class="btn bo btn-sm" onclick="ST.fl.dl.month--;if(ST.fl.dl.month<1){ST.fl.dl.month=12;ST.fl.dl.year--;}renderDeadlines(ST.fl.dl.filter)">◀</button>
-    <strong>${y}년 ${m}월</strong>
-    <button class="btn bo btn-sm" onclick="ST.fl.dl.month++;if(ST.fl.dl.month>12){ST.fl.dl.month=1;ST.fl.dl.year++;}renderDeadlines(ST.fl.dl.filter)">▶</button>
-  </div>
-  <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center">
-    ${['일','월','화','수','목','금','토'].map(d=>`<div style="padding:4px;font-weight:600;font-size:12px">${d}</div>`).join('')}
-    ${Array(first).fill('<div></div>').join('')}
-    ${Array.from({length:days},(_,i)=>{
-      const dt=`${y}-${String(m).padStart(2,'0')}-${String(i+1).padStart(2,'0')}`;
-      const items=byDate[dt]||[];
-      const isToday=dt===new Date().toISOString().slice(0,10);
-      return `<div style="border:1px solid var(--c-border);border-radius:6px;padding:4px 2px;min-height:60px;background:${isToday?'var(--c-sky-bg)':''}">
-        <div style="font-size:11px;font-weight:${isToday?'700':'400'}">${i+1}</div>
-        ${items.slice(0,3).map(t=>`<div style="font-size:9px;background:${DL_COLORS[t.task_type]||'#999'};color:#fff;border-radius:3px;margin:1px;padding:1px 3px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" onclick="viewDeadline(${t.id})">${t.name||t.vehicle_number||t.task_type}</div>`).join('')}
-        ${items.length>3?`<div style="font-size:9px;color:var(--c-text-3)">+${items.length-3}건</div>`:''}
-      </div>`;
-    }).join('')}
+  const daysInMonth=new Date(y,m,0).getDate();
+  const daysInPrevMonth=new Date(y,m-1,0).getDate();
+  const dow=['일','월','화','수','목','금','토'];
+
+  const cellHtml=(dateStr,dayNum,dowIdx,inMonth)=>{
+    const items=byDate[dateStr]||[];
+    const isToday=inMonth&&dateStr===todayStr;
+    const dowCls=dowIdx===0?'sun':dowIdx===6?'sat':'';
+    const shown=items.slice(0,3);
+    const rest=items.length-shown.length;
+    return `<div class="dl-cal-cell${isToday?' today':''}" style="${inMonth?'':'opacity:.4'}">
+      <div class="dl-cal-daynum ${isToday?'':dowCls}">${dayNum}</div>
+      ${shown.map(t=>`<div class="dl-cal-chip" style="background:${DL_COLORS[t.task_type]||'#94a3b8'}" title="${e_(t.task_type)} · ${e_(t.name||t.vehicle_number||'')}" onclick="viewDeadline(${t.id})">${e_(t.name||t.vehicle_number||t.task_type)}</div>`).join('')}
+      ${rest>0?`<div class="dl-cal-more" onclick="_dlDayDetail('${dateStr}')">+${rest}건 더보기</div>`:''}
+    </div>`;
+  };
+
+  let cells='';
+  // 이전달 꼬리 날짜 (회색 처리)
+  for(let i=first-1;i>=0;i--){
+    const dn=daysInPrevMonth-i;
+    const pm=m-1<1?12:m-1, py=m-1<1?y-1:y;
+    const ds=`${py}-${String(pm).padStart(2,'0')}-${String(dn).padStart(2,'0')}`;
+    cells+=cellHtml(ds,dn,(first-i-1+7)%7,false);
+  }
+  for(let i=1;i<=daysInMonth;i++){
+    const ds=`${y}-${String(m).padStart(2,'0')}-${String(i).padStart(2,'0')}`;
+    cells+=cellHtml(ds,i,new Date(y,m-1,i).getDay(),true);
+  }
+  // 다음달 앞부분 채우기 (7의 배수로)
+  const totalSoFar=first+daysInMonth;
+  const trailing=(7-(totalSoFar%7))%7;
+  for(let i=1;i<=trailing;i++){
+    const nm=m+1>12?1:m+1, ny=m+1>12?y+1:y;
+    const ds=`${ny}-${String(nm).padStart(2,'0')}-${String(i).padStart(2,'0')}`;
+    cells+=cellHtml(ds,i,new Date(ny,nm-1,i).getDay(),false);
+  }
+
+  const usedTypes=[...new Set((d.items||[]).map(t=>t.task_type))].filter(Boolean);
+
+  const cal=`<div class="dl-cal">
+    <div class="dl-cal-hd">
+      <button class="dl-cal-nav" onclick="ST.fl.dl.month--;if(ST.fl.dl.month<1){ST.fl.dl.month=12;ST.fl.dl.year--;}renderDeadlines(ST.fl.dl.filter)">◀</button>
+      <div class="dl-cal-title">${y}년 ${m}월</div>
+      <button class="dl-cal-nav" onclick="ST.fl.dl.month++;if(ST.fl.dl.month>12){ST.fl.dl.month=1;ST.fl.dl.year++;}renderDeadlines(ST.fl.dl.filter)">▶</button>
+      <button class="dl-cal-today-btn" onclick="const t=new Date();ST.fl.dl.year=t.getFullYear();ST.fl.dl.month=t.getMonth()+1;renderDeadlines(ST.fl.dl.filter)">오늘</button>
+    </div>
+    <div class="dl-cal-grid">
+      ${dow.map((w,i)=>`<div class="dl-cal-dow ${i===0?'sun':i===6?'sat':''}">${w}</div>`).join('')}
+      ${cells}
+    </div>
+    ${usedTypes.length?`<div class="dl-cal-legend">${usedTypes.map(t=>`<div class="dl-cal-legend-item"><span class="dl-cal-legend-dot" style="background:${DL_COLORS[t]||'#94a3b8'}"></span>${e_(t)}</div>`).join('')}</div>`:''}
   </div>`;
   const el=document.getElementById('dlBody'); if(!el)return;
   el.innerHTML=cal;
+  window._dlByDate=byDate;
 }
+
+window._dlDayDetail=(dateStr)=>{
+  const items=(window._dlByDate&&window._dlByDate[dateStr])||[];
+  const [yy,mm,dd]=dateStr.split('-');
+  openModal(`${yy}년 ${Number(mm)}월 ${Number(dd)}일 기한 (${items.length}건)`,
+    `<div class="tbl-wrap"><table>
+      <thead><tr><th>상태</th><th>업무구분</th><th>지역</th><th>차량번호</th><th>성명</th><th>제목</th></tr></thead>
+      <tbody>${items.map(t=>`<tr>
+        <td>${_dlStatusBadge(t.status)}</td>
+        <td><span style="color:${DL_COLORS[t.task_type]||'#666'};font-weight:600">${fv(t.task_type)}</span></td>
+        <td>${fv(t.region)}</td>
+        <td>${fv(t.vehicle_number)}</td>
+        <td>${fv(t.name)}</td>
+        <td><a class="tbl-link" onclick="closeModal();viewDeadline(${t.id});return false">${fv(t.title)}</a></td>
+      </tr>`).join('')}</tbody>
+    </table></div>`,
+    `<button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`);
+};
 
 async function viewDeadline(id){
   const r=await api('GET',`/api/deadlines/${id}`).catch(()=>null); if(!r)return;
