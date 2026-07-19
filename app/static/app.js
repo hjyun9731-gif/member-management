@@ -464,17 +464,9 @@ function navigate(cat,sub){
 async function renderCandidates(){
   const inner=ST.inner.candidates||'candidate';
   document.getElementById('content').innerHTML=`
-    <div class="mode-switch">
-      <button class="mode-card ${inner==='candidate'?'active':''}" id="itCand">
-        <span class="mode-ico" style="background:var(--c-pri-bg);color:var(--c-pri)">📋</span>
-        <span class="mode-txt"><strong>예정자</strong><small>등록 대기 중인 예정자 입력·조회</small></span>
-        <span class="mode-check">✓</span>
-      </button>
-      <button class="mode-card ${inner==='transfer'?'active':''}" id="itTrans">
-        <span class="mode-ico" style="background:var(--c-teal-bg);color:var(--c-teal)">🔄</span>
-        <span class="mode-txt"><strong>양도양수 등록</strong><small>타 지역 → 강원도 전입 등록</small></span>
-        <span class="mode-check">✓</span>
-      </button>
+    <div class="inner-tab-bar">
+      <button class="inner-tab ${inner==='candidate'?'active':''}" id="itCand">📋 예정자</button>
+      <button class="inner-tab ${inner==='transfer'?'active':''}" id="itTrans">🔄 양도양수 등록</button>
     </div>
     <div id="innerContent"></div>`;
   document.getElementById('itCand').onclick=()=>{ST.inner.candidates='candidate';renderCandidates();};
