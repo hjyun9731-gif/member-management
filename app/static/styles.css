@@ -202,7 +202,7 @@ input.fmt-phone:not(:placeholder-shown),input.fmt-resident:not(:placeholder-show
   padding:6px 10px;margin-bottom:10px;
   border-left:3px solid var(--c-text-4);border-radius:5px;
   background:var(--c-bg);color:var(--c-text-2);
-  display:flex;align-items:center;gap:6px;
+  display:inline-flex;align-items:center;gap:6px;width:fit-content;max-width:100%;
 }
 .form-section-hd .fs-ico{font-size:12px;opacity:.85}
 /* 카테고리별 색상 - 기존 배지(.b-*) 팔레트와 동일 */
