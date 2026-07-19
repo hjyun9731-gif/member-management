@@ -719,7 +719,11 @@ async function renderMember(category){
         <td><a class="tbl-link" onclick="viewMember(${r.id});return false">${fv(r.management_number)}</a></td>
         <td>${fv(r.region)}</td>
         <td><a class="tbl-link" onclick="viewMember(${r.id});return false">${fv(r.vehicle_number)}</a></td>
-        <td><a class="tbl-link" onclick="viewMember(${r.id});return false">${fv(r.name)}</a></td>
+        <td>
+          <input type="checkbox" class="pin-toggle" ${r.pinned?'checked':''} title="고정" style="vertical-align:middle;margin-right:4px" onclick="togglePin(${r.id},this.checked,this)">
+          <span class="pin-ico" style="display:${r.pinned?'inline':'none'}" title="${e_(r.memo||'고정된 회원')}">📌</span>
+          <a class="tbl-link" onclick="viewMember(${r.id});return false">${fv(r.name)}</a>
+        </td>
         <td style="font-size:11px">${fv(r.resident_number)}</td>
         <td>${fv(r.mobile)}</td>
         <td>${fv(r.approval_date)}</td>
@@ -748,6 +752,14 @@ async function renderMember(category){
   };
   await doSearch(1);
 }
+
+window.togglePin=async(id,checked,el)=>{
+  const ok=await api('PATCH',`/api/members/${id}/pin`,{pinned:checked}).catch(()=>null);
+  if(!ok){el.checked=!checked;return;}
+  const td=el.closest('td');
+  const icon=td&&td.querySelector('.pin-ico');
+  if(icon) icon.style.display=checked?'inline':'none';
+};
 
 window.editMember=async(id,defaultCat='개인')=>{
   let r={management_number:'',region:'',vehicle_number:'',name:'',company_name:'',
@@ -915,15 +927,20 @@ window.openDomesticTransfer=async(id)=>{
       <div class="fi"><label>가입일자</label><input class="fc" name="membership_date" placeholder="없으면 미가입"></div>
       <div class="fi"><label>처리일자(폐업일자) <span class="req">*</span></label><input class="fc" name="closure_date" value="${today}"></div>
       `,'📋','sky')}
-      ${sec('양도자 면허정보',`
-      ${fi('certificate_issue_date','자격증명발급일자','')}
-      ${fi('certificate_number','자격증명발급번호','')}
-      ${fi('driver_license_number','운전면허번호','')}
+      <details class="dtl-sec" style="margin-bottom:14px">
+        <summary class="dtl-sec-hd" style="cursor:pointer">🪪 양도자 기존 면허정보 (참고용)</summary>
+        <div class="fg" style="margin-top:10px">
+          <div class="fi"><label>자격증명발급일자</label><input class="fc" value="${e_(m.certificate_issue_date||'')}" disabled></div>
+          <div class="fi"><label>자격증명발급번호</label><input class="fc" value="${e_(m.certificate_number||'')}" disabled></div>
+          <div class="fi"><label>운전면허번호</label><input class="fc" value="${e_(m.driver_license_number||'')}" disabled></div>
+        </div>
+      </details>
+      ${sec('차량정보',`
       <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(m.vehicle_type||'')}"></div>
       ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),m.fuel_type||'')}
       <div class="fi cs2"><label>구조변경</label><input class="fc" name="structure_change" value=""></div>
       <div class="fi"><label>소속업체</label><input class="fc" name="affiliated_company" value="${e_(m.affiliated_company||'')}"></div>
-      `,'🪪','yellow')}
+      `,'🚚','yellow')}
       ${sec('양수자 정보',`
       <div class="fi cs2"><label>양수자 등록 형태</label>
         <div class="transfer-register-options">
@@ -937,6 +954,9 @@ window.openDomesticTransfer=async(id)=>{
       <div class="fi"><label>차량번호</label><input class="fc" name="transferee_vehicle_number" value="${e_(m.vehicle_number||'')}"></div>
       ${fph('transferee_mobile','핸드폰','')}
       <div class="fi cs2"><label>주소</label><input class="fc" name="transferee_address" value="" placeholder="양수자 주소를 입력하세요"></div>
+      ${fi('certificate_issue_date','자격증명발급일자(신규)','')}
+      ${fi('certificate_number','자격증명발급번호(신규)','')}
+      ${fi('driver_license_number','운전면허번호(신규)','')}
       `,'🔗','teal')}
       ${sec('기타',`${fta('memo','비고','','cs4')}`,'📝')}
     </form>

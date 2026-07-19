@@ -64,6 +64,7 @@ def _fmt(m):
         "agent_resident_number": getattr(m, "agent_resident_number", None) or "",
         "agent_mobile": getattr(m, "agent_mobile", None) or "",
         "structure_change": getattr(m, "structure_change", None) or "",
+        "pinned": bool(getattr(m, "pinned", False)),
     }
 
 
@@ -506,3 +507,15 @@ async def close_member(mid: int, body: CloseBody,
                                  transfer_region=body.transfer_region,
                                  receipt_date=body.receipt_date)
     return {"ok": True, "closure_id": closure.id, "management_number": mgmt}
+
+
+@router.patch("/{mid}/pin")
+async def toggle_member_pin(mid: int, body: dict,
+                             db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """목록 고정(핀) 토글 - 비고(memo)와 무관한 별도 표시용 플래그."""
+    m = db.query(models.LicenseHolder).filter(models.LicenseHolder.id == mid).first()
+    if not m:
+        raise HTTPException(404, "회원을 찾을 수 없습니다.")
+    m.pinned = bool(body.get("pinned"))
+    db.commit()
+    return {"ok": True, "id": m.id, "pinned": m.pinned}

@@ -52,6 +52,7 @@ class LicenseHolder(Base):
     agent_resident_number = Column(String(30))       # 대리인 주민등록번호
     agent_mobile = Column(String(50))                # 대리인 핸드폰번호
     structure_change = Column(Text)                  # 구조변경 내용 (예: 윙바디 변경)
+    pinned = Column(Boolean, default=False)          # 목록 상단 고정 표시용 (비고와 무관한 별도 토글)
     upload_id = Column(Integer, nullable=True)        # 업로드 이력 ID (개별 삭제용)
     candidate_id = Column(Integer, nullable=True)        # FK → candidates
     transfer_ledger_id = Column(Integer, nullable=True)  # FK → transfer_ledger
