@@ -487,7 +487,7 @@ async function renderCandidateSection(){
         ${frn('resident_number','주민등록번호')}
         `,'👤','sky')}
         ${sec('연락처·주소',`
-        ${fph('mobile','핸드폰')}
+        ${fi('phone','전화번호')} ${fph('mobile','핸드폰')}
         <div class="fi cs3"><label>주소</label><input class="fc" name="address"></div>
         `,'📞','pri')}
         ${sec('자격증·면허정보',`
@@ -566,7 +566,7 @@ window.editCandidate=async(id)=>{
     <div class="fi"><label>지역</label>${rsel('region',r.region||'')}</div>
     ${fi('vehicle_number','차량번호',r.vehicle_number||'')} ${fi('name','성명',r.name||'')}
     ${frn('resident_number','주민등록번호',r.resident_number||'')}
-    ${fph('mobile','핸드폰',r.mobile||'')}
+    ${fi('phone','전화번호',r.phone||'')} ${fph('mobile','핸드폰',r.mobile||'')}
     <div class="fi cs2"><label>주소</label><input class="fc" name="address" value="${e_(r.address||'')}"></div>
     ${fi('certificate_issue_date','자격증발급일자',r.certificate_issue_date||'')} ${fi('certificate_number','자격증발급번호',r.certificate_number||'')}
     ${fi('driver_license_number','운전면허번호',r.driver_license_number||'')}
