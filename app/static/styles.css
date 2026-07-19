@@ -216,15 +216,13 @@ input.fmt-phone:not(:placeholder-shown),input.fmt-resident:not(:placeholder-show
   display:flex;flex-wrap:wrap;gap:10px 16px;row-gap:10px;
 }
 .form-section .fg>.fi{flex:0 0 auto;width:230px;max-width:100%}
-.form-section .fg>.fi.cs2{width:480px}
-.form-section .fg>.fi.cs3{width:730px}
+.form-section .fg>.fi.cs2{width:480px;max-width:100%}
+.form-section .fg>.fi.cs3{width:730px;max-width:100%}
 .form-section .fg>.fi.cs4{width:100%;flex-basis:100%}
 .form-section .fg>.fi:not(.cs2):not(.cs3):not(.cs4)>.fc{width:100%}
-.card-form{
-  max-width:1060px;
-  background:transparent;border:none;box-shadow:none;border-radius:0;
-}
-.card-form .card-hd{background:transparent}
+.split-55{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+.split-55 .card{margin-bottom:0}
+@media(max-width:1100px){.split-55{grid-template-columns:1fr}}
 .form-section-note{
   grid-column:1/-1;font-size:12px;color:var(--c-text-3);
   background:var(--c-bg);border-radius:6px;padding:9px 11px;line-height:1.6;

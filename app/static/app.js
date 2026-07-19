@@ -478,7 +478,8 @@ async function renderCandidates(){
 async function renderCandidateSection(){
   const f=ST.fl.cand||{};
   document.getElementById('innerContent').innerHTML=`
-    <div class="card card-form">
+    <div class="split-55">
+    <div class="card">
       <div class="card-hd"><div class="card-hd-l"><span class="card-ico">✏️</span><span class="card-ttl">예정자 입력</span></div></div>
       <div class="card-bd"><form id="candForm">
         ${sec('기본정보',`
@@ -515,6 +516,7 @@ async function renderCandidateSection(){
         <button class="btn bo btn-sm" id="cRstBtn">초기화</button>
       </div>
       <div id="cTbl"><div class="loading-box"><div class="spin"></div></div></div>
+    </div>
     </div>`;
 
   // 포맷 이벤트 바인딩 (폼 렌더 후)
@@ -621,7 +623,7 @@ window.deleteCandidate=async(cid)=>{
 
 async function renderTransferSection(){
   document.getElementById('innerContent').innerHTML=`
-    <div class="card card-form">
+    <div class="card">
       <div class="card-hd"><div class="card-hd-l"><span class="card-ico">✏️</span><span class="card-ttl">양도양수 등록 (타 지역→강원도 전입)</span></div></div>
       <div class="card-bd"><form id="trSecForm">
         ${sec('기본정보',`
