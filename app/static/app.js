@@ -720,8 +720,7 @@ async function renderMember(category){
         <td>${fv(r.region)}</td>
         <td><a class="tbl-link" onclick="viewMember(${r.id});return false">${fv(r.vehicle_number)}</a></td>
         <td>
-          <input type="checkbox" class="pin-toggle" ${r.pinned?'checked':''} title="고정" style="vertical-align:middle;margin-right:4px" onclick="togglePin(${r.id},this.checked,this)">
-          <span class="pin-ico" style="display:${r.pinned?'inline':'none'}" title="${e_(r.memo||'고정된 회원')}">📌</span>
+          <span class="pin-btn${r.pinned?' pinned':''}" title="${r.pinned?e_(r.memo||'고정된 회원 (클릭하여 해제)'):'클릭하여 고정'}" onclick="event.stopPropagation();togglePin(${r.id},this)">📌</span>
           <a class="tbl-link" onclick="viewMember(${r.id});return false">${fv(r.name)}</a>
         </td>
         <td style="font-size:11px">${fv(r.resident_number)}</td>
@@ -753,12 +752,13 @@ async function renderMember(category){
   await doSearch(1);
 }
 
-window.togglePin=async(id,checked,el)=>{
-  const ok=await api('PATCH',`/api/members/${id}/pin`,{pinned:checked}).catch(()=>null);
-  if(!ok){el.checked=!checked;return;}
-  const td=el.closest('td');
-  const icon=td&&td.querySelector('.pin-ico');
-  if(icon) icon.style.display=checked?'inline':'none';
+window.togglePin=async(id,el)=>{
+  const wasPinned=el.classList.contains('pinned');
+  const next=!wasPinned;
+  el.classList.toggle('pinned',next); // 즉시 반영 (낙관적 업데이트)
+  const ok=await api('PATCH',`/api/members/${id}/pin`,{pinned:next}).catch(()=>null);
+  if(!ok){el.classList.toggle('pinned',wasPinned);toast('고정 상태 변경 실패','err');return;}
+  el.title=next?'클릭하여 해제':'클릭하여 고정';
 };
 
 window.editMember=async(id,defaultCat='개인')=>{

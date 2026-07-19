@@ -546,3 +546,16 @@ hr.div{border:none;border-top:1px solid var(--c-border-l);margin:10px 0}
   word-break:keep-all;
   min-width:max-content;
 }
+
+/* 회원 목록 - 고정(핀) 아이콘 */
+.pin-btn{
+  cursor:pointer;
+  opacity:.22;
+  margin-right:5px;
+  user-select:none;
+  filter:grayscale(1);
+  transition:opacity .12s,filter .12s;
+  display:inline-block;
+}
+.pin-btn:hover{opacity:.55;filter:grayscale(.3)}
+.pin-btn.pinned{opacity:1;filter:none}
