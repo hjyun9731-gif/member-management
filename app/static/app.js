@@ -488,7 +488,7 @@ async function renderCandidateSection(){
         `,'👤','sky')}
         ${sec('연락처·주소',`
         ${fi('phone','전화번호')} ${fph('mobile','핸드폰')}
-        <div class="fi cs3"><label>주소</label><input class="fc" name="address"></div>
+        <div class="fi cs4"><label>주소</label><input class="fc" name="address"></div>
         `,'📞','pri')}
         ${sec('자격증·면허정보',`
         ${fi('certificate_issue_date','자격증발급일자')} ${fi('certificate_number','자격증발급번호')}
@@ -638,7 +638,7 @@ async function renderTransferSection(){
         `,'📋','pri')}
         ${sec('연락처·주소',`
         ${fi('phone','전화번호','')} ${fph('mobile','핸드폰','')}
-        <div class="fi cs2"><label>주소</label><input class="fc" name="address"></div>
+        <div class="fi cs4"><label>주소</label><input class="fc" name="address"></div>
         `,'📞','purple')}
         ${sec('자격증·면허정보',`
         ${fi('certificate_issue_date','자격증발급일자','')} ${fi('certificate_number','자격증발급번호','')}
@@ -971,7 +971,7 @@ window.openDomesticTransfer=async(id)=>{
       ${frn('transferee_resident_number','주민등록번호','')}
       <div class="fi"><label>차량번호</label><input class="fc" name="transferee_vehicle_number" value="${e_(m.vehicle_number||'')}"></div>
       ${fph('transferee_mobile','핸드폰','')}
-      <div class="fi cs2"><label>주소</label><input class="fc" name="transferee_address" value="" placeholder="양수자 주소를 입력하세요"></div>
+      <div class="fi cs4"><label>주소</label><input class="fc" name="transferee_address" value="" placeholder="양수자 주소를 입력하세요"></div>
       ${fi('certificate_issue_date','자격증명발급일자(신규)','')}
       ${fi('certificate_number','자격증명발급번호(신규)','')}
       ${fi('driver_license_number','운전면허번호(신규)','')}
