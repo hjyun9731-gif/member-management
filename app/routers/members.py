@@ -526,67 +526,22 @@ async def create_missing_transfer_ledger(mid: int, db: Session = Depends(get_db)
                                           _=Depends(get_current_user)):
     """관리번호가 양YY-N인데 양도양수대장에 동일 관리번호 기록이 없는 경우,
     현재 회원 정보를 양수자로 하여 누락된 대장 기록을 생성한다.
-    - 동일 관리번호가 이미 존재하면 생성하지 않고 기존 기록을 그대로 반환 (중복 생성 방지)
-    - 양도자 정보는 원본 자료가 없으므로 빈칸으로 둔다
-    - 생성 후 회원과 자동 연결 (transfer_ledger_id)
-    - 기존 데이터는 수정/삭제하지 않는다
+    (실제 생성/중복방지 로직은 crud.create_missing_transfer_ledger_for_member 공용 함수 사용)
     """
     m = crud.get_by_id(db, models.LicenseHolder, mid)
     if not m:
         raise HTTPException(404, "회원을 찾을 수 없습니다.")
 
-    mgmt = (m.management_number or "").strip()
-    if not mgmt or not re.match(r'^양\s*\d{2}\s*-', mgmt):
-        raise HTTPException(400, "관리번호가 '양YY-N' 형식이 아닙니다.")
-
-    # 중복 생성 방지: 동일 관리번호 재확인 (동시 요청 대비 트랜잭션 내 재확인)
-    existing = db.query(models.TransferLedger).filter(
-        models.TransferLedger.deleted_at.is_(None),
-        models.TransferLedger.management_number == mgmt,
-    ).first()
-    if existing:
-        # 이미 존재하면 새로 만들지 않고, 회원 연결만 비어있으면 보완
-        if not m.transfer_ledger_id:
-            m.transfer_ledger_id = existing.id
-            db.commit()
-        return {"ok": True, "created": False, "transfer_ledger_id": existing.id,
-                "message": "이미 동일 관리번호의 양도양수대장 기록이 존재합니다."}
-
     try:
-        ledger = models.TransferLedger(
-            management_number=mgmt,
-            region=m.region or "",
-            vehicle_number=m.vehicle_number or "",
-            transferor="",                     # 양도자 정보 없음 - 빈칸 유지
-            transferor_member_id=None,
-            transferee=m.name or "",
-            transferee_member_id=m.id,
-            resident_number=m.resident_number or "",
-            address=m.address or "",
-            phone=m.phone or "",
-            mobile=m.mobile or "",
-            approval_date=m.approval_date or "",
-            membership_date=m.membership_date or "",
-            certificate_issue_date=m.certificate_issue_date or "",
-            certificate_number=m.certificate_number or "",
-            driver_license_number=m.driver_license_number or "",
-            vehicle_type=m.vehicle_type or "",
-            fuel_type=m.fuel_type or "",
-            structure_change=getattr(m, "structure_change", None) or "",
-            affiliated_company=m.affiliated_company or "",
-            memo="자동 생성: 회원 관리번호(양YY-N)에 대응하는 대장 기록 누락 보완",
-        )
-        db.add(ledger)
-        db.flush()
-        m.transfer_ledger_id = ledger.id
-        db.commit()
-        db.refresh(ledger)
+        ledger, created = crud.create_missing_transfer_ledger_for_member(db, m)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     except Exception as e:
         db.rollback()
         raise HTTPException(500, f"양도양수대장 생성 실패: {e}")
 
-    return {"ok": True, "created": True, "transfer_ledger_id": ledger.id,
-            "message": "양도양수대장 기록을 생성했습니다."}
+    return {"ok": True, "created": created, "transfer_ledger_id": ledger.id,
+            "message": "양도양수대장 기록을 생성했습니다." if created else "이미 동일 관리번호의 양도양수대장 기록이 존재합니다."}
 
 
 @router.patch("/{mid}/pin")

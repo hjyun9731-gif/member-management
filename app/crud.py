@@ -1166,3 +1166,82 @@ def get_regional_stats(db: Session) -> List[dict]:
         result.append({"region": region, "total": total, "joined": joined,
                         "not_joined": total - joined, "individual": ind, "delivery": dlv, "closures": cl})
     return result
+
+
+_TRANSFER_MGMT_RE = re.compile(r'^양\s*\d{2}\s*-')
+
+
+def find_members_missing_transfer_ledger(db: Session) -> List["models.LicenseHolder"]:
+    """관리번호가 '양YY-N' 형식인데 양도양수대장에 동일 관리번호 기록이 없는 회원 목록.
+    회원/대장 데이터는 조회만 하고 수정하지 않는다.
+    """
+    candidates = db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.deleted_at.is_(None),
+        models.LicenseHolder.management_number.like("양%"),
+    ).all()
+    missing = []
+    for m in candidates:
+        mgmt = (m.management_number or "").strip()
+        if not mgmt or not _TRANSFER_MGMT_RE.match(mgmt):
+            continue
+        exists = db.query(models.TransferLedger).filter(
+            models.TransferLedger.deleted_at.is_(None),
+            models.TransferLedger.management_number == mgmt,
+        ).first()
+        if not exists:
+            missing.append(m)
+    return missing
+
+
+def create_missing_transfer_ledger_for_member(db: Session, m: "models.LicenseHolder"):
+    """회원 1건에 대해 누락된 양도양수대장 기록을 생성 (없을 때만).
+    반환: (ledger, created: bool)
+    - 동일 관리번호가 이미 존재하면 새로 만들지 않고 기존 기록을 반환 (중복 생성 방지)
+    - 양도자 정보는 원본 자료가 없으므로 빈칸으로 저장
+    - 양수자는 현재 회원으로 연결 (transferee_member_id)
+    - 생성 후 회원.transfer_ledger_id를 자동 연결 (없을 때만)
+    - 기존 회원/대장 데이터는 수정하지 않는다 (연결 필드 보완 제외)
+    """
+    mgmt = (m.management_number or "").strip()
+    if not mgmt or not _TRANSFER_MGMT_RE.match(mgmt):
+        raise ValueError("관리번호가 '양YY-N' 형식이 아닙니다.")
+
+    existing = db.query(models.TransferLedger).filter(
+        models.TransferLedger.deleted_at.is_(None),
+        models.TransferLedger.management_number == mgmt,
+    ).first()
+    if existing:
+        if not m.transfer_ledger_id:
+            m.transfer_ledger_id = existing.id
+            db.commit()
+        return existing, False
+
+    ledger = models.TransferLedger(
+        management_number=mgmt,
+        region=m.region or "",
+        vehicle_number=m.vehicle_number or "",
+        transferor="",
+        transferor_member_id=None,
+        transferee=m.name or "",
+        transferee_member_id=m.id,
+        resident_number=m.resident_number or "",
+        address=m.address or "",
+        phone=m.phone or "",
+        mobile=m.mobile or "",
+        approval_date=m.approval_date or "",
+        membership_date=m.membership_date or "",
+        certificate_issue_date=m.certificate_issue_date or "",
+        certificate_number=m.certificate_number or "",
+        driver_license_number=m.driver_license_number or "",
+        vehicle_type=m.vehicle_type or "",
+        fuel_type=m.fuel_type or "",
+        structure_change=getattr(m, "structure_change", None) or "",
+        affiliated_company=m.affiliated_company or "",
+        memo="자동 생성: 회원 관리번호(양YY-N)에 대응하는 대장 기록 누락 보완",
+    )
+    db.add(ledger)
+    db.flush()
+    m.transfer_ledger_id = ledger.id
+    db.commit()
+    db.refresh(ledger)
+    return ledger, True

@@ -295,6 +295,23 @@ async def export(search: Optional[str] = Query(None), region: Optional[str] = Qu
                               headers={"Content-Disposition": "attachment; filename=transfer_ledger.xlsx"})
 
 
+@router.get("/missing-scan")
+async def scan_missing_transfer_ledger(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """관리번호가 '양YY-N'인데 양도양수대장에 동일 관리번호 기록이 없는 회원 목록 조회 (조회만, 수정 없음)."""
+    members = crud.find_members_missing_transfer_ledger(db)
+    items = [{
+        "id": m.id,
+        "management_number": m.management_number or "",
+        "name": m.name or "",
+        "region": m.region or "",
+        "vehicle_number": m.vehicle_number or "",
+        "category": m.category or "",
+        "approval_date": m.approval_date or "",
+        "created_at": str(m.created_at)[:10] if m.created_at else "",
+    } for m in members]
+    return {"total": len(items), "items": items}
+
+
 @router.get("/{tid}")
 async def get_transfer(tid: int, db: Session = Depends(get_db), _=Depends(get_current_user)):
     t = crud.get_by_id(db, models.TransferLedger, tid)
@@ -466,6 +483,47 @@ async def bulk_relink(db: Session = Depends(get_db), _=Depends(require_admin)):
     """기존 양도양수대장 전체에 대해 연결관계 자동 복구 (확실한 후보만 자동 연결)."""
     result = crud.bulk_relink_transfer_ledger(db)
     return result
+
+
+class MissingRepairBody(BaseModel):
+    member_ids: Optional[list] = None  # 미지정 시 스캔된 전체 대상 처리
+
+
+@router.post("/missing-repair")
+async def repair_missing_transfer_ledger(body: MissingRepairBody = MissingRepairBody(),
+                                          db: Session = Depends(get_db), _=Depends(require_admin)):
+    """누락된 양도양수대장 일괄 생성.
+    - 대상: body.member_ids가 있으면 해당 회원만, 없으면 현재 스캔되는 전체 대상
+    - 각 건은 crud.create_missing_transfer_ledger_for_member로 처리 (관리번호 기준 서버측 중복 재확인 포함)
+    - 이미 대장이 존재하는 건은 건너뜀 (skipped) - 여러 번 실행해도 안전
+    - 기존 회원/대장 데이터는 수정하지 않음 (연결 필드 보완 제외)
+    """
+    if body.member_ids:
+        members = db.query(models.LicenseHolder).filter(
+            models.LicenseHolder.id.in_(body.member_ids),
+            models.LicenseHolder.deleted_at.is_(None),
+        ).all()
+    else:
+        members = crud.find_members_missing_transfer_ledger(db)
+
+    created, skipped, failed = [], [], []
+    for m in members:
+        try:
+            ledger, was_created = crud.create_missing_transfer_ledger_for_member(db, m)
+            if was_created:
+                created.append({"member_id": m.id, "management_number": m.management_number,
+                                 "transfer_ledger_id": ledger.id})
+            else:
+                skipped.append({"member_id": m.id, "management_number": m.management_number,
+                                 "transfer_ledger_id": ledger.id})
+        except ValueError as e:
+            failed.append({"member_id": m.id, "management_number": m.management_number, "error": str(e)})
+        except Exception as e:
+            db.rollback()
+            failed.append({"member_id": m.id, "management_number": m.management_number, "error": str(e)})
+
+    return {"ok": True, "created_count": len(created), "skipped_count": len(skipped),
+            "failed_count": len(failed), "created": created, "skipped": skipped, "failed": failed}
 
 
 class RegisterMemberBody(BaseModel):

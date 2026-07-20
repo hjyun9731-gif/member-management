@@ -1192,6 +1192,7 @@ async function renderTransferLedger(){
         <div class="flex gap-8">
           <button class="btn bg btn-sm" id="tlAddBtn">+ 등록</button>
           ${isAdmin()?`<button class="btn bo btn-sm" id="tlRelinkBtn" title="양도자/양수자 회원 ID 연결 자동 복구">🔗 연결복구</button>`:''}
+          ${isAdmin()?`<button class="btn bo btn-sm" id="tlMissingBtn" title="관리번호 양YY-N 회원 중 대장 누락건 찾기/복구">🧩 누락대장 복구</button>`:''}
           <button class="btn bxl btn-sm" id="tlXlBtn">엑셀 다운로드</button>
         </div>
       </div>
@@ -1256,12 +1257,60 @@ async function renderTransferLedger(){
   document.getElementById('tlAddBtn').onclick=()=>editTransfer(null);
   const relinkBtn=document.getElementById('tlRelinkBtn');
   if(relinkBtn) relinkBtn.onclick=()=>bulkRelinkTransfers();
+  const missingBtn=document.getElementById('tlMissingBtn');
+  if(missingBtn) missingBtn.onclick=()=>openMissingTransferLedgerModal(doSearch);
   document.getElementById('tlXlBtn').onclick=()=>{
     const q=new URLSearchParams(Object.fromEntries(Object.entries(ST.fl.tl||{}).filter(([,v])=>v)));
     dl(`/api/transfer-ledger/export/excel?${q}`,'양도양수대장.xlsx');
   };
   await doSearch(1);
 }
+
+window.openMissingTransferLedgerModal=async(refreshCb)=>{
+  openModal('누락 양도양수대장 복구',`<div id="mtlBody"><div class="loading-box"><div class="spin"></div></div></div>`,
+    `<button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
+
+  const load=async()=>{
+    const body=document.getElementById('mtlBody');
+    if(!body)return;
+    body.innerHTML=`<div class="loading-box"><div class="spin"></div></div>`;
+    const d=await api('GET','/api/transfer-ledger/missing-scan').catch(()=>null);
+    if(!d){body.innerHTML=`<p class="empty-txt">조회 중 오류가 발생했습니다.</p>`;return;}
+    if(!d.total){
+      body.innerHTML=`<p class="empty-txt" style="padding:20px 0">✅ 관리번호가 '양YY-N'인데 대장 기록이 없는 자료가 없습니다.</p>`;
+      return;
+    }
+    body.innerHTML=`
+      <p class="info-box" style="margin-bottom:10px">관리번호가 '양YY-N'인데 양도양수대장에 동일 관리번호 기록이 없는 회원 <strong>${d.total}건</strong>을 찾았습니다. 확인 후 아래 버튼으로 누락된 대장 기록만 생성합니다 (기존 회원 데이터는 수정되지 않습니다).</p>
+      <div class="tbl-wrap" style="max-height:360px;overflow:auto">
+        <table>
+          <thead><tr><th>관리번호</th><th>성명</th><th>지역</th><th>차량번호</th><th>등록일</th></tr></thead>
+          <tbody>${d.items.map(it=>`<tr>
+            <td>${fv(it.management_number)}</td>
+            <td>${fv(it.name)}</td>
+            <td>${fv(it.region)}</td>
+            <td>${fv(it.vehicle_number)}</td>
+            <td>${fv(it.created_at)}</td>
+          </tr>`).join('')}</tbody>
+        </table>
+      </div>
+      <div style="margin-top:12px;text-align:right">
+        <button class="btn bg btn-sm" id="mtlRepairBtn">누락자료 생성</button>
+      </div>`;
+    const repairBtn=document.getElementById('mtlRepairBtn');
+    if(repairBtn) repairBtn.onclick=async()=>{
+      repairBtn.disabled=true; repairBtn.textContent='처리 중...';
+      const res=await api('POST','/api/transfer-ledger/missing-repair',{}).catch(e=>{toast('처리 실패: '+((e&&e.message)||'서버 오류'),'err');return null;});
+      if(res){
+        toast(`생성 ${res.created_count}건 / 이미존재 ${res.skipped_count}건${res.failed_count?` / 실패 ${res.failed_count}건`:''}`);
+        await load();
+        if(refreshCb) refreshCb(1);
+      }
+      repairBtn.disabled=false; repairBtn.textContent='누락자료 생성';
+    };
+  };
+  await load();
+};
 
 window.editTransfer=async(id)=>{
   let r={seq_number:'',receipt_date:'',region:'',vehicle_number:'',transferor:'',transferee:'',resident_number:'',address:'',phone:'',mobile:'',approval_date:'',membership_date:'',certificate_issue_date:'',certificate_number:'',ledger_update:'',driver_license_number:'',computer_report:'',memo:'',vehicle_type:'',fuel_type:'',structure_change:'',affiliated_company:''};
