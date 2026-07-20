@@ -379,34 +379,41 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
         if not new_val:
             continue
 
+        # 원본이 미기재(공백)였다가 이번에 값이 채워지는 경우 - 변경등록대장에는 기록하지 않음
+        # (실제 값이 바뀐 '변경'이 아니라 누락된 정보를 처음 채우는 것이므로).
+        # 단, 내부 수정로그(MemberEditLog)에는 그대로 남긴다.
+        is_blank_fill = not old_val
+
         # 내부 수정로그 항상 기록
-        internal_logs.append((field, old_val, new_val))
+        internal_logs.append((field, old_val, new_val, is_blank_fill))
 
         if field in _STRUCT_FIELDS:
             # 차종/구조 변경: auto_change_type 파라미터로만 기록
             auto_ct = data.get("auto_change_type")  # 'structureChange'/'vehicleTypeCorrection'/'vehicleReplacement'
-            if auto_ct:
+            if auto_ct and not is_blank_fill:
                 ct_map = {"structureChange": "구조변경", "vehicleTypeCorrection": "차종정정",
                           "vehicleReplacement": "대폐차"}
                 change_type = ct_map.get(auto_ct, "구조변경")
                 if change_type not in changes_by_type:
                     changes_by_type[change_type] = []
                 changes_by_type[change_type].append((field, old_val, new_val))
-            # auto_change_type 없으면 변경등록대장 기록 안 함
+            # auto_change_type 없거나 미기재→채움인 경우 변경등록대장 기록 안 함
 
         elif field in _INTERNAL_LOG_ONLY_FIELDS:
             pass  # 내부 수정로그만
 
         elif field in _AUTO_CHANGE_FIELDS:
-            change_type = _AUTO_CHANGE_FIELDS[field]
-            if change_type not in changes_by_type:
-                changes_by_type[change_type] = []
-            changes_by_type[change_type].append((field, old_val, new_val))
+            if not is_blank_fill:
+                change_type = _AUTO_CHANGE_FIELDS[field]
+                if change_type not in changes_by_type:
+                    changes_by_type[change_type] = []
+                changes_by_type[change_type].append((field, old_val, new_val))
+            # else: 미기재→채움은 내부 수정로그만 남기고 변경등록대장 기록 제외
 
     # 내부 수정로그 저장
-    for field, old_val, new_val in internal_logs:
-        recorded = field in _AUTO_CHANGE_FIELDS or (
-            field in _STRUCT_FIELDS and bool(data.get("auto_change_type")))
+    for field, old_val, new_val, is_blank_fill in internal_logs:
+        recorded = (field in _AUTO_CHANGE_FIELDS or (
+            field in _STRUCT_FIELDS and bool(data.get("auto_change_type")))) and not is_blank_fill
         try:
             log = models.MemberEditLog(
                 member_id=mid, vehicle_number=getattr(m, "vehicle_number", "") or "",
