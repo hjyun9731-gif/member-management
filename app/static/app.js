@@ -350,8 +350,20 @@ window.viewMember=async(id)=>{
     ]}]:[]),
   ];
   const transferOutBtn=(r.status!=='closed')?`<button class="btn bxl btn-sm" onclick="openDomesticTransfer(${id});closeModal()">도내양도</button>`:'';
-  openModal('회원 상세정보',buildDetailSections(sections),
+  const missingLedgerBox=r.transfer_ledger_missing?`
+    <div class="warn-box" style="margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span>⚠️ 관리번호 ${e_(r.management_number)} — 양도양수대장 기록이 없습니다.</span>
+      <button class="btn br btn-xs" onclick="createMissingTransferLedger(${id})">양도양수대장 생성</button>
+    </div>`:'';
+  openModal('회원 상세정보',missingLedgerBox+buildDetailSections(sections),
     `<button class="btn bp btn-sm" onclick="editMember(${id});closeModal()">수정</button>${transferOutBtn}<button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
+};
+
+window.createMissingTransferLedger=async(id)=>{
+  const res=await api('POST',`/api/members/${id}/create-missing-transfer-ledger`).catch(e=>{toast('생성 실패: '+((e&&e.message)||'서버 오류'),'err');return null;});
+  if(!res)return;
+  toast(res.message||'처리되었습니다.');
+  viewMember(id);
 };
 
 window.viewTransfer=async(id)=>{
@@ -860,7 +872,13 @@ window.editMember=async(id,defaultCat='개인')=>{
     ${sec('기타',`${fta('memo','비고',r.memo||'','cs4')}`,'📝')}
   </form>`;
 
-  openModal(id?'회원 수정':'회원 등록',formHtml,
+  const missingLedgerBox=(id&&r.transfer_ledger_missing)?`
+    <div class="warn-box" style="margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span>⚠️ 관리번호 ${e_(r.management_number)} — 양도양수대장 기록이 없습니다.</span>
+      <button type="button" class="btn br btn-xs" onclick="createMissingTransferLedger(${id})">양도양수대장 생성</button>
+    </div>`:'';
+
+  openModal(id?'회원 수정':'회원 등록',missingLedgerBox+formHtml,
     `<button class="btn bg btn-sm" id="_mSave">${id?'저장':'등록'}</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
 
   setTimeout(()=>_bindFmt(document.getElementById('mForm')),0);
