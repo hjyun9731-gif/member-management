@@ -332,6 +332,7 @@ window.viewMember=async(id)=>{
     ...(r.transfer_info?[{title:'양수 정보 (누구에게서 양수받았는지)',fields:[
       ['관리번호(양도양수)',r.transfer_info.management_number],
       ['양도인(성명)',r.transfer_info.transferor,false,r.transfer_info.transferor_member_id],
+      ['양도인(지역)',r.transfer_info.region],
       ['양수자(성명)',r.transfer_info.transferee],
       ['접수일자',r.transfer_info.receipt_date],
       ['인가일자',r.transfer_info.approval_date],
@@ -801,7 +802,7 @@ window.editMember=async(id,defaultCat='개인')=>{
     vehicle_type:'',fuel_type:'',business_number:'',affiliated_company:'',
     resident_number:'',memo:'',
     reapproval_date:'',official_address:'',
-    agent_name:'',agent_resident_number:'',agent_mobile:'',
+    agent_name:'',agent_resident_number:'',agent_mobile:'',agent_address:'',
     transfer_info:null};
   if(id){
     r=await api('GET',`/api/members/${id}`).catch(()=>null);
@@ -820,14 +821,15 @@ window.editMember=async(id,defaultCat='개인')=>{
   const indSection=sec('개인 전용 항목 (대리인)',`
     ${fi('agent_name','대리인',r.agent_name||'')}
     ${frn('agent_resident_number','대리인 주민등록번호',r.agent_resident_number||'')}
-    ${fph('agent_mobile','대리인 핸드폰번호',r.agent_mobile||'')}`,'👤','pink');
+    ${fph('agent_mobile','대리인 핸드폰번호',r.agent_mobile||'')}
+    <div class="fi cs2"><label>대리인 주소</label><input class="fc" name="agent_address" value="${e_(r.agent_address||'')}" placeholder="대리인 주소"></div>`,'👤','pink');
 
   const relationSection=(id&&(r.transfer_info||r.transfer_out_info))?sec('양도양수 관계정보 (읽기 전용)',`
     ${r.transfer_info?`
     <div class="fi cs4" style="background:var(--c-bg-alt,#f7f8fa);border-radius:6px;padding:8px 10px">
       <label style="font-weight:600;font-size:11.5px;color:var(--c-primary)">양수 정보 (이 회원이 양수받음)</label>
       <div style="font-size:12.5px;line-height:1.7">
-        양도인: <strong>${e_(r.transfer_info.transferor||'-')}</strong> ·
+        양도인: <strong>${e_(r.transfer_info.transferor||'-')}</strong>${r.transfer_info.region?` (${e_(r.transfer_info.region)})`:''} ·
         양도양수대장 관리번호: <strong>${e_(r.transfer_info.management_number||'-')}</strong> ·
         접수일자: ${e_(r.transfer_info.receipt_date||'-')}
       </div>

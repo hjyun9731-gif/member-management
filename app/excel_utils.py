@@ -300,6 +300,7 @@ _CM = {
     '대리인주민등록번호':'agent_resident_number','대리인주민번호':'agent_resident_number',
     '대리인핸드폰':'agent_mobile','대리인핸드폰번호':'agent_mobile','대리인전화':'agent_mobile',
     '대리인휴대폰':'agent_mobile','대리인휴대전화':'agent_mobile',
+    '대리인주소':'agent_address','대리인 주소':'agent_address',
     '가입일자':'membership_date','가입일':'membership_date',
     '주민등록번호':'resident_number','주민번호':'resident_number',
     '비고':'memo',

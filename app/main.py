@@ -78,6 +78,7 @@ def _run_migrations():
         ("membership_date",       "candidates",       "VARCHAR(50)"),
         ("structure_change",      "license_holders",  "TEXT"),
         ("pinned",                "license_holders",  "BOOLEAN"),
+        ("agent_address",         "license_holders",  "TEXT"),  # 대리인 주소 (개인회원 전용)
         # 도내 양도양수 등록 기능: 양도자/양수자 회원 ID 연결
         ("transferor_member_id",  "transfer_ledger",  "INTEGER"),
         ("transferee_member_id",  "transfer_ledger",  "INTEGER"),
