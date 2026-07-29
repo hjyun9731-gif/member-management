@@ -645,9 +645,16 @@ _DUP_WEAK_MSG = ("동일하거나 유사한 회원정보가 이미 존재합니�
 
 
 def find_duplicate_transferee(db: Session, resident_number: str = "", vehicle_number: str = "",
-                               name: str = "", mobile: str = "") -> List[dict]:
+                               name: str = "", mobile: str = "",
+                               exclude_member_id: int = None) -> List[dict]:
     """양수자 중복 확인: 주민등록번호/차량번호 완전일치 → strong,
-    성명+핸드폰 조합 일치 → weak. 회원(LicenseHolder)과 예정자(Candidate) 모두 조회."""
+    성명+핸드폰 조합 일치 → weak. 회원(LicenseHolder)과 예정자(Candidate) 모두 조회.
+
+    exclude_member_id: 도내 양도양수에서 양도자 본인의 회원 ID.
+    도내 양도양수는 차량번호가 양도자→양수자 그대로 유지되므로, 차량번호 일치 검색을
+    exclude 없이 수행하면 아직 폐업 처리되지 않아 status='active'인 양도자 본인이
+    항상 '중복 후보'로 잡혀서 양수자가 양도자 자신과 연결되는 사고로 이어진다.
+    """
     resident_number = (resident_number or "").strip()
     vehicle_number = (vehicle_number or "").strip()
     name = (name or "").strip()
@@ -672,8 +679,10 @@ def find_duplicate_transferee(db: Session, resident_number: str = "", vehicle_nu
         q = db.query(models.LicenseHolder).filter(
             models.LicenseHolder.resident_number == resident_number,
             models.LicenseHolder.deleted_at.is_(None),
-        ).all()
-        for m in q:
+        )
+        if exclude_member_id:
+            q = q.filter(models.LicenseHolder.id != exclude_member_id)
+        for m in q.all():
             _add("member", m, "strong")
         q2 = db.query(models.Candidate).filter(
             models.Candidate.resident_number == resident_number,
@@ -688,8 +697,10 @@ def find_duplicate_transferee(db: Session, resident_number: str = "", vehicle_nu
             models.LicenseHolder.vehicle_number == vehicle_number,
             models.LicenseHolder.deleted_at.is_(None),
             models.LicenseHolder.status == "active",
-        ).all()
-        for m in q:
+        )
+        if exclude_member_id:
+            q = q.filter(models.LicenseHolder.id != exclude_member_id)
+        for m in q.all():
             _add("member", m, "strong")
         q2 = db.query(models.Candidate).filter(
             models.Candidate.vehicle_number == vehicle_number,
@@ -705,8 +716,10 @@ def find_duplicate_transferee(db: Session, resident_number: str = "", vehicle_nu
             models.LicenseHolder.name == name,
             models.LicenseHolder.mobile == mobile,
             models.LicenseHolder.deleted_at.is_(None),
-        ).all()
-        for m in q:
+        )
+        if exclude_member_id:
+            q = q.filter(models.LicenseHolder.id != exclude_member_id)
+        for m in q.all():
             _add("member", m, "weak")
         q2 = db.query(models.Candidate).filter(
             models.Candidate.name == name,
@@ -761,6 +774,8 @@ def process_domestic_transfer(db: Session, *, transferor_member_id: int,
         transferee_candidate = None
 
         if link_existing_id and link_existing_type == "member":
+            if link_existing_id == transferor_member_id:
+                raise ValueError("양수자를 양도자 본인과 동일한 회원으로 연결할 수 없습니다.")
             transferee_member = get_by_id(db, models.LicenseHolder, link_existing_id)
             if not transferee_member:
                 raise ValueError("연결할 기존 회원을 찾을 수 없습니다.")
@@ -1091,6 +1106,47 @@ def bulk_relink_transfer_ledger(db: Session) -> dict:
         "before_fully_linked": before_linked,
         "after_fully_linked": after_linked,
         **counts,
+    }
+
+
+def fix_self_referencing_transfer_ledger(db: Session) -> dict:
+    """양도자 회원 ID와 양수자 회원 ID가 동일하게 잘못 연결된 양도양수대장 레코드를 찾아 복구.
+
+    원인: 도내 양도양수 등록 시 양수자 중복확인이 양도자 본인(차량번호가 아직 동일하고
+    상태가 active인 시점)을 양수자의 '기존 회원'으로 잘못 제시했고, 이를 연결한 경우
+    transferor_member_id == transferee_member_id 가 되어 양도자/양수자 클릭 시
+    같은 회원정보가 조회되는 문제가 발생한다.
+
+    복구 방식: 양수자 쪽 연결(transferee_member_id)을 우선 비우고(양도자 정보는 신뢰도가
+    더 높으므로 유지), 성명 기준으로 양도자 본인을 제외한 안전한 재연결을 시도한다.
+    후보가 여러 명이거나 없으면 비운 채로 두어(잘못된 정보를 보여주는 것보다 안전) 화면에서
+    '연결 안 됨'으로 표시되게 한다. 원문 데이터(성명 등)는 전혀 수정하지 않는다.
+    """
+    ledgers = db.query(models.TransferLedger).filter(
+        models.TransferLedger.deleted_at.is_(None),
+        models.TransferLedger.transferor_member_id.isnot(None),
+        models.TransferLedger.transferee_member_id.isnot(None),
+        models.TransferLedger.transferor_member_id == models.TransferLedger.transferee_member_id,
+    ).all()
+
+    fixed, relinked, cleared_only = 0, 0, 0
+    for t in ledgers:
+        wrong_id = t.transferee_member_id
+        t.transferee_member_id = None
+        fixed += 1
+        cands = find_link_candidates_for_ledger(db, t, "transferee",
+                                                  exclude_member_id=t.transferor_member_id)
+        if len(cands) == 1 and cands[0]["id"] != t.transferor_member_id:
+            t.transferee_member_id = cands[0]["id"]
+            relinked += 1
+        else:
+            cleared_only += 1
+
+    db.commit()
+    return {
+        "found_self_referencing": fixed,
+        "relinked_to_correct_member": relinked,
+        "cleared_pending_manual_link": cleared_only,
     }
 
 

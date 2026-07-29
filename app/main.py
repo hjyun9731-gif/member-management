@@ -160,6 +160,27 @@ try:
 except Exception as e:
     logger.warning(f"변경이력 재정규화 경고: {e}")
 
+# 양도양수대장: 양도자/양수자 회원ID가 동일하게 잘못 연결된 기존 레코드 복구
+# (도내 양도양수 중복확인이 양도자 본인을 양수자 후보로 잘못 제시하던 버그의 산물).
+# 조건에 해당하는 소수 레코드만 대상으로 하는 가벼운 쿼리라 startup에 포함해도 안전함.
+def _fix_self_referencing_transfer_ledger():
+    from app.database import SessionLocal as _SL
+    from app import crud as _crud
+    db = _SL()
+    try:
+        result = _crud.fix_self_referencing_transfer_ledger(db)
+        if result.get("found_self_referencing"):
+            logger.info(f"양도양수대장 자기참조 오류 복구: {result}")
+    except Exception as e:
+        logger.warning(f"양도양수대장 자기참조 복구 오류 (무시): {e}")
+    finally:
+        db.close()
+
+try:
+    _fix_self_referencing_transfer_ledger()
+except Exception as e:
+    logger.warning(f"양도양수대장 자기참조 복구 경고: {e}")
+
 app = FastAPI(title="강원도 개인소형화물협회 업무관리 시스템", version="3.0.0")
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,

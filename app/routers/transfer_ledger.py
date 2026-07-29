@@ -347,15 +347,17 @@ class DupCheckBody(BaseModel):
     vehicle_number: Optional[str] = ""
     name: Optional[str] = ""
     mobile: Optional[str] = ""
+    exclude_member_id: Optional[int] = None
 
 
 @router.post("/check-transferee-duplicate")
 async def check_transferee_duplicate(body: DupCheckBody,
                                       db: Session = Depends(get_db), _=Depends(get_current_user)):
-    """양수자 중복 확인: 주민등록번호/차량번호 완전일치(strong), 성명+핸드폰 조합(weak)"""
+    """양수자 중복 확인: 주민등록번호/차량번호 완전일치(strong), 성명+핸드폰 조합(weak)
+    exclude_member_id: 도내 양도양수 시 양도자 본인 ID (양도자 자신을 양수자 중복후보에서 제외)"""
     matches = crud.find_duplicate_transferee(
         db, resident_number=body.resident_number, vehicle_number=body.vehicle_number,
-        name=body.name, mobile=body.mobile)
+        name=body.name, mobile=body.mobile, exclude_member_id=body.exclude_member_id)
     has_strong = any(m["strength"] == "strong" for m in matches)
     message = None
     if matches:
@@ -405,11 +407,14 @@ async def create_domestic_transfer(body: DomesticTransferBody,
         raise HTTPException(400, "처리일자(폐업일자)를 입력하세요.")
 
     # 신규 등록인 경우 중복 재확인 (강한 중복인데 force_new 아니면 차단)
+    # 양도자 본인은 중복 후보에서 제외 (차량번호가 아직 동일하고 status=active인 상태라
+    # exclude 없이 검사하면 양도자 자신이 매번 '중복'으로 잡힘)
     if not body.link_existing_id:
         matches = crud.find_duplicate_transferee(
             db, resident_number=body.transferee_resident_number,
             vehicle_number=body.transferee_vehicle_number,
-            name=body.transferee_name, mobile=body.transferee_mobile)
+            name=body.transferee_name, mobile=body.transferee_mobile,
+            exclude_member_id=body.transferor_member_id)
         has_strong = any(m["strength"] == "strong" for m in matches)
         if matches and not body.force_new:
             raise HTTPException(409, "중복 가능성이 있는 회원정보가 존재합니다. 중복 확인 후 다시 시도해주세요.")
@@ -482,6 +487,14 @@ async def link_member(tid: int, body: LinkMemberBody,
 async def bulk_relink(db: Session = Depends(get_db), _=Depends(require_admin)):
     """기존 양도양수대장 전체에 대해 연결관계 자동 복구 (확실한 후보만 자동 연결)."""
     result = crud.bulk_relink_transfer_ledger(db)
+    return result
+
+
+@router.post("/fix-self-referencing")
+async def fix_self_referencing(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """양도자 회원ID == 양수자 회원ID로 잘못 연결된 기존 레코드 복구
+    (양도자/양수자 이름 클릭 시 같은 회원정보가 조회되던 문제)."""
+    result = crud.fix_self_referencing_transfer_ledger(db)
     return result
 
 

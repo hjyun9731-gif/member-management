@@ -1098,6 +1098,7 @@ window.openDomesticTransfer=async(id)=>{
       vehicle_number:fd.transferee_vehicle_number||'',
       name:fd.transferee_name||'',
       mobile:fd.transferee_mobile||'',
+      exclude_member_id:id,
     }).catch(()=>null);
     if(dup&&dup.has_duplicate){
       showDupConfirm(dup);
