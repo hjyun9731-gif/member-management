@@ -13,12 +13,59 @@ router = APIRouter()
 
 SEARCH = ["name", "vehicle_number", "management_number", "region", "reason", "company_name", "memo"]
 
+# 폐업현황 상세정보 보강 시 회원정보로 채워넣을 필드 목록
+# (기존 이전자료 폐업현황에 값이 비어있어도 회원정보에서 조회되게 함)
+_FALLBACK_FIELDS = [
+    'approval_date', 'certificate_issue_date', 'certificate_number',
+    'driver_license_number', 'structure_change', 'vehicle_type', 'fuel_type',
+    'membership_date', 'membership_status', 'resident_number', 'phone', 'mobile',
+    'address', 'official_address', 'affiliated_company', 'agent_name', 'agent_mobile',
+]
 
-def _fmt(c):
+
+def _build_member_lookup(db, closures_list):
+    """폐업현황 상세정보 보강용 회원 조회 캐시.
+    member_id가 있으면 id로, 없으면(구자료) 차량번호(+성명)로 매칭한다.
+    """
+    ids = {c.member_id for c in closures_list if getattr(c, 'member_id', None)}
+    vehicle_numbers = {
+        (c.vehicle_number or '').strip()
+        for c in closures_list if (c.vehicle_number or '').strip()
+    }
+    by_id, by_vehicle = {}, {}
+    if ids:
+        for m in db.query(models.LicenseHolder).filter(models.LicenseHolder.id.in_(ids)).all():
+            by_id[m.id] = m
+    if vehicle_numbers:
+        for m in db.query(models.LicenseHolder).filter(
+            models.LicenseHolder.deleted_at.is_(None),
+            models.LicenseHolder.vehicle_number.in_(vehicle_numbers),
+        ).all():
+            by_vehicle.setdefault((m.vehicle_number or '').strip(), []).append(m)
+    return by_id, by_vehicle
+
+
+def _find_linked_member(c, by_id, by_vehicle):
+    mid = getattr(c, 'member_id', None)
+    if mid and mid in by_id:
+        return by_id[mid]
+    vn = (c.vehicle_number or '').strip()
+    if vn and vn in by_vehicle:
+        candidates = by_vehicle[vn]
+        name = (c.name or '').strip()
+        if name:
+            for m in candidates:
+                if (m.name or '').strip() == name:
+                    return m
+        return candidates[0]
+    return None
+
+
+def _fmt(c, member=None):
     ct = c.closure_type or ""
     if ct == '폐지':
         ct = '폐업'
-    return {
+    result = {
         "id": c.id,
         "management_number": c.management_number or "",
         "closure_type": ct,
@@ -54,6 +101,16 @@ def _fmt(c):
         "raw_data": c.raw_data or {},
         "created_at": str(c.created_at)[:10] if c.created_at else "",
     }
+    # 기존/신규 자료 표시 통일: 폐업현황 자체 필드가 비어있으면 연결된 회원정보로 보강
+    # (신규 자료는 close_member 처리 시 이미 회원정보가 복사되어 저장되므로 보강이 필요없고,
+    #  구자료(이전자료)만 실제로 보강됨 — 저장된 값은 그대로 두고 조회 시에만 채운다)
+    if member:
+        for f in _FALLBACK_FIELDS:
+            if not result.get(f):
+                v = getattr(member, f, None)
+                if v:
+                    result[f] = v
+    return result
 
 
 @router.get("")
@@ -114,7 +171,8 @@ async def list_closures(
     else:
         items = []
     pages = max(1, (total + limit - 1) // limit)
-    return {"items": [_fmt(i) for i in items], "total": total,
+    by_id, by_vehicle = _build_member_lookup(db, items)
+    return {"items": [_fmt(i, _find_linked_member(i, by_id, by_vehicle)) for i in items], "total": total,
             "page": page, "pages": pages, "limit": limit}
 
 
@@ -133,7 +191,9 @@ async def export_excel(
 ):
     filters = {"region": region, "closure_type": closure_type, "data_type": data_type}
     items, _ = crud.get_list(db, models.Closure, skip=0, limit=9999, filters=filters)
-    content = records_to_excel([_fmt(i) for i in items], exclude=["id"])
+    by_id, by_vehicle = _build_member_lookup(db, items)
+    content = records_to_excel(
+        [_fmt(i, _find_linked_member(i, by_id, by_vehicle)) for i in items], exclude=["id"])
     return StreamingResponse(
         io.BytesIO(content),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -146,7 +206,8 @@ async def get_closure(cid: int, db: Session = Depends(get_db), _=Depends(get_cur
     c = crud.get_by_id(db, models.Closure, cid)
     if not c:
         raise HTTPException(404)
-    return _fmt(c)
+    by_id, by_vehicle = _build_member_lookup(db, [c])
+    return _fmt(c, _find_linked_member(c, by_id, by_vehicle))
 
 
 @router.post("")
