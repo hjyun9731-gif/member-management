@@ -118,6 +118,39 @@ function rsel(name,sel=''){return `<select name="${name}" class="fc"><option val
 function rselflt(id,sel=''){return `<select id="${id}" class="fsel"><option value="">전체 지역</option>${REGIONS.map(r=>`<option value="${r}" ${r===sel?'selected':''}>${r}</option>`).join('')}</select>`;}
 function ssel(name,opts,sel=''){return `<select name="${name}" class="fc">${opts.map(o=>`<option value="${o}" ${o===sel?'selected':''}>${o}</option>`).join('')}</select>`;}
 function fi(name,label,val='',req=false){return `<div class="fi"><label>${label}${req?'<span class="req">*</span>':''}</label><input class="fc" name="${name}" value="${e_(val)}" ${req?'required':''}></div>`;}
+
+// 자격증명발급번호 입력 + '발급번호 부여' 버튼 (예정자/도내양도 등록 공통)
+function certNumField(name,label,val=''){
+  return `<div class="fi"><label>${label}</label>
+    <div style="display:flex;gap:6px;align-items:center">
+      <input class="fc cert-num-fld" name="${name}" value="${e_(val)}" style="flex:1;min-width:0">
+      <button type="button" class="btn bo btn-sm cert-issue-btn" style="white-space:nowrap;flex-shrink:0">발급번호 부여</button>
+    </div></div>`;
+}
+
+// certNumField가 렌더된 폼 안에서 발급 버튼 동작 연결. apiPath: issue-certificate-number 엔드포인트
+function _bindCertIssueBtn(form, apiPath){
+  if(!form) return;
+  const btn=form.querySelector('.cert-issue-btn');
+  const inp=form.querySelector('.cert-num-fld');
+  if(!btn||!inp) return;
+  btn.onclick=async()=>{
+    const cur=(inp.value||'').trim();
+    if(cur && !confirm(`이미 발급번호(${cur})가 있습니다. 새로 발급하시겠습니까?`)) return;
+    btn.disabled=true;
+    try{
+      const res=await api('POST',apiPath,{}).catch(e=>{throw e;});
+      if(res && res.certificate_number){
+        inp.value=res.certificate_number;
+        toast(`발급번호 ${res.certificate_number} 부여됨`);
+      }
+    }catch(e){
+      toast('발급번호 부여 실패: '+((e&&e.message)||'서버 오류'),'err');
+    }finally{
+      btn.disabled=false;
+    }
+  };
+}
 function fri(name,label,opts,sel=''){
   // 3인자 호출 대응: fri(name, opts, sel) → label 자동 생성
   if(Array.isArray(label)){sel=opts||'';opts=label;label=name;}
@@ -505,7 +538,7 @@ async function renderCandidateSection(){
         <div class="fi cs4"><label>주소</label><input class="fc" name="address"></div>
         `,'📞','pri')}
         ${sec('자격증·면허정보',`
-        ${fi('certificate_issue_date','자격증발급일자')} ${fi('certificate_number','자격증발급번호')}
+        ${fi('certificate_issue_date','자격증발급일자')} ${certNumField('certificate_number','자격증발급번호')}
         ${fi('driver_license_number','운전면허번호')}
         <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" placeholder="예: 22,포터Ⅱ내장탑차 / 봉고 / 냉동탑차"></div>
         ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),'')}
@@ -533,7 +566,7 @@ async function renderCandidateSection(){
     </div>`;
 
   // 포맷 이벤트 바인딩 (폼 렌더 후)
-  setTimeout(()=>_bindFmt('candForm'),0);
+  setTimeout(()=>{_bindFmt('candForm');_bindCertIssueBtn(document.getElementById('candForm'),'/api/candidates/issue-certificate-number');},0);
 
   const sk='cand';
   const hdrs=[{field:'region',label:'지역'},{field:'vehicle_number',label:'차량번호'},{field:'name',label:'성명'},{field:'resident_number',label:'주민등록번호'},{field:'mobile',label:'핸드폰'},{field:'vehicle_type',label:'차종'},{field:'certificate_number',label:'자격증번호'},{field:'affiliated_company',label:'소속업체'},{label:'관리',noSort:true}];
@@ -583,7 +616,7 @@ window.editCandidate=async(id)=>{
     ${frn('resident_number','주민등록번호',r.resident_number||'')}
     ${fi('phone','전화번호',r.phone||'')} ${fph('mobile','핸드폰',r.mobile||'')}
     <div class="fi cs2"><label>주소</label><input class="fc" name="address" value="${e_(r.address||'')}"></div>
-    ${fi('certificate_issue_date','자격증발급일자',r.certificate_issue_date||'')} ${fi('certificate_number','자격증발급번호',r.certificate_number||'')}
+    ${fi('certificate_issue_date','자격증발급일자',r.certificate_issue_date||'')} ${certNumField('certificate_number','자격증발급번호',r.certificate_number||'')}
     ${fi('driver_license_number','운전면허번호',r.driver_license_number||'')}
     <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||'')}" placeholder="예: 22,포터Ⅱ내장탑차 / 봉고 / 냉동탑차"></div>
     ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),r.fuel_type||'')}
@@ -592,7 +625,7 @@ window.editCandidate=async(id)=>{
     ${fta('memo','비고',r.memo||'','cs4')}
   </div></form>`,
   `<button class="btn bg btn-sm" id="_ceSave">저장</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
-  setTimeout(()=>_bindFmt(document.getElementById('cEditForm')),0);
+  setTimeout(()=>{_bindFmt(document.getElementById('cEditForm'));_bindCertIssueBtn(document.getElementById('cEditForm'),'/api/candidates/issue-certificate-number');},0);
   document.getElementById('_ceSave').onclick=async()=>{
     const form=document.getElementById('cEditForm');
     if(!_validateFmt(form))return;
@@ -707,6 +740,7 @@ async function renderMember(category){
           <span class="card-ttl">${category}회원</span><span class="cnt" id="mCnt">0건</span></div>
         <div class="flex gap-8">
           <button class="btn bg btn-sm" id="mAddBtn">+ 등록</button>
+          <button class="btn bo btn-sm" id="mIssueMgmtBtn">🔢 관리번호 발급</button>
           <button class="btn bxl btn-sm" id="mXlBtn">엑셀 다운로드</button>
         </div>
       </div>
@@ -725,6 +759,7 @@ async function renderMember(category){
         <input class="srch" id="${key}Srch" placeholder="성명, 차량번호, 주소, 자격번호" value="${e_(f.search||'')}">
         <button class="btn bp btn-sm" id="${key}SrchBtn">조회</button>
         <button class="btn bo btn-sm" id="${key}RstBtn">초기화</button>
+        <button class="btn bo btn-sm" id="${key}PendBtn" title="회원정보 입력 전, 관리번호만 발급된 항목">🔢 발급대기</button>
       </div>
       <div id="${key}Tbl"><div class="loading-box"><div class="spin"></div></div></div>
     </div>`;
@@ -736,12 +771,15 @@ async function renderMember(category){
     {label:'차종'},{label:'유종'},{label:'주소'},{label:'관리',noSort:true}
   ];
 
+  let showPending=false;
   const doSearch=async(pg=1)=>{
     const rawSort = document.getElementById(`${key}SortF`)?.value || 'default';
     // 이전 캐시에서 'desc'/'asc' 값이 남아있으면 'default'로 변환
     const member_sort_val = (rawSort==='desc'||rawSort==='asc') ? 'default' : rawSort;
     ST.fl[key]={category,region:document.getElementById(`${key}RegF`).value,membership_status:document.getElementById(`${key}MemF`).value,member_sort:member_sort_val,search:document.getElementById(`${key}Srch`).value.trim()};
-    const q=new URLSearchParams({page:pg,limit:50,...Object.fromEntries(Object.entries(ST.fl[key]).filter(([,v])=>v))});
+    const params={...ST.fl[key]};
+    if(showPending) params.status='pending';
+    const q=new URLSearchParams({page:pg,limit:50,...Object.fromEntries(Object.entries(params).filter(([,v])=>v))});
     const d=await api('GET',`/api/members?${q}`).catch(()=>null);if(!d)return;
     _sts('mCnt',`${d.total.toLocaleString()}건`);
     const tw=document.getElementById(`${key}Tbl`);if(!tw)return;
@@ -777,7 +815,15 @@ async function renderMember(category){
   document.getElementById(`${key}SrchBtn`).onclick=()=>doSearch(1);
   document.getElementById(`${key}Srch`).onkeydown=e=>{if(e.key==='Enter')doSearch(1);};
   document.getElementById(`${key}RstBtn`).onclick=()=>{ST.fl[key]={};renderMember(category);};
+  document.getElementById(`${key}PendBtn`).onclick=()=>{
+    showPending=!showPending;
+    const btn=document.getElementById(`${key}PendBtn`);
+    btn.classList.toggle('active',showPending);
+    btn.textContent=showPending?'🔢 발급대기 (조회중)':'🔢 발급대기';
+    doSearch(1);
+  };
   document.getElementById('mAddBtn').onclick=()=>editMember(null,category);
+  document.getElementById('mIssueMgmtBtn').onclick=()=>openIssueMgmtNumberModal(category, doSearch);
   document.getElementById('mXlBtn').onclick=()=>{
     const q=new URLSearchParams({category,...Object.fromEntries(Object.entries(ST.fl[key]||{}).filter(([k,v])=>v&&k!=='category'))});
     dl(`/api/members/export/excel?${q}`,`${category}회원.xlsx`);
@@ -792,6 +838,42 @@ window.togglePin=async(id,el)=>{
   const ok=await api('PATCH',`/api/members/${id}/pin`,{pinned:next}).catch(()=>null);
   if(!ok){el.classList.toggle('pinned',wasPinned);toast('고정 상태 변경 실패','err');return;}
   el.title=next?'클릭하여 해제':'클릭하여 고정';
+};
+
+window.openIssueMgmtNumberModal=async(category,onDone)=>{
+  const last=await api('GET','/api/members/last-management-number').catch(()=>null);
+  const lastNew=last?.new||'없음', lastTr=last?.transfer||'없음';
+  openModal('관리번호 발급',`
+    <div class="info-box" style="margin-bottom:10px;font-size:12.5px;line-height:1.8">
+      마지막 발급된 관리번호<br>
+      신규: <strong>${e_(lastNew)}</strong> · 양도양수: <strong>${e_(lastTr)}</strong>
+    </div>
+    <div class="fi cs2" style="margin-bottom:10px"><label>발급 유형</label>
+      <div class="transfer-register-options">
+        <label><input type="radio" name="_imType" value="new" checked>신규</label>
+        <label><input type="radio" name="_imType" value="transfer">양도양수</label>
+      </div>
+    </div>
+    <div id="_imResult" style="font-size:13px"></div>`,
+    `<button class="btn bg btn-sm" id="_imIssueBtn">발급</button><button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`);
+  document.getElementById('_imIssueBtn').onclick=async()=>{
+    const type=document.querySelector('input[name="_imType"]:checked')?.value||'new';
+    const btn=document.getElementById('_imIssueBtn');
+    btn.disabled=true;
+    const res=await api('POST','/api/members/issue-management-number',{type,category}).catch(()=>null);
+    btn.disabled=false;
+    if(!res) return;
+    document.getElementById('_imResult').innerHTML=`
+      <div class="info-box" style="background:var(--c-pri-bg,#eef6ff)">
+        관리번호 <strong>${e_(res.management_number)}</strong>가 발급되었습니다.
+        <div class="flex gap-8 mt8">
+          <button class="btn bg btn-sm" id="_imFillNow">지금 정보입력</button>
+        </div>
+      </div>`;
+    document.getElementById('_imFillNow').onclick=()=>{closeModal();editMember(res.id,category);};
+    toast(`관리번호 ${res.management_number} 발급됨`);
+    if(onDone) onDone(1);
+  };
 };
 
 window.editMember=async(id,defaultCat='개인')=>{
@@ -995,14 +1077,14 @@ window.openDomesticTransfer=async(id)=>{
       ${fph('transferee_mobile','핸드폰','')}
       <div class="fi cs4"><label>주소</label><input class="fc" name="transferee_address" value="" placeholder="양수자 주소를 입력하세요"></div>
       ${fi('certificate_issue_date','자격증명발급일자(신규)','')}
-      ${fi('certificate_number','자격증명발급번호(신규)','')}
+      ${certNumField('certificate_number','자격증명발급번호(신규)','')}
       ${fi('driver_license_number','운전면허번호(신규)','')}
       `,'🔗','teal')}
       ${sec('기타',`${fta('memo','비고','','cs4')}`,'📝')}
     </form>
     <div id="dtDupBox"></div>`,
     `<button class="btn bg btn-sm" id="_dtSave">저장</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
-  setTimeout(()=>_bindFmt(document.getElementById('dtForm')),0);
+  setTimeout(()=>{_bindFmt(document.getElementById('dtForm'));_bindCertIssueBtn(document.getElementById('dtForm'),'/api/transfer-ledger/issue-certificate-number');},0);
 
   let linkExisting=null; // {id,type}
 

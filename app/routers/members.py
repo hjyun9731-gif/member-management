@@ -120,6 +120,33 @@ async def next_transfer_number(db: Session = Depends(get_db), _=Depends(get_curr
     return {"next_number": crud.get_next_transfer_member_number(db)}
 
 
+@router.get("/last-management-number")
+async def last_management_number(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """현재까지 마지막으로 발급된 관리번호 확인 (신규/양도양수 각각)."""
+    return {
+        "new": crud.get_last_issued_management_number(db, "new"),
+        "transfer": crud.get_last_issued_management_number(db, "transfer"),
+    }
+
+
+@router.post("/issue-management-number")
+async def issue_management_number(data: dict, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """회원정보 입력 없이 관리번호만 먼저 발급.
+    body: {"type": "new"|"transfer", "category": "개인"|"택배" (선택)}
+    이름/차량번호가 빈 placeholder 회원(status=pending)을 생성해 번호를 예약하고,
+    그 레코드의 id를 반환한다. 이후 이 id로 회원 수정(PUT)을 하면 회원정보가
+    해당 관리번호에 연결된다 (수정 시 자동으로 status가 active로 전환됨).
+    """
+    mgmt_type = data.get("type")
+    if mgmt_type not in ("new", "transfer"):
+        raise HTTPException(400, "type은 'new' 또는 'transfer'여야 합니다.")
+    category = data.get("category") or None
+    if category not in (None, "개인", "택배"):
+        raise HTTPException(400, "category는 '개인' 또는 '택배'여야 합니다.")
+    m = crud.issue_management_number_only(db, mgmt_type, category)
+    return {"id": m.id, "management_number": m.management_number, "status": m.status}
+
+
 @router.get("")
 async def list_members(
     search: Optional[str] = Query(None),
@@ -141,7 +168,7 @@ async def list_members(
                "membership_status": membership_status, "status": status,
                "registration_type": registration_type,
                "management_number_prefix": mgmt_prefix}
-    nonempty = ["vehicle_number", "name"]
+    nonempty = [] if status == "pending" else ["vehicle_number", "name"]
 
     # 이전 버전 호환: desc/asc → default (날짜 정렬은 approval_desc/approval_asc 사용)
     if member_sort in ("desc", "asc", None, ""):
@@ -265,6 +292,9 @@ async def create_member(data: dict, db: Session = Depends(get_db), _=Depends(get
     if data.get("region"):
         from app.excel_utils import _normalize_region
         data["region"] = _normalize_region(data["region"])
+    mgmt = (data.get("management_number") or "").strip()
+    if mgmt and crud.check_mgmt_dup(db, models.LicenseHolder, mgmt):
+        raise HTTPException(400, f"관리번호 {mgmt}가 이미 존재합니다.")
     return _fmt(crud.create_item(db, models.LicenseHolder, data))
 
 
@@ -332,6 +362,11 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
     if data.get("region"):
         from app.excel_utils import _normalize_region
         data["region"] = _normalize_region(data["region"])
+
+    new_mgmt = data.get("management_number")
+    if new_mgmt is not None and str(new_mgmt).strip() and str(new_mgmt).strip() != (m.management_number or ""):
+        if crud.check_mgmt_dup(db, models.LicenseHolder, str(new_mgmt).strip(), exclude_id=mid):
+            raise HTTPException(400, f"관리번호 {new_mgmt}가 이미 존재합니다.")
 
     # 허용 필드만 필터링
     filtered_data = {k: v for k, v in data.items() if k in _ALLOWED_UPDATE_FIELDS}
@@ -479,6 +514,14 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
                 logger.info(f"transfer_ledger {tl.id} 동기화 완료")
         except Exception as ex:
             logger.warning(f"transfer_ledger 동기화 실패: {ex}")
+
+    # 관리번호만 먼저 발급된 placeholder(status='pending')였다가 이번 저장에서
+    # 차량번호/성명이 채워지면 정식 회원으로 전환
+    if getattr(m, "status", None) == "pending":
+        final_vehicle = filtered_data.get("vehicle_number", m.vehicle_number) or ""
+        final_name = filtered_data.get("name", m.name) or ""
+        if str(final_vehicle).strip() and str(final_name).strip():
+            m.status = "active"
 
     try:
         db.commit()

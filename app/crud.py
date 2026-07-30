@@ -197,8 +197,10 @@ def get_region_vehicle_page(db: Session, model: Type, *, page: int = 1, limit: i
     light_q = _apply_common_filters(light_q, model, search, search_fields, filters, None)
     all_rows = light_q.all()  # (id, region, vehicle_number)
 
-    # Python에서 빈 행 제거
-    all_rows = [r for r in all_rows if (r[2] and str(r[2]).strip()) or (r[1] and str(r[1]).strip())]
+    # Python에서 빈 행 제거 (nonempty_any가 명시적으로 빈 리스트([])면 필터 건너뜀 - 예: 관리번호만
+    # 발급된 placeholder 회원을 조회할 때는 지역/차량번호가 비어있어도 보여야 함)
+    if nonempty_any != []:
+        all_rows = [r for r in all_rows if (r[2] and str(r[2]).strip()) or (r[1] and str(r[1]).strip())]
 
     # 자연 정렬: 지역(가나다) → 차량번호(자연정렬)
     all_rows.sort(key=lambda r: (r[1] or 'zzz', nat_key(r[2] or '')))
@@ -298,7 +300,58 @@ def soft_delete(db: Session, db_item):
     db.commit()
 
 
-# ===== MANAGEMENT NUMBER GENERATORS =====
+# ===== 자격증명발급번호 채번 (YY-N) =====
+
+def lock_certificate_number_sequence(db: Session):
+    """자격증명발급번호 동시발급 방지용 잠금 (관리번호 잠금과 동일한 방식)."""
+    try:
+        bind = db.get_bind()
+        if bind is not None and bind.dialect.name == "postgresql":
+            from sqlalchemy import text
+            db.execute(text("SELECT pg_advisory_xact_lock(hashtext('certificate_number_seq'))"))
+    except Exception:
+        pass
+
+
+def get_next_certificate_number(db: Session) -> str:
+    """자격증명발급번호 자동 채번: 'YY-N' 형식 (예: 26-301).
+    - 연도별 카운터(certificate_number_counters)에 마지막 발급 번호를 영구 저장하여,
+      레코드가 삭제되거나 발급번호가 수정되어도 이미 나간 번호는 재사용하지 않는다.
+    - 카운터가 아직 없는 연도(최초 실행)라면, license_holders/candidates/
+      transfer_ledger/closures 4개 테이블에서 해당 연도 접두사(YY-)의 기존 최댓값을
+      찾아 그 값으로 카운터를 초기화한 뒤 +1을 발급한다 (기존 수기 발급 이력과 연속성 유지).
+    - advisory lock으로 동시 요청을 직렬화하여 중복 발급을 방지한다.
+    """
+    yy = datetime.now().year % 100
+    lock_certificate_number_sequence(db)
+
+    counter = db.query(models.CertificateNumberCounter).filter(
+        models.CertificateNumberCounter.year == yy).first()
+
+    if not counter:
+        prefix = f"{yy}-"
+        max_n = 0
+        for model in (models.LicenseHolder, models.Candidate,
+                      models.TransferLedger, models.Closure):
+            for (val,) in db.query(model.certificate_number).filter(
+                    model.certificate_number.like(f"{prefix}%")).all():
+                try:
+                    n = int(str(val).split("-", 1)[1].strip())
+                    if n > max_n:
+                        max_n = n
+                except Exception:
+                    pass
+        counter = models.CertificateNumberCounter(year=yy, last_number=max_n)
+        db.add(counter)
+        db.flush()
+
+    counter.last_number += 1
+    next_n = counter.last_number
+    db.commit()
+    return f"{yy}-{next_n}"
+
+
+
 
 def _get_yy() -> str:
     return str(datetime.now().year)[2:]
@@ -348,11 +401,58 @@ def lock_transfer_number_sequence(db: Session):
         bind = db.get_bind()
         if bind is not None and bind.dialect.name == "postgresql":
             from sqlalchemy import text
-            # 임의의 고정 키로 advisory lock (양도양수 관리번호 발급 전용)
+            # 임의의 고정 키로 advisory lock (신규/양도양수 관리번호 발급 공통)
             db.execute(text("SELECT pg_advisory_xact_lock(hashtext('transfer_member_number_seq'))"))
     except Exception:
         # 잠금 실패 시에도 진행 (완전 차단하지 않음) - 아래 중복 체크가 최종 방어선
         pass
+
+
+def get_last_issued_management_number(db: Session, mgmt_type: str) -> Optional[str]:
+    """현재까지 발급된 마지막 관리번호 조회 (신규: 신YY-N, 양도양수: 양YY-N).
+    삭제되지 않은 레코드 기준 최댓값. 아직 발급된 적 없으면 None.
+    """
+    yy = _get_yy()
+    prefix = f"{'신' if mgmt_type == 'new' else '양'}{yy}-"
+    items = db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.management_number.like(f"{prefix}%"),
+        models.LicenseHolder.deleted_at.is_(None)
+    ).all()
+    n = _max_suffix(items, prefix)
+    return f"{prefix}{n}" if n > 0 else None
+
+
+def issue_management_number_only(db: Session, mgmt_type: str,
+                                  category: Optional[str] = None) -> "models.LicenseHolder":
+    """회원정보 입력 없이 관리번호만 먼저 발급.
+    이름/차량번호가 빈 placeholder 회원 레코드(status='pending')를 즉시 생성하여
+    번호를 그 자리에서 예약한다. 실제 DB 행이 번호를 점유하므로 다른 발급과 절대
+    중복되지 않고, 나중에 이 레코드를 그대로 수정(회원 수정 화면)하면 회원정보가
+    해당 관리번호와 자동으로 연결된다.
+    """
+    lock_transfer_number_sequence(db)
+    mgmt = get_next_new_member_number(db) if mgmt_type == 'new' else get_next_transfer_member_number(db)
+    # 방어적 재확인 (advisory lock이 동작하지 않는 환경 대비 최종 방어선)
+    tries = 0
+    prefix = f"{'신' if mgmt_type == 'new' else '양'}{_get_yy()}-"
+    while check_mgmt_dup(db, models.LicenseHolder, mgmt) and tries < 30:
+        try:
+            n = int(mgmt.split("-")[1]) + 1
+        except Exception:
+            n = 1
+        mgmt = f"{prefix}{n}"
+        tries += 1
+    placeholder = models.LicenseHolder(
+        management_number=mgmt,
+        registration_type="신규" if mgmt_type == 'new' else "양도양수",
+        status="pending",
+        category=category or None,
+        name="", vehicle_number="",
+    )
+    db.add(placeholder)
+    db.commit()
+    db.refresh(placeholder)
+    return placeholder
 
 
 def get_next_closure_number(db: Session, closure_type: str) -> str:

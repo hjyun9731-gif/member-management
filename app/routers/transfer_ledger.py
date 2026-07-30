@@ -350,6 +350,12 @@ class DupCheckBody(BaseModel):
     exclude_member_id: Optional[int] = None
 
 
+@router.post("/issue-certificate-number")
+async def issue_certificate_number(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """자격증명발급번호 자동 채번 (YY-N). 예정자/도내양도 등록 화면 공통 사용."""
+    return {"certificate_number": crud.get_next_certificate_number(db)}
+
+
 @router.post("/check-transferee-duplicate")
 async def check_transferee_duplicate(body: DupCheckBody,
                                       db: Session = Depends(get_db), _=Depends(get_current_user)):

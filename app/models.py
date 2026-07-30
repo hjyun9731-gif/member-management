@@ -4,6 +4,17 @@ from datetime import datetime
 from app.database import Base
 
 
+class CertificateNumberCounter(Base):
+    """자격증명발급번호(YY-N) 채번 카운터 - 연도별로 마지막 발급 번호를 영구 보관.
+    레코드가 삭제/수정되어도 이 카운터는 그대로 유지되므로 번호가 재사용되지 않는다.
+    """
+    __tablename__ = "certificate_number_counters"
+    id = Column(Integer, primary_key=True, index=True)
+    year = Column(Integer, unique=True, index=True)   # 26 (2026년의 YY)
+    last_number = Column(Integer, default=0)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
