@@ -1088,11 +1088,8 @@ window.openDomesticTransfer=async(id)=>{
     const fd=collect();
     if(!fd.closure_date){toast('처리일자를 입력하세요','warn');return;}
     if(!fd.transferee_name){toast('양수자 성명을 입력하세요','warn');return;}
-    const _pd=s=>{if(!s)return null;const t=String(s).trim().replace(/[./]/g,'-').split('-').filter(Boolean);if(t.length<3)return null;let[y,mo,da]=t;if(y.length===2)y='20'+y;const dt=new Date(`${y}-${String(mo).padStart(2,'0')}-${String(da).padStart(2,'0')}`);return isNaN(dt)?null:dt;};
-    const _rd=_pd(fd.receipt_date), _ad=_pd(fd.approval_date);
-    if(_rd && _ad && _ad<_rd){
-      if(!confirm(`인가일자(${fd.approval_date})가 접수일자(${fd.receipt_date})보다 빠릅니다. 날짜를 확인해주세요. 그대로 저장하시겠습니까?`)) return;
-    }
+    // 참고: 인가일자가 접수일자보다 빠른 것은 정상적인 업무 절차(인가 후 협회 접수)이므로
+    // 별도 확인창을 띄우지 않는다.
     const dup=await api('POST','/api/transfer-ledger/check-transferee-duplicate',{
       resident_number:fd.transferee_resident_number||'',
       vehicle_number:fd.transferee_vehicle_number||'',

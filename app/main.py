@@ -181,6 +181,50 @@ try:
 except Exception as e:
     logger.warning(f"양도양수대장 자기참조 복구 경고: {e}")
 
+
+# 관리번호(양YY-N 등) 중복 방지: 기존 중복 데이터가 없을 때만 UNIQUE 인덱스 생성.
+# 이미 중복이 있으면 인덱스 생성을 건너뛰고 로그로만 알림 (기존 데이터는 건드리지 않음).
+# 중복 목록은 GET /api/admin/duplicate-management-numbers 로 조회 가능.
+def _add_management_number_unique_index():
+    from sqlalchemy import text
+    if "sqlite" in DATABASE_URL:
+        return  # 개발환경(SQLite)은 스킵
+
+    def _check_and_create(table_name, index_name):
+        with engine.connect() as conn:
+            dups = conn.execute(text(
+                f"SELECT management_number, COUNT(*) c FROM {table_name} "
+                f"WHERE deleted_at IS NULL AND management_number IS NOT NULL AND management_number <> '' "
+                f"GROUP BY management_number HAVING COUNT(*) > 1"
+            )).fetchall()
+        if dups:
+            logger.warning(
+                f"{table_name}.management_number 중복 {len(dups)}건 발견 - UNIQUE 인덱스 생성을 건너뜁니다. "
+                f"중복 번호: {[r[0] for r in dups][:20]} "
+                f"(GET /api/admin/duplicate-management-numbers 로 상세 조회 후 수동 정리 필요)"
+            )
+            return
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    f"CREATE UNIQUE INDEX IF NOT EXISTS {index_name} "
+                    f"ON {table_name} (management_number) WHERE deleted_at IS NULL"
+                ))
+            logger.info(f"{table_name}.management_number UNIQUE 인덱스 확인/생성 완료")
+        except Exception as e:
+            logger.warning(f"{table_name}.management_number UNIQUE 인덱스 생성 경고 (무시): {e}")
+
+    try:
+        _check_and_create("license_holders", "uq_license_holders_mgmt_active")
+        _check_and_create("transfer_ledger", "uq_transfer_ledger_mgmt_active")
+    except Exception as e:
+        logger.warning(f"관리번호 UNIQUE 인덱스 처리 경고 (무시): {e}")
+
+try:
+    _add_management_number_unique_index()
+except Exception as e:
+    logger.warning(f"관리번호 UNIQUE 인덱스 경고: {e}")
+
 app = FastAPI(title="강원도 개인소형화물협회 업무관리 시스템", version="3.0.0")
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,

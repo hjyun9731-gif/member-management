@@ -2713,3 +2713,42 @@ async def debug_monthly_member_count(
             "문구인데_가입자로_잡힌건": wrong_joined[:20],
         },
     }
+
+
+@router.get("/duplicate-management-numbers")
+async def duplicate_management_numbers(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """관리번호(양YY-N 등) 중복 여부 점검 - 읽기 전용, 데이터를 변경하지 않음.
+    license_holders / transfer_ledger 각각에서 현재 유효한(삭제되지 않은) 레코드 중
+    동일 관리번호가 2건 이상 존재하는 경우를 찾아 반환한다.
+    """
+    from sqlalchemy import func as _func
+
+    def _dups(model):
+        rows = (db.query(model.management_number, _func.count().label("cnt"))
+                .filter(model.deleted_at.is_(None),
+                        model.management_number.isnot(None),
+                        model.management_number != "")
+                .group_by(model.management_number)
+                .having(_func.count() > 1)
+                .all())
+        result = []
+        for mgmt, cnt in rows:
+            items = db.query(model).filter(
+                model.deleted_at.is_(None),
+                model.management_number == mgmt,
+            ).all()
+            result.append({
+                "management_number": mgmt,
+                "count": cnt,
+                "ids": [it.id for it in items],
+            })
+        return result
+
+    lh_dups = _dups(models.LicenseHolder)
+    tl_dups = _dups(models.TransferLedger)
+
+    return {
+        "license_holders_duplicates": lh_dups,
+        "transfer_ledger_duplicates": tl_dups,
+        "note": "이 목록은 조회 전용입니다. 삭제/병합은 별도 확인 후 수동으로 처리해야 합니다.",
+    }
