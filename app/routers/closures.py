@@ -23,33 +23,62 @@ _FALLBACK_FIELDS = [
 ]
 
 
+def _norm_vn(v) -> str:
+    """차량번호 비교용 정규화: 공백 제거 + 끝의 '호' 제거 + 소문자화.
+    엑셀 원본 시트마다 '11가 1111' vs '11가1111', '1234호' vs '1234'처럼
+    표기가 달라 DB 완전일치(in_)로는 매칭이 누락되는 경우가 있어 정규화 후 비교한다.
+    (app/routers/admin.py의 debug-closure-match 진단 도구와 동일한 정규화 규칙)
+    """
+    import re as _re
+    v = str(v or '').strip()
+    v = _re.sub(r'\s+', '', v)
+    v = _re.sub(r'호$', '', v)
+    return v.lower()
+
+
 def _build_member_lookup(db, closures_list):
     """폐업현황 상세정보 보강용 회원 조회 캐시.
-    member_id가 있으면 id로, 없으면(구자료) 차량번호(+성명)로 매칭한다.
+    우선순위: member_id 직접 매칭 > 주민등록번호 완전일치 > 차량번호(정규화 후) 일치.
+    전체 회원 테이블을 한 번만 읽어 정규화된 인덱스를 만든다
+    (테이블 규모가 작아 요청당 1회 조회로 충분히 빠름).
     """
     ids = {c.member_id for c in closures_list if getattr(c, 'member_id', None)}
-    vehicle_numbers = {
-        (c.vehicle_number or '').strip()
-        for c in closures_list if (c.vehicle_number or '').strip()
-    }
-    by_id, by_vehicle = {}, {}
+    need_lookup = any(
+        not getattr(c, 'member_id', None) and
+        ((c.vehicle_number or '').strip() or (getattr(c, 'resident_number', '') or '').strip())
+        for c in closures_list
+    )
+    by_id, by_vehicle, by_resident = {}, {}, {}
     if ids:
         for m in db.query(models.LicenseHolder).filter(models.LicenseHolder.id.in_(ids)).all():
             by_id[m.id] = m
-    if vehicle_numbers:
-        for m in db.query(models.LicenseHolder).filter(
-            models.LicenseHolder.deleted_at.is_(None),
-            models.LicenseHolder.vehicle_number.in_(vehicle_numbers),
-        ).all():
-            by_vehicle.setdefault((m.vehicle_number or '').strip(), []).append(m)
-    return by_id, by_vehicle
+    if need_lookup:
+        for m in db.query(models.LicenseHolder).filter(models.LicenseHolder.deleted_at.is_(None)).all():
+            vn = _norm_vn(m.vehicle_number)
+            if vn:
+                by_vehicle.setdefault(vn, []).append(m)
+            rn = (m.resident_number or '').strip()
+            if rn:
+                by_resident.setdefault(rn, []).append(m)
+    return by_id, by_vehicle, by_resident
 
 
-def _find_linked_member(c, by_id, by_vehicle):
+def _find_linked_member(c, by_id, by_vehicle, by_resident):
     mid = getattr(c, 'member_id', None)
     if mid and mid in by_id:
         return by_id[mid]
-    vn = (c.vehicle_number or '').strip()
+
+    rn = (getattr(c, 'resident_number', '') or '').strip()
+    if rn and rn in by_resident:
+        candidates = by_resident[rn]
+        if len(candidates) == 1:
+            return candidates[0]
+        name = (c.name or '').strip()
+        for m in candidates:
+            if name and (m.name or '').strip() == name:
+                return m
+
+    vn = _norm_vn(c.vehicle_number)
     if vn and vn in by_vehicle:
         candidates = by_vehicle[vn]
         name = (c.name or '').strip()
@@ -57,7 +86,8 @@ def _find_linked_member(c, by_id, by_vehicle):
             for m in candidates:
                 if (m.name or '').strip() == name:
                     return m
-        return candidates[0]
+        if len(candidates) == 1:
+            return candidates[0]
     return None
 
 
@@ -171,8 +201,8 @@ async def list_closures(
     else:
         items = []
     pages = max(1, (total + limit - 1) // limit)
-    by_id, by_vehicle = _build_member_lookup(db, items)
-    return {"items": [_fmt(i, _find_linked_member(i, by_id, by_vehicle)) for i in items], "total": total,
+    by_id, by_vehicle, by_resident = _build_member_lookup(db, items)
+    return {"items": [_fmt(i, _find_linked_member(i, by_id, by_vehicle, by_resident)) for i in items], "total": total,
             "page": page, "pages": pages, "limit": limit}
 
 
@@ -191,9 +221,9 @@ async def export_excel(
 ):
     filters = {"region": region, "closure_type": closure_type, "data_type": data_type}
     items, _ = crud.get_list(db, models.Closure, skip=0, limit=9999, filters=filters)
-    by_id, by_vehicle = _build_member_lookup(db, items)
+    by_id, by_vehicle, by_resident = _build_member_lookup(db, items)
     content = records_to_excel(
-        [_fmt(i, _find_linked_member(i, by_id, by_vehicle)) for i in items], exclude=["id"])
+        [_fmt(i, _find_linked_member(i, by_id, by_vehicle, by_resident)) for i in items], exclude=["id"])
     return StreamingResponse(
         io.BytesIO(content),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -206,8 +236,8 @@ async def get_closure(cid: int, db: Session = Depends(get_db), _=Depends(get_cur
     c = crud.get_by_id(db, models.Closure, cid)
     if not c:
         raise HTTPException(404)
-    by_id, by_vehicle = _build_member_lookup(db, [c])
-    return _fmt(c, _find_linked_member(c, by_id, by_vehicle))
+    by_id, by_vehicle, by_resident = _build_member_lookup(db, [c])
+    return _fmt(c, _find_linked_member(c, by_id, by_vehicle, by_resident))
 
 
 @router.post("")

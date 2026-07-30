@@ -1147,6 +1147,80 @@ async def debug_closure_match(
     }
 
 
+@router.get("/closure-enrichment-status")
+async def closure_enrichment_status(
+    sample_limit: int = 20,
+    db: Session = Depends(get_db), _=Depends(require_admin)
+):
+    """폐업현황 상세정보 보강(회원정보 연계) 실제 적용률 확인용 진단.
+
+    이전자료/신규자료 구분 없이 각 폐업현황 레코드가:
+    - member_id로 직접 연결되어 있는지
+    - 연결이 없다면 주민등록번호/차량번호로 회원정보를 찾을 수 있는지
+    - 찾은 경우, 필요한 필드(인가일자/자격증정보/구조변경 등)가 그 회원정보에 실제로
+      들어있는지
+    를 집계해서 보여준다. 조회 전용이며 DB를 수정하지 않는다.
+    """
+    from app.routers.closures import _build_member_lookup, _find_linked_member, _FALLBACK_FIELDS
+
+    closures = db.query(models.Closure).filter(models.Closure.deleted_at.is_(None)).all()
+    by_id, by_vehicle, by_resident = _build_member_lookup(db, closures)
+
+    stats = {
+        "총_폐업현황건수": len(closures),
+        "이전자료_건수": sum(1 for c in closures if (c.data_type or "") == "이전자료"),
+        "신규자료_건수": sum(1 for c in closures if (c.data_type or "") != "이전자료"),
+        "member_id_직접연결": 0,
+        "주민등록번호로_매칭": 0,
+        "차량번호로_매칭": 0,
+        "매칭_실패": 0,
+        "매칭됐지만_회원정보도_비어있음": 0,  # 매칭은 됐는데 회원 쪽 필드도 원본에 값이 없는 경우
+    }
+    unmatched_sample = []
+    matched_but_empty_sample = []
+
+    for c in closures:
+        mid = getattr(c, 'member_id', None)
+        member = None
+        if mid and mid in by_id:
+            stats["member_id_직접연결"] += 1
+            member = by_id[mid]
+        else:
+            rn = (getattr(c, 'resident_number', '') or '').strip()
+            if rn and rn in by_resident:
+                stats["주민등록번호로_매칭"] += 1
+                member = _find_linked_member(c, {}, {}, by_resident)
+            else:
+                member = _find_linked_member(c, {}, by_vehicle, {})
+                if member:
+                    stats["차량번호로_매칭"] += 1
+            if not member:
+                stats["매칭_실패"] += 1
+                if len(unmatched_sample) < sample_limit:
+                    unmatched_sample.append({
+                        "management_number": c.management_number, "name": c.name,
+                        "vehicle_number": c.vehicle_number, "data_type": c.data_type,
+                    })
+                continue
+
+        if member:
+            empty_on_both = all(
+                not (getattr(c, f, None) or None) and not (getattr(member, f, None) or None)
+                for f in _FALLBACK_FIELDS
+            )
+            if empty_on_both:
+                stats["매칭됐지만_회원정보도_비어있음"] += 1
+                if len(matched_but_empty_sample) < sample_limit:
+                    matched_but_empty_sample.append({
+                        "management_number": c.management_number, "name": c.name,
+                        "matched_member_id": member.id, "matched_member_name": member.name,
+                    })
+
+    stats["매칭_실패_샘플"] = unmatched_sample
+    stats["매칭됐지만_필드도_공란인_샘플"] = matched_but_empty_sample
+    return stats
+
+
 @router.get("/search-raw-member")
 async def search_raw_member(
     vehicle: str = "",
