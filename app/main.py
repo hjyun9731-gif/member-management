@@ -225,6 +225,26 @@ try:
 except Exception as e:
     logger.warning(f"관리번호 UNIQUE 인덱스 경고: {e}")
 
+
+def _backfill_certificate_logs():
+    """이미 발급되어 있지만(카운터가 앞서 있음) 로그가 없는 자격증명발급번호를
+    관리 화면에 노출되도록 1회성으로 채워 넣는다. 실제 데이터는 건드리지 않고
+    이력(certificate_number_logs)만 생성한다."""
+    from app import crud
+    db = SessionLocal()
+    try:
+        crud.backfill_certificate_number_logs(db)
+        logger.info("자격증명발급번호 발급이력 백필 확인 완료")
+    except Exception as e:
+        logger.warning(f"자격증명발급번호 발급이력 백필 경고 (무시): {e}")
+    finally:
+        db.close()
+
+try:
+    _backfill_certificate_logs()
+except Exception as e:
+    logger.warning(f"자격증명발급번호 백필 경고: {e}")
+
 app = FastAPI(title="강원도 개인소형화물협회 업무관리 시스템", version="3.0.0")
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,

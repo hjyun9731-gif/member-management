@@ -313,7 +313,7 @@ def lock_certificate_number_sequence(db: Session):
         pass
 
 
-def get_next_certificate_number(db: Session) -> str:
+def get_next_certificate_number(db: Session, issued_by: str = None) -> str:
     """자격증명발급번호 자동 채번: 'YY-N' 형식 (예: 26-301).
     - 연도별 카운터(certificate_number_counters)에 마지막 발급 번호를 영구 저장하여,
       레코드가 삭제되거나 발급번호가 수정되어도 이미 나간 번호는 재사용하지 않는다.
@@ -321,6 +321,8 @@ def get_next_certificate_number(db: Session) -> str:
       transfer_ledger/closures 4개 테이블에서 해당 연도 접두사(YY-)의 기존 최댓값을
       찾아 그 값으로 카운터를 초기화한 뒤 +1을 발급한다 (기존 수기 발급 이력과 연속성 유지).
     - advisory lock으로 동시 요청을 직렬화하여 중복 발급을 방지한다.
+    - 발급할 때마다 certificate_number_logs에 이력을 남긴다 (관리 화면/취소 처리용).
+      번호 자체는 취소되어도 재사용하지 않고 카운터는 그대로 유지된다.
     """
     yy = datetime.now().year % 100
     lock_certificate_number_sequence(db)
@@ -347,8 +349,150 @@ def get_next_certificate_number(db: Session) -> str:
 
     counter.last_number += 1
     next_n = counter.last_number
+    cert_number = f"{yy}-{next_n}"
+
+    db.add(models.CertificateNumberLog(
+        year=yy, number=next_n, certificate_number=cert_number,
+        status="issued", issued_by=issued_by,
+    ))
     db.commit()
-    return f"{yy}-{next_n}"
+    return cert_number
+
+
+def _scan_certificate_number_usage(db: Session, certificate_number: str):
+    """4개 테이블에서 해당 자격증명발급번호를 실제로 사용중인 레코드가 있는지 확인.
+    (table_name, id, name, vehicle_number) 또는 None
+    """
+    tables = [
+        (models.LicenseHolder, "license_holders"),
+        (models.Candidate, "candidates"),
+        (models.TransferLedger, "transfer_ledger"),
+        (models.Closure, "closures"),
+    ]
+    for model, tname in tables:
+        row = db.query(model).filter(
+            model.certificate_number == certificate_number,
+            model.deleted_at.is_(None)
+        ).first()
+        if row:
+            name = getattr(row, "name", None) or getattr(row, "transferee", None) or ""
+            vehicle = getattr(row, "vehicle_number", None) or ""
+            return (tname, row.id, name, vehicle)
+    return None
+
+
+def sync_certificate_number_usage(db: Session, certificate_number: str,
+                                   linked_table: str, linked_id: int,
+                                   target_name: str = "", vehicle_number: str = ""):
+    """레코드 저장 시점에 발급이력과 실사용 여부를 연결. 로그가 없으면(수기 입력 등) 새로 만든다."""
+    if not certificate_number or not str(certificate_number).strip():
+        return
+    certificate_number = str(certificate_number).strip()
+    log = db.query(models.CertificateNumberLog).filter(
+        models.CertificateNumberLog.certificate_number == certificate_number).first()
+    if log:
+        log.status = "used"
+        log.linked_table = linked_table
+        log.linked_id = linked_id
+        log.target_name = target_name
+        log.vehicle_number = vehicle_number
+    else:
+        try:
+            yy, n = certificate_number.split("-", 1)
+            yy_i, n_i = int(yy), int(n)
+        except Exception:
+            yy_i, n_i = None, None
+        db.add(models.CertificateNumberLog(
+            year=yy_i, number=n_i, certificate_number=certificate_number,
+            status="used", issued_by=None,
+            linked_table=linked_table, linked_id=linked_id,
+            target_name=target_name, vehicle_number=vehicle_number,
+            memo="수동입력(발급이력 없음, 저장 시점에 자동 생성)",
+        ))
+    db.commit()
+
+
+def cancel_certificate_number(db: Session, certificate_number: str, memo: str = ""):
+    """잘못 발급된 자격증명발급번호를 '취소' 상태로 표시 (실제 삭제/재사용 안 함).
+    이미 실제 레코드에서 사용중인 번호는 취소할 수 없다.
+    """
+    usage = _scan_certificate_number_usage(db, certificate_number)
+    if usage:
+        raise ValueError(f"이미 {usage[0]}에서 사용 중인 번호입니다 (대상: {usage[2] or usage[1]}). 먼저 해당 자료를 확인하세요.")
+    log = db.query(models.CertificateNumberLog).filter(
+        models.CertificateNumberLog.certificate_number == certificate_number).first()
+    if not log:
+        raise ValueError("발급 이력을 찾을 수 없는 번호입니다.")
+    log.status = "cancelled"
+    if memo:
+        log.memo = memo
+    db.commit()
+    return log
+
+
+def reactivate_certificate_number(db: Session, certificate_number: str):
+    """취소 처리를 되돌려 '발급' 상태로 복구 (실수로 취소한 경우)."""
+    log = db.query(models.CertificateNumberLog).filter(
+        models.CertificateNumberLog.certificate_number == certificate_number).first()
+    if not log:
+        raise ValueError("발급 이력을 찾을 수 없는 번호입니다.")
+    log.status = "issued"
+    db.commit()
+    return log
+
+
+def backfill_certificate_number_logs(db: Session):
+    """운영 데이터에 이미 발급되어 있지만(카운터가 앞서 있음) 로그가 없는 번호들을
+    이력 화면에 노출되도록 자동으로 채워 넣는다 (최초 배포/기존 서비스 대상 1회성 처리,
+    이미 로그가 있는 번호는 건드리지 않음).
+    """
+    counters = db.query(models.CertificateNumberCounter).all()
+    for counter in counters:
+        yy = counter.year
+        existing_numbers = {
+            n for (n,) in db.query(models.CertificateNumberLog.number).filter(
+                models.CertificateNumberLog.year == yy).all()
+        }
+        for n in range(1, counter.last_number + 1):
+            if n in existing_numbers:
+                continue
+            cert_number = f"{yy}-{n}"
+            usage = _scan_certificate_number_usage(db, cert_number)
+            if usage:
+                tname, lid, name, vehicle = usage
+                db.add(models.CertificateNumberLog(
+                    year=yy, number=n, certificate_number=cert_number,
+                    status="used", issued_by=None,
+                    linked_table=tname, linked_id=lid,
+                    target_name=name, vehicle_number=vehicle,
+                    memo="기존 발급이력 자동 생성(발급자/일시 확인불가)",
+                ))
+            else:
+                db.add(models.CertificateNumberLog(
+                    year=yy, number=n, certificate_number=cert_number,
+                    status="issued", issued_by=None,
+                    memo="기존 발급이력 자동 생성(발급자/일시 확인불가, 실사용 여부 미확인)",
+                ))
+    db.commit()
+
+
+def list_certificate_number_logs(db: Session, search: str = None, status: str = None,
+                                  page: int = 1, limit: int = 50):
+    q = db.query(models.CertificateNumberLog)
+    if status and status != "all":
+        q = q.filter(models.CertificateNumberLog.status == status)
+    if search:
+        s = f"%{search.strip()}%"
+        q = q.filter(or_(
+            models.CertificateNumberLog.certificate_number.like(s),
+            models.CertificateNumberLog.target_name.like(s),
+            models.CertificateNumberLog.vehicle_number.like(s),
+        ))
+    total = q.count()
+    items = (q.order_by(models.CertificateNumberLog.year.desc(),
+                         models.CertificateNumberLog.number.desc())
+             .offset((page - 1) * limit).limit(limit).all())
+    return items, total
 
 
 
@@ -998,6 +1142,11 @@ def process_domestic_transfer(db: Session, *, transferor_member_id: int,
             db.refresh(transferee_member)
         if transferee_candidate:
             db.refresh(transferee_candidate)
+
+        cert_num = transfer_fields.get("certificate_number")
+        if cert_num:
+            sync_certificate_number_usage(db, cert_num, "transfer_ledger", ledger.id,
+                                           transferee_name or "", transferor.vehicle_number or "")
 
         return {
             "ok": True,

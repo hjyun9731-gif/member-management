@@ -13,9 +13,9 @@ SEARCH = ["name", "vehicle_number", "phone", "mobile", "certificate_number", "re
 
 
 @router.post("/issue-certificate-number")
-async def issue_certificate_number(db: Session = Depends(get_db), _=Depends(get_current_user)):
+async def issue_certificate_number(db: Session = Depends(get_db), user=Depends(get_current_user)):
     """자격증명발급번호 자동 채번 (YY-N). 예정자/도내양도 등록 화면 공통 사용."""
-    return {"certificate_number": crud.get_next_certificate_number(db)}
+    return {"certificate_number": crud.get_next_certificate_number(db, issued_by=user.username)}
 
 
 @router.get("")
@@ -59,7 +59,11 @@ async def get_candidate(cid: int, db: Session = Depends(get_db), _=Depends(get_c
 
 @router.post("")
 async def create_candidate(data: dict, db: Session = Depends(get_db), _=Depends(get_current_user)):
-    return _fmt(crud.create_item(db, models.Candidate, data))
+    item = crud.create_item(db, models.Candidate, data)
+    if item.certificate_number:
+        crud.sync_certificate_number_usage(db, item.certificate_number, "candidates", item.id,
+                                            item.name or "", item.vehicle_number or "")
+    return _fmt(item)
 
 
 @router.put("/{cid}")
@@ -67,7 +71,11 @@ async def update_candidate(cid: int, data: dict, db: Session = Depends(get_db), 
     item = crud.get_by_id(db, models.Candidate, cid)
     if not item:
         raise HTTPException(404, "예정자를 찾을 수 없습니다.")
-    return _fmt(crud.update_item(db, item, data))
+    item = crud.update_item(db, item, data)
+    if item.certificate_number:
+        crud.sync_certificate_number_usage(db, item.certificate_number, "candidates", item.id,
+                                            item.name or "", item.vehicle_number or "")
+    return _fmt(item)
 
 
 @router.delete("/{cid}")

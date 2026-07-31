@@ -134,20 +134,38 @@ function _bindCertIssueBtn(form, apiPath){
   const btn=form.querySelector('.cert-issue-btn');
   const inp=form.querySelector('.cert-num-fld');
   if(!btn||!inp) return;
-  btn.onclick=async()=>{
-    const cur=(inp.value||'').trim();
-    if(cur && !confirm(`이미 발급번호(${cur})가 있습니다. 새로 발급하시겠습니까?`)) return;
+  const _lockAsIssued=()=>{
     btn.disabled=true;
+    btn.textContent='이미 부여됨';
+  };
+  // 폼이 열릴 때 이미 값이 있으면(기존 데이터 수정 등) 바로 잠금 - 재발급 방지
+  if((inp.value||'').trim()) _lockAsIssued();
+  inp.addEventListener('input',()=>{
+    if((inp.value||'').trim()){
+      _lockAsIssued();
+    }else{
+      btn.disabled=false;
+      btn.textContent='발급번호 부여';
+    }
+  });
+  btn.onclick=async()=>{
+    if((inp.value||'').trim()) return; // 이중 클릭/이미 값 존재 시 무시
+    btn.disabled=true; // 요청 중 중복클릭 방지
+    btn.textContent='발급 중...';
     try{
-      const res=await api('POST',apiPath,{}).catch(e=>{throw e;});
+      const res=await api('POST',apiPath,{});
       if(res && res.certificate_number){
         inp.value=res.certificate_number;
         toast(`발급번호 ${res.certificate_number} 부여됨`);
+        _lockAsIssued();
+      }else{
+        btn.disabled=false;
+        btn.textContent='발급번호 부여';
       }
     }catch(e){
       toast('발급번호 부여 실패: '+((e&&e.message)||'서버 오류'),'err');
-    }finally{
       btn.disabled=false;
+      btn.textContent='발급번호 부여';
     }
   };
 }
@@ -1914,6 +1932,22 @@ async function renderUpload(){
         <div class="card-hd"><div class="card-hd-l"><span class="card-ico">📊</span><span class="card-ttl">최근 업로드 이력</span></div></div>
         <div id="upHist"><div class="loading-box"><div class="spin"></div></div></div>
       </div>
+      ${isAdmin()?`<div class="card" style="grid-column:1/-1">
+        <div class="card-hd"><div class="card-hd-l"><span class="card-ico">🔖</span><span class="card-ttl">자격증명발급번호 발급 이력 관리</span></div></div>
+        <div class="card-bd">
+          <div class="flex gap-8" style="margin-bottom:10px">
+            <input class="srch" id="cnSrch" placeholder="발급번호, 대상자명, 차량번호 검색">
+            <select class="fc" id="cnStatusF" style="max-width:140px">
+              <option value="">전체 상태</option>
+              <option value="issued">발급(미사용)</option>
+              <option value="used">사용중</option>
+              <option value="cancelled">취소</option>
+            </select>
+            <button class="btn bp btn-sm" id="cnSrchBtn">조회</button>
+          </div>
+          <div id="cnTbl"><div class="loading-box"><div class="spin"></div></div></div>
+        </div>
+      </div>`:''}
     </div>
     <div id="prvWrap" style="margin-top:12px"></div>`;
 
@@ -1958,6 +1992,56 @@ async function renderUpload(){
       if(r){toast(`${fileType} 삭제 완료: ${r.deleted_total}건`,'info');loadHist();}
     }catch(e){toast('삭제 실패','error');}
   };
+
+  const STATUS_LBL={issued:'<span class="badge b-yellow">발급(미사용)</span>',used:'<span class="badge b-sky">사용중</span>',cancelled:'<span class="badge b-gray">취소</span>'};
+  const loadCertLogs=async()=>{
+    if(!isAdmin()||!document.getElementById('cnTbl'))return;
+    const search=document.getElementById('cnSrch').value.trim();
+    const status=document.getElementById('cnStatusF').value;
+    const q=new URLSearchParams({limit:100,...(search?{search}:{}),...(status?{status}:{})});
+    const d=await api('GET',`/api/admin/certificate-numbers?${q}`).catch(()=>null);
+    const box=document.getElementById('cnTbl');
+    if(!d||!d.items||!d.items.length){box.innerHTML=`<div class="empty-box"><div class="empty-ico">🔖</div><p class="empty-txt">이력 없음</p></div>`;return;}
+    box.innerHTML=`<div class="tbl-wrap"><table><thead><tr>
+      <th>관리번호</th><th>부여일자</th><th>발급자</th><th>대상자명</th><th>차량번호</th><th>상태</th><th>비고</th><th>처리</th>
+      </tr></thead><tbody>${d.items.map(it=>`<tr>
+        <td style="font-weight:700">${e_(it.certificate_number)}</td>
+        <td style="font-size:11px;color:var(--c-text-3)">${(it.issued_at||'-').slice(0,16)}</td>
+        <td>${e_(it.issued_by||'-')}</td>
+        <td>${e_(it.target_name||'-')}</td>
+        <td>${e_(it.vehicle_number||'-')}</td>
+        <td>${STATUS_LBL[it.status]||it.status}</td>
+        <td style="font-size:11px;color:var(--c-text-3);max-width:160px;overflow:hidden;text-overflow:ellipsis" title="${e_(it.memo||'')}">${e_(it.memo||'')}</td>
+        <td style="white-space:nowrap">
+          ${it.status==='issued'?`<button class="btn br btn-xs" onclick="cancelCertNum('${e_(it.certificate_number)}')">취소</button>`:''}
+          ${it.status==='cancelled'?`<button class="btn bo btn-xs" onclick="reactivateCertNum('${e_(it.certificate_number)}')">취소해제</button>`:''}
+          ${it.status==='used'?`<span style="font-size:11px;color:var(--c-text-4)">사용중(취소불가)</span>`:''}
+        </td>
+      </tr>`).join('')}</tbody></table></div>
+      <div style="font-size:11px;color:var(--c-text-3);margin-top:6px">총 ${d.total}건 · 최근 100건 표시</div>`;
+  };
+  window.cancelCertNum=async(num)=>{
+    if(!await cfm(`관리번호 ${num}를 취소 처리합니다.\n번호 자체는 재사용되지 않으며, 다음 발급 번호에는 영향을 주지 않습니다.\n계속하시겠습니까?`))return;
+    try{
+      await api('POST',`/api/admin/certificate-numbers/${encodeURIComponent(num)}/cancel`,{memo:'관리자 수동 취소'});
+      toast(`${num} 취소 처리됨`,'info');
+      loadCertLogs();
+    }catch(e){toast('취소 실패: '+((e&&e.message)||'서버 오류'),'error');}
+  };
+  window.reactivateCertNum=async(num)=>{
+    if(!await cfm(`${num} 취소를 해제하시겠습니까?`))return;
+    try{
+      await api('POST',`/api/admin/certificate-numbers/${encodeURIComponent(num)}/reactivate`);
+      toast(`${num} 취소 해제됨`,'info');
+      loadCertLogs();
+    }catch(e){toast('처리 실패','error');}
+  };
+  if(document.getElementById('cnSrchBtn')){
+    document.getElementById('cnSrchBtn').onclick=()=>loadCertLogs();
+    document.getElementById('cnSrch').addEventListener('keydown',ev=>{if(ev.key==='Enter')loadCertLogs();});
+    document.getElementById('cnStatusF').onchange=()=>loadCertLogs();
+    loadCertLogs();
+  }
 
   if(isAdmin()&&document.getElementById('resetAllBtn')){
     document.getElementById('resetAllBtn').onclick=async()=>{

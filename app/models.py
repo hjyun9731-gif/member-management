@@ -4,6 +4,27 @@ from datetime import datetime
 from app.database import Base
 
 
+class CertificateNumberLog(Base):
+    """자격증명발급번호 발급 이력 - 발급/취소 상태 관리 및 관리자 화면용.
+    번호 자체는 절대 재사용하지 않고(카운터는 그대로 증가), 이 로그의 status만 바꿔
+    '취소'로 표시한다 (실제 삭제하지 않음).
+    """
+    __tablename__ = "certificate_number_logs"
+    id = Column(Integer, primary_key=True, index=True)
+    year = Column(Integer, index=True)                 # 26
+    number = Column(Integer)                            # 314
+    certificate_number = Column(String(20), unique=True, index=True)  # "26-314"
+    status = Column(String(20), default="issued")       # issued(발급만 됨) / used(사용중) / cancelled(취소)
+    issued_at = Column(DateTime(timezone=True), server_default=func.now())
+    issued_by = Column(String(50))
+    linked_table = Column(String(50))                    # candidates / transfer_ledger / license_holders 등
+    linked_id = Column(Integer)
+    target_name = Column(String(100))
+    vehicle_number = Column(String(50))
+    memo = Column(String(300))
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
 class CertificateNumberCounter(Base):
     """자격증명발급번호(YY-N) 채번 카운터 - 연도별로 마지막 발급 번호를 영구 보관.
     레코드가 삭제/수정되어도 이 카운터는 그대로 유지되므로 번호가 재사용되지 않는다.

@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 
 from app.database import get_db
 from app.auth import require_admin
-from app import models
+from app import models, crud
 
 router = APIRouter()
 
@@ -2752,3 +2752,53 @@ async def duplicate_management_numbers(db: Session = Depends(get_db), _=Depends(
         "transfer_ledger_duplicates": tl_dups,
         "note": "이 목록은 조회 전용입니다. 삭제/병합은 별도 확인 후 수동으로 처리해야 합니다.",
     }
+
+
+@router.get("/certificate-numbers")
+async def list_certificate_number_logs(search: str = None, status: str = None,
+                                        page: int = 1, limit: int = 50,
+                                        db: Session = Depends(get_db), _=Depends(require_admin)):
+    """자격증명발급번호 발급 이력 조회 (관리자 전용).
+    관리번호(발급번호)/부여일자/대상자명/차량번호/상태(issued=발급만/used=사용중/cancelled=취소)
+    """
+    items, total = crud.list_certificate_number_logs(db, search=search, status=status,
+                                                       page=page, limit=limit)
+    return {
+        "items": [{
+            "certificate_number": it.certificate_number,
+            "issued_at": it.issued_at.isoformat() if it.issued_at else None,
+            "issued_by": it.issued_by,
+            "status": it.status,
+            "target_name": it.target_name,
+            "vehicle_number": it.vehicle_number,
+            "linked_table": it.linked_table,
+            "linked_id": it.linked_id,
+            "memo": it.memo,
+        } for it in items],
+        "total": total,
+        "page": page,
+        "limit": limit,
+    }
+
+
+@router.post("/certificate-numbers/{certificate_number}/cancel")
+async def cancel_certificate_number(certificate_number: str, data: dict = None,
+                                     db: Session = Depends(get_db), _=Depends(require_admin)):
+    """잘못 발급된 자격증명발급번호를 '취소' 상태로 표시 (실제 삭제/재사용 안 함, 다음 번호에 영향 없음)."""
+    memo = (data or {}).get("memo", "")
+    try:
+        crud.cancel_certificate_number(db, certificate_number, memo=memo)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "certificate_number": certificate_number, "status": "cancelled"}
+
+
+@router.post("/certificate-numbers/{certificate_number}/reactivate")
+async def reactivate_certificate_number(certificate_number: str,
+                                         db: Session = Depends(get_db), _=Depends(require_admin)):
+    """취소 처리를 되돌림 (실수로 취소한 경우)."""
+    try:
+        crud.reactivate_certificate_number(db, certificate_number)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "certificate_number": certificate_number, "status": "issued"}
