@@ -477,7 +477,7 @@ def backfill_certificate_number_logs(db: Session):
 
 
 def list_certificate_number_logs(db: Session, search: str = None, status: str = None,
-                                  page: int = 1, limit: int = 50):
+                                  page: int = 1, limit: int = 50, sort: str = "desc"):
     q = db.query(models.CertificateNumberLog)
     if status and status != "all":
         q = q.filter(models.CertificateNumberLog.status == status)
@@ -489,8 +489,9 @@ def list_certificate_number_logs(db: Session, search: str = None, status: str = 
             models.CertificateNumberLog.vehicle_number.like(s),
         ))
     total = q.count()
-    items = (q.order_by(models.CertificateNumberLog.year.desc(),
-                         models.CertificateNumberLog.number.desc())
+    order = (models.CertificateNumberLog.year.asc(), models.CertificateNumberLog.number.asc()) \
+        if sort == "asc" else (models.CertificateNumberLog.year.desc(), models.CertificateNumberLog.number.desc())
+    items = (q.order_by(*order)
              .offset((page - 1) * limit).limit(limit).all())
     return items, total
 

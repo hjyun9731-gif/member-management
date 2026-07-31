@@ -1935,8 +1935,12 @@ async function renderUpload(){
       ${isAdmin()?`<div class="card" style="grid-column:1/-1">
         <div class="card-hd"><div class="card-hd-l"><span class="card-ico">🔖</span><span class="card-ttl">자격증명발급번호 발급 이력 관리</span></div></div>
         <div class="card-bd">
-          <div class="flex gap-8" style="margin-bottom:10px">
+          <div class="flex gap-8" style="margin-bottom:10px;flex-wrap:wrap">
             <input class="srch" id="cnSrch" placeholder="발급번호, 대상자명, 차량번호 검색">
+            <select class="fc" id="cnSort" style="max-width:150px">
+              <option value="desc">관리번호 내림차순</option>
+              <option value="asc">관리번호 오름차순</option>
+            </select>
             <select class="fc" id="cnStatusF" style="max-width:140px">
               <option value="">전체 상태</option>
               <option value="issued">발급(미사용)</option>
@@ -1998,7 +2002,8 @@ async function renderUpload(){
     if(!isAdmin()||!document.getElementById('cnTbl'))return;
     const search=document.getElementById('cnSrch').value.trim();
     const status=document.getElementById('cnStatusF').value;
-    const q=new URLSearchParams({limit:100,...(search?{search}:{}),...(status?{status}:{})});
+    const sort=document.getElementById('cnSort').value;
+    const q=new URLSearchParams({limit:100,sort,...(search?{search}:{}),...(status?{status}:{})});
     const d=await api('GET',`/api/admin/certificate-numbers?${q}`).catch(()=>null);
     const box=document.getElementById('cnTbl');
     if(!d||!d.items||!d.items.length){box.innerHTML=`<div class="empty-box"><div class="empty-ico">🔖</div><p class="empty-txt">이력 없음</p></div>`;return;}
@@ -2039,6 +2044,7 @@ async function renderUpload(){
   if(document.getElementById('cnSrchBtn')){
     document.getElementById('cnSrchBtn').onclick=()=>loadCertLogs();
     document.getElementById('cnSrch').addEventListener('keydown',ev=>{if(ev.key==='Enter')loadCertLogs();});
+    document.getElementById('cnSort').onchange=()=>loadCertLogs();
     document.getElementById('cnStatusF').onchange=()=>loadCertLogs();
     loadCertLogs();
   }

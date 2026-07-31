@@ -2756,13 +2756,13 @@ async def duplicate_management_numbers(db: Session = Depends(get_db), _=Depends(
 
 @router.get("/certificate-numbers")
 async def list_certificate_number_logs(search: str = None, status: str = None,
-                                        page: int = 1, limit: int = 50,
+                                        page: int = 1, limit: int = 50, sort: str = "desc",
                                         db: Session = Depends(get_db), _=Depends(require_admin)):
     """자격증명발급번호 발급 이력 조회 (관리자 전용).
     관리번호(발급번호)/부여일자/대상자명/차량번호/상태(issued=발급만/used=사용중/cancelled=취소)
     """
     items, total = crud.list_certificate_number_logs(db, search=search, status=status,
-                                                       page=page, limit=limit)
+                                                       page=page, limit=limit, sort=sort)
     return {
         "items": [{
             "certificate_number": it.certificate_number,
