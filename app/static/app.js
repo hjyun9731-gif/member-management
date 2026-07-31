@@ -1947,33 +1947,6 @@ async function renderUpload(){
           </div>
           <div id="cnTbl"><div class="loading-box"><div class="spin"></div></div></div>
         </div>
-      </div>
-      <div class="card" style="grid-column:1/-1">
-        <div class="card-hd"><div class="card-hd-l"><span class="card-ico">📋</span><span class="card-ttl">관리번호 부여 목록</span><span class="cnt" id="mnCnt">0건</span></div></div>
-        <div class="card-bd">
-          <div class="flex gap-8" style="margin-bottom:8px;flex-wrap:wrap">
-            <input class="srch" id="mnSrch" placeholder="관리번호, 성명, 차량번호 검색">
-            <select class="fc" id="mnSort" style="max-width:150px">
-              <option value="desc">관리번호 내림차순</option>
-              <option value="asc">관리번호 오름차순</option>
-            </select>
-            <select class="fc" id="mnStatusF" style="max-width:150px">
-              <option value="active">사용중+발급(취소제외)</option>
-              <option value="all">전체(취소 포함)</option>
-              <option value="cancelled">취소만</option>
-            </select>
-            <button class="btn bp btn-sm" id="mnSrchBtn">조회</button>
-          </div>
-          <div class="flex gap-8" style="margin-bottom:10px;flex-wrap:wrap;align-items:center">
-            <button class="btn br btn-sm" id="mnBulkCancelBtn" disabled>선택 일괄취소 (<span id="mnSelCnt">0</span>)</button>
-            <span style="color:var(--c-text-3);font-size:12px">|</span>
-            <span style="font-size:12.5px">최근 발급된</span>
-            <input class="fc" id="mnLastN" type="number" min="1" value="20" style="width:70px">
-            <span style="font-size:12.5px">건 일괄취소</span>
-            <button class="btn br btn-sm" id="mnLastNCancelBtn">일괄취소</button>
-          </div>
-          <div id="mnTbl"><div class="loading-box"><div class="spin"></div></div></div>
-        </div>
       </div>`:''}
     </div>
     <div id="prvWrap" style="margin-top:12px"></div>`;
@@ -2068,102 +2041,6 @@ async function renderUpload(){
     document.getElementById('cnSrch').addEventListener('keydown',ev=>{if(ev.key==='Enter')loadCertLogs();});
     document.getElementById('cnStatusF').onchange=()=>loadCertLogs();
     loadCertLogs();
-  }
-
-  // ===== 관리번호 부여 목록 (registry - 현재 부여된 관리번호를 관리하는 화면. 발급 이력과 별개) =====
-  const mnSelected=new Set();
-  const mnNavigate=(linkedTable,linkedId)=>{
-    if(!linkedId)return;
-    closeModal();
-    if(linkedTable==='candidates') window.editCandidate(linkedId);
-    else if(linkedTable==='transfer_ledger') window.viewTransfer(linkedId);
-    else if(linkedTable==='license_holders') window.viewMember(linkedId);
-  };
-  const mnUpdateBulkBtn=()=>{
-    const btn=document.getElementById('mnBulkCancelBtn');
-    const cnt=document.getElementById('mnSelCnt');
-    if(!btn||!cnt)return;
-    cnt.textContent=mnSelected.size;
-    btn.disabled=mnSelected.size===0;
-  };
-  const loadMgmtRegistry=async()=>{
-    if(!isAdmin()||!document.getElementById('mnTbl'))return;
-    const search=document.getElementById('mnSrch').value.trim();
-    const sort=document.getElementById('mnSort').value;
-    const status=document.getElementById('mnStatusF').value;
-    mnSelected.clear();mnUpdateBulkBtn();
-    const q=new URLSearchParams({limit:200,sort,...(search?{search}:{}),...(status?{status}:{})});
-    const d=await api('GET',`/api/admin/certificate-numbers?${q}`).catch(()=>null);
-    const box=document.getElementById('mnTbl');
-    const cntEl=document.getElementById('mnCnt');
-    if(cntEl) cntEl.textContent=`${(d&&d.total)||0}건`;
-    if(!d||!d.items||!d.items.length){box.innerHTML=`<div class="empty-box"><div class="empty-ico">📋</div><p class="empty-txt">부여된 관리번호 없음</p></div>`;return;}
-    box.innerHTML=`<div class="tbl-wrap"><table><thead><tr>
-      <th style="width:28px"><input type="checkbox" id="mnSelAll"></th>
-      <th>관리번호</th><th>성명</th><th>차량번호</th><th>구분</th><th>부여일자</th><th>발급자</th><th>상태</th><th>비고</th><th>처리</th>
-      </tr></thead><tbody>${d.items.map(it=>`<tr>
-        <td><input type="checkbox" class="mnChk" data-num="${e_(it.certificate_number)}" ${it.status==='cancelled'?'disabled':''}></td>
-        <td style="font-weight:700"><a class="tbl-link" onclick="void(0)" data-nav-table="${e_(it.linked_table||'')}" data-nav-id="${it.linked_id||''}">${e_(it.certificate_number)}</a></td>
-        <td>${e_(it.target_name||'-')}</td>
-        <td>${e_(it.vehicle_number||'-')}</td>
-        <td><span class="badge b-gray" style="font-size:10px">${e_(it.linked_type_label||'-')}</span></td>
-        <td style="font-size:11px;color:var(--c-text-3)">${(it.issued_at||'-').slice(0,16)}</td>
-        <td>${e_(it.issued_by||'-')}</td>
-        <td>${STATUS_LBL[it.status]||it.status}</td>
-        <td style="font-size:11px;color:var(--c-text-3);max-width:140px;overflow:hidden;text-overflow:ellipsis" title="${e_(it.memo||'')}">${e_(it.memo||'')}</td>
-        <td style="white-space:nowrap">
-          ${it.status==='issued'?`<button class="btn br btn-xs" onclick="cancelCertNum('${e_(it.certificate_number)}')">취소</button>`:''}
-          ${it.status==='cancelled'?`<button class="btn bo btn-xs" onclick="reactivateCertNum('${e_(it.certificate_number)}')">취소해제</button>`:''}
-          ${it.status==='used'?`<span style="font-size:11px;color:var(--c-text-4)">사용중(취소불가)</span>`:''}
-        </td>
-      </tr>`).join('')}</tbody></table></div>`;
-    box.querySelectorAll('[data-nav-id]').forEach(a=>{
-      const lt=a.getAttribute('data-nav-table'), lid=a.getAttribute('data-nav-id');
-      if(!lid){a.style.cursor='default';a.style.color='inherit';a.style.textDecoration='none';return;}
-      a.onclick=()=>mnNavigate(lt,Number(lid));
-    });
-    box.querySelectorAll('.mnChk').forEach(cb=>{
-      cb.onchange=()=>{
-        const num=cb.dataset.num;
-        if(cb.checked) mnSelected.add(num); else mnSelected.delete(num);
-        mnUpdateBulkBtn();
-      };
-    });
-    const selAll=document.getElementById('mnSelAll');
-    if(selAll) selAll.onchange=()=>{
-      box.querySelectorAll('.mnChk:not(:disabled)').forEach(cb=>{
-        cb.checked=selAll.checked;
-        if(selAll.checked) mnSelected.add(cb.dataset.num); else mnSelected.delete(cb.dataset.num);
-      });
-      mnUpdateBulkBtn();
-    };
-  };
-  if(document.getElementById('mnSrchBtn')){
-    document.getElementById('mnSrchBtn').onclick=()=>loadMgmtRegistry();
-    document.getElementById('mnSrch').addEventListener('keydown',ev=>{if(ev.key==='Enter')loadMgmtRegistry();});
-    document.getElementById('mnSort').onchange=()=>loadMgmtRegistry();
-    document.getElementById('mnStatusF').onchange=()=>loadMgmtRegistry();
-    document.getElementById('mnBulkCancelBtn').onclick=async()=>{
-      const numbers=[...mnSelected];
-      if(!numbers.length)return;
-      if(!await cfm(`선택한 ${numbers.length}건을 일괄 취소합니다.\n이미 사용 중인 번호는 자동으로 건너뜁니다.\n계속하시겠습니까?`))return;
-      const r=await api('POST','/api/admin/certificate-numbers/bulk-cancel',{numbers,memo:'관리자 일괄 취소(선택)'}).catch(e=>{toast('일괄취소 실패: '+((e&&e.message)||'서버 오류'),'err');return null;});
-      if(r){
-        toast(`취소 ${r.cancelled_count}건 완료${r.skipped_count?`, 건너뜀 ${r.skipped_count}건(사용중/이미취소)`:''}`,'info');
-        loadMgmtRegistry();
-      }
-    };
-    document.getElementById('mnLastNCancelBtn').onclick=async()=>{
-      const n=Number(document.getElementById('mnLastN').value)||0;
-      if(n<1){toast('건수를 입력하세요','warn');return;}
-      if(!await cfm(`발급(미사용) 상태 중 가장 최근 ${n}건을 일괄 취소합니다.\n이미 사용 중인 번호는 자동으로 건너뜁니다.\n계속하시겠습니까?`))return;
-      const r=await api('POST','/api/admin/certificate-numbers/bulk-cancel',{last_n:n,memo:'관리자 일괄 취소(최근N건)'}).catch(e=>{toast('일괄취소 실패: '+((e&&e.message)||'서버 오류'),'err');return null;});
-      if(r){
-        toast(`취소 ${r.cancelled_count}건 완료${r.skipped_count?`, 건너뜀 ${r.skipped_count}건(사용중/이미취소)`:''}`,'info');
-        loadMgmtRegistry();
-      }
-    };
-    loadMgmtRegistry();
   }
 
   if(isAdmin()&&document.getElementById('resetAllBtn')){

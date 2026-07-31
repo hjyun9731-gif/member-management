@@ -476,57 +476,10 @@ def backfill_certificate_number_logs(db: Session):
     db.commit()
 
 
-def bulk_cancel_certificate_numbers(db: Session, numbers: list = None, last_n: int = None,
-                                     memo: str = "") -> dict:
-    """관리번호(자격증명발급번호) 여러 건을 한 번에 취소 처리.
-    - numbers가 주어지면 해당 번호들만 대상으로 함
-    - last_n이 주어지면 취소되지 않은(issued) 상태 중 가장 최근 발급된 N건을 대상으로 함
-    - 이미 실제 자료에서 사용 중인 번호는 건너뛰고 사유를 반환 (다른 번호 취소에는 영향 없음)
-    - 번호 자체는 재사용되지 않으며, 채번 카운터는 변경하지 않음
-    """
-    targets = []
-    if numbers:
-        targets = list(dict.fromkeys(numbers))  # 순서 유지, 중복 제거
-    elif last_n:
-        rows = (db.query(models.CertificateNumberLog)
-                .filter(models.CertificateNumberLog.status == "issued")
-                .order_by(models.CertificateNumberLog.year.desc(),
-                          models.CertificateNumberLog.number.desc())
-                .limit(last_n).all())
-        targets = [r.certificate_number for r in rows]
-    else:
-        raise ValueError("취소할 번호 목록(numbers) 또는 last_n 중 하나는 필요합니다.")
-
-    cancelled, skipped = [], []
-    for num in targets:
-        usage = _scan_certificate_number_usage(db, num)
-        if usage:
-            skipped.append({"number": num, "reason": f"{usage[0]}에서 사용 중 (대상: {usage[2] or usage[1]})"})
-            continue
-        log = db.query(models.CertificateNumberLog).filter(
-            models.CertificateNumberLog.certificate_number == num).first()
-        if not log:
-            skipped.append({"number": num, "reason": "발급 이력을 찾을 수 없음"})
-            continue
-        if log.status == "cancelled":
-            skipped.append({"number": num, "reason": "이미 취소됨"})
-            continue
-        log.status = "cancelled"
-        if memo:
-            log.memo = memo
-        cancelled.append(num)
-
-    db.commit()
-    return {"cancelled": cancelled, "skipped": skipped,
-            "cancelled_count": len(cancelled), "skipped_count": len(skipped)}
-
-
 def list_certificate_number_logs(db: Session, search: str = None, status: str = None,
-                                  page: int = 1, limit: int = 50, sort: str = "desc"):
+                                  page: int = 1, limit: int = 50):
     q = db.query(models.CertificateNumberLog)
-    if status == "active":
-        q = q.filter(models.CertificateNumberLog.status != "cancelled")
-    elif status and status != "all":
+    if status and status != "all":
         q = q.filter(models.CertificateNumberLog.status == status)
     if search:
         s = f"%{search.strip()}%"
@@ -536,9 +489,8 @@ def list_certificate_number_logs(db: Session, search: str = None, status: str = 
             models.CertificateNumberLog.vehicle_number.like(s),
         ))
     total = q.count()
-    order = (models.CertificateNumberLog.year.asc(), models.CertificateNumberLog.number.asc()) \
-        if sort == "asc" else (models.CertificateNumberLog.year.desc(), models.CertificateNumberLog.number.desc())
-    items = (q.order_by(*order)
+    items = (q.order_by(models.CertificateNumberLog.year.desc(),
+                         models.CertificateNumberLog.number.desc())
              .offset((page - 1) * limit).limit(limit).all())
     return items, total
 
