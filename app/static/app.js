@@ -758,7 +758,6 @@ async function renderMember(category){
           <span class="card-ttl">${category}회원</span><span class="cnt" id="mCnt">0건</span></div>
         <div class="flex gap-8">
           <button class="btn bg btn-sm" id="mAddBtn">+ 등록</button>
-          <button class="btn bo btn-sm" id="mIssueMgmtBtn">🔢 관리번호 발급</button>
           <button class="btn bxl btn-sm" id="mXlBtn">엑셀 다운로드</button>
         </div>
       </div>
@@ -777,7 +776,6 @@ async function renderMember(category){
         <input class="srch" id="${key}Srch" placeholder="성명, 차량번호, 주소, 자격번호" value="${e_(f.search||'')}">
         <button class="btn bp btn-sm" id="${key}SrchBtn">조회</button>
         <button class="btn bo btn-sm" id="${key}RstBtn">초기화</button>
-        <button class="btn bo btn-sm" id="${key}PendBtn" title="회원정보 입력 전, 관리번호만 발급된 항목">🔢 발급대기</button>
       </div>
       <div id="${key}Tbl"><div class="loading-box"><div class="spin"></div></div></div>
     </div>`;
@@ -789,14 +787,12 @@ async function renderMember(category){
     {label:'차종'},{label:'유종'},{label:'주소'},{label:'관리',noSort:true}
   ];
 
-  let showPending=false;
   const doSearch=async(pg=1)=>{
     const rawSort = document.getElementById(`${key}SortF`)?.value || 'default';
     // 이전 캐시에서 'desc'/'asc' 값이 남아있으면 'default'로 변환
     const member_sort_val = (rawSort==='desc'||rawSort==='asc') ? 'default' : rawSort;
     ST.fl[key]={category,region:document.getElementById(`${key}RegF`).value,membership_status:document.getElementById(`${key}MemF`).value,member_sort:member_sort_val,search:document.getElementById(`${key}Srch`).value.trim()};
     const params={...ST.fl[key]};
-    if(showPending) params.status='pending';
     const q=new URLSearchParams({page:pg,limit:50,...Object.fromEntries(Object.entries(params).filter(([,v])=>v))});
     const d=await api('GET',`/api/members?${q}`).catch(()=>null);if(!d)return;
     _sts('mCnt',`${d.total.toLocaleString()}건`);
@@ -833,15 +829,7 @@ async function renderMember(category){
   document.getElementById(`${key}SrchBtn`).onclick=()=>doSearch(1);
   document.getElementById(`${key}Srch`).onkeydown=e=>{if(e.key==='Enter')doSearch(1);};
   document.getElementById(`${key}RstBtn`).onclick=()=>{ST.fl[key]={};renderMember(category);};
-  document.getElementById(`${key}PendBtn`).onclick=()=>{
-    showPending=!showPending;
-    const btn=document.getElementById(`${key}PendBtn`);
-    btn.classList.toggle('active',showPending);
-    btn.textContent=showPending?'🔢 발급대기 (조회중)':'🔢 발급대기';
-    doSearch(1);
-  };
   document.getElementById('mAddBtn').onclick=()=>editMember(null,category);
-  document.getElementById('mIssueMgmtBtn').onclick=()=>openIssueMgmtNumberModal(category, doSearch);
   document.getElementById('mXlBtn').onclick=()=>{
     const q=new URLSearchParams({category,...Object.fromEntries(Object.entries(ST.fl[key]||{}).filter(([k,v])=>v&&k!=='category'))});
     dl(`/api/members/export/excel?${q}`,`${category}회원.xlsx`);
@@ -856,42 +844,6 @@ window.togglePin=async(id,el)=>{
   const ok=await api('PATCH',`/api/members/${id}/pin`,{pinned:next}).catch(()=>null);
   if(!ok){el.classList.toggle('pinned',wasPinned);toast('고정 상태 변경 실패','err');return;}
   el.title=next?'클릭하여 해제':'클릭하여 고정';
-};
-
-window.openIssueMgmtNumberModal=async(category,onDone)=>{
-  const last=await api('GET','/api/members/last-management-number').catch(()=>null);
-  const lastNew=last?.new||'없음', lastTr=last?.transfer||'없음';
-  openModal('관리번호 발급',`
-    <div class="info-box" style="margin-bottom:10px;font-size:12.5px;line-height:1.8">
-      마지막 발급된 관리번호<br>
-      신규: <strong>${e_(lastNew)}</strong> · 양도양수: <strong>${e_(lastTr)}</strong>
-    </div>
-    <div class="fi cs2" style="margin-bottom:10px"><label>발급 유형</label>
-      <div class="transfer-register-options">
-        <label><input type="radio" name="_imType" value="new" checked>신규</label>
-        <label><input type="radio" name="_imType" value="transfer">양도양수</label>
-      </div>
-    </div>
-    <div id="_imResult" style="font-size:13px"></div>`,
-    `<button class="btn bg btn-sm" id="_imIssueBtn">발급</button><button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`);
-  document.getElementById('_imIssueBtn').onclick=async()=>{
-    const type=document.querySelector('input[name="_imType"]:checked')?.value||'new';
-    const btn=document.getElementById('_imIssueBtn');
-    btn.disabled=true;
-    const res=await api('POST','/api/members/issue-management-number',{type,category}).catch(()=>null);
-    btn.disabled=false;
-    if(!res) return;
-    document.getElementById('_imResult').innerHTML=`
-      <div class="info-box" style="background:var(--c-pri-bg,#eef6ff)">
-        관리번호 <strong>${e_(res.management_number)}</strong>가 발급되었습니다.
-        <div class="flex gap-8 mt8">
-          <button class="btn bg btn-sm" id="_imFillNow">지금 정보입력</button>
-        </div>
-      </div>`;
-    document.getElementById('_imFillNow').onclick=()=>{closeModal();editMember(res.id,category);};
-    toast(`관리번호 ${res.management_number} 발급됨`);
-    if(onDone) onDone(1);
-  };
 };
 
 window.editMember=async(id,defaultCat='개인')=>{
