@@ -2756,13 +2756,16 @@ async def duplicate_management_numbers(db: Session = Depends(get_db), _=Depends(
 
 @router.get("/certificate-numbers")
 async def list_certificate_number_logs(search: str = None, status: str = None,
-                                        page: int = 1, limit: int = 50,
+                                        page: int = 1, limit: int = 50, sort: str = "desc",
                                         db: Session = Depends(get_db), _=Depends(require_admin)):
-    """자격증명발급번호 발급 이력 조회 (관리자 전용).
+    """자격증명발급번호(관리번호) 발급 이력 조회 (관리자 전용).
     관리번호(발급번호)/부여일자/대상자명/차량번호/상태(issued=발급만/used=사용중/cancelled=취소)
     """
     items, total = crud.list_certificate_number_logs(db, search=search, status=status,
-                                                       page=page, limit=limit)
+                                                       page=page, limit=limit, sort=sort)
+    _LINKED_LABEL = {
+        "candidates": "예정자", "transfer_ledger": "양도양수", "license_holders": "회원",
+    }
     return {
         "items": [{
             "certificate_number": it.certificate_number,
@@ -2772,6 +2775,7 @@ async def list_certificate_number_logs(search: str = None, status: str = None,
             "target_name": it.target_name,
             "vehicle_number": it.vehicle_number,
             "linked_table": it.linked_table,
+            "linked_type_label": _LINKED_LABEL.get(it.linked_table, it.linked_table or "-"),
             "linked_id": it.linked_id,
             "memo": it.memo,
         } for it in items],
@@ -2779,6 +2783,26 @@ async def list_certificate_number_logs(search: str = None, status: str = None,
         "page": page,
         "limit": limit,
     }
+
+
+@router.post("/certificate-numbers/bulk-cancel")
+async def bulk_cancel_certificate_numbers(data: dict = None,
+                                           db: Session = Depends(get_db), _=Depends(require_admin)):
+    """관리번호 여러 건 일괄 취소 (관리자 전용).
+    data: {"numbers": ["26-314", "26-313", ...]} 또는 {"last_n": 20}
+    이미 실제 자료에서 사용 중인 번호는 건너뛰고, 나머지만 취소 처리한다.
+    """
+    data = data or {}
+    numbers = data.get("numbers")
+    last_n = data.get("last_n")
+    memo = data.get("memo", "관리자 일괄 취소")
+    if not numbers and not last_n:
+        raise HTTPException(400, "numbers 또는 last_n 중 하나는 필요합니다.")
+    try:
+        result = crud.bulk_cancel_certificate_numbers(db, numbers=numbers, last_n=last_n, memo=memo)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, **result}
 
 
 @router.post("/certificate-numbers/{certificate_number}/cancel")
