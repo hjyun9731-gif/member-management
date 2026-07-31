@@ -1998,15 +1998,25 @@ async function renderUpload(){
   };
 
   const STATUS_LBL={issued:'<span class="badge b-yellow">발급(미사용)</span>',used:'<span class="badge b-sky">사용중</span>',cancelled:'<span class="badge b-gray">취소</span>'};
-  const loadCertLogs=async()=>{
+  let cnPage=1;
+  const CN_PAGE_SIZE=100;
+  const loadCertLogs=async(page)=>{
     if(!isAdmin()||!document.getElementById('cnTbl'))return;
+    if(page) cnPage=page;
     const search=document.getElementById('cnSrch').value.trim();
     const status=document.getElementById('cnStatusF').value;
     const sort=document.getElementById('cnSort').value;
-    const q=new URLSearchParams({limit:100,sort,...(search?{search}:{}),...(status?{status}:{})});
+    const q=new URLSearchParams({limit:CN_PAGE_SIZE,page:cnPage,sort,...(search?{search}:{}),...(status?{status}:{})});
     const d=await api('GET',`/api/admin/certificate-numbers?${q}`).catch(()=>null);
     const box=document.getElementById('cnTbl');
-    if(!d||!d.items||!d.items.length){box.innerHTML=`<div class="empty-box"><div class="empty-ico">🔖</div><p class="empty-txt">이력 없음</p></div>`;return;}
+    if(!d||!d.items||!d.items.length){
+      box.innerHTML=`<div class="empty-box"><div class="empty-ico">🔖</div><p class="empty-txt">이력 없음</p></div>`;
+      return;
+    }
+    const totalPages=Math.max(1,Math.ceil(d.total/CN_PAGE_SIZE));
+    if(cnPage>totalPages){cnPage=totalPages;return loadCertLogs();}
+    const startNo=(cnPage-1)*CN_PAGE_SIZE+1;
+    const endNo=startNo+d.items.length-1;
     box.innerHTML=`<div class="tbl-wrap"><table><thead><tr>
       <th>관리번호</th><th>부여일자</th><th>발급자</th><th>대상자명</th><th>차량번호</th><th>상태</th><th>비고</th><th>처리</th>
       </tr></thead><tbody>${d.items.map(it=>`<tr>
@@ -2023,8 +2033,14 @@ async function renderUpload(){
           ${it.status==='used'?`<span style="font-size:11px;color:var(--c-text-4)">사용중(취소불가)</span>`:''}
         </td>
       </tr>`).join('')}</tbody></table></div>
-      <div style="font-size:11px;color:var(--c-text-3);margin-top:6px">총 ${d.total}건 · 최근 100건 표시</div>`;
+      <div class="flex gap-8" style="align-items:center;margin-top:6px;font-size:11px;color:var(--c-text-3)">
+        <span>총 ${d.total}건 · ${startNo}~${endNo}번째 표시 (${cnPage}/${totalPages}페이지)</span>
+        <button class="btn bo btn-xs" ${cnPage<=1?'disabled':''} onclick="_cnPrevPage()">◀ 이전</button>
+        <button class="btn bo btn-xs" ${cnPage>=totalPages?'disabled':''} onclick="_cnNextPage()">다음 ▶</button>
+      </div>`;
   };
+  window._cnPrevPage=()=>{if(cnPage>1)loadCertLogs(cnPage-1);};
+  window._cnNextPage=()=>{loadCertLogs(cnPage+1);};
   window.cancelCertNum=async(num)=>{
     if(!await cfm(`관리번호 ${num}를 취소 처리합니다.\n번호 자체는 재사용되지 않으며, 다음 발급 번호에는 영향을 주지 않습니다.\n계속하시겠습니까?`))return;
     try{
@@ -2042,11 +2058,11 @@ async function renderUpload(){
     }catch(e){toast('처리 실패','error');}
   };
   if(document.getElementById('cnSrchBtn')){
-    document.getElementById('cnSrchBtn').onclick=()=>loadCertLogs();
-    document.getElementById('cnSrch').addEventListener('keydown',ev=>{if(ev.key==='Enter')loadCertLogs();});
-    document.getElementById('cnSort').onchange=()=>loadCertLogs();
-    document.getElementById('cnStatusF').onchange=()=>loadCertLogs();
-    loadCertLogs();
+    document.getElementById('cnSrchBtn').onclick=()=>loadCertLogs(1);
+    document.getElementById('cnSrch').addEventListener('keydown',ev=>{if(ev.key==='Enter')loadCertLogs(1);});
+    document.getElementById('cnSort').onchange=()=>loadCertLogs(1);
+    document.getElementById('cnStatusF').onchange=()=>loadCertLogs(1);
+    loadCertLogs(1);
   }
 
   if(isAdmin()&&document.getElementById('resetAllBtn')){
