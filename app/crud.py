@@ -526,14 +526,38 @@ def get_next_new_member_number(db: Session) -> str:
 
 
 def get_next_transfer_member_number(db: Session) -> str:
-    """양YY-N (양도양수 회원)"""
+    """양YY-N (양도양수 회원).
+    LicenseHolder(정식 회원)와 Candidate(예정자) 양쪽 모두에서 이미 발급된
+    관리번호를 조회하여 최댓값 + 1을 반환한다. 예정자로 등록된 양수자도
+    관리번호를 실제로 점유하므로, 두 테이블을 모두 봐야 중복 발급을 막을 수 있다.
+    """
     yy = _get_yy()
     prefix = f"양{yy}-"
-    items = db.query(models.LicenseHolder).filter(
+    lh_items = db.query(models.LicenseHolder).filter(
         models.LicenseHolder.management_number.like(f"{prefix}%"),
         models.LicenseHolder.deleted_at.is_(None)
     ).all()
-    return f"{prefix}{_max_suffix(items, prefix) + 1}"
+    cand_items = db.query(models.Candidate).filter(
+        models.Candidate.management_number.like(f"{prefix}%"),
+        models.Candidate.deleted_at.is_(None)
+    ).all()
+    max_n = max(_max_suffix(lh_items, prefix), _max_suffix(cand_items, prefix))
+    return f"{prefix}{max_n + 1}"
+
+
+def _mgmt_number_in_use(db: Session, mgmt_num: str) -> bool:
+    """관리번호가 LicenseHolder 또는 Candidate 어느 쪽에서든 이미 사용 중인지 확인
+    (양도양수 관리번호는 두 테이블에 걸쳐 발급되므로 양쪽 다 체크해야 함)."""
+    if not mgmt_num:
+        return False
+    if check_mgmt_dup(db, models.LicenseHolder, mgmt_num):
+        return True
+    if db.query(models.Candidate).filter(
+        models.Candidate.management_number == mgmt_num,
+        models.Candidate.deleted_at.is_(None),
+    ).first() is not None:
+        return True
+    return False
 
 
 def lock_transfer_number_sequence(db: Session):
@@ -556,6 +580,7 @@ def lock_transfer_number_sequence(db: Session):
 def get_last_issued_management_number(db: Session, mgmt_type: str) -> Optional[str]:
     """현재까지 발급된 마지막 관리번호 조회 (신규: 신YY-N, 양도양수: 양YY-N).
     삭제되지 않은 레코드 기준 최댓값. 아직 발급된 적 없으면 None.
+    양도양수(양YY-N)는 LicenseHolder와 Candidate(예정자) 양쪽에서 발급되므로 함께 조회한다.
     """
     yy = _get_yy()
     prefix = f"{'신' if mgmt_type == 'new' else '양'}{yy}-"
@@ -564,6 +589,12 @@ def get_last_issued_management_number(db: Session, mgmt_type: str) -> Optional[s
         models.LicenseHolder.deleted_at.is_(None)
     ).all()
     n = _max_suffix(items, prefix)
+    if mgmt_type != 'new':
+        cand_items = db.query(models.Candidate).filter(
+            models.Candidate.management_number.like(f"{prefix}%"),
+            models.Candidate.deleted_at.is_(None)
+        ).all()
+        n = max(n, _max_suffix(cand_items, prefix))
     return f"{prefix}{n}" if n > 0 else None
 
 
@@ -580,7 +611,8 @@ def issue_management_number_only(db: Session, mgmt_type: str,
     # 방어적 재확인 (advisory lock이 동작하지 않는 환경 대비 최종 방어선)
     tries = 0
     prefix = f"{'신' if mgmt_type == 'new' else '양'}{_get_yy()}-"
-    while check_mgmt_dup(db, models.LicenseHolder, mgmt) and tries < 30:
+    _dup_check = check_mgmt_dup if mgmt_type == 'new' else (lambda db_, model_, m: _mgmt_number_in_use(db_, m))
+    while _dup_check(db, models.LicenseHolder, mgmt) and tries < 30:
         try:
             n = int(mgmt.split("-")[1]) + 1
         except Exception:
@@ -699,42 +731,54 @@ def register_candidate_as_member(db: Session, candidate_id: int,
         db.add(member)
         db.flush()
 
-        # ── 관리번호가 '양'으로 시작하면 양도양수대장에도 자동 생성 ──
+        # ── 관리번호가 '양'으로 시작하면 양도양수대장 연결 ──
         mgmt_clean = (management_number or "").strip()
         if mgmt_clean.startswith("양"):
-            dup_ledger = db.query(models.TransferLedger).filter(
+            existing_ledger = db.query(models.TransferLedger).filter(
                 models.TransferLedger.management_number == mgmt_clean,
                 models.TransferLedger.deleted_at.is_(None),
             ).first()
-            if dup_ledger:
-                raise ValueError(f"양도양수대장에 관리번호 {mgmt_clean} 기록이 이미 존재합니다.")
-            ledger = models.TransferLedger(
-                management_number=mgmt_clean,
-                receipt_date="",
-                region=cand.region or "",
-                vehicle_number=cand.vehicle_number or "",
-                transferor="",                      # 양도자 정보 없음 - 빈칸
-                transferee=cand.name or "",
-                resident_number=cand.resident_number or "",
-                address=cand.address or "",
-                phone=cand.phone or "",
-                mobile=cand.mobile or "",
-                approval_date=approval_date or "",
-                membership_date=final_membership_date or "",
-                certificate_issue_date=cand.certificate_issue_date or "",
-                certificate_number=cand.certificate_number or "",
-                driver_license_number=cand.driver_license_number or "",
-                memo=cand.memo or "",
-                vehicle_type=cand.vehicle_type or "",
-                fuel_type=cand.fuel_type or "",
-                affiliated_company=cand.affiliated_company or "",
-                transferor_member_id=None,           # 양도자 정보 없음 - null 허용
-                transferee_member_id=member.id,
-                member_id=member.id,
-            )
-            db.add(ledger)
-            db.flush()
-            member.transfer_ledger_id = ledger.id
+            if existing_ledger:
+                # 도내 양도양수 등록 시 이미 생성된 대장 기록 (예정자 단계) - 새로 만들지 않고
+                # 회원 등록완료 정보로 갱신/연결만 한다. 한 거래당 대장 기록은 항상 1건이어야 함.
+                if existing_ledger.transferee_member_id and existing_ledger.transferee_member_id != member.id:
+                    raise ValueError(f"양도양수대장 관리번호 {mgmt_clean} 기록이 다른 회원과 이미 연결되어 있습니다.")
+                existing_ledger.transferee_member_id = member.id
+                existing_ledger.member_id = member.id
+                existing_ledger.transferee = cand.name or existing_ledger.transferee
+                existing_ledger.approval_date = approval_date or existing_ledger.approval_date
+                existing_ledger.membership_date = final_membership_date or existing_ledger.membership_date
+                db.flush()
+                member.transfer_ledger_id = existing_ledger.id
+                ledger = existing_ledger
+            else:
+                ledger = models.TransferLedger(
+                    management_number=mgmt_clean,
+                    receipt_date="",
+                    region=cand.region or "",
+                    vehicle_number=cand.vehicle_number or "",
+                    transferor="",                      # 양도자 정보 없음 - 빈칸
+                    transferee=cand.name or "",
+                    resident_number=cand.resident_number or "",
+                    address=cand.address or "",
+                    phone=cand.phone or "",
+                    mobile=cand.mobile or "",
+                    approval_date=approval_date or "",
+                    membership_date=final_membership_date or "",
+                    certificate_issue_date=cand.certificate_issue_date or "",
+                    certificate_number=cand.certificate_number or "",
+                    driver_license_number=cand.driver_license_number or "",
+                    memo=cand.memo or "",
+                    vehicle_type=cand.vehicle_type or "",
+                    fuel_type=cand.fuel_type or "",
+                    affiliated_company=cand.affiliated_company or "",
+                    transferor_member_id=None,           # 양도자 정보 없음 - null 허용
+                    transferee_member_id=member.id,
+                    member_id=member.id,
+                )
+                db.add(ledger)
+                db.flush()
+                member.transfer_ledger_id = ledger.id
 
             # ── 폐업현황에도 '양도' 기록 생성 (양도자를 내부 회원으로 특정할 수 없으므로
             #    member_id는 null, 양도자 성명 등도 확보된 정보가 없으므로 빈칸으로 둔다.
@@ -1004,12 +1048,6 @@ def process_domestic_transfer(db: Session, *, transferor_member_id: int,
         if transferor.status == "closed":
             raise ValueError("이미 폐업 처리된 회원입니다.")
 
-        # ── 관리번호 발급 (동시성 잠금) ──
-        lock_transfer_number_sequence(db)
-        mgmt = management_number or get_next_transfer_member_number(db)
-        if check_mgmt_dup(db, models.LicenseHolder, mgmt):
-            raise ValueError(f"관리번호 {mgmt}가 이미 존재합니다. 다시 시도해주세요.")
-
         closure_mgmt = get_next_closure_number(db, "양도")
         if check_mgmt_dup(db, models.Closure, closure_mgmt):
             raise ValueError(f"폐업현황 관리번호 {closure_mgmt}가 이미 존재합니다. 다시 시도해주세요.")
@@ -1017,6 +1055,7 @@ def process_domestic_transfer(db: Session, *, transferor_member_id: int,
         # ── 1) 양수자 결정: 기존 회원/예정자 연결 or 신규 생성 ──
         transferee_member = None
         transferee_candidate = None
+        mgmt = None  # 신규 생성 시에만 관리번호를 발급/점유한다 (기존 연결 시에는 새 번호를 쓰지 않음)
 
         if link_existing_id and link_existing_type == "member":
             if link_existing_id == transferor_member_id:
@@ -1024,12 +1063,19 @@ def process_domestic_transfer(db: Session, *, transferor_member_id: int,
             transferee_member = get_by_id(db, models.LicenseHolder, link_existing_id)
             if not transferee_member:
                 raise ValueError("연결할 기존 회원을 찾을 수 없습니다.")
+            mgmt = transferee_member.management_number or None
         elif link_existing_id and link_existing_type == "candidate":
             transferee_candidate = get_by_id(db, models.Candidate, link_existing_id)
             if not transferee_candidate:
                 raise ValueError("연결할 기존 예정자를 찾을 수 없습니다.")
+            mgmt = getattr(transferee_candidate, 'management_number', None) or None
         else:
-            # 신규 생성
+            # 신규 생성 - 관리번호 발급 (동시성 잠금, 최댓값+1, 중복 재확인)
+            lock_transfer_number_sequence(db)
+            mgmt = management_number or get_next_transfer_member_number(db)
+            if _mgmt_number_in_use(db, mgmt):
+                raise ValueError(f"관리번호 {mgmt}가 이미 존재합니다. 다시 시도해주세요.")
+
             name = (transferee_fields.get("name") or "").strip()
             if not name:
                 raise ValueError("양수자 성명을 입력하세요.")
@@ -1051,6 +1097,7 @@ def process_domestic_transfer(db: Session, *, transferor_member_id: int,
                     affiliated_company=transfer_fields.get("affiliated_company") or transferor.affiliated_company or "",
                     membership_date=transfer_fields.get("membership_date") or "",
                     memo=transfer_fields.get("memo") or "",
+                    management_number=mgmt,
                 )
                 db.add(transferee_candidate)
                 db.flush()
@@ -1091,7 +1138,7 @@ def process_domestic_transfer(db: Session, *, transferor_member_id: int,
 
         # ── 2) 양도양수대장 등록 ──
         ledger = models.TransferLedger(
-            management_number=mgmt if transferee_member else "",
+            management_number=mgmt or "",
             receipt_date=receipt_date or "",
             region=transferee_fields.get("region") or transferor.region,
             vehicle_number=transferor.vehicle_number,
@@ -1151,7 +1198,7 @@ def process_domestic_transfer(db: Session, *, transferor_member_id: int,
 
         return {
             "ok": True,
-            "management_number": mgmt if transferee_member else None,
+            "management_number": mgmt or None,
             "closure_management_number": closure_mgmt,
             "transfer_ledger_id": ledger.id,
             "closure_id": closure.id,

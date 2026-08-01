@@ -115,6 +115,7 @@ class Candidate(Base):
     business_number = Column(String(50))
     affiliated_company = Column(String(200))
     membership_date = Column(String(50))          # 가입일자 (있으면 가입, 없으면 미가입)
+    management_number = Column(String(50), index=True)  # 도내 양도양수로 예정자 등록 시 부여된 관리번호(양YY-N)
     memo = Column(Text)
     is_registered = Column(Boolean, default=False)
     member_id = Column(Integer, nullable=True)

@@ -560,7 +560,7 @@ async def register_member(tid: int, body: RegisterMemberBody,
     # 관리번호 동시발급 방지: advisory lock 획득 후 번호 생성/중복확인/저장까지 한 트랜잭션에서 처리
     crud.lock_transfer_number_sequence(db)
     mgmt = body.management_number or crud.get_next_transfer_member_number(db)
-    if crud.check_mgmt_dup(db, models.LicenseHolder, mgmt):
+    if crud.check_mgmt_dup(db, models.LicenseHolder, mgmt) or crud._mgmt_number_in_use(db, mgmt):
         raise HTTPException(400, f"관리번호 {mgmt}가 이미 존재합니다.")
     member = crud.register_transfer_as_member(db, tid, mgmt)
     return {"ok": True, "management_number": mgmt, "member_id": member.id, "category": member.category}

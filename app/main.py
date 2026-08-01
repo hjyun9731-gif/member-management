@@ -89,6 +89,9 @@ def _run_migrations():
         ("deleted_at",            "glosign_documents","DATETIME"),
         # member_edit_logs
         ("change_type",           "member_edit_logs", "VARCHAR(50)"),
+        # 관리번호 중복발급 버그 수정: 예정자(candidate)로 등록되는 양수자도
+        # 관리번호를 실제로 저장해야 다음 발급 시 최댓값 계산에 반영됨
+        ("management_number",     "candidates",       "VARCHAR(50)"),
     ]
 
     for col_name, table_name, col_type in new_cols:
@@ -217,6 +220,7 @@ def _add_management_number_unique_index():
     try:
         _check_and_create("license_holders", "uq_license_holders_mgmt_active")
         _check_and_create("transfer_ledger", "uq_transfer_ledger_mgmt_active")
+        _check_and_create("candidates", "uq_candidates_mgmt_active")
     except Exception as e:
         logger.warning(f"관리번호 UNIQUE 인덱스 처리 경고 (무시): {e}")
 
