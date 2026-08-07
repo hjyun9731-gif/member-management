@@ -278,6 +278,22 @@ static_dir = os.path.join(os.path.dirname(__file__), "static")
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 
+@app.get("/sw.js")
+def service_worker():
+    # 루트 경로(/sw.js)로 제공해야 서비스워커 scope가 전체 앱(/)을 포함한다.
+    # (/static/sw.js로 등록하면 기본 scope가 /static/ 이하로 제한됨)
+    return FileResponse(
+        os.path.join(static_dir, "sw.js"),
+        media_type="application/javascript",
+        headers={"Service-Worker-Allowed": "/", "Cache-Control": "no-cache"},
+    )
+
+
+@app.get("/manifest.json")
+def pwa_manifest():
+    return FileResponse(os.path.join(static_dir, "manifest.json"), media_type="application/manifest+json")
+
+
 @app.on_event("startup")
 async def startup():
     # startup에서는 최소 작업만 (Healthcheck 즉시 통과 필요)

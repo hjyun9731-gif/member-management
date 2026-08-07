@@ -1,0 +1,18 @@
+{
+  "name": "강원도 개인소형화물협회 업무관리 시스템",
+  "short_name": "협회 업무관리",
+  "description": "강원특별자치도개인소형화물자동차운송사업협회 회원관리·인허가·보고/집계 업무관리 시스템",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#F5F6FA",
+  "theme_color": "#5E6AD2",
+  "lang": "ko",
+  "dir": "ltr",
+  "icons": [
+    { "src": "/static/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/static/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/static/icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

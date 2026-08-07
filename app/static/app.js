@@ -1,5 +1,36 @@
 ﻿// ===== 강원도 개인소형화물협회 업무관리 시스템 v6 =====
 
+// PWA: 서비스워커 등록 (지원 브라우저에서만, 실패해도 앱 동작에는 영향 없음)
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}
+
+// PWA: 설치 가능 시 "앱 설치" 버튼 노출
+let _pwaDeferredPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  _pwaDeferredPrompt = e;
+  const btn = document.getElementById('pwaInstallBtn');
+  if (btn) btn.style.display = '';
+});
+window.addEventListener('appinstalled', () => {
+  _pwaDeferredPrompt = null;
+  const btn = document.getElementById('pwaInstallBtn');
+  if (btn) btn.style.display = 'none';
+});
+document.addEventListener('DOMContentLoaded', () => {
+  const btn = document.getElementById('pwaInstallBtn');
+  if (btn) btn.addEventListener('click', async () => {
+    if (!_pwaDeferredPrompt) return;
+    _pwaDeferredPrompt.prompt();
+    await _pwaDeferredPrompt.userChoice.catch(() => {});
+    _pwaDeferredPrompt = null;
+    btn.style.display = 'none';
+  });
+});
+
 // null-safe 텍스트 설정 유틸
 function _sts(id, val) { const e = document.getElementById(id); if (e) e.textContent = val ?? ''; }
 
