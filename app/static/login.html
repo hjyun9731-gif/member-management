@@ -4,11 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>로그인 - 강원도 개인소형화물협회</title>
-  <link rel="manifest" href="/static/manifest.json">
+  <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#5E6AD2">
   <link rel="icon" href="/static/icons/favicon-32.png" sizes="32x32">
   <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="협회 업무관리">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -138,8 +139,16 @@
         navigator.serviceWorker.register('/sw.js').catch(() => {});
       });
     }
+    // PWA: standalone 실행 여부 검증 (화면에는 영향 없음 - 콘솔/디버그용)
+    (function () {
+      const mqStandalone = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
+      const iosStandalone = typeof navigator.standalone === 'boolean' ? navigator.standalone : null;
+      const isStandalone = mqStandalone || iosStandalone === true;
+      document.documentElement.setAttribute('data-pwa-standalone', isStandalone ? 'true' : 'false');
+      console.log('[PWA] standalone check →', { mqStandalone, iosStandalone, isStandalone });
+    })();
     if (localStorage.getItem('authToken')) {
-      window.location.href = '/';
+      window.location.replace('/');
     }
     document.getElementById('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -159,7 +168,7 @@
           localStorage.setItem('userRole', data.role);
           localStorage.setItem('userName', data.username);
           localStorage.setItem('userFullName', data.full_name || data.username);
-          window.location.href = '/';
+          window.location.replace('/');
         } else {
           const err = await res.json();
           errEl.textContent = err.detail || '로그인에 실패했습니다.';

@@ -31,6 +31,16 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
+// PWA: standalone 실행 여부 검증 (화면에는 영향 없음 - 콘솔/디버그용)
+// Android/Chrome/Edge/PC: display-mode 미디어쿼리, iOS Safari: navigator.standalone
+(function _pwaStandaloneCheck() {
+  const mqStandalone = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
+  const iosStandalone = typeof navigator.standalone === 'boolean' ? navigator.standalone : null;
+  const isStandalone = mqStandalone || iosStandalone === true;
+  document.documentElement.setAttribute('data-pwa-standalone', isStandalone ? 'true' : 'false');
+  console.log('[PWA] standalone check →', { mqStandalone, iosStandalone, isStandalone });
+})();
+
 // null-safe 텍스트 설정 유틸
 function _sts(id, val) { const e = document.getElementById(id); if (e) e.textContent = val ?? ''; }
 
@@ -98,7 +108,7 @@ async function dl(url,fn){
     a.click();URL.revokeObjectURL(a.href);
   }catch{toast('다운로드 오류','err');}
 }
-function logout(){['authToken','userRole','userName','userFullName'].forEach(k=>localStorage.removeItem(k));window.location.href='/login';}
+function logout(){['authToken','userRole','userName','userFullName'].forEach(k=>localStorage.removeItem(k));window.location.replace('/login');}
 function isAdmin(){return ST.user.role==='admin';}
 
 // ===== TOAST =====
@@ -2192,7 +2202,7 @@ async function renderUploadErrors(){
 
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded',()=>{
-  if(!localStorage.getItem('authToken')){window.location.href='/login';return;}
+  if(!localStorage.getItem('authToken')){window.location.replace('/login');return;}
   _loadChangeTypes();  // DB에서 실제 변경유형 목록 로드
   document.getElementById('hUser').textContent=`${ST.user.full||ST.user.name} (${ST.user.role==='admin'?'관리자':'직원'})`;
   document.getElementById('logoutBtn').onclick=()=>{if(window.confirm('로그아웃 하시겠습니까?'))logout();};

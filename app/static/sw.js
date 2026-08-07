@@ -9,7 +9,7 @@ const SHELL_FILES = [
   '/login',
   '/static/app.js',
   '/static/styles.css',
-  '/static/manifest.json',
+  '/manifest.json',
   '/static/icons/icon-192.png',
   '/static/icons/icon-512.png',
 ];
