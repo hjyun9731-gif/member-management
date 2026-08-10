@@ -323,7 +323,12 @@ def get_next_certificate_number(db: Session, issued_by: str = None) -> str:
     - advisory lock으로 동시 요청을 직렬화하여 중복 발급을 방지한다.
     - 발급할 때마다 certificate_number_logs에 이력을 남긴다 (관리 화면/취소 처리용).
       번호 자체는 취소되어도 재사용하지 않고 카운터는 그대로 유지된다.
+    - 카운터가 실제 사용된 최대값보다 뒤처져 있는 경우(예: 과거 데이터 정리/수동 편집으로
+      카운터와 로그가 어긋난 경우) 이미 사용 중인 번호와 충돌하면 500 에러로 죽지 않고
+      자동으로 다음 빈 번호까지 건너뛰어 스스로 복구한다.
     """
+    from sqlalchemy.exc import IntegrityError
+
     yy = datetime.now().year % 100
     lock_certificate_number_sequence(db)
 
@@ -347,16 +352,40 @@ def get_next_certificate_number(db: Session, issued_by: str = None) -> str:
         db.add(counter)
         db.flush()
 
-    counter.last_number += 1
-    next_n = counter.last_number
-    cert_number = f"{yy}-{next_n}"
+    tries = 0
+    while True:
+        tries += 1
+        counter.last_number += 1
+        next_n = counter.last_number
+        cert_number = f"{yy}-{next_n}"
 
-    db.add(models.CertificateNumberLog(
-        year=yy, number=next_n, certificate_number=cert_number,
-        status="issued", issued_by=issued_by,
-    ))
-    db.commit()
-    return cert_number
+        # 이미 로그에 존재하는 번호면(카운터-로그 불일치) 건너뛰고 다음 번호 시도.
+        # 매 시도마다 새로 조회해야 하며, DB UNIQUE 제약이 최종 방어선이므로
+        # 여기서 걸러도 INSERT 단계에서 다시 확인한다.
+        exists = db.query(models.CertificateNumberLog.id).filter(
+            models.CertificateNumberLog.certificate_number == cert_number
+        ).first()
+        if exists:
+            if tries > 500:
+                raise ValueError("자격증명발급번호 채번에 실패했습니다 (연속된 번호를 찾을 수 없음). 관리자에게 문의하세요.")
+            continue
+
+        db.add(models.CertificateNumberLog(
+            year=yy, number=next_n, certificate_number=cert_number,
+            status="issued", issued_by=issued_by,
+        ))
+        try:
+            db.commit()
+            return cert_number
+        except IntegrityError:
+            # 동시 요청 등으로 방금 사이에 다른 트랜잭션이 같은 번호를 선점한 경우
+            # (advisory lock으로 대부분 방지되지만, 락이 지원되지 않는 환경 대비 최종 방어선)
+            db.rollback()
+            counter = db.query(models.CertificateNumberCounter).filter(
+                models.CertificateNumberCounter.year == yy).first()
+            if tries > 500:
+                raise ValueError("자격증명발급번호 채번에 실패했습니다 (중복 충돌 반복). 관리자에게 문의하세요.")
+            continue
 
 
 def _scan_certificate_number_usage(db: Session, certificate_number: str):
