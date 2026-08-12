@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 import io, re, pandas as pd
+import uuid
 from datetime import datetime, timezone
 
 from app.database import get_db
@@ -90,6 +91,7 @@ def _field_out(r: "models.ReportFieldDef"):
     return {
         "id": r.id, "key": r.key, "label": r.label, "section": r.section,
         "field_type": r.field_type, "auto_path": r.auto_path,
+        "default_value": r.default_value,
         "display_order": r.display_order, "is_active": r.is_active,
         "is_printable": r.is_printable,
     }
@@ -107,9 +109,23 @@ def _resolve_path(data: dict, path: str):
     return cur
 
 
+def _base_key(key: str):
+    """xxx_month / xxx_cum 인 경우 접미사를 뗀 그룹 기준 key, 아니면 key 그대로."""
+    if key.endswith("_month"):
+        return key[:-6], "month"
+    if key.endswith("_cum"):
+        return key[:-4], "cum"
+    return key, "single"
+
+
+def _group_label(pair: dict):
+    f = pair.get("month") or pair.get("single") or pair.get("cum")
+    return re.sub(r"\s*(월계|\(건\)|누계)\s*$", "", f["label"] or "").strip()
+
+
 @router.get("/monthly-report/field-defs")
 async def list_report_field_defs(db: Session = Depends(get_db), _=Depends(get_current_user)):
-    """월례보고서 항목 목록 (관리 화면 + 보고서 화면 공용)"""
+    """월례보고서 항목 목록 (개발자/원본 API, 항목 관리 화면은 /field-defs/grouped 사용)"""
     _seed_default_report_fields(db)
     rows = db.query(models.ReportFieldDef).order_by(models.ReportFieldDef.display_order, models.ReportFieldDef.id).all()
     return [_field_out(r) for r in rows]
@@ -117,7 +133,7 @@ async def list_report_field_defs(db: Session = Depends(get_db), _=Depends(get_cu
 
 @router.post("/monthly-report/field-defs")
 async def create_report_field_def(data: dict, db: Session = Depends(get_db), _=Depends(require_admin)):
-    """월례보고서 항목 추가 (관리자 전용)"""
+    """월례보고서 항목 추가 (개발자용, key/auto_path 직접 지정)"""
     key = (data.get("key") or "").strip()
     if not key:
         raise HTTPException(400, "항목 key는 필수입니다")
@@ -129,6 +145,7 @@ async def create_report_field_def(data: dict, db: Session = Depends(get_db), _=D
     row = models.ReportFieldDef(
         key=key, label=data.get("label", key), section=data.get("section", "기타"),
         field_type=ftype, auto_path=data.get("auto_path"),
+        default_value=data.get("default_value"),
         display_order=data.get("display_order", 999),
         is_active=data.get("is_active", True), is_printable=data.get("is_printable", True))
     db.add(row)
@@ -139,11 +156,11 @@ async def create_report_field_def(data: dict, db: Session = Depends(get_db), _=D
 
 @router.put("/monthly-report/field-defs/{field_id}")
 async def update_report_field_def(field_id: int, data: dict, db: Session = Depends(get_db), _=Depends(require_admin)):
-    """월례보고서 항목 수정 (관리자 전용)"""
+    """월례보고서 항목 수정 (개발자용)"""
     row = db.query(models.ReportFieldDef).filter(models.ReportFieldDef.id == field_id).first()
     if not row:
         raise HTTPException(404, "항목을 찾을 수 없습니다")
-    for f in ["label", "section", "field_type", "auto_path", "display_order", "is_active", "is_printable"]:
+    for f in ["label", "section", "field_type", "auto_path", "default_value", "display_order", "is_active", "is_printable"]:
         if f in data:
             setattr(row, f, data[f])
     row.updated_at = datetime.now(timezone.utc)
@@ -154,7 +171,7 @@ async def update_report_field_def(field_id: int, data: dict, db: Session = Depen
 
 @router.delete("/monthly-report/field-defs/{field_id}")
 async def delete_report_field_def(field_id: int, db: Session = Depends(get_db), _=Depends(require_admin)):
-    """월례보고서 항목 삭제 (관리자 전용). 저장된 과거 보고서의 값 자체는 삭제하지 않음(custom_data에 그대로 남음)."""
+    """월례보고서 항목 삭제 (개발자용). 저장된 과거 보고서의 값 자체는 삭제하지 않음(custom_data에 그대로 남음)."""
     row = db.query(models.ReportFieldDef).filter(models.ReportFieldDef.id == field_id).first()
     if not row:
         raise HTTPException(404, "항목을 찾을 수 없습니다")
@@ -163,10 +180,145 @@ async def delete_report_field_def(field_id: int, db: Session = Depends(get_db), 
     return {"ok": True}
 
 
+# ------------------------------------------------------------------
+# 사용자용(비개발자) 항목 관리 API: key / auto_path / field_type을
+# 화면에 절대 노출하지 않고, "구역·항목명·월계·누계·사용여부"만으로 조작.
+# 내부적으로는 위의 ReportFieldDef를 (월계/누계) 한 쌍으로 묶어서 다룸.
+# ------------------------------------------------------------------
+
+def _group_out(month_f, cum_f, single_f):
+    """관리 화면에 보여줄 그룹 하나. 자동계산 하위항목은 default_value 편집 불가로 표시."""
+    rep = month_f or single_f or cum_f
+    return {
+        "base_key": _base_key(rep["key"])[0],
+        "label": _group_label({"month": month_f, "single": single_f, "cum": cum_f}),
+        "section": rep["section"],
+        "display_order": rep["display_order"],
+        "is_active": rep["is_active"],
+        "kind": "single" if single_f else "pair",
+        "editable": not ((month_f and month_f["field_type"] == "auto") or (single_f and single_f["field_type"] == "auto")),
+        "removable": not ((month_f and month_f["field_type"] == "auto") or (cum_f and cum_f["field_type"] == "auto") or (single_f and single_f["field_type"] == "auto")),
+        "month": {"value": month_f["default_value"] if month_f else None, "auto": month_f["field_type"] == "auto"} if month_f else None,
+        "cum": {"value": cum_f["default_value"] if cum_f else None, "auto": cum_f["field_type"] == "auto"} if cum_f else None,
+        "single": {"value": single_f["default_value"], "type": single_f["field_type"]} if single_f else None,
+    }
+
+
+@router.get("/monthly-report/field-defs/grouped")
+async def list_report_field_groups(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """비개발자용 항목 관리 화면 데이터. key/auto_path/field_type 노출하지 않음."""
+    _seed_default_report_fields(db)
+    rows = db.query(models.ReportFieldDef).order_by(models.ReportFieldDef.display_order, models.ReportFieldDef.id).all()
+    groups = {}
+    for r in rows:
+        out = _field_out(r)
+        base, suffix = _base_key(r.key)
+        g = groups.setdefault(base, {"month": None, "cum": None, "single": None, "order": r.display_order})
+        g[suffix] = out
+        g["order"] = min(g["order"], r.display_order)
+    result = []
+    for base, g in groups.items():
+        gg = _group_out(g["month"], g["cum"], g["single"])
+        gg["display_order"] = g["order"]
+        result.append(gg)
+    result.sort(key=lambda x: (x["display_order"], x["label"]))
+    sections = sorted({r.section for r in rows if r.section})
+    return {"groups": result, "sections": sections}
+
+
+@router.post("/monthly-report/field-defs/grouped")
+async def create_report_field_group(data: dict, db: Session = Depends(get_db), _=Depends(require_admin)):
+    """비개발자용 항목 추가: 구역 / 항목명 / 월계 기본값 / 누계 기본값 / 사용여부 만 입력받음.
+    key는 서버가 자동 생성."""
+    label = (data.get("label") or "").strip()
+    section = (data.get("section") or "").strip()
+    if not label:
+        raise HTTPException(400, "항목명을 입력해 주세요")
+    if not section:
+        raise HTTPException(400, "구역을 선택해 주세요")
+    is_active = data.get("is_active", True)
+    month_default = data.get("month_default", 0)
+    cum_default = data.get("cum_default", 0)
+
+    max_order = db.query(models.ReportFieldDef).order_by(models.ReportFieldDef.display_order.desc()).first()
+    base_order = (max_order.display_order + 10) if max_order else 100
+
+    base_key = f"custom_{uuid.uuid4().hex[:10]}"
+    m = models.ReportFieldDef(key=f"{base_key}_month", label=f"{label} 월계", section=section,
+                               field_type="number", default_value=str(month_default),
+                               display_order=base_order, is_active=is_active, is_printable=True)
+    c = models.ReportFieldDef(key=f"{base_key}_cum", label=f"{label} 누계", section=section,
+                               field_type="number", default_value=str(cum_default),
+                               display_order=base_order + 1, is_active=is_active, is_printable=True)
+    db.add(m)
+    db.add(c)
+    db.commit()
+    return {"ok": True, "base_key": base_key}
+
+
+@router.put("/monthly-report/field-defs/grouped/{base_key}")
+async def update_report_field_group(base_key: str, data: dict, db: Session = Depends(get_db), _=Depends(require_admin)):
+    """비개발자용 항목 수정: 항목명 / 구역 / 월계·누계 기본값(직접입력 항목만) / 순서 / 사용여부"""
+    rows = db.query(models.ReportFieldDef).filter(
+        (models.ReportFieldDef.key == f"{base_key}_month") |
+        (models.ReportFieldDef.key == f"{base_key}_cum") |
+        (models.ReportFieldDef.key == base_key)
+    ).all()
+    if not rows:
+        raise HTTPException(404, "항목을 찾을 수 없습니다")
+    by_suffix = {_base_key(r.key)[1]: r for r in rows}
+
+    label = data.get("label")
+    section = data.get("section")
+    is_active = data.get("is_active")
+    display_order = data.get("display_order")
+
+    for suffix, r in by_suffix.items():
+        if section is not None:
+            r.section = section
+        if is_active is not None:
+            r.is_active = is_active
+        if display_order is not None:
+            r.display_order = display_order + (1 if suffix == "cum" else 0)
+        if label is not None and r.field_type != "auto":
+            suf_label = {"month": " 월계", "cum": " 누계", "single": ""}[suffix]
+            r.label = f"{label}{suf_label}"
+        # 자동계산 하위항목은 기본값 편집 불가(항상 실시간 계산). 직접입력 항목만 기본값 변경.
+        if r.field_type != "auto":
+            if suffix == "month" and "month_default" in data:
+                r.default_value = str(data["month_default"])
+            if suffix == "cum" and "cum_default" in data:
+                r.default_value = str(data["cum_default"])
+            if suffix == "single" and "single_default" in data:
+                r.default_value = str(data["single_default"])
+        r.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    return {"ok": True}
+
+
+@router.delete("/monthly-report/field-defs/grouped/{base_key}")
+async def delete_report_field_group(base_key: str, db: Session = Depends(get_db), _=Depends(require_admin)):
+    """비개발자용 항목 삭제. 시스템 자동계산 항목(신규등록/양도양수 등 기본 제공 항목)은 삭제할 수 없고,
+    '사용 여부'를 꺼서 화면에서 숨기는 방식만 가능 - 데이터 무결성 보호 목적."""
+    rows = db.query(models.ReportFieldDef).filter(
+        (models.ReportFieldDef.key == f"{base_key}_month") |
+        (models.ReportFieldDef.key == f"{base_key}_cum") |
+        (models.ReportFieldDef.key == base_key)
+    ).all()
+    if not rows:
+        raise HTTPException(404, "항목을 찾을 수 없습니다")
+    if any(r.field_type == "auto" for r in rows):
+        raise HTTPException(400, "기본 제공(자동계산) 항목은 삭제할 수 없습니다. '사용 여부'를 꺼서 숨겨주세요.")
+    for r in rows:
+        db.delete(r)
+    db.commit()
+    return {"ok": True}
+
+
 @router.get("/monthly-report/full")
 async def monthly_report_full(year: int = Query(...), month: int = Query(...),
                                db: Session = Depends(get_db), _=Depends(get_current_user)):
-    """월례_업무현황_보고서.html 양식용 통합 데이터: 항목정의 + 자동집계값 + 저장된 직접입력값"""
+    """월례_업무현황_보고서.html 양식용 통합 데이터: 항목정의 + 자동집계값 + 저장된 직접수정값(있으면 최우선)"""
     _seed_default_report_fields(db)
     fields = db.query(models.ReportFieldDef).filter(models.ReportFieldDef.is_active == True) \
         .order_by(models.ReportFieldDef.display_order, models.ReportFieldDef.id).all()
@@ -182,11 +334,14 @@ async def monthly_report_full(year: int = Query(...), month: int = Query(...),
 
     field_list = []
     for f in fields:
-        if f.field_type == "auto":
+        if f.key in manual_values:
+            # 사용자가 직접 수정/저장한 값이 있으면 자동계산이든 아니든 그 값을 최우선으로 사용
+            val = manual_values.get(f.key)
+        elif f.field_type == "auto":
             val = _resolve_path(auto_data, f.auto_path or "")
         else:
-            val = manual_values.get(f.key, "")
-        field_list.append({**_field_out(f), "value": val})
+            val = f.default_value if f.default_value is not None else ""
+        field_list.append({**_field_out(f), "value": val, "is_overridden": f.key in manual_values})
 
     return {
         "year": year, "month": month,
@@ -208,12 +363,11 @@ async def monthly_report_full(year: int = Query(...), month: int = Query(...),
 async def save_monthly_report_full(year: int = Query(...), month: int = Query(...),
                                     data: dict = None, db: Session = Depends(get_db),
                                     _=Depends(get_current_user)):
-    """직접입력 항목 + 작성자/확인자/기준일 저장. 자동계산 항목은 저장 대상에서 제외."""
+    """모든 항목(자동계산 포함) 직접수정 값 + 작성자/확인자/기준일 저장.
+    한 번 저장된 값은 자동계산이 다시 실행되어도 덮어쓰지 않고 그 값을 그대로 유지한다."""
     data = data or {}
     values = data.get("values", {}) or {}
     meta = data.get("meta", {}) or {}
-
-    field_defs = {f.key: f for f in db.query(models.ReportFieldDef).all()}
 
     entry = db.query(models.MonthlyReportEntry).filter(
         models.MonthlyReportEntry.year == year, models.MonthlyReportEntry.month == month
@@ -224,9 +378,6 @@ async def save_monthly_report_full(year: int = Query(...), month: int = Query(..
 
     merged = dict(entry.custom_data or {})
     for k, v in values.items():
-        fd = field_defs.get(k)
-        if fd and fd.field_type == "auto":
-            continue  # 자동계산 항목은 저장하지 않음 (항상 실시간 재계산)
         merged[k] = v
     if "writer" in meta:
         merged["_writer"] = meta["writer"]

@@ -289,6 +289,7 @@ class ReportFieldDef(Base):
     section = Column(String(100))                          # 예: "1. 허가 및 회원 현황"
     field_type = Column(String(20), default="text")        # number/amount/text/longtext/table/auto
     auto_path = Column(String(200))                        # field_type='auto'일 때, 자동집계 JSON 경로 (예: "member_stats.total")
+    default_value = Column(String(200))                     # 사용자가 값을 한 번도 저장하지 않았을 때 표시할 기본값 (직접입력 항목용)
     display_order = Column(Integer, default=0)
     is_active = Column(Boolean, default=True)
     is_printable = Column(Boolean, default=True)
