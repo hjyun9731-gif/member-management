@@ -92,6 +92,8 @@ def _run_migrations():
         # 관리번호 중복발급 버그 수정: 예정자(candidate)로 등록되는 양수자도
         # 관리번호를 실제로 저장해야 다음 발급 시 최댓값 계산에 반영됨
         ("management_number",     "candidates",       "VARCHAR(50)"),
+        # 월례보고서 항목 관리: 직접입력 항목의 기본값(월계/누계 초기 표시값)
+        ("default_value",         "report_field_defs","VARCHAR(200)"),
     ]
 
     for col_name, table_name, col_type in new_cols:
