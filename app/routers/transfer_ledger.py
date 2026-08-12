@@ -330,7 +330,22 @@ async def update_transfer(tid: int, data: dict, db: Session = Depends(get_db), _
     t = crud.get_by_id(db, models.TransferLedger, tid)
     if not t:
         raise HTTPException(404, "양도양수 기록을 찾을 수 없습니다.")
-    return _fmt(crud.update_item(db, t, data))
+    try:
+        t = crud.update_transfer_ledger_synced(db, t, data)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        logger.exception("양도양수대장 수정 실패")
+        raise HTTPException(500, f"양도양수대장 수정 중 오류가 발생했습니다: {e}")
+    return _fmt(t)
+
+
+@router.post("/backfill-certificate-sync")
+async def backfill_certificate_sync(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """기존 데이터 소급 반영: 대장에는 자격증명발급번호가 있지만 연결된 회원/예정자
+    레코드에는 반영되지 않은 건을 동기화 (여러 번 실행해도 안전, 값이 이미 있는 대상은 유지)."""
+    result = crud.backfill_transfer_certificate_sync(db)
+    return result
 
 
 @router.delete("/{tid}")

@@ -1286,6 +1286,7 @@ async function renderTransferLedger(){
           <button class="btn bg btn-sm" id="tlAddBtn">+ 등록</button>
           ${isAdmin()?`<button class="btn bo btn-sm" id="tlRelinkBtn" title="양도자/양수자 회원 ID 연결 자동 복구">🔗 연결복구</button>`:''}
           ${isAdmin()?`<button class="btn bo btn-sm" id="tlMissingBtn" title="관리번호 양YY-N 회원 중 대장 누락건 찾기/복구">🧩 누락대장 복구</button>`:''}
+          ${isAdmin()?`<button class="btn bo btn-sm" id="tlCertSyncBtn" title="대장에 나중에 입력한 자격증명발급번호를 연결된 회원/예정자에 소급 반영">🪪 발급번호 동기화</button>`:''}
           <button class="btn bxl btn-sm" id="tlXlBtn">엑셀 다운로드</button>
         </div>
       </div>
@@ -1352,6 +1353,14 @@ async function renderTransferLedger(){
   if(relinkBtn) relinkBtn.onclick=()=>bulkRelinkTransfers();
   const missingBtn=document.getElementById('tlMissingBtn');
   if(missingBtn) missingBtn.onclick=()=>openMissingTransferLedgerModal(doSearch);
+  const certSyncBtn=document.getElementById('tlCertSyncBtn');
+  if(certSyncBtn) certSyncBtn.onclick=async()=>{
+    if(!confirm('양도양수대장에 입력된 자격증명발급번호를 연결된 회원/예정자 정보에 소급 반영합니다. 계속할까요?'))return;
+    certSyncBtn.disabled=true; certSyncBtn.textContent='처리 중...';
+    const res=await api('POST','/api/transfer-ledger/backfill-certificate-sync',{}).catch(e=>{toast('처리 실패: '+((e&&e.message)||'서버 오류'),'err');return null;});
+    if(res){toast(`대상 ${res.scanned}건 중 회원 ${res.updated_members}건 / 예정자 ${res.updated_candidates}건 동기화`);await doSearch(1);}
+    certSyncBtn.disabled=false; certSyncBtn.textContent='🪪 발급번호 동기화';
+  };
   document.getElementById('tlXlBtn').onclick=()=>{
     const q=new URLSearchParams(Object.fromEntries(Object.entries(ST.fl.tl||{}).filter(([,v])=>v)));
     dl(`/api/transfer-ledger/export/excel?${q}`,'양도양수대장.xlsx');

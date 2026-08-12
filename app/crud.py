@@ -295,6 +295,165 @@ def update_item(db: Session, db_item, data: dict):
     return db_item
 
 
+def update_transfer_ledger_synced(db: Session, ledger: "models.TransferLedger", data: dict) -> "models.TransferLedger":
+    """양도양수대장 수정 - 자격증명발급번호(및 발급일자/운전면허번호)가 바뀌면
+    회원정보 ↔ 양도양수대장 ↔ 자격증명발급번호/관리번호 ↔ 보고집계가 서로 어긋나지
+    않도록 동일 대상자(양수자)의 회원(LicenseHolder) 또는 예정자(Candidate) 레코드에도
+    같은 값을 반영하고, 발급이력(CertificateNumberLog)을 최종 실사용 대상으로 연결한다.
+
+    - 이미 다른 대상이 사용 중인 번호로 변경하려는 경우 차단한다 (동일 대상자로의
+      변경/재저장은 허용).
+    - 문자열만 수정하는 것이 아니라, transferee_member_id/member_id (이미 회원 등록된 경우)
+      또는 management_number로 매칭되는 미등록 예정자(Candidate) 레코드까지 함께 갱신한다.
+    실패 시 예외를 던지며, 그 시점까지의 변경은 커밋하지 않는다(rollback).
+    """
+    try:
+        old_cert = (ledger.certificate_number or "").strip()
+        new_cert_raw = data.get("certificate_number", None)
+        cert_changing = new_cert_raw is not None and str(new_cert_raw).strip() != old_cert
+        new_cert = str(new_cert_raw).strip() if cert_changing else old_cert
+
+        if cert_changing and new_cert:
+            usage = _scan_certificate_number_usage(db, new_cert)
+            if usage:
+                tname, lid, uname, uvehicle = usage
+                same_target = (
+                    (tname == "transfer_ledger" and lid == ledger.id) or
+                    (tname == "license_holders" and ledger.member_id and lid == ledger.member_id) or
+                    (tname == "license_holders" and ledger.transferee_member_id and lid == ledger.transferee_member_id)
+                )
+                if not same_target:
+                    raise ValueError(
+                        f"자격증명발급번호 {new_cert}는 이미 {tname}에서 사용 중입니다"
+                        f"(대상: {uname or lid}). 다른 번호를 입력하거나 기존 자료를 먼저 확인하세요."
+                    )
+
+        for k, v in data.items():
+            if hasattr(ledger, k):
+                setattr(ledger, k, v)
+        ledger.updated_at = datetime.now(timezone.utc)
+        db.flush()
+
+        # ── 동일 대상자(양수자) 회원/예정자 레코드 찾기 ──
+        linked_member = None
+        if ledger.transferee_member_id:
+            linked_member = get_by_id(db, models.LicenseHolder, ledger.transferee_member_id)
+        elif ledger.member_id:
+            linked_member = get_by_id(db, models.LicenseHolder, ledger.member_id)
+
+        linked_candidate = None
+        if not linked_member and ledger.management_number:
+            linked_candidate = db.query(models.Candidate).filter(
+                models.Candidate.management_number == ledger.management_number,
+                models.Candidate.deleted_at.is_(None),
+                models.Candidate.is_registered == False,
+            ).first()
+
+        sync_fields = ["certificate_number", "certificate_issue_date", "driver_license_number"]
+        if linked_member:
+            for f in sync_fields:
+                if f in data:
+                    setattr(linked_member, f, data[f])
+            linked_member.updated_at = datetime.now(timezone.utc)
+        elif linked_candidate:
+            for f in sync_fields:
+                if f in data:
+                    setattr(linked_candidate, f, data[f])
+
+        db.commit()
+        db.refresh(ledger)
+
+        final_cert = (ledger.certificate_number or "").strip()
+        if final_cert:
+            if linked_member:
+                target_table, target_id, target_name = "license_holders", linked_member.id, linked_member.name or ""
+            elif linked_candidate:
+                target_table, target_id, target_name = "candidates", linked_candidate.id, linked_candidate.name or ""
+            else:
+                target_table, target_id, target_name = "transfer_ledger", ledger.id, ledger.transferee or ""
+            sync_certificate_number_usage(db, final_cert, target_table, target_id,
+                                           target_name, ledger.vehicle_number or "")
+
+        return ledger
+    except Exception:
+        db.rollback()
+        raise
+
+
+def backfill_transfer_certificate_sync(db: Session) -> dict:
+    """기존 데이터 소급 반영: 이미 양도양수대장에 자격증명발급번호가 입력되어 있는데
+    연결된 회원(LicenseHolder)/예정자(Candidate) 레코드에는 반영되지 않은 건을 찾아
+    동기화한다 (문자열/이름이 아니라 transferee_member_id·management_number로 연결된
+    실제 레코드만 대상으로 하며, 값이 이미 채워져 있는 대상은 덮어쓰지 않는다).
+    여러 번 실행해도 안전하다(멱등).
+    """
+    updated_members, updated_candidates, synced_logs, skipped = 0, 0, 0, 0
+    ledgers = db.query(models.TransferLedger).filter(
+        models.TransferLedger.deleted_at.is_(None),
+        models.TransferLedger.certificate_number.isnot(None),
+        models.TransferLedger.certificate_number != "",
+    ).all()
+
+    for ledger in ledgers:
+        cert = (ledger.certificate_number or "").strip()
+        if not cert:
+            continue
+        member = None
+        if ledger.transferee_member_id:
+            member = get_by_id(db, models.LicenseHolder, ledger.transferee_member_id)
+        elif ledger.member_id:
+            member = get_by_id(db, models.LicenseHolder, ledger.member_id)
+
+        if member:
+            changed = False
+            if not (member.certificate_number or "").strip():
+                member.certificate_number = cert
+                changed = True
+            if not (member.certificate_issue_date or "").strip() and ledger.certificate_issue_date:
+                member.certificate_issue_date = ledger.certificate_issue_date
+                changed = True
+            if not (member.driver_license_number or "").strip() and ledger.driver_license_number:
+                member.driver_license_number = ledger.driver_license_number
+                changed = True
+            if changed:
+                updated_members += 1
+                db.flush()
+                sync_certificate_number_usage(db, member.certificate_number, "license_holders", member.id,
+                                               member.name or "", member.vehicle_number or "")
+                synced_logs += 1
+            else:
+                skipped += 1
+            continue
+
+        candidate = None
+        if ledger.management_number:
+            candidate = db.query(models.Candidate).filter(
+                models.Candidate.management_number == ledger.management_number,
+                models.Candidate.deleted_at.is_(None),
+                models.Candidate.is_registered == False,
+            ).first()
+        if candidate:
+            changed = False
+            if not (candidate.certificate_number or "").strip():
+                candidate.certificate_number = cert
+                changed = True
+            if not (candidate.certificate_issue_date or "").strip() and ledger.certificate_issue_date:
+                candidate.certificate_issue_date = ledger.certificate_issue_date
+                changed = True
+            if changed:
+                updated_candidates += 1
+                db.flush()
+                sync_certificate_number_usage(db, candidate.certificate_number, "candidates", candidate.id,
+                                               candidate.name or "", candidate.vehicle_number or "")
+                synced_logs += 1
+            else:
+                skipped += 1
+
+    db.commit()
+    return {"scanned": len(ledgers), "updated_members": updated_members,
+            "updated_candidates": updated_candidates, "synced_logs": synced_logs, "skipped": skipped}
+
+
 def soft_delete(db: Session, db_item):
     db_item.deleted_at = datetime.now(timezone.utc)
     db.commit()
