@@ -277,6 +277,25 @@ class MonthlyReportEntry(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
 
+class ReportFieldDef(Base):
+    """월례보고서 항목 정의 - 관리자가 화면에서 항목을 추가/수정할 수 있게 하는 메타데이터.
+    field_type='auto'인 경우 auto_path로 /api/dashboard/monthly-report-auto 응답의 값을 참조.
+    그 외 타입(number/amount/text/longtext/table)은 MonthlyReportEntry.custom_data에 사용자가 직접 입력한 값을 저장.
+    """
+    __tablename__ = "report_field_defs"
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(100), unique=True, index=True)   # custom_data / auto_path에서 사용하는 고유 키
+    label = Column(String(200))
+    section = Column(String(100))                          # 예: "1. 허가 및 회원 현황"
+    field_type = Column(String(20), default="text")        # number/amount/text/longtext/table/auto
+    auto_path = Column(String(200))                        # field_type='auto'일 때, 자동집계 JSON 경로 (예: "member_stats.total")
+    display_order = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True)
+    is_printable = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class DeadlineTask(Base):
     __tablename__ = "deadline_tasks"
     id               = Column(Integer, primary_key=True, index=True)

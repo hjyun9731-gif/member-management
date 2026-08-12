@@ -636,3 +636,55 @@ hr.div{border:none;border-top:1px solid var(--c-border-l);margin:10px 0}
 }
 .pin-btn:hover{opacity:.55;filter:grayscale(.3)}
 .pin-btn.pinned{opacity:1;filter:none}
+
+/* ===== 월례 업무현황 보고서 (인쇄용, 월례_업무현황_보고서.html 양식) ===== */
+#mrpRoot{
+  --mrp-navy:#1e3a5f; --mrp-blue:#2563eb; --mrp-lightblue:#eff6ff;
+  --mrp-slate:#475569; --mrp-lightslate:#f1f5f9; --mrp-border:#cbd5e1;
+  --mrp-yellow:#fffbe6; --mrp-ink:#0f172a;
+  font-family:"Malgun Gothic","맑은 고딕",-apple-system,sans-serif;
+  color:var(--mrp-ink);
+}
+.mrp-toolbar{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.mrp-toolbar button{background:var(--mrp-blue);color:#fff;border:none;padding:9px 16px;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit}
+.mrp-toolbar button.mrp-secondary{background:#fff;color:var(--mrp-blue);border:1px solid var(--mrp-blue)}
+.mrp-toolbar button:hover{opacity:.88}
+.mrp-sheet{max-width:840px;margin:0 auto;background:#fff;border-radius:10px;box-shadow:0 4px 24px rgba(15,23,42,.12);padding:36px 40px 30px}
+.mrp-topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.mrp-org{font-weight:700;color:var(--mrp-navy);font-size:14px}
+.mrp-tag{font-weight:700;color:var(--mrp-blue);font-size:12px}
+.mrp-sheet h1{font-size:24px;margin:6px 0 14px;color:var(--mrp-ink)}
+.mrp-divider{border:none;border-top:2px solid var(--mrp-navy);margin:0 0 16px}
+.mrp-meta{display:flex;border:1px solid var(--mrp-border);border-radius:6px;overflow:hidden;margin-bottom:20px}
+.mrp-meta>div{flex:1;display:flex;align-items:center}
+.mrp-meta label{background:var(--mrp-lightslate);font-weight:700;font-size:13px;padding:9px 12px;width:70px;flex-shrink:0;border-right:1px solid var(--mrp-border)}
+.mrp-meta input{border:none;background:var(--mrp-yellow);padding:8px 10px;font-size:13px;width:100%;font-family:inherit}
+.mrp-meta>div:not(:last-child){border-right:1px solid var(--mrp-border)}
+.mrp-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:22px}
+.mrp-stat{background:var(--mrp-lightblue);border:1px solid var(--mrp-border);border-radius:8px;padding:14px 8px;text-align:center}
+.mrp-stat .mrp-label{font-size:12px;font-weight:700;color:var(--mrp-slate);margin-bottom:4px}
+.mrp-stat .mrp-value{font-size:22px;font-weight:800;color:var(--mrp-navy);line-height:1.2}
+.mrp-bar{background:var(--mrp-navy);color:#fff;font-weight:700;font-size:14px;padding:8px 14px;border-radius:6px 6px 0 0;margin-top:22px}
+.mrp-sheet table{width:100%;border-collapse:collapse;margin-bottom:4px}
+.mrp-sheet th,.mrp-sheet td{border:1px solid var(--mrp-border);padding:8px 10px;font-size:13px;text-align:center}
+.mrp-sheet th{background:var(--mrp-lightslate);font-weight:700}
+.mrp-sheet tr.mrp-total td{background:var(--mrp-lightblue);font-weight:700}
+.mrp-note-line{font-size:12.5px;color:var(--mrp-ink);margin:6px 2px 0}
+.mrp-note-line b{color:var(--mrp-slate)}
+.mrp-sheet td.mrp-input,.mrp-sheet th.mrp-input{padding:0}
+.mrp-sheet td input.mrp-cell-input{width:100%;border:none;background:var(--mrp-yellow);text-align:center;font-size:13px;padding:8px 6px;font-family:inherit;color:var(--mrp-ink)}
+.mrp-sheet td input.mrp-cell-input:focus{outline:2px solid var(--mrp-blue);outline-offset:-2px}
+.mrp-remarks{border:1px solid var(--mrp-border);border-top:none;border-radius:0 0 6px 6px;padding:10px 12px}
+.mrp-remarks textarea{width:100%;min-height:70px;border:none;resize:vertical;font-family:inherit;font-size:13px;line-height:1.9;background:repeating-linear-gradient(to bottom,transparent,transparent 27px,var(--mrp-border) 28px);outline:none}
+.mrp-footnote{font-size:11.5px;color:var(--mrp-slate);font-style:italic;margin-top:14px}
+.mrp-td-left{text-align:left !important}
+
+@media print{
+  body *{visibility:hidden}
+  #mrpRoot, #mrpRoot *{visibility:visible}
+  #mrpRoot{position:absolute;left:0;top:0;width:100%;margin:0;padding:0;background:#fff}
+  .mrp-no-print{display:none !important}
+  .mrp-sheet{box-shadow:none;border-radius:0;max-width:100%;padding:14px 20px}
+  .mrp-sheet input.mrp-cell-input,.mrp-meta input{background:var(--mrp-yellow) !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  @page{size:A4;margin:12mm}
+}

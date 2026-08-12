@@ -65,7 +65,7 @@ const VEH_TYPES = ['1톤','1톤미만','카고형','밴형','특장차','냉동�
 const CATS = {
   members:   {label:'회원관리',   tabs:[{id:'candidates',label:'예정자/양도양수'},{id:'individual',label:'개인회원'},{id:'delivery',label:'택배회원'}]},
   permits:   {label:'인허가/변경', tabs:[{id:'new-registrations',label:'신규등록대장'},{id:'transfer-ledger',label:'양도양수대장'},{id:'closures',label:'폐업현황'},{id:'change-history',label:'변경이력대장'}]},
-  reports:   {label:'보고/집계',   tabs:[{id:'dashboard',label:'회원대시보드'},{id:'monthly-report',label:'월례보고서'}]},
+  reports:   {label:'보고/집계',   tabs:[{id:'dashboard',label:'회원대시보드'},{id:'monthly-report',label:'월례보고서'},{id:'monthly-report-fields',label:'월례보고서 항목관리'}]},
   deadlines: {label:'기한관리',    tabs:[{id:'deadlines',label:'캘린더/목록'},{id:'dl-today',label:'오늘 할 일'},{id:'dl-3days',label:'3일 이내'},{id:'dl-7days',label:'7일 이내'},{id:'dl-over',label:'기한초과'},{id:'dl-done',label:'완료'}]},
   excel:     {label:'엑셀 업로드', tabs:[{id:'upload',label:'파일 업로드'},{id:'history',label:'업로드 이력'},{id:'errors',label:'오류 확인'}]},
 };
@@ -554,7 +554,7 @@ function navigate(cat,sub){
     candidates:renderCandidates, individual:()=>renderMember('개인'), delivery:()=>renderMember('택배'),
     'new-registrations':renderNewRegistrations,
     'transfer-ledger':renderTransferLedger, closures:renderClosures, 'change-history':renderChangeHistory,
-    dashboard:renderDashboard, 'monthly-report':renderMonthlyReport,
+    dashboard:renderDashboard, 'monthly-report':renderMonthlyReport, 'monthly-report-fields':renderMonthlyReportFields,
     upload:renderUpload, history:renderUploadHistory, errors:renderUploadErrors,
     deadlines:renderDeadlines,
     'dl-today':()=>renderDeadlines('오늘'),
@@ -1764,11 +1764,249 @@ async function renderDashboard(){
 }
 
 // ===== MONTHLY REPORT =====
+// 상위: 화면 전환용 컨테이너. 인쇄용 보고서(월례_업무현황_보고서.html 양식) / 상세 자동집계(기존 화면) 두 가지를 제공.
 async function renderMonthlyReport(){
+  const inner=ST.inner['monthly-report']||'print';
+  document.getElementById('content').innerHTML=`
+    <div class="inner-tab-bar mrp-no-print">
+      <button class="inner-tab ${inner==='print'?'active':''}" id="mrTabPrint">🖨 인쇄용 보고서</button>
+      <button class="inner-tab ${inner==='detail'?'active':''}" id="mrTabDetail">📊 상세 자동집계</button>
+    </div>
+    <div id="mrInnerBody"></div>`;
+  document.getElementById('mrTabPrint').onclick=()=>{ST.inner['monthly-report']='print';renderMonthlyReport();};
+  document.getElementById('mrTabDetail').onclick=()=>{ST.inner['monthly-report']='detail';renderMonthlyReport();};
+  if(inner==='detail') renderMonthlyReportDetail(); else renderMonthlyReportPrint();
+}
+
+// ----- 인쇄용 보고서 (월례_업무현황_보고서.html 양식 그대로) -----
+async function renderMonthlyReportPrint(){
   const y=ST.reportYear,m=ST.reportMonth;
-  document.getElementById('content').innerHTML=`<div class="loading-box"><div class="spin"></div><p>월례보고서 자동 계산 중...</p></div>`;
+  const body=document.getElementById('mrInnerBody');
+  body.innerHTML=`<div class="loading-box"><div class="spin"></div><p>월례보고서 불러오는 중...</p></div>`;
+  const d=await api('GET',`/api/reports/monthly-report/full?year=${y}&month=${m}`).catch(()=>null);
+  if(!d){body.innerHTML=`<div class="empty-box"><div class="empty-ico">📄</div><p class="empty-txt">불러오기 실패</p></div>`;return;}
+
+  const fields=d.fields||[];
+  const byKey=Object.fromEntries(fields.map(f=>[f.key,f]));
+  const val=k=>byKey[k]?byKey[k].value:'';
+  const S1_SEC='1. 허가 및 회원 현황', S2_SEC='2. 당월 허가·회원 업무 처리현황',
+        S4_SEC='4. 문서·증명서 등 행정업무', S5_SEC='5. 주요 특이사항 / 다음달 관리사항';
+  const S2=fields.filter(f=>f.section===S2_SEC);
+  const S4=fields.filter(f=>f.section===S4_SEC);
+  const knownSections=new Set([S1_SEC,S2_SEC,S4_SEC,S5_SEC]);
+  const extraSections=[...new Set(fields.filter(f=>!knownSections.has(f.section)).map(f=>f.section))];
+
+  function cellInput(f){
+    if(f.field_type==='auto') return `<strong>${Number(f.value||0).toLocaleString()}</strong>`;
+    return `<input class="mrp-cell-input" data-key="${e_(f.key)}" value="${e_(f.value??'')}">`;
+  }
+  // 월계/누계 페어링: key가 _month / _cum 로 끝나는 항목을 같은 행으로 묶어서 표시 (새 항목도 이 규칙만 따르면 자동 반영)
+  function pairRows(list){
+    const map={};
+    list.forEach(f=>{
+      let base=f.key,suffix=null;
+      if(f.key.endsWith('_month')){base=f.key.slice(0,-6);suffix='month';}
+      else if(f.key.endsWith('_cum')){base=f.key.slice(0,-4);suffix='cum';}
+      if(!map[base]) map[base]={};
+      if(suffix) map[base][suffix]=f; else map[base].single=f;
+    });
+    return Object.values(map);
+  }
+  function rowLabel(pair){
+    const f=pair.month||pair.single||pair.cum;
+    return (f.label||'').replace(/\s*(월계|\(건\)|누계)\s*$/,'').trim();
+  }
+  const s2rows=pairRows(S2), s4rows=pairRows(S4);
+
+  const vt=d.vehicle_types||[];
+  const ageEntries=Object.entries(d.age_groups||{});
+  const maxRows=Math.max(vt.length,ageEntries.length,1);
+  let s3rows='';
+  for(let i=0;i<maxRows;i++){
+    const v=vt[i], a=ageEntries[i];
+    s3rows+=`<tr><td class="mrp-td-left">${v?e_(v.type):''}</td><td>${v?v.count:''}</td><td class="mrp-td-left">${a?e_(a[0]):''}</td><td>${a?a[1]:''}</td></tr>`;
+  }
+  const totalAge=ageEntries.map(([k,v])=>`${k} ${v}`).join(' / ');
+
+  body.innerHTML=`
+  <div id="mrpRoot">
+    <div class="mrp-toolbar mrp-no-print">
+      <button class="mrp-secondary" onclick="ST.reportMonth--;if(ST.reportMonth<1){ST.reportMonth=12;ST.reportYear--;}renderMonthlyReport()">◀ 이전 달</button>
+      <span style="align-self:center;font-weight:700;color:var(--mrp-navy)">${y}년 ${m}월</span>
+      <button class="mrp-secondary" onclick="ST.reportMonth++;if(ST.reportMonth>12){ST.reportMonth=1;ST.reportYear++;}renderMonthlyReport()">다음 달 ▶</button>
+      <button class="mrp-secondary" onclick="dl('/api/reports/monthly/export?year=${y}&month=${m}','월례보고서_${y}_${String(m).padStart(2,'0')}.xlsx')">엑셀</button>
+      <button class="mrp-secondary" onclick="saveMonthlyReportPrint(${y},${m})">저장</button>
+      <button onclick="window.print()">인쇄 / PDF 저장</button>
+    </div>
+    <div class="mrp-sheet">
+      <div class="mrp-topbar">
+        <div class="mrp-org">강원도 개인소형화물협회</div>
+        <div class="mrp-tag">월례보고용</div>
+      </div>
+      <h1>${y}년 ${m}월 월례 업무현황 보고서</h1>
+      <hr class="mrp-divider">
+
+      <div class="mrp-meta">
+        <div><label>기준일</label><input id="mrpBaseDate" value="${e_(d.meta.base_date)}"></div>
+        <div><label>작성자</label><input id="mrpWriter" value="${e_(d.meta.writer)}"></div>
+        <div><label>확인자</label><input id="mrpChecker" value="${e_(d.meta.checker)}"></div>
+      </div>
+
+      <div class="mrp-stats">
+        ${['stat_total','stat_joined','stat_not_joined','stat_delivery_unreported'].map(k=>{
+          const f=byKey[k]; if(!f) return '';
+          return `<div class="mrp-stat"><div class="mrp-label">${e_(f.label)}</div><div class="mrp-value">${Number(f.value||0).toLocaleString()}</div></div>`;
+        }).join('')}
+      </div>
+
+      <div class="mrp-bar">1. 허가 및 회원 현황</div>
+      <table>
+        <tr><th>구분</th><th>총 허가</th><th>협회 가입</th><th>미가입</th></tr>
+        <tr><td>개인(사업자)</td><td>${val('tbl1_ind_total')||0}</td><td>${val('tbl1_ind_joined')||0}</td><td>${val('tbl1_ind_not_joined')||0}</td></tr>
+        <tr><td>택배(차량)</td><td>${val('tbl1_del_total')||0}</td><td>${val('tbl1_del_joined')||0}</td><td>${val('tbl1_del_not_joined')||0}</td></tr>
+        <tr class="mrp-total"><td>합계</td><td>${val('stat_total')||0}</td><td>${val('stat_joined')||0}</td><td>${val('stat_not_joined')||0}</td></tr>
+      </table>
+      <div class="mrp-note-line"><b>당월 회원 변동</b> &nbsp;신규가입 ${val('month_new_join')||0}명 &nbsp;|&nbsp; 미가입 발생 ${val('month_not_joined_new')||0}명</div>
+
+      <div class="mrp-bar">2. 당월 허가·회원 업무 처리현황</div>
+      <table>
+        <tr><th style="text-align:left">업무 구분</th><th>월계</th><th>누계</th></tr>
+        ${s2rows.map(p=>`<tr><td class="mrp-td-left">${e_(rowLabel(p))}</td><td class="${p.month&&p.month.field_type!=='auto'?'mrp-input':''}">${p.month?cellInput(p.month):''}</td><td class="${p.cum?'mrp-input':''}">${p.cum?cellInput(p.cum):''}</td></tr>`).join('')}
+      </table>
+      <div class="mrp-note-line" style="font-style:italic;color:var(--mrp-slate)">※ 누계는 연간 누적 집계로, 시스템 미연동 항목은 직접 입력합니다.</div>
+
+      <div class="mrp-bar">3. 차량·사업자 구성 요약</div>
+      <table>
+        <tr><th>차량 유형</th><th>대수</th><th>연령대</th><th>인원</th></tr>
+        ${s3rows}
+      </table>
+      <div class="mrp-note-line"><b>전체 연령</b> &nbsp;${e_(totalAge)}</div>
+
+      <div class="mrp-bar">4. 문서·증명서 등 행정업무</div>
+      <table>
+        <tr><th style="text-align:left">업무 구분</th><th>월계</th><th>누계</th></tr>
+        ${s4rows.map(p=>`<tr><td class="mrp-td-left">${e_(rowLabel(p))}</td><td class="mrp-input">${p.month?cellInput(p.month):''}</td><td class="mrp-input">${p.cum?cellInput(p.cum):''}</td></tr>`).join('')}
+      </table>
+
+      ${extraSections.map(sec=>{
+        const rows=fields.filter(f=>f.section===sec);
+        return `<div class="mrp-bar">${e_(sec)}</div>
+        <table><tr><th style="text-align:left">항목</th><th>값</th></tr>
+        ${rows.map(f=>`<tr><td class="mrp-td-left">${e_(f.label)}</td><td class="mrp-input">${cellInput(f)}</td></tr>`).join('')}
+        </table>`;
+      }).join('')}
+
+      <div class="mrp-bar">5. 주요 특이사항 / 다음달 관리사항</div>
+      <div class="mrp-remarks"><textarea id="mrpRemarks" placeholder="내용을 입력하세요...">${e_(val('remarks'))}</textarea></div>
+
+      <div class="mrp-footnote">※ 시스템 수치는 기준일 현재 집계값이며, 월말 확정 시 최종 수치로 교체합니다. 노란색 칸은 시스템 미연동 항목으로 직접 입력합니다.</div>
+    </div>
+  </div>`;
+}
+
+async function saveMonthlyReportPrint(y,m){
+  const values={};
+  document.querySelectorAll('#mrpRoot input.mrp-cell-input[data-key]').forEach(inp=>{values[inp.dataset.key]=inp.value;});
+  const remarksEl=document.getElementById('mrpRemarks');
+  if(remarksEl) values['remarks']=remarksEl.value;
+  const meta={
+    writer:document.getElementById('mrpWriter')?.value||'',
+    checker:document.getElementById('mrpChecker')?.value||'',
+    base_date:document.getElementById('mrpBaseDate')?.value||'',
+  };
+  try{
+    await api('POST',`/api/reports/monthly-report/full?year=${y}&month=${m}`,{values,meta});
+    toast('저장되었습니다');
+  }catch(e){}
+}
+
+// ----- 월례보고서 항목 관리 (관리자) -----
+async function renderMonthlyReportFields(){
+  const body=document.getElementById('content');
+  if(!isAdmin()){body.innerHTML=`<div class="empty-box"><div class="empty-ico">🔒</div><p class="empty-txt">관리자만 접근할 수 있습니다</p></div>`;return;}
+  body.innerHTML=`<div class="loading-box"><div class="spin"></div><p>불러오는 중...</p></div>`;
+  const list=await api('GET','/api/reports/monthly-report/field-defs').catch(()=>null);
+  if(!list){body.innerHTML=`<div class="empty-box"><p class="empty-txt">불러오기 실패</p></div>`;return;}
+  const typeLabel={number:'숫자',amount:'금액',text:'텍스트',longtext:'장문 텍스트',table:'표',auto:'자동계산'};
+  body.innerHTML=`
+    <div class="card">
+      <div class="card-hd"><div class="card-hd-l"><span class="card-ico">🧾</span><span class="card-ttl">월례보고서 항목 관리</span></div>
+        <button class="btn bp btn-sm" id="mrfAddBtn">+ 항목 추가</button>
+      </div>
+      <p style="font-size:12px;color:var(--c-text-4);padding:0 16px 8px">
+        새 항목의 key를 <code>xxx_month</code> / <code>xxx_cum</code> 로 짝지어 만들면 인쇄용 보고서의 2·4번 표에 월계/누계 한 행으로 자동 표시됩니다.
+        그 외 새 구역(섹션)에 추가한 항목은 보고서 하단에 별도 표로 자동 추가됩니다.
+      </p>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>순서</th><th>구역</th><th>항목명</th><th>key</th><th>유형</th><th>자동계산 경로</th><th>사용</th><th>인쇄</th><th></th></tr></thead>
+        <tbody>${list.map(f=>`<tr>
+          <td>${f.display_order}</td><td>${e_(f.section||'')}</td><td>${e_(f.label)}</td><td><code>${e_(f.key)}</code></td>
+          <td>${typeLabel[f.field_type]||f.field_type}</td><td>${f.auto_path?`<code>${e_(f.auto_path)}</code>`:'-'}</td>
+          <td>${f.is_active?'✅':'—'}</td><td>${f.is_printable?'🖨':'—'}</td>
+          <td style="white-space:nowrap"><button class="btn bo btn-sm" data-edit="${f.id}">수정</button>
+              <button class="btn br btn-sm" data-del="${f.id}" data-label="${e_(f.label)}">삭제</button></td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+    </div>`;
+  document.getElementById('mrfAddBtn').onclick=()=>editReportField(null);
+  document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>editReportField(list.find(f=>f.id===Number(b.dataset.edit))));
+  document.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>deleteReportField(Number(b.dataset.del),b.dataset.label));
+}
+
+function editReportField(f){
+  const isNew=!f;
+  f=f||{key:'',label:'',section:'',field_type:'number',auto_path:'',display_order:100,is_active:true,is_printable:true};
+  const typeOptLabel={number:'숫자',amount:'금액',text:'텍스트',longtext:'장문 텍스트',table:'표',auto:'자동계산'};
+  openModal(isNew?'월례보고서 항목 추가':'월례보고서 항목 수정',`
+    <div class="fi"><label>항목 key ${isNew?'<span class="req">*</span>':''}</label>
+      <input class="fc" id="rfKey" value="${e_(f.key)}" ${isNew?'':'disabled'} placeholder="예: edu_promo_month (영문/숫자/밑줄)"></div>
+    <div class="fi"><label>항목명</label><input class="fc" id="rfLabel" value="${e_(f.label)}"></div>
+    <div class="fi"><label>구역(섹션)</label><input class="fc" id="rfSection" value="${e_(f.section||'')}" placeholder="예: 6. 교육 및 홍보"></div>
+    <div class="fi"><label>항목 유형</label>
+      <select class="fc" id="rfType">
+        ${['number','amount','text','longtext','table','auto'].map(t=>`<option value="${t}" ${f.field_type===t?'selected':''}>${typeOptLabel[t]}</option>`).join('')}
+      </select></div>
+    <div class="fi"><label>자동계산 경로 (유형=자동계산일 때만, 예: member_stats.total)</label>
+      <input class="fc" id="rfAutoPath" value="${e_(f.auto_path||'')}" placeholder="member_stats.total"></div>
+    <div class="fi"><label>표시 순서</label><input class="fc" id="rfOrder" type="number" value="${f.display_order}"></div>
+    <div class="fi"><label><input type="checkbox" id="rfActive" ${f.is_active?'checked':''}> 사용</label></div>
+    <div class="fi"><label><input type="checkbox" id="rfPrint" ${f.is_printable?'checked':''}> 인쇄 포함</label></div>
+  `,`<button class="btn bp btn-sm" id="rfSaveBtn">저장</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'msm');
+  document.getElementById('rfSaveBtn').onclick=async()=>{
+    const payload={
+      label:document.getElementById('rfLabel').value.trim(),
+      section:document.getElementById('rfSection').value.trim(),
+      field_type:document.getElementById('rfType').value,
+      auto_path:document.getElementById('rfAutoPath').value.trim()||null,
+      display_order:Number(document.getElementById('rfOrder').value)||0,
+      is_active:document.getElementById('rfActive').checked,
+      is_printable:document.getElementById('rfPrint').checked,
+    };
+    try{
+      if(isNew){
+        payload.key=document.getElementById('rfKey').value.trim();
+        if(!payload.key){toast('key를 입력하세요','err');return;}
+        await api('POST','/api/reports/monthly-report/field-defs',payload);
+      }else{
+        await api('PUT',`/api/reports/monthly-report/field-defs/${f.id}`,payload);
+      }
+      toast('저장되었습니다');closeModal();renderMonthlyReportFields();
+    }catch(e){}
+  };
+}
+
+async function deleteReportField(id,label){
+  if(!await cfm(`"${label}" 항목을 삭제하시겠습니까? (과거 저장된 값은 유지되며 화면에서만 제거됩니다)`))return;
+  try{await api('DELETE',`/api/reports/monthly-report/field-defs/${id}`);toast('삭제되었습니다');renderMonthlyReportFields();}catch(e){}
+}
+
+// ----- 상세 자동집계 (기존 화면, 그대로 유지) -----
+async function renderMonthlyReportDetail(){
+  const y=ST.reportYear,m=ST.reportMonth;
+  const target=document.getElementById('mrInnerBody');
+  target.innerHTML=`<div class="loading-box"><div class="spin"></div><p>월례보고서 자동 계산 중...</p></div>`;
   const d=await api('GET',`/api/dashboard/monthly-report-auto?year=${y}&month=${m}`).catch(()=>null);
-  if(!d){document.getElementById('content').innerHTML=`<div class="empty-box"><div class="empty-ico">📄</div><p class="empty-txt">계산 실패</p></div>`;return;}
+  if(!d){target.innerHTML=`<div class="empty-box"><div class="empty-ico">📄</div><p class="empty-txt">계산 실패</p></div>`;return;}
 
   const ms=d.member_stats||{},ts=d.taxi_stats||{},aw=d.admin_work||{},act=d.month_activity||{};
   const ageG=d.age_groups||{},vAge=d.vehicle_age||{};
@@ -1779,7 +2017,7 @@ async function renderMonthlyReport(){
     <strong>⚠ 집계 불일치 감지 (검증 필요)</strong><br>${mvIssues.map(e_).join('<br>')}
   </div>`:'';
 
-  document.getElementById('content').innerHTML=`
+  target.innerHTML=`
     ${mvBanner}
     <div class="card">
       <div class="rpt-nav">
