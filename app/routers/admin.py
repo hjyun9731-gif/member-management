@@ -2655,6 +2655,76 @@ async def change_history_types(db: Session = Depends(get_db), _=Depends(require_
     return {"types": [r.change_type for r in rows if r.change_type]}
 
 
+@router.get("/debug-month-new-join")
+async def debug_month_new_join(
+    year: int, month: int,
+    db: Session = Depends(get_db), _=Depends(require_admin)
+):
+    """'N월 신규가입' 표시가 실제 데이터와 다른 경우 원인 진단 (조회 전용, 데이터 변경 없음).
+    확인하는 것:
+    1) 자동계산값(가입일자=membership_date 기준, 월례보고서 자동집계와 동일 로직)
+    2) 해당 연/월에 '직접수정(고정)값'이 저장되어 있는지 - 저장돼 있으면 자동계산이 아무리
+       바뀌어도 화면에는 그 고정값이 계속 표시된다 (monthly_report_entries.custom_data)
+    3) 가입일자에 실제 날짜가 아니라 'O/ㅇ/○' 같은 표시만 있어서(가입자로는 집계되지만)
+       특정 월로는 집계될 수 없는 회원 목록 (참고용)
+    """
+    import re as _re
+    from app.excel_utils import is_association_member as _is_joined
+
+    def _ym(date_str: str):
+        if not date_str:
+            return None, None
+        s = str(date_str).strip()
+        m = _re.search(r'(19[0-9]{2}|20[0-9]{2})\s*[.\-/]\s*(\d{1,2})', s)
+        if m:
+            return int(m.group(1)), int(m.group(2))
+        m = _re.match(r'^(\d{2})\s*[.\-/]\s*(\d{1,2})', s)
+        if m:
+            yy = int(m.group(1))
+            return (2000 + yy if yy <= 30 else 1900 + yy), int(m.group(2))
+        return None, None
+
+    all_members = db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.deleted_at.is_(None),
+        models.LicenseHolder.status == "active",
+    ).all()
+
+    matched = []
+    non_date_joined = []  # 가입자로는 잡히지만(예: O표시) 특정 월로 집계 불가능한 회원
+    for m in all_members:
+        v = (m.membership_date or "").strip()
+        y, mo = _ym(v)
+        if y == year and mo == month:
+            matched.append({"id": m.id, "name": m.name, "management_number": m.management_number,
+                             "membership_date": v})
+        elif v and _is_joined(v) and (y is None or mo is None):
+            non_date_joined.append({"id": m.id, "name": m.name,
+                                     "management_number": m.management_number, "membership_date": v})
+
+    entry = db.query(models.MonthlyReportEntry).filter(
+        models.MonthlyReportEntry.year == year, models.MonthlyReportEntry.month == month
+    ).first()
+    custom_data = dict(entry.custom_data or {}) if entry else {}
+    relevant_keys = ["month_new_join", "new_association_join_month", "new_association_join_cum"]
+    saved_overrides = {k: custom_data.get(k) for k in relevant_keys if k in custom_data}
+
+    return {
+        "year": year, "month": month,
+        "auto_calc_month_joined": len(matched),
+        "matched_members": matched[:50],
+        "matched_members_total": len(matched),
+        "저장된_고정값_존재여부": bool(saved_overrides),
+        "저장된_고정값": saved_overrides,
+        "안내": (
+            "저장된_고정값이 있으면 화면(월례보고서 입력 양식)에는 자동계산값이 아니라 "
+            "이 고정값이 항상 우선 표시됩니다. 자동계산값으로 되돌리려면 해당 항목을 "
+            "직접 다시 입력해 저장해야 합니다."
+        ) if saved_overrides else "저장된 고정값 없음 - 화면에는 자동계산값이 그대로 표시됩니다.",
+        "가입자이지만_날짜형식이_아니라_월집계에서_제외된_회원": non_date_joined[:30],
+        "가입자이지만_날짜형식이_아닌_회원_총수": len(non_date_joined),
+    }
+
+
 @router.get("/debug-monthly-member-count")
 async def debug_monthly_member_count(
     year: int = 2026, month: int = 6,

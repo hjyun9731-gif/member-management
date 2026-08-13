@@ -454,6 +454,75 @@ def backfill_transfer_certificate_sync(db: Session) -> dict:
             "updated_candidates": updated_candidates, "synced_logs": synced_logs, "skipped": skipped}
 
 
+def reconcile_certificate_number_logs(db: Session) -> dict:
+    """자격증명발급번호 발급이력(certificate_number_logs)의 사용 상태를
+    '발급 당시 대상자 연결 여부'가 아니라 '현재 데이터 기준 실사용 여부'로 재동기화한다.
+
+    원인: 번호를 처음 발급할 때 대상자 없이 발급(issued)만 되고, 그 이후에
+    양도양수대장/회원/예정자 쪽에서 별도로 값을 입력해 실제로 사용되기 시작해도,
+    그 시점에 로그를 다시 조회해서 갱신하는 경로가 없으면 로그는 계속 '발급(미사용)'으로
+    남는다. 이 함수는 4개 테이블(license_holders/candidates/transfer_ledger/closures)에
+    실제로 등장하는 모든 자격증명발급번호를 다시 스캔해서, 실사용 중인 번호는 상태를
+    'used'로, 연결 테이블/ID/대상자명을 최신 값으로 갱신한다.
+
+    - 로그가 아예 없는 번호(과거 수기 발급 등)는 새로 만든다.
+    - 'cancelled'(취소) 처리된 로그는 건드리지 않는다 (수동 취소 의사 존중).
+    - 아직 어느 대상자에게도 사용되지 않는 번호는 그대로 둔다(발급(미사용) 유지).
+    여러 번 실행해도 안전하다(멱등).
+    """
+    seen = set()
+    for model in (models.LicenseHolder, models.Candidate, models.TransferLedger, models.Closure):
+        q = db.query(model.certificate_number).filter(
+            model.certificate_number.isnot(None),
+            model.certificate_number != "",
+        )
+        if hasattr(model, "deleted_at"):
+            q = q.filter(model.deleted_at.is_(None))
+        for (cert,) in q.distinct().all():
+            c = (cert or "").strip()
+            if c:
+                seen.add(c)
+
+    updated, created, unchanged = 0, 0, 0
+    for cert in seen:
+        usage = _scan_certificate_number_usage(db, cert)
+        if not usage:
+            continue
+        tname, lid, name, vehicle = usage
+        log = db.query(models.CertificateNumberLog).filter(
+            models.CertificateNumberLog.certificate_number == cert).first()
+        if log:
+            if log.status == "cancelled":
+                continue
+            if (log.status != "used" or log.linked_table != tname or log.linked_id != lid
+                    or (log.target_name or "") != (name or "")):
+                log.status = "used"
+                log.linked_table = tname
+                log.linked_id = lid
+                log.target_name = name
+                log.vehicle_number = vehicle
+                updated += 1
+            else:
+                unchanged += 1
+        else:
+            try:
+                yy_s, n_s = cert.split("-", 1)
+                yy_i, n_i = int(yy_s), int(n_s)
+            except Exception:
+                yy_i, n_i = None, None
+            db.add(models.CertificateNumberLog(
+                year=yy_i, number=n_i, certificate_number=cert,
+                status="used", issued_by=None,
+                linked_table=tname, linked_id=lid,
+                target_name=name, vehicle_number=vehicle,
+                memo="실사용 데이터 기준 자동 생성(발급자/일시 확인불가)",
+            ))
+            created += 1
+
+    db.commit()
+    return {"scanned_numbers": len(seen), "updated": updated, "created": created, "unchanged": unchanged}
+
+
 def soft_delete(db: Session, db_item):
     db_item.deleted_at = datetime.now(timezone.utc)
     db.commit()

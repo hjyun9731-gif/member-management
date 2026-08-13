@@ -1358,7 +1358,7 @@ async function renderTransferLedger(){
     if(!confirm('양도양수대장에 입력된 자격증명발급번호를 연결된 회원/예정자 정보에 소급 반영합니다. 계속할까요?'))return;
     certSyncBtn.disabled=true; certSyncBtn.textContent='처리 중...';
     const res=await api('POST','/api/transfer-ledger/backfill-certificate-sync',{}).catch(e=>{toast('처리 실패: '+((e&&e.message)||'서버 오류'),'err');return null;});
-    if(res){toast(`대상 ${res.scanned}건 중 회원 ${res.updated_members}건 / 예정자 ${res.updated_candidates}건 동기화`);await doSearch(1);}
+    if(res){toast(`대상 ${res.scanned}건 중 회원 ${res.updated_members}건 / 예정자 ${res.updated_candidates}건 동기화, 발급이력 ${res.log_reconcile?res.log_reconcile.updated+res.log_reconcile.created:0}건 갱신`);await doSearch(1);}
     certSyncBtn.disabled=false; certSyncBtn.textContent='🪪 발급번호 동기화';
   };
   document.getElementById('tlXlBtn').onclick=()=>{

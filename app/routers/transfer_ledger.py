@@ -342,10 +342,14 @@ async def update_transfer(tid: int, data: dict, db: Session = Depends(get_db), _
 
 @router.post("/backfill-certificate-sync")
 async def backfill_certificate_sync(db: Session = Depends(get_db), _=Depends(require_admin)):
-    """기존 데이터 소급 반영: 대장에는 자격증명발급번호가 있지만 연결된 회원/예정자
-    레코드에는 반영되지 않은 건을 동기화 (여러 번 실행해도 안전, 값이 이미 있는 대상은 유지)."""
-    result = crud.backfill_transfer_certificate_sync(db)
-    return result
+    """기존 데이터 소급 반영:
+    1) 대장에는 자격증명발급번호가 있지만 연결된 회원/예정자 레코드에는 반영되지 않은 건을 동기화
+    2) 발급이력(certificate_number_logs)도 '현재 실사용 여부' 기준으로 재동기화
+       (발급 당시 대상자 미연결이었어도, 지금 실제로 쓰이고 있으면 발급(사용)+대상자명으로 갱신)
+    여러 번 실행해도 안전(멱등)."""
+    sync_result = crud.backfill_transfer_certificate_sync(db)
+    log_result = crud.reconcile_certificate_number_logs(db)
+    return {**sync_result, "log_reconcile": log_result}
 
 
 @router.delete("/{tid}")
