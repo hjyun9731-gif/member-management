@@ -364,7 +364,7 @@ def update_transfer_ledger_synced(db: Session, ledger: "models.TransferLedger", 
         db.refresh(ledger)
 
         final_cert = (ledger.certificate_number or "").strip()
-        if final_cert:
+        if final_cert and _is_valid_certificate_number_format(final_cert):
             if linked_member:
                 target_table, target_id, target_name = "license_holders", linked_member.id, linked_member.name or ""
             elif linked_candidate:
@@ -385,9 +385,16 @@ def backfill_transfer_certificate_sync(db: Session) -> dict:
     연결된 회원(LicenseHolder)/예정자(Candidate) 레코드에는 반영되지 않은 건을 찾아
     동기화한다 (문자열/이름이 아니라 transferee_member_id·management_number로 연결된
     실제 레코드만 대상으로 하며, 값이 이미 채워져 있는 대상은 덮어쓰지 않는다).
+
+    운영 데이터에는 자격증명발급번호 칸에 "YY-N" 형식이 아닌 값(수기 메모, 긴 텍스트 등)이
+    섞여 있을 수 있는데, 그런 값을 발급이력(certificate_number_logs, 20자 제한+UNIQUE)에
+    그대로 넣으려 하면 DB 제약 위반으로 전체 요청이 500 에러로 죽는다. 이를 막기 위해:
+    - 실제 채번 형식(YY-N)이 아닌 값은 발급이력 동기화 대상에서만 제외한다(필드 값 자체는
+      그대로 보존/반영한다 - 회원/예정자 데이터를 지우거나 바꾸지 않음).
+    - 레코드 하나 처리 중 오류가 나도 그 건만 건너뛰고 나머지는 계속 처리한다(부분 실패 격리).
     여러 번 실행해도 안전하다(멱등).
     """
-    updated_members, updated_candidates, synced_logs, skipped = 0, 0, 0, 0
+    updated_members, updated_candidates, synced_logs, skipped, errors = 0, 0, 0, 0, []
     ledgers = db.query(models.TransferLedger).filter(
         models.TransferLedger.deleted_at.is_(None),
         models.TransferLedger.certificate_number.isnot(None),
@@ -395,63 +402,85 @@ def backfill_transfer_certificate_sync(db: Session) -> dict:
     ).all()
 
     for ledger in ledgers:
-        cert = (ledger.certificate_number or "").strip()
-        if not cert:
-            continue
-        member = None
-        if ledger.transferee_member_id:
-            member = get_by_id(db, models.LicenseHolder, ledger.transferee_member_id)
-        elif ledger.member_id:
-            member = get_by_id(db, models.LicenseHolder, ledger.member_id)
+        try:
+            cert = (ledger.certificate_number or "").strip()
+            if not cert:
+                continue
+            member = None
+            if ledger.transferee_member_id:
+                member = get_by_id(db, models.LicenseHolder, ledger.transferee_member_id)
+            elif ledger.member_id:
+                member = get_by_id(db, models.LicenseHolder, ledger.member_id)
 
-        if member:
-            changed = False
-            if not (member.certificate_number or "").strip():
-                member.certificate_number = cert
-                changed = True
-            if not (member.certificate_issue_date or "").strip() and ledger.certificate_issue_date:
-                member.certificate_issue_date = ledger.certificate_issue_date
-                changed = True
-            if not (member.driver_license_number or "").strip() and ledger.driver_license_number:
-                member.driver_license_number = ledger.driver_license_number
-                changed = True
-            if changed:
-                updated_members += 1
-                db.flush()
-                sync_certificate_number_usage(db, member.certificate_number, "license_holders", member.id,
-                                               member.name or "", member.vehicle_number or "")
-                synced_logs += 1
-            else:
-                skipped += 1
-            continue
+            if member:
+                changed = False
+                if not (member.certificate_number or "").strip():
+                    member.certificate_number = cert
+                    changed = True
+                if not (member.certificate_issue_date or "").strip() and ledger.certificate_issue_date:
+                    member.certificate_issue_date = ledger.certificate_issue_date
+                    changed = True
+                if not (member.driver_license_number or "").strip() and ledger.driver_license_number:
+                    member.driver_license_number = ledger.driver_license_number
+                    changed = True
+                if changed:
+                    updated_members += 1
+                    db.flush()
+                if _is_valid_certificate_number_format(member.certificate_number):
+                    sync_certificate_number_usage(db, member.certificate_number, "license_holders", member.id,
+                                                   member.name or "", member.vehicle_number or "")
+                    synced_logs += 1
+                if not changed:
+                    skipped += 1
+                continue
 
-        candidate = None
-        if ledger.management_number:
-            candidate = db.query(models.Candidate).filter(
-                models.Candidate.management_number == ledger.management_number,
-                models.Candidate.deleted_at.is_(None),
-                models.Candidate.is_registered == False,
-            ).first()
-        if candidate:
-            changed = False
-            if not (candidate.certificate_number or "").strip():
-                candidate.certificate_number = cert
-                changed = True
-            if not (candidate.certificate_issue_date or "").strip() and ledger.certificate_issue_date:
-                candidate.certificate_issue_date = ledger.certificate_issue_date
-                changed = True
-            if changed:
-                updated_candidates += 1
-                db.flush()
-                sync_certificate_number_usage(db, candidate.certificate_number, "candidates", candidate.id,
-                                               candidate.name or "", candidate.vehicle_number or "")
-                synced_logs += 1
-            else:
-                skipped += 1
+            candidate = None
+            if ledger.management_number:
+                candidate = db.query(models.Candidate).filter(
+                    models.Candidate.management_number == ledger.management_number,
+                    models.Candidate.deleted_at.is_(None),
+                    models.Candidate.is_registered == False,
+                ).first()
+            if candidate:
+                changed = False
+                if not (candidate.certificate_number or "").strip():
+                    candidate.certificate_number = cert
+                    changed = True
+                if not (candidate.certificate_issue_date or "").strip() and ledger.certificate_issue_date:
+                    candidate.certificate_issue_date = ledger.certificate_issue_date
+                    changed = True
+                if changed:
+                    updated_candidates += 1
+                    db.flush()
+                if _is_valid_certificate_number_format(candidate.certificate_number):
+                    sync_certificate_number_usage(db, candidate.certificate_number, "candidates", candidate.id,
+                                                   candidate.name or "", candidate.vehicle_number or "")
+                    synced_logs += 1
+                if not changed:
+                    skipped += 1
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            errors.append({"transfer_ledger_id": ledger.id, "certificate_number": ledger.certificate_number,
+                            "error": str(e)[:200]})
 
     db.commit()
     return {"scanned": len(ledgers), "updated_members": updated_members,
-            "updated_candidates": updated_candidates, "synced_logs": synced_logs, "skipped": skipped}
+            "updated_candidates": updated_candidates, "synced_logs": synced_logs,
+            "skipped": skipped, "errors": errors}
+
+
+_CERT_NUMBER_RE = re.compile(r"^\d{2,4}-\d{1,6}$")
+
+
+def _is_valid_certificate_number_format(value: str) -> bool:
+    """실제 채번 형식(예: 26-329)인지 확인. 아니면 발급이력(20자 제한+UNIQUE)에 넣지 않는다
+    - 수기 메모/긴 텍스트 등 형식이 아닌 값을 넣으려다 DB 제약 위반으로 전체 요청이
+    실패하는 것을 막기 위함."""
+    if not value:
+        return False
+    v = str(value).strip()
+    return bool(v) and len(v) <= 20 and bool(_CERT_NUMBER_RE.match(v))
 
 
 def reconcile_certificate_number_logs(db: Session) -> dict:
@@ -483,44 +512,55 @@ def reconcile_certificate_number_logs(db: Session) -> dict:
             if c:
                 seen.add(c)
 
-    updated, created, unchanged = 0, 0, 0
+    updated, created, unchanged, skipped_invalid, errors = 0, 0, 0, 0, []
     for cert in seen:
-        usage = _scan_certificate_number_usage(db, cert)
-        if not usage:
-            continue
-        tname, lid, name, vehicle = usage
-        log = db.query(models.CertificateNumberLog).filter(
-            models.CertificateNumberLog.certificate_number == cert).first()
-        if log:
-            if log.status == "cancelled":
+        try:
+            if not _is_valid_certificate_number_format(cert):
+                # "YY-N" 형식이 아닌 값(수기 메모 등)은 발급이력(20자 제한+UNIQUE) 대상에서 제외.
+                # 회원/예정자/대장의 실제 필드 값은 건드리지 않는다(그대로 보존).
+                skipped_invalid += 1
                 continue
-            if (log.status != "used" or log.linked_table != tname or log.linked_id != lid
-                    or (log.target_name or "") != (name or "")):
-                log.status = "used"
-                log.linked_table = tname
-                log.linked_id = lid
-                log.target_name = name
-                log.vehicle_number = vehicle
-                updated += 1
+            usage = _scan_certificate_number_usage(db, cert)
+            if not usage:
+                continue
+            tname, lid, name, vehicle = usage
+            log = db.query(models.CertificateNumberLog).filter(
+                models.CertificateNumberLog.certificate_number == cert).first()
+            if log:
+                if log.status == "cancelled":
+                    continue
+                if (log.status != "used" or log.linked_table != tname or log.linked_id != lid
+                        or (log.target_name or "") != (name or "")):
+                    log.status = "used"
+                    log.linked_table = tname
+                    log.linked_id = lid
+                    log.target_name = name
+                    log.vehicle_number = vehicle
+                    db.commit()
+                    updated += 1
+                else:
+                    unchanged += 1
             else:
-                unchanged += 1
-        else:
-            try:
-                yy_s, n_s = cert.split("-", 1)
-                yy_i, n_i = int(yy_s), int(n_s)
-            except Exception:
-                yy_i, n_i = None, None
-            db.add(models.CertificateNumberLog(
-                year=yy_i, number=n_i, certificate_number=cert,
-                status="used", issued_by=None,
-                linked_table=tname, linked_id=lid,
-                target_name=name, vehicle_number=vehicle,
-                memo="실사용 데이터 기준 자동 생성(발급자/일시 확인불가)",
-            ))
-            created += 1
+                try:
+                    yy_s, n_s = cert.split("-", 1)
+                    yy_i, n_i = int(yy_s), int(n_s)
+                except Exception:
+                    yy_i, n_i = None, None
+                db.add(models.CertificateNumberLog(
+                    year=yy_i, number=n_i, certificate_number=cert,
+                    status="used", issued_by=None,
+                    linked_table=tname, linked_id=lid,
+                    target_name=name, vehicle_number=vehicle,
+                    memo="실사용 데이터 기준 자동 생성(발급자/일시 확인불가)",
+                ))
+                db.commit()
+                created += 1
+        except Exception as e:
+            db.rollback()
+            errors.append({"certificate_number": cert, "error": str(e)[:200]})
 
-    db.commit()
-    return {"scanned_numbers": len(seen), "updated": updated, "created": created, "unchanged": unchanged}
+    return {"scanned_numbers": len(seen), "updated": updated, "created": created,
+            "unchanged": unchanged, "skipped_invalid_format": skipped_invalid, "errors": errors}
 
 
 def soft_delete(db: Session, db_item):

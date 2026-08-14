@@ -551,7 +551,7 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
     # 발급이력 화면에는 계속 대상자 미연결(발급/미사용)로 남는 문제가 있었음.
     if "certificate_number" in filtered_data:
         cert_val = (m.certificate_number or "").strip()
-        if cert_val:
+        if cert_val and crud._is_valid_certificate_number_format(cert_val):
             try:
                 crud.sync_certificate_number_usage(db, cert_val, "license_holders", m.id,
                                                      m.name or "", m.vehicle_number or "")
