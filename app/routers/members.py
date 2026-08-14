@@ -368,6 +368,20 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
         if crud.check_mgmt_dup(db, models.LicenseHolder, str(new_mgmt).strip(), exclude_id=mid):
             raise HTTPException(400, f"관리번호 {new_mgmt}가 이미 존재합니다.")
 
+    new_cert = data.get("certificate_number")
+    if new_cert is not None and str(new_cert).strip() and str(new_cert).strip() != (m.certificate_number or "").strip():
+        new_cert_clean = str(new_cert).strip()
+        usage = crud._scan_certificate_number_usage(db, new_cert_clean)
+        if usage:
+            tname, lid, uname, uvehicle = usage
+            same_target = (tname == "license_holders" and lid == mid)
+            if not same_target:
+                raise HTTPException(
+                    400,
+                    f"자격증명발급번호 {new_cert_clean}는 이미 {tname}에서 사용 중입니다"
+                    f"(대상: {uname or lid}). 다른 번호를 입력하거나 기존 자료를 먼저 확인하세요."
+                )
+
     # 허용 필드만 필터링
     filtered_data = {k: v for k, v in data.items() if k in _ALLOWED_UPDATE_FIELDS}
 
@@ -531,6 +545,18 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
         db.rollback()
         logger.error(f"PUT /api/members/{mid} DB 저장 실패: {e}")
         raise HTTPException(500, f"DB 저장 오류: {str(e)}")
+
+    # 자격증명발급번호가 이번 저장에서 채워지거나 바뀐 경우, 발급이력(certificate_number_logs)에도
+    # 실제 대상자로 연결 - 이전에는 이 경로(회원 직접수정)로 입력하면 발급이력이 갱신되지 않아
+    # 발급이력 화면에는 계속 대상자 미연결(발급/미사용)로 남는 문제가 있었음.
+    if "certificate_number" in filtered_data:
+        cert_val = (m.certificate_number or "").strip()
+        if cert_val:
+            try:
+                crud.sync_certificate_number_usage(db, cert_val, "license_holders", m.id,
+                                                     m.name or "", m.vehicle_number or "")
+            except Exception as ex:
+                logger.warning(f"자격증명발급이력 동기화 실패: {ex}")
 
     return _fmt(m)
 
