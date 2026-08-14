@@ -2851,6 +2851,22 @@ async def list_certificate_number_logs(search: str = None, status: str = None,
     }
 
 
+@router.put("/certificate-numbers/{certificate_number}")
+async def update_certificate_number(certificate_number: str, data: dict,
+                                     db: Session = Depends(get_db), _=Depends(require_admin)):
+    """발급이력 1건 수정 (오타난 발급번호/대상자명/차량번호/비고 수정).
+    '사용중' 상태는 실제 연결된 회원/양도양수대장에서 값이 자동으로 채워지므로
+    비고만 수정 가능 - 대상 정보를 바꾸려면 해당 회원/대장을 직접 수정해야 한다."""
+    try:
+        log = crud.update_certificate_number_log(db, certificate_number, data)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {
+        "ok": True, "certificate_number": log.certificate_number, "status": log.status,
+        "target_name": log.target_name, "vehicle_number": log.vehicle_number, "memo": log.memo,
+    }
+
+
 @router.post("/certificate-numbers/{certificate_number}/cancel")
 async def cancel_certificate_number(certificate_number: str, data: dict = None,
                                      db: Session = Depends(get_db), _=Depends(require_admin)):

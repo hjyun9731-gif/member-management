@@ -2283,6 +2283,7 @@ async function renderUpload(){
         <td>${STATUS_LBL[it.status]||it.status}</td>
         <td style="font-size:11px;color:var(--c-text-3);max-width:160px;overflow:hidden;text-overflow:ellipsis" title="${e_(it.memo||'')}">${e_(it.memo||'')}</td>
         <td style="white-space:nowrap">
+          <button class="btn bo btn-xs" onclick="editCertNum('${e_(it.certificate_number)}','${e_(it.status)}','${e_(it.target_name||'')}','${e_(it.vehicle_number||'')}','${e_(it.memo||'')}')">수정</button>
           ${it.status==='issued'?`<button class="btn br btn-xs" onclick="cancelCertNum('${e_(it.certificate_number)}')">취소</button>`:''}
           ${it.status==='cancelled'?`<button class="btn bo btn-xs" onclick="reactivateCertNum('${e_(it.certificate_number)}')">취소해제</button>`:''}
           ${it.status==='used'?`<span style="font-size:11px;color:var(--c-text-4)">사용중(취소불가)</span>`:''}
@@ -2296,6 +2297,42 @@ async function renderUpload(){
   };
   window._cnPrevPage=()=>{if(cnPage>1)loadCertLogs(cnPage-1);};
   window._cnNextPage=()=>{loadCertLogs(cnPage+1);};
+  window.editCertNum=(num,status,targetName,vehicleNumber,memo)=>{
+    const isUsed=status==='used';
+    openModal('발급이력 수정', `
+      <div class="fld" style="margin-bottom:10px">
+        <label>발급번호</label>
+        <input class="fc" id="ecNum" value="${e_(num)}" ${isUsed?'disabled':''} placeholder="예: 26-329">
+        ${isUsed?'<div style="font-size:11px;color:var(--c-text-3);margin-top:4px">사용중 상태는 실제 연결된 회원/대장 데이터로 자동 관리되어 번호·대상자·차량번호는 여기서 수정할 수 없습니다. 대상 정보를 바꾸려면 해당 회원/양도양수대장을 직접 수정해주세요.</div>':''}
+      </div>
+      <div class="fld" style="margin-bottom:10px">
+        <label>대상자명</label>
+        <input class="fc" id="ecName" value="${e_(targetName)}" ${isUsed?'disabled':''}>
+      </div>
+      <div class="fld" style="margin-bottom:10px">
+        <label>차량번호</label>
+        <input class="fc" id="ecVeh" value="${e_(vehicleNumber)}" ${isUsed?'disabled':''}>
+      </div>
+      <div class="fld">
+        <label>비고</label>
+        <input class="fc" id="ecMemo" value="${e_(memo)}">
+      </div>
+    `, `<button class="btn bp btn-sm" id="ecSaveBtn">저장</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`, 'msm');
+    document.getElementById('ecSaveBtn').onclick=async()=>{
+      const payload={memo:document.getElementById('ecMemo').value.trim()};
+      if(!isUsed){
+        payload.certificate_number=document.getElementById('ecNum').value.trim();
+        payload.target_name=document.getElementById('ecName').value.trim();
+        payload.vehicle_number=document.getElementById('ecVeh').value.trim();
+      }
+      try{
+        await api('PUT',`/api/admin/certificate-numbers/${encodeURIComponent(num)}`,payload);
+        toast('수정 완료','info');
+        closeModal();
+        loadCertLogs();
+      }catch(e){toast('수정 실패: '+((e&&e.message)||'서버 오류'),'error');}
+    };
+  };
   window.cancelCertNum=async(num)=>{
     if(!await cfm(`관리번호 ${num}를 취소 처리합니다.\n번호 자체는 재사용되지 않으며, 다음 발급 번호에는 영향을 주지 않습니다.\n계속하시겠습니까?`))return;
     try{

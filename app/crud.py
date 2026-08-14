@@ -738,6 +738,66 @@ def reactivate_certificate_number(db: Session, certificate_number: str):
     return log
 
 
+def update_certificate_number_log(db: Session, certificate_number: str, data: dict) -> "models.CertificateNumberLog":
+    """발급이력 1건 수정 (취소 처리만 가능했던 것을 보완 - 오타난 발급번호/대상자명/
+    차량번호/비고를 직접 고칠 수 있게 함).
+
+    - 상태가 'used'(실제 회원/대장 등에 연결되어 사용 중)인 항목은 대상자명·차량번호·번호
+      자체가 실제 데이터 동기화로 자동 채워지는 값이라, 여기서 직접 고쳐도 다음 동기화
+      ('발급번호 동기화' 버튼 등) 때 다시 덮어써진다. 이 경우 비고만 수정 가능하며,
+      실제 대상 정보를 바꾸려면 해당 회원/양도양수대장을 직접 수정해야 한다.
+    - 'issued'(미사용)/'cancelled'(취소)인 항목은 아직 실제 레코드와 연결되지 않았으므로
+      발급번호(오타 수정 포함)·대상자명·차량번호·비고를 모두 자유롭게 수정 가능.
+      번호를 바꾸는 경우 형식(YY-N)과 중복 여부(다른 발급이력, 실제 사용 중인 레코드
+      양쪽 모두)를 확인한다.
+    """
+    log = db.query(models.CertificateNumberLog).filter(
+        models.CertificateNumberLog.certificate_number == certificate_number).first()
+    if not log:
+        raise ValueError("발급 이력을 찾을 수 없는 번호입니다.")
+
+    if "memo" in data:
+        log.memo = data["memo"]
+
+    if log.status == "used":
+        db.commit()
+        db.refresh(log)
+        return log
+
+    if "target_name" in data:
+        log.target_name = data["target_name"]
+    if "vehicle_number" in data:
+        log.vehicle_number = data["vehicle_number"]
+
+    new_num = data.get("certificate_number")
+    if new_num is not None and str(new_num).strip() != (log.certificate_number or ""):
+        new_num_clean = str(new_num).strip()
+        if not new_num_clean:
+            raise ValueError("발급번호는 비워둘 수 없습니다.")
+        if not _is_valid_certificate_number_format(new_num_clean):
+            raise ValueError("발급번호 형식이 올바르지 않습니다 (예: 26-329).")
+        dup = db.query(models.CertificateNumberLog).filter(
+            models.CertificateNumberLog.certificate_number == new_num_clean).first()
+        if dup:
+            raise ValueError(f"발급번호 {new_num_clean}는 이미 다른 발급이력으로 존재합니다.")
+        usage = _scan_certificate_number_usage(db, new_num_clean)
+        if usage:
+            raise ValueError(
+                f"발급번호 {new_num_clean}는 이미 {usage[0]}에서 실제 사용 중입니다"
+                f"(대상: {usage[2] or usage[1]})."
+            )
+        try:
+            yy_s, n_s = new_num_clean.split("-", 1)
+            log.year, log.number = int(yy_s), int(n_s)
+        except Exception:
+            pass
+        log.certificate_number = new_num_clean
+
+    db.commit()
+    db.refresh(log)
+    return log
+
+
 def backfill_certificate_number_logs(db: Session):
     """운영 데이터에 이미 발급되어 있지만(카운터가 앞서 있음) 로그가 없는 번호들을
     이력 화면에 노출되도록 자동으로 채워 넣는다 (최초 배포/기존 서비스 대상 1회성 처리,
