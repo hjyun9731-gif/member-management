@@ -2855,8 +2855,8 @@ async def list_certificate_number_logs(search: str = None, status: str = None,
 async def update_certificate_number(certificate_number: str, data: dict,
                                      db: Session = Depends(get_db), _=Depends(require_admin)):
     """발급이력 1건 수정 (오타난 발급번호/대상자명/차량번호/비고 수정).
-    '사용중' 상태는 실제 연결된 회원/양도양수대장에서 값이 자동으로 채워지므로
-    비고만 수정 가능 - 대상 정보를 바꾸려면 해당 회원/대장을 직접 수정해야 한다."""
+    '사용중' 상태는 실제 연결된 회원/양도양수대장 데이터와 어긋나지 않도록 발급번호
+    자체만 잠기고, 대상자명/차량번호/비고는 자유롭게 수정 가능하다."""
     try:
         log = crud.update_certificate_number_log(db, certificate_number, data)
     except ValueError as e:

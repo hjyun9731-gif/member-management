@@ -2308,15 +2308,15 @@ async function renderUpload(){
       <div class="fld" style="margin-bottom:10px">
         <label>발급번호</label>
         <input class="fc" id="ecNum" value="${e_(num)}" ${isUsed?'disabled':''} placeholder="예: 26-329">
-        ${isUsed?'<div style="font-size:11px;color:var(--c-text-3);margin-top:4px">사용중 상태는 실제 연결된 회원/대장 데이터로 자동 관리되어 번호·대상자·차량번호는 여기서 수정할 수 없습니다. 대상 정보를 바꾸려면 해당 회원/양도양수대장을 직접 수정해주세요.</div>':''}
+        ${isUsed?'<div style="font-size:11px;color:var(--c-text-3);margin-top:4px">사용중 상태는 실제 회원/양도양수대장 데이터와 연결된 번호라 여기서 바꿀 수 없습니다. 번호 자체를 바꾸려면 해당 회원/대장을 직접 수정해주세요. (대상자명·차량번호는 아래에서 바로 수정 가능합니다)</div>':''}
       </div>
       <div class="fld" style="margin-bottom:10px">
         <label>대상자명</label>
-        <input class="fc" id="ecName" value="${e_(targetName)}" ${isUsed?'disabled':''}>
+        <input class="fc" id="ecName" value="${e_(targetName)}">
       </div>
       <div class="fld" style="margin-bottom:10px">
         <label>차량번호</label>
-        <input class="fc" id="ecVeh" value="${e_(vehicleNumber)}" ${isUsed?'disabled':''}>
+        <input class="fc" id="ecVeh" value="${e_(vehicleNumber)}">
       </div>
       <div class="fld">
         <label>비고</label>
@@ -2324,11 +2324,13 @@ async function renderUpload(){
       </div>
     `, `<button class="btn bp btn-sm" id="ecSaveBtn">저장</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`, 'msm');
     document.getElementById('ecSaveBtn').onclick=async()=>{
-      const payload={memo:document.getElementById('ecMemo').value.trim()};
+      const payload={
+        memo:document.getElementById('ecMemo').value.trim(),
+        target_name:document.getElementById('ecName').value.trim(),
+        vehicle_number:document.getElementById('ecVeh').value.trim(),
+      };
       if(!isUsed){
         payload.certificate_number=document.getElementById('ecNum').value.trim();
-        payload.target_name=document.getElementById('ecName').value.trim();
-        payload.vehicle_number=document.getElementById('ecVeh').value.trim();
       }
       try{
         await api('PUT',`/api/admin/certificate-numbers/${encodeURIComponent(num)}`,payload);

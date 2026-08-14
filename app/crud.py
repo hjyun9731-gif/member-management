@@ -742,10 +742,13 @@ def update_certificate_number_log(db: Session, certificate_number: str, data: di
     """발급이력 1건 수정 (취소 처리만 가능했던 것을 보완 - 오타난 발급번호/대상자명/
     차량번호/비고를 직접 고칠 수 있게 함).
 
-    - 상태가 'used'(실제 회원/대장 등에 연결되어 사용 중)인 항목은 대상자명·차량번호·번호
-      자체가 실제 데이터 동기화로 자동 채워지는 값이라, 여기서 직접 고쳐도 다음 동기화
-      ('발급번호 동기화' 버튼 등) 때 다시 덮어써진다. 이 경우 비고만 수정 가능하며,
-      실제 대상 정보를 바꾸려면 해당 회원/양도양수대장을 직접 수정해야 한다.
+    - 발급번호(certificate_number) 자체는 상태와 무관하게 항상 형식/중복 검증을 거쳐 수정
+      가능하나, 'used'(실제 회원/대장 등에 연결되어 사용 중)인 항목은 그 번호가 실제
+      연결된 레코드의 certificate_number와 동일한 값으로 맞춰져 있어야 하므로, 여기서
+      번호만 바꾸면 실제 데이터와 어긋나게 된다 - 따라서 'used' 상태에서는 발급번호
+      자체는 잠그고, 대상자명·차량번호·비고는 자유롭게 수정 가능하게 한다(수기로 표시를
+      바로잡는 용도 - 실제 연결 레코드의 이름/차량번호가 바뀌어 재동기화되면 그 값으로
+      다시 덮어써질 수 있음).
     - 'issued'(미사용)/'cancelled'(취소)인 항목은 아직 실제 레코드와 연결되지 않았으므로
       발급번호(오타 수정 포함)·대상자명·차량번호·비고를 모두 자유롭게 수정 가능.
       번호를 바꾸는 경우 형식(YY-N)과 중복 여부(다른 발급이력, 실제 사용 중인 레코드
@@ -758,16 +761,16 @@ def update_certificate_number_log(db: Session, certificate_number: str, data: di
 
     if "memo" in data:
         log.memo = data["memo"]
-
-    if log.status == "used":
-        db.commit()
-        db.refresh(log)
-        return log
-
     if "target_name" in data:
         log.target_name = data["target_name"]
     if "vehicle_number" in data:
         log.vehicle_number = data["vehicle_number"]
+
+    if log.status == "used":
+        # 사용중 상태는 발급번호(연결 키) 자체만 잠근다 - 대상자명/차량번호/비고는 위에서 이미 반영됨
+        db.commit()
+        db.refresh(log)
+        return log
 
     new_num = data.get("certificate_number")
     if new_num is not None and str(new_num).strip() != (log.certificate_number or ""):
