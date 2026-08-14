@@ -2272,9 +2272,10 @@ async function renderUpload(){
     if(cnPage>totalPages){cnPage=totalPages;return loadCertLogs();}
     const startNo=(cnPage-1)*CN_PAGE_SIZE+1;
     const endNo=startNo+d.items.length-1;
+    _cnItems=d.items;
     box.innerHTML=`<div class="tbl-wrap"><table><thead><tr>
       <th>관리번호</th><th>부여일자</th><th>발급자</th><th>대상자명</th><th>차량번호</th><th>상태</th><th>비고</th><th>처리</th>
-      </tr></thead><tbody>${d.items.map(it=>`<tr>
+      </tr></thead><tbody>${d.items.map((it,i)=>`<tr>
         <td style="font-weight:700">${e_(it.certificate_number)}</td>
         <td style="font-size:11px;color:var(--c-text-3)">${(it.issued_at||'-').slice(0,16)}</td>
         <td>${e_(it.issued_by||'-')}</td>
@@ -2283,7 +2284,7 @@ async function renderUpload(){
         <td>${STATUS_LBL[it.status]||it.status}</td>
         <td style="font-size:11px;color:var(--c-text-3);max-width:160px;overflow:hidden;text-overflow:ellipsis" title="${e_(it.memo||'')}">${e_(it.memo||'')}</td>
         <td style="white-space:nowrap">
-          <button class="btn bo btn-xs" onclick="editCertNum('${e_(it.certificate_number)}','${e_(it.status)}','${e_(it.target_name||'')}','${e_(it.vehicle_number||'')}','${e_(it.memo||'')}')">수정</button>
+          <button class="btn bo btn-xs" onclick="editCertNum(${i})">수정</button>
           ${it.status==='issued'?`<button class="btn br btn-xs" onclick="cancelCertNum('${e_(it.certificate_number)}')">취소</button>`:''}
           ${it.status==='cancelled'?`<button class="btn bo btn-xs" onclick="reactivateCertNum('${e_(it.certificate_number)}')">취소해제</button>`:''}
           ${it.status==='used'?`<span style="font-size:11px;color:var(--c-text-4)">사용중(취소불가)</span>`:''}
@@ -2297,7 +2298,11 @@ async function renderUpload(){
   };
   window._cnPrevPage=()=>{if(cnPage>1)loadCertLogs(cnPage-1);};
   window._cnNextPage=()=>{loadCertLogs(cnPage+1);};
-  window.editCertNum=(num,status,targetName,vehicleNumber,memo)=>{
+  let _cnItems=[];
+  window.editCertNum=(i)=>{
+    const it=_cnItems[i];
+    if(!it)return;
+    const num=it.certificate_number,status=it.status,targetName=it.target_name||'',vehicleNumber=it.vehicle_number||'',memo=it.memo||'';
     const isUsed=status==='used';
     openModal('발급이력 수정', `
       <div class="fld" style="margin-bottom:10px">
