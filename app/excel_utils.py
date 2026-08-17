@@ -893,11 +893,52 @@ def _read_change_all_sheets(content: bytes, file_type: str, mapping: dict,
     return all_rec, all_cmap, all_un, sheet_logs
 
 
+_DATE_COL_RE = re.compile(r'(_date|date_|^date$|일자|기준일)', re.IGNORECASE)
+
+
+def _to_yy_date(v):
+    """ISO 날짜(YYYY-MM-DD...) 또는 datetime 값을 엑셀 출력용 YY.MM.DD 문자열로 변환.
+    날짜 형식이 아니면 원본 값을 그대로 반환 (다른 데이터에는 영향 없음)."""
+    if v is None:
+        return v
+    try:
+        if isinstance(v, float) and pd.isna(v):
+            return ''
+    except Exception:
+        pass
+    if hasattr(v, 'strftime'):
+        try:
+            if pd.isna(v):
+                return ''
+        except Exception:
+            pass
+        return v.strftime('%y.%m.%d')
+    s = str(v).strip()
+    if s == '' or s.lower() in ('nan', 'none', 'null', 'nat'):
+        return ''
+    m = re.match(r'^(\d{4})-(\d{2})-(\d{2})', s)
+    if m:
+        return f"{m.group(1)[2:]}.{m.group(2)}.{m.group(3)}"
+    return v
+
+
+def format_dates_for_export(df: 'pd.DataFrame') -> 'pd.DataFrame':
+    """DataFrame에서 날짜류 컬럼(컬럼명에 _date/일자/기준일 포함)을
+    엑셀 출력 직전에만 YY.MM.DD 문자열로 변환. DB/내부 로직/원본 데이터에는 영향 없음."""
+    if df is None or len(df) == 0:
+        return df
+    for col in df.columns:
+        if _DATE_COL_RE.search(str(col)):
+            df[col] = df[col].map(_to_yy_date)
+    return df
+
+
 def records_to_excel(records: list, exclude: list = None) -> bytes:
     if not records: return b''
     ex = set(exclude or ['raw_data','deleted_at','data_year'])
     rows = [{k: v for k, v in r.items() if k not in ex} for r in records]
     df = pd.DataFrame(rows)
+    df = format_dates_for_export(df)
     out = io.BytesIO()
     with pd.ExcelWriter(out, engine='openpyxl') as w:
         df.to_excel(w, index=False)

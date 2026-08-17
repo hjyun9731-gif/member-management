@@ -126,6 +126,7 @@ function openModal(title,body,footer='',cls=''){
   document.getElementById('modalFt').innerHTML=footer;
   document.getElementById('modal').className='modal '+cls;
   document.getElementById('modalBg').style.display='flex';
+  _bindFmt(document.getElementById('modalBd'));
 }
 function closeModal(){document.getElementById('modalBg').style.display='none';if(_mr){_mr(false);_mr=null;}}
 function cfm(msg){
@@ -142,7 +143,10 @@ const e_=v=>v==null?'':String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').repl
 const fv=v=>{
   if(v==null||v==='')return '-';
   const s=String(v).trim();
-  return(s===''||s==='nan'||s==='None'||s==='null'||s==='NaN')?'-':s;
+  if(s===''||s==='nan'||s==='None'||s==='null'||s==='NaN')return '-';
+  const dm=s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T]\d{2}:\d{2}(:\d{2})?)?$/);
+  if(dm)return `${dm[1].slice(2)}.${dm[2]}.${dm[3]}`;
+  return s;
 };
 function fvDate(d1,d2){
   const v1=fv(d1),v2=fv(d2);
@@ -158,7 +162,15 @@ function chBadge(t){const m={'주소지변경':'b-sky','상호변경':'b-pri','�
 function rsel(name,sel=''){return `<select name="${name}" class="fc"><option value="">선택</option>${REGIONS.map(r=>`<option value="${r}" ${r===sel?'selected':''}>${r}</option>`).join('')}</select>`;}
 function rselflt(id,sel=''){return `<select id="${id}" class="fsel"><option value="">전체 지역</option>${REGIONS.map(r=>`<option value="${r}" ${r===sel?'selected':''}>${r}</option>`).join('')}</select>`;}
 function ssel(name,opts,sel=''){return `<select name="${name}" class="fc">${opts.map(o=>`<option value="${o}" ${o===sel?'selected':''}>${o}</option>`).join('')}</select>`;}
-function fi(name,label,val='',req=false){return `<div class="fi"><label>${label}${req?'<span class="req">*</span>':''}</label><input class="fc" name="${name}" value="${e_(val)}" ${req?'required':''}></div>`;}
+function fi(name,label,val='',req=false){
+  if(/_date$/i.test(name)||name==='date'){
+    return `<div class="fi"><label>${label}${req?'<span class="req">*</span>':''}</label><input class="fc fmt-date" name="${name}" value="${e_(_isoToYY(val))}" placeholder="00.00.00" inputmode="numeric" maxlength="8" ${req?'required':''}></div>`;
+  }
+  if(name==='business_number'){
+    return `<div class="fi"><label>${label}${req?'<span class="req">*</span>':''}</label><input class="fc fmt-bizno" name="${name}" value="${e_(_autoBizNo(String(val||'')))}" placeholder="000-00-00000" inputmode="numeric" maxlength="12" ${req?'required':''}></div>`;
+  }
+  return `<div class="fi"><label>${label}${req?'<span class="req">*</span>':''}</label><input class="fc" name="${name}" value="${e_(val)}" ${req?'required':''}></div>`;
+}
 
 // 자격증명발급번호 입력 + '발급번호 부여' 버튼 (예정자/도내양도 등록 공통)
 function certNumField(name,label,val=''){
@@ -246,11 +258,59 @@ function _autoResident(v){
   const d=v.replace(/\D/g,'').slice(0,13);
   return d.length<=6?d:`${d.slice(0,6)}-${d.slice(6)}`;
 }
+// 날짜 자동 포맷: 숫자만 입력해도 YY.MM.DD 로 표시 (예: 260817 -> 26.08.17)
+function _autoDate(v){
+  const d=String(v||'').replace(/\D/g,'').slice(0,6);
+  if(d.length<=2)return d;
+  if(d.length<=4)return `${d.slice(0,2)}.${d.slice(2)}`;
+  return `${d.slice(0,2)}.${d.slice(2,4)}.${d.slice(4)}`;
+}
+// 저장된 ISO(YYYY-MM-DD) 값을 화면용 YY.MM.DD 로 변환 (표시/입력값 세팅용)
+function _isoToYY(v){
+  if(v==null)return '';
+  const s=String(v).trim();
+  if(s===''||s==='None'||s==='null'||s==='nan'||s==='NaT'||s==='NaN')return '';
+  const m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(m)return `${m[1].slice(2)}.${m[2]}.${m[3]}`;
+  return s; // 이미 다른 형식이면 그대로 (예: 이미 YY.MM.DD 인 경우)
+}
+// 화면 입력값(YY.MM.DD 또는 이미 ISO)을 저장용 ISO(YYYY-MM-DD)로 변환
+// 연도 규칙: 90~99 -> 1990~1999, 00~89 -> 2000~2089 (관리번호 자연정렬 규칙과 동일)
+function _dateToISO(v){
+  if(v==null)return v;
+  const s=String(v).trim();
+  if(s==='')return '';
+  if(/^\d{4}-\d{2}-\d{2}/.test(s))return s; // 이미 ISO
+  const m=s.match(/^(\d{2})\.(\d{2})\.(\d{2})$/)||s.match(/^(\d{4})\.(\d{2})\.(\d{2})$/);
+  if(m){
+    let yy=m[1];
+    const yyyy=yy.length===4?yy:(parseInt(yy,10)>=90?1900+parseInt(yy,10):2000+parseInt(yy,10));
+    return `${yyyy}-${m[2]}-${m[3]}`;
+  }
+  return s; // 인식 불가 형식은 원본 그대로 전달 (데이터 손실 방지)
+}
+// 폼 제출 직전, *_date 로 끝나는 필드를 전부 ISO로 정규화
+function _normFormDates(obj){
+  Object.keys(obj).forEach(k=>{
+    if((/_date$/i.test(k)||k==='date')&&typeof obj[k]==='string'){
+      obj[k]=_dateToISO(obj[k]);
+    }
+  });
+  return obj;
+}
+// 사업자번호 자동 하이픈 포맷 (000-00-00000, 10자리 기준)
+function _autoBizNo(v){
+  const d=String(v||'').replace(/\D/g,'').slice(0,10);
+  if(d.length<=3)return d;
+  if(d.length<=5)return `${d.slice(0,3)}-${d.slice(3)}`;
+  return `${d.slice(0,3)}-${d.slice(3,5)}-${d.slice(5)}`;
+}
 // 입력 포맷 이벤트 바인딩
 function _bindFmt(scope){
   const s=typeof scope==='string'?document.getElementById(scope):scope;
   if(!s)return;
   s.querySelectorAll('.fmt-phone').forEach(el=>{
+    if(el.dataset.fmtBound)return; el.dataset.fmtBound='1';
     el.addEventListener('input',function(){
       const p=this.selectionStart,old=this.value;
       this.value=_autoPhone(this.value);
@@ -259,9 +319,30 @@ function _bindFmt(scope){
     });
   });
   s.querySelectorAll('.fmt-resident').forEach(el=>{
+    if(el.dataset.fmtBound)return; el.dataset.fmtBound='1';
     el.addEventListener('input',function(){
       const p=this.selectionStart,old=this.value;
       this.value=_autoResident(this.value);
+      const diff=this.value.length-old.length;
+      try{this.setSelectionRange(p+diff,p+diff);}catch(e){}
+    });
+  });
+  s.querySelectorAll('.fmt-date').forEach(el=>{
+    if(el.dataset.fmtBound)return; el.dataset.fmtBound='1';
+    if(!el.placeholder)el.placeholder='00.00.00';
+    el.addEventListener('input',function(){
+      const p=this.selectionStart,old=this.value;
+      this.value=_autoDate(this.value);
+      const diff=this.value.length-old.length;
+      try{this.setSelectionRange(p+diff,p+diff);}catch(e){}
+    });
+  });
+  s.querySelectorAll('.fmt-bizno').forEach(el=>{
+    if(el.dataset.fmtBound)return; el.dataset.fmtBound='1';
+    if(!el.placeholder)el.placeholder='000-00-00000';
+    el.addEventListener('input',function(){
+      const p=this.selectionStart,old=this.value;
+      this.value=_autoBizNo(this.value);
       const diff=this.value.length-old.length;
       try{this.setSelectionRange(p+diff,p+diff);}catch(e){}
     });
@@ -380,7 +461,7 @@ function buildDetailSections(sections){
     const body=`<div class="dtl-grid">${visFields.map(([l,v,full])=>`
         <div class="dtl-item ${full?'full':''}">
           <div class="dtl-lbl">${l}</div>
-          <div class="dtl-val${l==='관리번호'||l==='자격증번호'?' mono':''}">${e_(fv(v))}</div>
+          <div class="dtl-val${l==='관리번호'||l==='자격증번호'?' mono':''}">${e_(l==='사업자번호'?_autoBizNo(String(v)):fv(v))}</div>
         </div>`).join('')}</div>`;
     if(sec.title==='원본 엑셀 데이터')
       return `<details class="dtl-sec"><summary class="dtl-sec-hd" style="cursor:pointer">📄 원본 엑셀 데이터 보기</summary>${body}</details>`;
@@ -660,7 +741,7 @@ async function renderCandidateSection(){
   document.getElementById('candSaveBtn').onclick=async()=>{
     const form=document.getElementById('candForm');
     if(!_validateFmt(form))return;
-    const fd=Object.fromEntries(new FormData(form));
+    const fd=_normFormDates(Object.fromEntries(new FormData(form)));
     const r=await api('POST','/api/candidates',fd).catch(()=>null);
     if(r){toast('예정자 저장 완료');form.reset();doSearch(1);}
   };
@@ -688,7 +769,7 @@ window.editCandidate=async(id)=>{
   document.getElementById('_ceSave').onclick=async()=>{
     const form=document.getElementById('cEditForm');
     if(!_validateFmt(form))return;
-    const fd=Object.fromEntries(new FormData(form));
+    const fd=_normFormDates(Object.fromEntries(new FormData(form)));
     const res=await api('PUT',`/api/candidates/${id}`,fd).catch(()=>null);
     if(res){toast('수정되었습니다.');closeModal();renderCandidateSection();}
   };
@@ -704,15 +785,15 @@ window.registerCandidate=async(cid,vn,name)=>{
     <div class="info-box">차량번호: <strong>${e_(vn)}</strong> / 성명: <strong>${e_(name)}</strong>
     → ${vn.includes('배')?'택배회원':'개인회원'}으로 등록됩니다.</div>
     <div class="fg2 mt8">
-      <div class="fi"><label>인가일자 <span class="req">*</span></label><input class="fc" id="regApprDate" placeholder="예: 2026-01-01"></div>
-      <div class="fi"><label>가입일자 <span style="font-size:11px;color:var(--c-text-3)">(없으면 미가입)</span></label><input class="fc" id="regMemDate" value="${e_(existingMemDate)}" placeholder="예: 2026-01-15"></div>
+      <div class="fi"><label>인가일자 <span class="req">*</span></label><input class="fc fmt-date" id="regApprDate" placeholder="00.00.00"></div>
+      <div class="fi"><label>가입일자 <span style="font-size:11px;color:var(--c-text-3)">(없으면 미가입)</span></label><input class="fc fmt-date" id="regMemDate" value="${e_(_isoToYY(existingMemDate))}" placeholder="00.00.00"></div>
       <div class="fi"><label>관리번호</label><input class="fc" id="regMgmtNum" value="${e_(nn?.next_number||'')}"></div>
     </div>`,
     `<button class="btn bg btn-sm" id="_rC">등록 완료</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'msm');
   document.getElementById('_rC').onclick=async()=>{
-    const ad=document.getElementById('regApprDate').value.trim();
+    const ad=_dateToISO(document.getElementById('regApprDate').value.trim());
     if(!ad){toast('인가일자를 입력하세요','warn');return;}
-    const md=document.getElementById('regMemDate').value.trim();
+    const md=_dateToISO(document.getElementById('regMemDate').value.trim());
     const r=await api('POST',`/api/candidates/${cid}/register`,{
       approval_date:ad,
       membership_date:md,
@@ -764,7 +845,7 @@ async function renderTransferSection(){
     </div>`;
   setTimeout(()=>_bindFmt(document.getElementById('trSecForm')),0);
   document.getElementById('trSecSave').onclick=async()=>{
-    const fd=Object.fromEntries(new FormData(document.getElementById('trSecForm')));
+    const fd=_normFormDates(Object.fromEntries(new FormData(document.getElementById('trSecForm'))));
     if(!fd.vehicle_number){toast('차량번호를 입력하세요','warn');return;}
     const nn=await api('GET','/api/members/next-transfer-number').catch(()=>null);
     const tl={
@@ -979,7 +1060,7 @@ window.editMember=async(id,defaultCat='개인')=>{
   setTimeout(()=>_bindFmt(document.getElementById('mForm')),0);
   document.getElementById('_mSave').onclick=async()=>{
     const form=document.getElementById('mForm');
-    const fd=Object.fromEntries(new FormData(form));
+    const fd=_normFormDates(Object.fromEntries(new FormData(form)));
     if(!fd.vehicle_number||!fd.name){toast('차량번호와 성명은 필수입니다','warn');return;}
     // category 재계산 (신규 등록 및 수정 시 차량번호 기준)
     fd.category=fd.vehicle_number?.includes('배')?'택배':'개인';
@@ -1014,19 +1095,19 @@ window.closeMember=async(id,name,vn)=>{
         <div class="fi cs2"><label>이관지역</label><input class="fc" id="clTransferRegion" placeholder="예: 서울 → 강원 춘천시"></div>`:'';
       openModal(`${ct} 처리`,`
         <div class="fg2">
-          <div class="fi"><label>접수일자</label><input class="fc" id="clReceiptDate" placeholder="2026-01-01" value="${new Date().toISOString().slice(0,10)}"></div>
-          <div class="fi"><label>처리일자 <span class="req">*</span></label><input class="fc" id="clDate" placeholder="2026-01-01"></div>
+          <div class="fi"><label>접수일자</label><input class="fc fmt-date" id="clReceiptDate" placeholder="00.00.00" value="${_isoToYY(new Date().toISOString().slice(0,10))}"></div>
+          <div class="fi"><label>처리일자 <span class="req">*</span></label><input class="fc fmt-date" id="clDate" placeholder="00.00.00"></div>
           <div class="fi"><label>관리번호</label><input class="fc" id="clMgmt" value="${e_(nn?.next_number||'')}"></div>
         </div>
         ${extraFields}
         <div class="fi mt8"><label>사유 / 비고</label><input class="fc" id="clReason"></div>`,
         `<button class="btn br btn-sm" id="_clC">${ct} 처리</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'msm');
       document.getElementById('_clC').onclick=async()=>{
-        const cd=document.getElementById('clDate').value.trim();
+        const cd=_dateToISO(document.getElementById('clDate').value.trim());
         if(!cd){toast('처리일자를 입력하세요','warn');return;}
         const payload={
           closure_type:ct,
-          receipt_date:(document.getElementById('clReceiptDate')?.value||'').trim(),
+          receipt_date:_dateToISO((document.getElementById('clReceiptDate')?.value||'').trim()),
           closure_date:cd,
           management_number:document.getElementById('clMgmt').value.trim(),
           reason:document.getElementById('clReason').value.trim(),
@@ -1055,10 +1136,10 @@ window.openDomesticTransfer=async(id)=>{
     </div>
     <form id="dtForm">
       ${sec('처리정보',`
-      <div class="fi"><label>접수일자</label><input class="fc" name="receipt_date" placeholder="${today}"></div>
-      <div class="fi"><label>인가일자</label><input class="fc" name="approval_date" placeholder="${today}"></div>
-      <div class="fi"><label>가입일자</label><input class="fc" name="membership_date" placeholder="없으면 미가입"></div>
-      <div class="fi"><label>처리일자(폐업일자) <span class="req">*</span></label><input class="fc" name="closure_date" value="${today}"></div>
+      <div class="fi"><label>접수일자</label><input class="fc fmt-date" name="receipt_date" placeholder="00.00.00"></div>
+      <div class="fi"><label>인가일자</label><input class="fc fmt-date" name="approval_date" placeholder="00.00.00"></div>
+      <div class="fi"><label>가입일자</label><input class="fc fmt-date" name="membership_date" placeholder="없으면 미가입"></div>
+      <div class="fi"><label>처리일자(폐업일자) <span class="req">*</span></label><input class="fc fmt-date" name="closure_date" value="${_isoToYY(today)}"></div>
       `,'📋','sky')}
       <details class="dtl-sec" style="margin-bottom:14px">
         <summary class="dtl-sec-hd" style="cursor:pointer">🪪 양도자 기존 면허정보 (참고용)</summary>
@@ -1101,7 +1182,7 @@ window.openDomesticTransfer=async(id)=>{
 
   const collect=()=>{
     const form=document.getElementById('dtForm');
-    const fd=Object.fromEntries(new FormData(form));
+    const fd=_normFormDates(Object.fromEntries(new FormData(form)));
     fd.transferor_member_id=id;
     return fd;
   };
@@ -1454,7 +1535,7 @@ window.editTransfer=async(id)=>{
   `<button class="btn bg btn-sm" id="_tlS">${id?'저장':'등록'}</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
   document.getElementById('_tlS').onclick=async()=>{
     const form=document.getElementById('tlForm');if(!form.checkValidity()){form.reportValidity();return;}
-    const fd=Object.fromEntries(new FormData(form));
+    const fd=_normFormDates(Object.fromEntries(new FormData(form)));
     const res=await api(id?'PUT':'POST',id?`/api/transfer-ledger/${id}`:'/api/transfer-ledger',fd).catch(()=>null);
     if(res){toast(id?'수정':'등록');closeModal();renderTransferLedger();}
   };
@@ -1584,7 +1665,7 @@ window.editClosure=async(id)=>{
   }
   document.getElementById('_clS').onclick=async()=>{
     const form=document.getElementById('clForm');if(!form.checkValidity()){form.reportValidity();return;}
-    const fd=Object.fromEntries(new FormData(form));
+    const fd=_normFormDates(Object.fromEntries(new FormData(form)));
     const res=await api(id?'PUT':'POST',id?`/api/closures/${id}`:'/api/closures',fd).catch(()=>null);
     if(res){toast(id?'수정':'등록');closeModal();renderClosures();}
   };
@@ -1669,7 +1750,7 @@ window.editChange=async(id)=>{
   </div></form>`,
   `<button class="btn bg btn-sm" id="_chS">${id?'저장':'등록'}</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`);
   document.getElementById('_chS').onclick=async()=>{
-    const res=await api(id?'PUT':'POST',id?`/api/change-history/${id}`:'/api/change-history',Object.fromEntries(new FormData(document.getElementById('chForm')))).catch(()=>null);
+    const res=await api(id?'PUT':'POST',id?`/api/change-history/${id}`:'/api/change-history',_normFormDates(Object.fromEntries(new FormData(document.getElementById('chForm'))))).catch(()=>null);
     if(res){toast(id?'수정':'등록');closeModal();renderChangeHistory();}
   };
 };

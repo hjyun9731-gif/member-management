@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from app.database import get_db
 from app.auth import get_current_user, require_admin
 from app import models, crud
-from app.excel_utils import is_association_member
+from app.excel_utils import is_association_member, format_dates_for_export
 
 router = APIRouter()
 
@@ -528,7 +528,7 @@ async def export(year: int = Query(...), month: int = Query(...),
     out = io.BytesIO()
     with pd.ExcelWriter(out, engine="openpyxl") as w:
         def sheet(data, name):
-            pd.DataFrame(data or [{}]).to_excel(w, sheet_name=name, index=False)
+            format_dates_for_export(pd.DataFrame(data or [{}])).to_excel(w, sheet_name=name, index=False)
         sheet([{"관리번호": r.management_number, "지역": r.region, "차량번호": r.vehicle_number,
                 "성명": r.name, "등록구분": r.registration_type} for r in new_members], "신규등록")
         sheet([{"지역": r.region, "차량번호": r.vehicle_number, "양도자": r.transferor,
