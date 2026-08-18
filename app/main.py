@@ -279,6 +279,17 @@ app.include_router(integrations.router)
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
+# ── 전체면허자현황 모바일 버전 (기존 PC 화면/코드와 완전히 분리된 별도 앱) ─────────
+# 기존 /static, /, /{p:path} 라우트는 전혀 수정하지 않음. 아래는 순수 추가.
+mobile_static_dir = os.path.join(os.path.dirname(__file__), "static_mobile")
+app.mount("/static-m", StaticFiles(directory=mobile_static_dir), name="static-mobile")
+
+
+@app.get("/m")
+@app.get("/m/{p:path}")
+def mobile_app(p: str = ""):
+    return FileResponse(os.path.join(mobile_static_dir, "index.html"))
+
 
 @app.get("/sw.js")
 def service_worker():
