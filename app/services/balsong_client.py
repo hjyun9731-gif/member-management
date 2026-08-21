@@ -58,6 +58,10 @@ class BalsongClient:
     def __init__(self):
         self.username = os.getenv("BALSONG_USER_ID", "")
         self.password = os.getenv("BALSONG_USER_PW", "")
+        # 값 자체는 절대 로그에 남기지 않고, 인식 여부(true/false)만 기록한다.
+        # Railway에서 변수가 실제로 컨테이너에 주입됐는지 배포 후 바로 확인하기 위한 용도.
+        logger.info("BALSONG_USER_ID configured: %s", bool(self.username))
+        logger.info("BALSONG_USER_PW configured: %s", bool(self.password))
 
     def _missing_vars(self) -> List[str]:
         missing = []
