@@ -3245,13 +3245,26 @@ function _smsFsel(id,allLabel,opts,sel=''){
 }
 
 // 복수선택 드롭다운(체크박스) - 같은 항목 내 여러 값을 OR로 선택하기 위한 공용 위젯
+// "전체"는 실제 데이터값이 아니라 해당 조건을 제한하지 않는다는 의미(아무것도 선택 안 함)
 function _smsMsel(key,label,options){
   return `<div class="sms-msel" data-key="${key}" style="position:relative;display:inline-block;vertical-align:top">
     <button type="button" class="fc sms-msel-btn" data-base="${label}" style="min-width:112px;text-align:left;cursor:pointer">${label}</button>
-    <div class="sms-msel-panel" hidden style="position:absolute;top:100%;left:0;z-index:50;background:var(--c-surface);border:1px solid var(--c-border);border-radius:8px;padding:8px;min-width:170px;max-height:260px;overflow:auto;box-shadow:0 4px 16px rgba(0,0,0,.14);margin-top:4px">
+    <div class="sms-msel-panel" hidden style="position:absolute;top:100%;left:0;z-index:50;background:var(--c-surface);border:1px solid var(--c-border);border-radius:8px;padding:8px;min-width:170px;max-height:300px;overflow:auto;box-shadow:0 4px 16px rgba(0,0,0,.14);margin-top:4px">
+      <div style="display:flex;gap:6px;padding:0 2px 6px;border-bottom:1px solid var(--c-border);margin-bottom:6px">
+        <button type="button" class="sms-msel-all" style="flex:1;font-size:11px;padding:3px;cursor:pointer">전체 선택</button>
+        <button type="button" class="sms-msel-none" style="flex:1;font-size:11px;padding:3px;cursor:pointer">전체 해제</button>
+      </div>
       ${options.map(o=>`<label style="display:flex;align-items:center;gap:6px;padding:4px 2px;white-space:nowrap;cursor:pointer"><input type="checkbox" value="${o}"> ${o}</label>`).join('')}
     </div>
   </div>`;
+}
+function _smsMselUpdateLabel(box){
+  const btn=box.querySelector('.sms-msel-btn');
+  const panel=box.querySelector('.sms-msel-panel');
+  const checked=[...panel.querySelectorAll('input[type=checkbox]:checked')].map(i=>i.value);
+  if(checked.length===0) btn.textContent=btn.dataset.base;
+  else if(checked.length===1) btn.textContent=checked[0];
+  else btn.textContent=`${checked[0]} 외 ${checked.length-1}개`;
 }
 function _smsBindMsel(){
   document.querySelectorAll('.sms-msel').forEach(box=>{
@@ -3263,11 +3276,19 @@ function _smsBindMsel(){
       panel.hidden=!panel.hidden;
     };
     panel.querySelectorAll('input[type=checkbox]').forEach(cb=>{
-      cb.onchange=()=>{
-        const n=panel.querySelectorAll('input:checked').length;
-        btn.textContent=btn.dataset.base+(n?` (${n})`:'');
-      };
+      cb.onchange=()=>_smsMselUpdateLabel(box);
     });
+    panel.querySelector('.sms-msel-all').onclick=(e)=>{
+      e.stopPropagation();
+      panel.querySelectorAll('input[type=checkbox]').forEach(cb=>cb.checked=true);
+      _smsMselUpdateLabel(box);
+    };
+    panel.querySelector('.sms-msel-none').onclick=(e)=>{
+      e.stopPropagation();
+      panel.querySelectorAll('input[type=checkbox]').forEach(cb=>cb.checked=false);
+      _smsMselUpdateLabel(box);
+    };
+    panel.onclick=(e)=>e.stopPropagation();
   });
   if(!window._smsMselGlobalBound){
     document.addEventListener('click',()=>{document.querySelectorAll('.sms-msel-panel').forEach(p=>p.hidden=true);});

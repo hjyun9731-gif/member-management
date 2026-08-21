@@ -1,7 +1,9 @@
 """발송닷컴(balsong.com) SMS/LMS/MMS API 클라이언트.
 
-계정 ID/비밀번호는 Railway 환경변수(BALSONG_USERNAME / BALSONG_PASSWORD)에서만
+계정 ID/비밀번호는 Railway 환경변수(BALSON_USER_ID / BALSONG_USER_PW)에서만
 읽는다. 절대 소스코드에 하드코딩하거나 로그/응답에 그대로 출력하지 않는다.
+(환경변수명 철자는 기존 Railway Variables와 동일하게 유지: BALSON은 G가 없고,
+BALSONG_USER_PW는 G가 있다.)
 
 아래 구현은 사용자가 전달한 "발송닷컴 SMS/LMS API 확정값" 문서를 그대로 따른다.
 문서에 없는 동작(예: 별도 취소 API, JSON 바디 전송 등)은 추측해서 만들지 않았다.
@@ -35,8 +37,16 @@ _last_call_ts = 0.0
 
 class BalsongClient:
     def __init__(self):
-        self.username = os.getenv("BALSONG_USERNAME", "")
-        self.password = os.getenv("BALSONG_PASSWORD", "")
+        self.username = os.getenv("BALSON_USER_ID", "")
+        self.password = os.getenv("BALSONG_USER_PW", "")
+
+    def _missing_vars(self) -> List[str]:
+        missing = []
+        if not self.username:
+            missing.append("BALSON_USER_ID")
+        if not self.password:
+            missing.append("BALSONG_USER_PW")
+        return missing
 
     def _ok(self) -> bool:
         return bool(self.username and self.password)
@@ -58,8 +68,9 @@ class BalsongClient:
         파일이 없는 일반 필드도 (None, value) 형태로 감싸서 httpx가 multipart로
         인코딩하도록 강제한다."""
         if not self._ok():
+            missing = self._missing_vars()
             return {"Result": "ERROR", "Code": "NO_CREDENTIALS",
-                    "Message": "BALSONG_USERNAME / BALSONG_PASSWORD 환경변수가 설정되지 않았습니다."}
+                    "Message": f"Railway 환경변수가 설정되지 않았습니다: {', '.join(missing)}"}
 
         await self._throttle()
 
@@ -84,8 +95,9 @@ class BalsongClient:
     async def test_connection(self) -> Dict[str, Any]:
         """계정 정보 유무만 확인. 부작용 없는 사용량조회(TRAFFIC/List) 호출로 실제 인증까지 검증."""
         if not self._ok():
+            missing = self._missing_vars()
             return {"ok": False, "has_credentials": False,
-                    "message": "BALSONG_USERNAME / BALSONG_PASSWORD 환경변수가 설정되지 않았습니다."}
+                    "message": f"Railway 환경변수가 설정되지 않았습니다: {', '.join(missing)}"}
         from datetime import date
         today = date.today()
         raw = await self.get_usage(today.year, today.month)
