@@ -3244,24 +3244,24 @@ function _smsFsel(id,allLabel,opts,sel=''){
   return `<select id="${id}" class="fsel"><option value="">${allLabel}</option>${opts.map(o=>`<option value="${o}" ${o===sel?'selected':''}>${o}</option>`).join('')}</select>`;
 }
 
-// 복수선택 드롭다운(체크박스) - 같은 항목 내 여러 값을 OR로 선택하기 위한 공용 위젯
-// "전체"는 실제 데이터값이 아니라 해당 조건을 제한하지 않는다는 의미(아무것도 선택 안 함)
+// 복수선택 드롭다운(체크박스) - 같은 항목 내 여러 값을 OR로 선택하기 위한 공용 위젯.
+// "전체"는 실제 데이터값이 아니라 이 조건을 필터링하지 않는다는 뜻의 체크박스이며,
+// 별도의 전체선택/전체해제 버튼은 두지 않는다(대상자 조회 결과 목록의 것과 혼동 방지).
 function _smsMsel(key,label,options){
   return `<div class="sms-msel" data-key="${key}" style="position:relative;display:inline-block;vertical-align:top">
     <button type="button" class="fc sms-msel-btn" data-base="${label}" style="min-width:112px;text-align:left;cursor:pointer">${label}</button>
     <div class="sms-msel-panel" hidden style="position:absolute;top:100%;left:0;z-index:50;background:var(--c-surface);border:1px solid var(--c-border);border-radius:8px;padding:8px;min-width:170px;max-height:300px;overflow:auto;box-shadow:0 4px 16px rgba(0,0,0,.14);margin-top:4px">
-      <div style="display:flex;gap:6px;padding:0 2px 6px;border-bottom:1px solid var(--c-border);margin-bottom:6px">
-        <button type="button" class="sms-msel-all" style="flex:1;font-size:11px;padding:3px;cursor:pointer">전체 선택</button>
-        <button type="button" class="sms-msel-none" style="flex:1;font-size:11px;padding:3px;cursor:pointer">전체 해제</button>
-      </div>
-      ${options.map(o=>`<label style="display:flex;align-items:center;gap:6px;padding:4px 2px;white-space:nowrap;cursor:pointer"><input type="checkbox" value="${o}"> ${o}</label>`).join('')}
+      <label style="display:flex;align-items:center;gap:6px;padding:4px 2px;white-space:nowrap;cursor:pointer;border-bottom:1px solid var(--c-border-l);margin-bottom:4px;padding-bottom:6px">
+        <input type="checkbox" class="sms-msel-alloption" checked> 전체
+      </label>
+      ${options.map(o=>`<label style="display:flex;align-items:center;gap:6px;padding:4px 2px;white-space:nowrap;cursor:pointer"><input type="checkbox" class="sms-msel-opt" value="${o}"> ${o}</label>`).join('')}
     </div>
   </div>`;
 }
 function _smsMselUpdateLabel(box){
   const btn=box.querySelector('.sms-msel-btn');
   const panel=box.querySelector('.sms-msel-panel');
-  const checked=[...panel.querySelectorAll('input[type=checkbox]:checked')].map(i=>i.value);
+  const checked=[...panel.querySelectorAll('input.sms-msel-opt:checked')].map(i=>i.value);
   if(checked.length===0) btn.textContent=btn.dataset.base;
   else if(checked.length===1) btn.textContent=checked[0];
   else btn.textContent=`${checked[0]} 외 ${checked.length-1}개`;
@@ -3270,24 +3270,24 @@ function _smsBindMsel(){
   document.querySelectorAll('.sms-msel').forEach(box=>{
     const btn=box.querySelector('.sms-msel-btn');
     const panel=box.querySelector('.sms-msel-panel');
+    const allCb=panel.querySelector('.sms-msel-alloption');
+    const optCbs=[...panel.querySelectorAll('.sms-msel-opt')];
     btn.onclick=(e)=>{
       e.stopPropagation();
       document.querySelectorAll('.sms-msel-panel').forEach(p=>{if(p!==panel)p.hidden=true;});
       panel.hidden=!panel.hidden;
     };
-    panel.querySelectorAll('input[type=checkbox]').forEach(cb=>{
-      cb.onchange=()=>_smsMselUpdateLabel(box);
+    allCb.onchange=()=>{
+      if(allCb.checked) optCbs.forEach(cb=>cb.checked=false);
+      _smsMselUpdateLabel(box);
+    };
+    optCbs.forEach(cb=>{
+      cb.onchange=()=>{
+        if(cb.checked) allCb.checked=false;
+        else if(optCbs.every(c=>!c.checked)) allCb.checked=true;
+        _smsMselUpdateLabel(box);
+      };
     });
-    panel.querySelector('.sms-msel-all').onclick=(e)=>{
-      e.stopPropagation();
-      panel.querySelectorAll('input[type=checkbox]').forEach(cb=>cb.checked=true);
-      _smsMselUpdateLabel(box);
-    };
-    panel.querySelector('.sms-msel-none').onclick=(e)=>{
-      e.stopPropagation();
-      panel.querySelectorAll('input[type=checkbox]').forEach(cb=>cb.checked=false);
-      _smsMselUpdateLabel(box);
-    };
     panel.onclick=(e)=>e.stopPropagation();
   });
   if(!window._smsMselGlobalBound){
@@ -3296,7 +3296,7 @@ function _smsBindMsel(){
   }
 }
 function _smsMselValues(key){
-  return [...document.querySelectorAll(`.sms-msel[data-key="${key}"] input:checked`)].map(i=>i.value);
+  return [...document.querySelectorAll(`.sms-msel[data-key="${key}"] input.sms-msel-opt:checked`)].map(i=>i.value);
 }
 
 async function _smsLoadTemplates(){
@@ -3322,9 +3322,9 @@ async function renderSmsSend(){
   await _smsLoadTemplates();
   SMS_ST.selectedIds=new Set(); SMS_ST.page=1;
   document.getElementById('content').innerHTML=`
-    <div class="card">
+    <div class="card" style="overflow:visible">
       <div class="card-hd"><div class="card-hd-l"><span class="card-ico">🎯</span><span class="card-ttl">대상자 조건</span></div></div>
-      <div style="display:flex;flex-wrap:wrap;gap:8px;padding:10px 14px">
+      <div style="display:flex;flex-wrap:wrap;gap:8px;padding:10px 14px;overflow:visible">
         ${_smsMsel('region','지역 전체',REGIONS)}
         ${_smsMsel('category','구분 전체',SMS_CATEGORY_OPTS)}
         ${_smsMsel('membership_status','가입여부 전체',SMS_MEMBERSHIP_OPTS)}
