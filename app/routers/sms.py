@@ -380,7 +380,7 @@ async def _do_immediate_send(db: Session, job: models.SmsJob, recipients: List[m
         job.fail_count = 0
     else:
         job.status = "실패"
-        job.error_message = str(resp.get("Message") or resp.get("Code") or "발송 실패")
+        job.error_message = _clean_result_message(resp)
         job.fail_count = job.total_count
         job.success_count = 0
     for r in recipients:
@@ -389,6 +389,21 @@ async def _do_immediate_send(db: Session, job: models.SmsJob, recipients: List[m
             r.status_detail = job.error_message
     db.commit()
     return ok, resp
+
+
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _clean_result_message(resp: dict) -> str:
+    """발송닷컴 응답에서 사용자에게 보여줘도 안전한 오류 메시지만 추출한다.
+    HTML/SVG 등 마크업이 섞여 들어오면 태그를 제거하고, 그래도 비어있으면
+    일반적인 문구로 대체한다 (UserID/UserPW 등 비밀정보는 애초에 응답에 없음)."""
+    raw = resp.get("Message") or resp.get("Code") or ""
+    text = _TAG_RE.sub(" ", str(raw))
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text or len(text) > 200:
+        return "발송닷컴 발송에 실패했습니다. 관리자에게 문의해 주세요."
+    return text
 
 
 @router.post("/send")
@@ -423,7 +438,8 @@ async def send_sms(data: SendRequest, db: Session = Depends(get_db),
         db.commit()
         destinations = [{"Phone": p, "Name": "테스트"} for p in phones]
         ok, resp = await _do_immediate_send(db, job, recipients, destinations)
-        return {"ok": ok, "job_id": job.id, "job_no": job.job_no, "raw": resp}
+        message = "테스트 문자가 정상 발송되었습니다." if ok else _clean_result_message(resp)
+        return {"success": ok, "message": message, "ok": ok, "job_id": job.id, "job_no": job.job_no}
 
     # ── 실제 발송: 선택된 recipient_ids를 license_holders에서 그대로 재조회 ──
     if not data.recipient_ids:
@@ -459,7 +475,8 @@ async def send_sms(data: SendRequest, db: Session = Depends(get_db),
         # 발송닷컴 자체 Send_Date가 아니라, 우리 쪽에서 예약시각까지 보관했다가
         # 그 시각에 즉시발송으로 호출한다. 이렇게 해야 예약 취소/수정이 실제로 가능하다
         # (문서에 별도의 예약취소 API가 없으므로, 발송닷컴에 먼저 넘겨버리면 취소할 수 없다).
-        return {"ok": True, "job_id": job.id, "status": "예약대기", "scheduled_at": data.scheduled_at}
+        return {"success": True, "message": "예약 발송이 등록되었습니다.",
+                "ok": True, "job_id": job.id, "status": "예약대기", "scheduled_at": data.scheduled_at}
 
     destinations = []
     for m in members:
@@ -467,7 +484,8 @@ async def send_sms(data: SendRequest, db: Session = Depends(get_db),
                 "Replace_Datas": _replace_datas_for(m)}
         destinations.append(dest)
     ok, resp = await _do_immediate_send(db, job, recipients, destinations)
-    return {"ok": ok, "job_id": job.id, "job_no": job.job_no, "total": len(members), "raw": resp}
+    message = f"발송 완료 ({len(members)}명)" if ok else _clean_result_message(resp)
+    return {"success": ok, "message": message, "ok": ok, "job_id": job.id, "job_no": job.job_no, "total": len(members)}
 
 
 # ────────────────────────────────────────────────────────────

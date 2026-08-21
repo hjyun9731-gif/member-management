@@ -1,9 +1,7 @@
 """발송닷컴(balsong.com) SMS/LMS/MMS API 클라이언트.
 
-계정 ID/비밀번호는 Railway 환경변수(BALSON_USER_ID / BALSONG_USER_PW)에서만
+계정 ID/비밀번호는 Railway 환경변수(BALSONG_USER_ID / BALSONG_USER_PW)에서만
 읽는다. 절대 소스코드에 하드코딩하거나 로그/응답에 그대로 출력하지 않는다.
-(환경변수명 철자는 기존 Railway Variables와 동일하게 유지: BALSON은 G가 없고,
-BALSONG_USER_PW는 G가 있다.)
 
 아래 구현은 사용자가 전달한 "발송닷컴 SMS/LMS API 확정값" 문서를 그대로 따른다.
 문서에 없는 동작(예: 별도 취소 API, JSON 바디 전송 등)은 추측해서 만들지 않았다.
@@ -19,13 +17,22 @@ BALSONG_USER_PW는 G가 있다.)
 - 호출 제한: 문서에 "1초에 3회 이상 시도 시 10분간 접속 차단"이 명시되어 있어,
   수신자별로 반복 호출하지 않고 Destination 배열로 일괄 발송하며, 그 외 호출도
   이 클라이언트 내부에서 최소 간격을 두어 제한에 걸리지 않도록 한다.
+
+로깅 원칙:
+- UserID/UserPW 값 자체는 어떤 경우에도 로그에 남기지 않는다.
+- 매 호출마다 (1) 요청 실행 여부 (2) HTTP status code (3) 응답 content-type
+  (4) 비밀정보를 제외한 응답 내용(길이 제한) (5) 성공/실패 판정만 남긴다.
 """
 import os
 import json
 import time
 import asyncio
+import logging
+import re
 import httpx
 from typing import Optional, List, Dict, Any
+
+logger = logging.getLogger(__name__)
 
 BASE_URL = "https://balsong.com/Linkage/API/"
 
@@ -34,16 +41,28 @@ _MIN_CALL_INTERVAL_SEC = 0.5
 _last_call_lock = asyncio.Lock()
 _last_call_ts = 0.0
 
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _strip_markup(text: str, limit: int = 200) -> str:
+    """응답이 HTML/SVG 등 마크업일 경우 태그를 제거하고 길이를 제한한다.
+    사용자에게 그대로 노출돼도 안전한 문자열만 남긴다."""
+    if not text:
+        return ""
+    cleaned = _TAG_RE.sub(" ", text)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned[:limit]
+
 
 class BalsongClient:
     def __init__(self):
-        self.username = os.getenv("BALSON_USER_ID", "")
+        self.username = os.getenv("BALSONG_USER_ID", "")
         self.password = os.getenv("BALSONG_USER_PW", "")
 
     def _missing_vars(self) -> List[str]:
         missing = []
         if not self.username:
-            missing.append("BALSON_USER_ID")
+            missing.append("BALSONG_USER_ID")
         if not self.password:
             missing.append("BALSONG_USER_PW")
         return missing
@@ -67,8 +86,15 @@ class BalsongClient:
         """문서의 실제 발송 예제(method=Post, enctype=multipart/form-data)를 그대로 따른다.
         파일이 없는 일반 필드도 (None, value) 형태로 감싸서 httpx가 multipart로
         인코딩하도록 강제한다."""
+        service = fields.get("Service", "?")
+        req_type = fields.get("Type", "?")
+
         if not self._ok():
             missing = self._missing_vars()
+            logger.warning(
+                "발송닷컴 요청 미실행 (Service=%s Type=%s): 환경변수 누락 %s",
+                service, req_type, missing,
+            )
             return {"Result": "ERROR", "Code": "NO_CREDENTIALS",
                     "Message": f"Railway 환경변수가 설정되지 않았습니다: {', '.join(missing)}"}
 
@@ -81,16 +107,29 @@ class BalsongClient:
             multipart_fields.append(
                 (key, (None, str(value).encode("utf-8"), "text/plain; charset=utf-8"))
             )
+        logger.info("발송닷컴 요청 실행: Service=%s Type=%s URL=%s", service, req_type, BASE_URL)
         try:
             async with httpx.AsyncClient(timeout=20) as c:
                 r = await c.post(BASE_URL, files=multipart_fields)
+            content_type = r.headers.get("content-type", "")
             try:
-                return r.json()
+                body = r.json()
+                logger.info(
+                    "발송닷컴 응답: status=%s content-type=%s Result=%s Code=%s",
+                    r.status_code, content_type, body.get("Result"), body.get("Code"),
+                )
+                return body
             except Exception:
+                safe_text = _strip_markup(r.text)
+                logger.warning(
+                    "발송닷컴 응답이 JSON이 아님: status=%s content-type=%s body(요약)=%r",
+                    r.status_code, content_type, safe_text,
+                )
                 return {"Result": "ERROR", "Code": f"HTTP_{r.status_code}",
-                        "Message": r.text[:300]}
+                        "Message": safe_text or f"발송닷컴 서버가 예상치 못한 응답(HTTP {r.status_code})을 반환했습니다."}
         except Exception as e:
-            return {"Result": "ERROR", "Code": "EXCEPTION", "Message": str(e)}
+            logger.warning("발송닷컴 요청 예외 (Service=%s Type=%s): %s", service, req_type, e)
+            return {"Result": "ERROR", "Code": "EXCEPTION", "Message": "발송닷컴 서버에 연결할 수 없습니다."}
 
     async def test_connection(self) -> Dict[str, Any]:
         """계정 정보 유무만 확인. 부작용 없는 사용량조회(TRAFFIC/List) 호출로 실제 인증까지 검증."""

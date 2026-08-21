@@ -568,7 +568,7 @@ window._smsQuickSend=(id,name,mobile)=>{
     const rr=await api('POST','/api/sms/send',{
       filters:{}, recipient_ids:[id], service, callback, main_text, send_mode:'즉시', is_test:false,
     }).catch(()=>null);
-    if(rr){toast(rr.ok?'발송 완료':'발송 실패: '+(rr.raw?.Message||''),rr.ok?'ok':'err');if(rr.ok)closeModal();}
+    if(rr){toast(rr.success?(rr.message||'발송 완료'):'발송 실패: '+(rr.message||'알 수 없는 오류'),rr.success?'ok':'err');if(rr.success)closeModal();}
   };
 };
 
@@ -3456,7 +3456,7 @@ async function _smsTestSend(){
     filters:{}, recipient_ids:[], service, callback, subject, main_text:mainText,
     send_mode:'즉시', is_test:true, test_phones:phones,
   }).catch(()=>null);
-  if(r)toast(r.ok?'테스트 발송 완료':'테스트 발송 실패: '+(r.raw?.Message||''),r.ok?'ok':'err');
+  if(r)toast(r.success?(r.message||'테스트 발송 완료'):'테스트 발송 실패: '+(r.message||'알 수 없는 오류'),r.success?'ok':'err');
 }
 
 async function _smsSend(mode){
@@ -3482,9 +3482,9 @@ async function _smsSend(mode){
     send_mode:mode, scheduled_at:scheduledAt||null, is_test:false,
   }).catch(()=>null);
   if(!r)return;
-  if(mode==='즉시')toast(r.ok?`발송 완료 (${ids.length}명)`:'발송 실패: '+(r.raw?.Message||''),r.ok?'ok':'err');
-  else toast('예약 등록 완료');
-  if(r.ok||mode==='예약'){SMS_ST.selectedIds=new Set();_smsRenderTargetTable();}
+  if(mode==='즉시')toast(r.success?(r.message||`발송 완료 (${ids.length}명)`):'발송 실패: '+(r.message||'알 수 없는 오류'),r.success?'ok':'err');
+  else toast(r.message||'예약 등록 완료');
+  if(r.success||mode==='예약'){SMS_ST.selectedIds=new Set();_smsRenderTargetTable();}
 }
 
 // ── 예약 문자 관리 ──────────────────────────────────
