@@ -3229,6 +3229,12 @@ window.viewGlosign=async(id)=>{
 // ===== 문자발송 관리 =====
 // 원칙: 별도의 회원 명단을 두지 않고, 항상 /api/sms/targets로 license_holders를 실시간 조회한다.
 const SMS_VARS = ['성명','차량번호','지역','차종','유종','회원구분','관리번호','소속업체','가입여부'];
+// 문자발송 화면 전용 분류 (기존 회원등록/엑셀에서 쓰는 VEH_TYPES/FUEL_TYPES와는 다른 체계 -
+// 서버 sms.py의 SMS_VEHICLE_CATS/SMS_FUEL_CATS와 반드시 동일하게 유지)
+const SMS_VEH_CATS = ['일반카고','내장탑차','냉동·냉장차','윙바디','밴형','픽업형','특장차','기타'];
+const SMS_FUEL_CATS = ['경유','휘발유','LPG','전기','수소','기타'];
+const SMS_CATEGORY_OPTS = ['개인','택배'];
+const SMS_MEMBERSHIP_OPTS = ['가입','미가입'];
 const SMS_ST = {
   filters:{}, selectedIds:new Set(), targets:[], total:0, page:1, excludedNoPhone:0,
   templates:[], service:'SMS', callback:localStorage.getItem('smsCallback')||'',
@@ -3238,18 +3244,53 @@ function _smsFsel(id,allLabel,opts,sel=''){
   return `<select id="${id}" class="fsel"><option value="">${allLabel}</option>${opts.map(o=>`<option value="${o}" ${o===sel?'selected':''}>${o}</option>`).join('')}</select>`;
 }
 
+// 복수선택 드롭다운(체크박스) - 같은 항목 내 여러 값을 OR로 선택하기 위한 공용 위젯
+function _smsMsel(key,label,options){
+  return `<div class="sms-msel" data-key="${key}" style="position:relative;display:inline-block;vertical-align:top">
+    <button type="button" class="fc sms-msel-btn" data-base="${label}" style="min-width:112px;text-align:left;cursor:pointer">${label}</button>
+    <div class="sms-msel-panel" hidden style="position:absolute;top:100%;left:0;z-index:50;background:var(--c-surface);border:1px solid var(--c-border);border-radius:8px;padding:8px;min-width:170px;max-height:260px;overflow:auto;box-shadow:0 4px 16px rgba(0,0,0,.14);margin-top:4px">
+      ${options.map(o=>`<label style="display:flex;align-items:center;gap:6px;padding:4px 2px;white-space:nowrap;cursor:pointer"><input type="checkbox" value="${o}"> ${o}</label>`).join('')}
+    </div>
+  </div>`;
+}
+function _smsBindMsel(){
+  document.querySelectorAll('.sms-msel').forEach(box=>{
+    const btn=box.querySelector('.sms-msel-btn');
+    const panel=box.querySelector('.sms-msel-panel');
+    btn.onclick=(e)=>{
+      e.stopPropagation();
+      document.querySelectorAll('.sms-msel-panel').forEach(p=>{if(p!==panel)p.hidden=true;});
+      panel.hidden=!panel.hidden;
+    };
+    panel.querySelectorAll('input[type=checkbox]').forEach(cb=>{
+      cb.onchange=()=>{
+        const n=panel.querySelectorAll('input:checked').length;
+        btn.textContent=btn.dataset.base+(n?` (${n})`:'');
+      };
+    });
+  });
+  if(!window._smsMselGlobalBound){
+    document.addEventListener('click',()=>{document.querySelectorAll('.sms-msel-panel').forEach(p=>p.hidden=true);});
+    window._smsMselGlobalBound=true;
+  }
+}
+function _smsMselValues(key){
+  return [...document.querySelectorAll(`.sms-msel[data-key="${key}"] input:checked`)].map(i=>i.value);
+}
+
 async function _smsLoadTemplates(){
   const d=await api('GET','/api/sms/templates').catch(()=>null);
   SMS_ST.templates=d?.items||[];
 }
 
 function _smsCollectFilters(){
+  const join=(k)=>_smsMselValues(k).join(',');
   return {
-    region: document.getElementById('smsRegion')?.value||'',
-    category: document.getElementById('smsCategory')?.value||'',
-    membership_status: document.getElementById('smsMembership')?.value||'',
-    vehicle_type: document.getElementById('smsVehType')?.value||'',
-    fuel_type: document.getElementById('smsFuel')?.value||'',
+    region: join('region'),
+    category: join('category'),
+    membership_status: join('membership_status'),
+    vehicle_type: join('vehicle_type'),
+    fuel_type: join('fuel_type'),
     age_min: document.getElementById('smsAgeMin')?.value||'',
     age_max: document.getElementById('smsAgeMax')?.value||'',
     search: document.getElementById('smsSearch')?.value||'',
@@ -3263,11 +3304,11 @@ async function renderSmsSend(){
     <div class="card">
       <div class="card-hd"><div class="card-hd-l"><span class="card-ico">🎯</span><span class="card-ttl">대상자 조건</span></div></div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;padding:10px 14px">
-        ${rselflt('smsRegion','')}
-        ${_smsFsel('smsCategory','전체 구분',['개인','택배'])}
-        ${_smsFsel('smsMembership','전체 가입여부',['가입','미가입'])}
-        ${_smsFsel('smsVehType','전체 차종',VEH_TYPES)}
-        ${_smsFsel('smsFuel','전체 유종',FUEL_TYPES)}
+        ${_smsMsel('region','지역 전체',REGIONS)}
+        ${_smsMsel('category','구분 전체',SMS_CATEGORY_OPTS)}
+        ${_smsMsel('membership_status','가입여부 전체',SMS_MEMBERSHIP_OPTS)}
+        ${_smsMsel('vehicle_type','차량형태 전체',SMS_VEH_CATS)}
+        ${_smsMsel('fuel_type','유종 전체',SMS_FUEL_CATS)}
         <input id="smsAgeMin" class="fc" style="width:90px" placeholder="연령 이상" type="number">
         <input id="smsAgeMax" class="fc" style="width:90px" placeholder="연령 이하" type="number">
         <input id="smsSearch" class="fc" style="width:150px" placeholder="이름/차량번호 검색">
@@ -3307,6 +3348,7 @@ async function renderSmsSend(){
       </div>
     </div>`;
 
+  _smsBindMsel();
   document.getElementById('smsSearchBtn').onclick=()=>_smsSearch(1);
   document.getElementById('smsSelAll').onclick=_smsSelectAll;
   document.getElementById('smsSelNone').onclick=()=>{SMS_ST.selectedIds=new Set();_smsRenderTargetTable();};

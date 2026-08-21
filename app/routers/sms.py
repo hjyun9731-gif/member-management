@@ -27,7 +27,7 @@ from app.database import get_db, SessionLocal
 from app.auth import get_current_user, require_admin
 from app import models
 from app.excel_utils import normalize_fuel
-from app.routers.dashboard import calc_age_from_resident
+from app.routers.dashboard import calc_age_from_resident, classify_vt, classify_fuel
 from app.services.balsong_client import balsong
 
 logger = logging.getLogger(__name__)
@@ -45,6 +45,42 @@ VARIABLE_FIELD_MAP = {
     "소속업체": "affiliated_company",
     "가입여부": "membership_status",
 }
+
+# 문자발송 화면 전용 분류 (기존 회원등록/엑셀에서 쓰는 vehicle_type/fuel_type 원본값과는 별개.
+# dashboard.py의 classify_vt/classify_fuel(이미 검증된 분류 로직)을 그대로 재사용해서
+# 사용자가 요청한 8개/6개 버킷으로 다시 묶는다.)
+SMS_VEHICLE_CATS = ["일반카고", "내장탑차", "냉동·냉장차", "윙바디", "밴형", "픽업형", "특장차", "기타"]
+SMS_FUEL_CATS = ["경유", "휘발유", "LPG", "전기", "수소", "기타"]
+
+_VT_TO_SMS_CAT = {
+    "카고": "일반카고",
+    "탑차/내장탑": "내장탑차",
+    "냉동탑/냉장탑": "냉동·냉장차",
+    "윙바디": "윙바디",
+    "밴/특수밴": "밴형",
+    "픽업/덮개": "픽업형",
+    "사다리/고소": "특장차",
+    "렉카/구난": "특장차",
+    "기타특수": "특장차",
+    "미분류": "기타",
+}
+
+_HYDROGEN_KW = ["수소", "hydrogen", "fcev", "수소전기"]
+
+
+def sms_classify_vehicle(vehicle_type: str, fuel_type: str = "") -> str:
+    return _VT_TO_SMS_CAT.get(classify_vt(vehicle_type, fuel_type), "기타")
+
+
+def sms_classify_fuel(fuel_type: str, vehicle_type: str = "") -> str:
+    text = f"{fuel_type or ''} {vehicle_type or ''}".lower()
+    if any(k in text for k in _HYDROGEN_KW):
+        return "수소"
+    result = classify_fuel(fuel_type, vehicle_type)
+    if result in ("경유", "휘발유", "LPG", "전기"):
+        return result
+    return "기타"  # 하이브리드/CNG/미분류 등은 사용자가 요청한 6개 버킷 밖이라 기타로 묶음
+
 
 _PHONE_RE = re.compile(r"^01[016789]\d{7,8}$")
 
@@ -64,23 +100,27 @@ def _clean_phone(mobile: str) -> str:
 # 1. 대상자 실시간 조회 (license_holders 원본, 별도 명단 없음)
 # ────────────────────────────────────────────────────────────
 
+def _csv_list(v: Optional[str]) -> List[str]:
+    if not v:
+        return []
+    return [x.strip() for x in v.split(",") if x.strip()]
+
+
 def _build_target_query(db: Session, *, region=None, category=None,
-                         membership_status=None, vehicle_type=None,
-                         fuel_type=None, search=None):
+                         membership_status=None, search=None):
+    """region/category/membership_status는 license_holders의 실제 컬럼값이라 SQL IN으로
+    거른다. vehicle_type(차량형태)/fuel_type(유종)은 분류(가공)된 값이라 SQL로 거를 수
+    없어서, 여기서는 폐업 제외 등 공통 조건만 걸고 나머지는 파이썬에서 분류 후 거른다."""
     q = db.query(models.LicenseHolder).filter(
         models.LicenseHolder.deleted_at.is_(None),
         models.LicenseHolder.status != "closed",  # 폐업자 제외
     )
     if region:
-        q = q.filter(models.LicenseHolder.region == region)
+        q = q.filter(models.LicenseHolder.region.in_(region))
     if category:
-        q = q.filter(models.LicenseHolder.category == category)
+        q = q.filter(models.LicenseHolder.category.in_(category))
     if membership_status:
-        q = q.filter(models.LicenseHolder.membership_status == membership_status)
-    if vehicle_type:
-        q = q.filter(models.LicenseHolder.vehicle_type == vehicle_type)
-    if fuel_type:
-        q = q.filter(models.LicenseHolder.fuel_type == fuel_type)
+        q = q.filter(models.LicenseHolder.membership_status.in_(membership_status))
     if search:
         like = f"%{search}%"
         q = q.filter((models.LicenseHolder.name.ilike(like)) |
@@ -88,10 +128,19 @@ def _build_target_query(db: Session, *, region=None, category=None,
     return q
 
 
-def _apply_age_and_phone_filter(rows, age_min=None, age_max=None, valid_phone_only=True):
+def _apply_all_filters(rows, *, vehicle_type_cats=None, fuel_type_cats=None,
+                        age_min=None, age_max=None, valid_phone_only=True):
+    """차량형태/유종(분류값), 연령, 유효 전화번호 - SQL로 거르지 못하는 조건들을
+    여기서 한 번에 적용한다. 같은 항목 내 여러 값은 OR, 서로 다른 항목끼리는 AND."""
+    vt_set = set(vehicle_type_cats or [])
+    fuel_set = set(fuel_type_cats or [])
     result = []
     for m in rows:
         if valid_phone_only and not _valid_phone(m.mobile):
+            continue
+        if vt_set and sms_classify_vehicle(m.vehicle_type, m.fuel_type) not in vt_set:
+            continue
+        if fuel_set and sms_classify_fuel(m.fuel_type, m.vehicle_type) not in fuel_set:
             continue
         if age_min is not None or age_max is not None:
             age = calc_age_from_resident(m.resident_number)
@@ -112,8 +161,8 @@ def _fmt_target(m) -> dict:
         "name": m.name or "",
         "mobile": m.mobile or "",
         "region": m.region or "",
-        "vehicle_type": m.vehicle_type or "",
-        "fuel_type": normalize_fuel(m.fuel_type or ""),
+        "vehicle_type": sms_classify_vehicle(m.vehicle_type, m.fuel_type),
+        "fuel_type": sms_classify_fuel(m.fuel_type, m.vehicle_type),
         "age": calc_age_from_resident(m.resident_number),
         "category": m.category or "",
         "membership_status": m.membership_status or "",
@@ -122,13 +171,13 @@ def _fmt_target(m) -> dict:
 
 @router.get("/targets")
 async def get_targets(
-    region: Optional[str] = Query(None),
+    region: Optional[str] = Query(None, description="콤마로 구분된 복수값 (예: 춘천시,속초시)"),
     category: Optional[str] = Query(None),
     membership_status: Optional[str] = Query(None),
     vehicle_type: Optional[str] = Query(None),
     fuel_type: Optional[str] = Query(None),
-    age_min: Optional[int] = Query(None),
-    age_max: Optional[int] = Query(None),
+    age_min: Optional[str] = Query(None),
+    age_max: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=500),
@@ -136,13 +185,17 @@ async def get_targets(
     current_user: models.User = Depends(get_current_user),
 ):
     """조건에 맞는 대상자를 license_holders에서 실시간으로 조회한다.
+    각 항목(region/category/membership_status/vehicle_type/fuel_type)은 콤마로 여러
+    값을 받을 수 있고, 같은 항목 내에서는 OR, 서로 다른 항목끼리는 AND로 적용한다.
     전화번호(mobile)가 없거나 형식이 유효하지 않은 사람은 자동 제외한다."""
-    q = _build_target_query(db, region=region, category=category,
-                             membership_status=membership_status,
-                             vehicle_type=vehicle_type, fuel_type=fuel_type,
-                             search=search)
+    age_min_i = int(age_min) if age_min not in (None, "") else None
+    age_max_i = int(age_max) if age_max not in (None, "") else None
+    q = _build_target_query(db, region=_csv_list(region), category=_csv_list(category),
+                             membership_status=_csv_list(membership_status), search=search)
     all_rows = q.all()
-    filtered = _apply_age_and_phone_filter(all_rows, age_min, age_max)
+    filtered = _apply_all_filters(all_rows, vehicle_type_cats=_csv_list(vehicle_type),
+                                   fuel_type_cats=_csv_list(fuel_type),
+                                   age_min=age_min_i, age_max=age_max_i)
     total = len(filtered)
     excluded_no_phone = len([m for m in all_rows if not _valid_phone(m.mobile)])
     start = (page - 1) * limit
@@ -163,20 +216,29 @@ async def get_target_ids(
     membership_status: Optional[str] = Query(None),
     vehicle_type: Optional[str] = Query(None),
     fuel_type: Optional[str] = Query(None),
-    age_min: Optional[int] = Query(None),
-    age_max: Optional[int] = Query(None),
+    age_min: Optional[str] = Query(None),
+    age_max: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
     """조건에 맞는 전체 대상자의 id 목록만 반환 - 화면의 "전체 선택"용
     (페이지에 보이는 것만이 아니라 조건 전체를 선택할 때 사용)."""
-    q = _build_target_query(db, region=region, category=category,
-                             membership_status=membership_status,
-                             vehicle_type=vehicle_type, fuel_type=fuel_type,
-                             search=search)
-    filtered = _apply_age_and_phone_filter(q.all(), age_min, age_max)
+    age_min_i = int(age_min) if age_min not in (None, "") else None
+    age_max_i = int(age_max) if age_max not in (None, "") else None
+    q = _build_target_query(db, region=_csv_list(region), category=_csv_list(category),
+                             membership_status=_csv_list(membership_status), search=search)
+    filtered = _apply_all_filters(q.all(), vehicle_type_cats=_csv_list(vehicle_type),
+                                   fuel_type_cats=_csv_list(fuel_type),
+                                   age_min=age_min_i, age_max=age_max_i)
     return {"total": len(filtered), "ids": [m.id for m in filtered]}
+
+
+@router.get("/filter-options")
+async def filter_options(current_user: models.User = Depends(get_current_user)):
+    """문자발송 화면의 차량형태/유종 선택지 (프론트에도 상수로 있지만, 서버 기준을
+    단일 소스로 유지하기 위해 API로도 제공)."""
+    return {"vehicle_cats": SMS_VEHICLE_CATS, "fuel_cats": SMS_FUEL_CATS}
 
 
 # ────────────────────────────────────────────────────────────
