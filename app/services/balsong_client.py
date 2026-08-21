@@ -25,6 +25,7 @@
 """
 import os
 import json
+import ssl
 import time
 import asyncio
 import logging
@@ -35,6 +36,11 @@ from typing import Optional, List, Dict, Any
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://balsong.com/Linkage/API/"
+
+# 무한 대기 방지용 명시적 타임아웃 (초 단위).
+# connect: TCP 연결 자체가 안 되는 경우, read: 요청은 보냈으나 응답을 못 받는 경우,
+# write: 요청 본문 전송이 막히는 경우, pool: 커넥션 풀에서 연결을 못 받는 경우.
+_HTTPX_TIMEOUT = httpx.Timeout(connect=10.0, read=20.0, write=10.0, pool=10.0)
 
 # 문서상 제한: 1초 3회 이상 → 10분 차단. 여유를 두고 최소 호출 간격을 둔다.
 _MIN_CALL_INTERVAL_SEC = 0.5
@@ -111,29 +117,98 @@ class BalsongClient:
             multipart_fields.append(
                 (key, (None, str(value).encode("utf-8"), "text/plain; charset=utf-8"))
             )
-        logger.info("발송닷컴 요청 실행: Service=%s Type=%s URL=%s", service, req_type, BASE_URL)
+
+        logger.info("발송닷컴 요청 시작: Service=%s Type=%s URL=%s", service, req_type, BASE_URL)
+        started = time.monotonic()
+
+        def _elapsed() -> float:
+            return round(time.monotonic() - started, 3)
+
         try:
-            async with httpx.AsyncClient(timeout=20) as c:
+            async with httpx.AsyncClient(timeout=_HTTPX_TIMEOUT) as c:
                 r = await c.post(BASE_URL, files=multipart_fields)
+            elapsed = _elapsed()
             content_type = r.headers.get("content-type", "")
             try:
                 body = r.json()
                 logger.info(
-                    "발송닷컴 응답: status=%s content-type=%s Result=%s Code=%s",
-                    r.status_code, content_type, body.get("Result"), body.get("Code"),
+                    "발송닷컴 응답 수신: status=%s content-type=%s elapsed=%.3fs Result=%s Code=%s",
+                    r.status_code, content_type, elapsed, body.get("Result"), body.get("Code"),
                 )
                 return body
             except Exception:
                 safe_text = _strip_markup(r.text)
                 logger.warning(
-                    "발송닷컴 응답이 JSON이 아님: status=%s content-type=%s body(요약)=%r",
-                    r.status_code, content_type, safe_text,
+                    "발송닷컴 응답 수신(JSON 아님): status=%s content-type=%s elapsed=%.3fs body(요약)=%r",
+                    r.status_code, content_type, elapsed, safe_text,
                 )
                 return {"Result": "ERROR", "Code": f"HTTP_{r.status_code}",
                         "Message": safe_text or f"발송닷컴 서버가 예상치 못한 응답(HTTP {r.status_code})을 반환했습니다."}
+
+        except httpx.ConnectTimeout as e:
+            elapsed = _elapsed()
+            logger.warning(
+                "발송닷컴 요청 실패 [ConnectTimeout] Service=%s Type=%s elapsed=%.3fs: %s",
+                service, req_type, elapsed, e.__class__.__name__,
+            )
+            return {"Result": "ERROR", "Code": "CONNECT_TIMEOUT",
+                    "Message": "발송닷컴 연결 시간 초과"}
+
+        except httpx.ReadTimeout as e:
+            elapsed = _elapsed()
+            logger.warning(
+                "발송닷컴 요청 실패 [ReadTimeout] Service=%s Type=%s elapsed=%.3fs: %s "
+                "(TCP 연결은 성공, 응답 대기 중 초과)",
+                service, req_type, elapsed, e.__class__.__name__,
+            )
+            return {"Result": "ERROR", "Code": "READ_TIMEOUT",
+                    "Message": "발송닷컴 응답 시간 초과"}
+
+        except httpx.RemoteProtocolError as e:
+            elapsed = _elapsed()
+            logger.warning(
+                "발송닷컴 요청 실패 [RemoteProtocolError] Service=%s Type=%s elapsed=%.3fs: %s",
+                service, req_type, elapsed, e.__class__.__name__,
+            )
+            return {"Result": "ERROR", "Code": "PROTOCOL_ERROR",
+                    "Message": "발송닷컴 서버와의 통신 프로토콜 오류"}
+
+        except httpx.ConnectError as e:
+            elapsed = _elapsed()
+            cause = e.__cause__
+            is_ssl = isinstance(cause, ssl.SSLError) or "ssl" in cause.__class__.__name__.lower() if cause else False
+            if is_ssl:
+                logger.warning(
+                    "발송닷컴 요청 실패 [ConnectError/SSL] Service=%s Type=%s elapsed=%.3fs: %s (원인=%s)",
+                    service, req_type, elapsed, e.__class__.__name__,
+                    cause.__class__.__name__ if cause else "unknown",
+                )
+                return {"Result": "ERROR", "Code": "SSL_ERROR",
+                        "Message": "발송닷컴 HTTPS 연결 실패 (SSL/TLS 오류)"}
+            logger.warning(
+                "발송닷컴 요청 실패 [ConnectError] Service=%s Type=%s elapsed=%.3fs: %s (DNS/TCP 연결 단계)",
+                service, req_type, elapsed, e.__class__.__name__,
+            )
+            return {"Result": "ERROR", "Code": "CONNECT_ERROR",
+                    "Message": "발송닷컴 HTTPS 연결 실패"}
+
+        except httpx.HTTPError as e:
+            elapsed = _elapsed()
+            logger.warning(
+                "발송닷컴 요청 실패 [HTTPError:%s] Service=%s Type=%s elapsed=%.3fs: %s",
+                e.__class__.__name__, service, req_type, elapsed, e.__class__.__name__,
+            )
+            return {"Result": "ERROR", "Code": "HTTP_ERROR",
+                    "Message": "발송닷컴 요청 처리 중 오류가 발생했습니다"}
+
         except Exception as e:
-            logger.warning("발송닷컴 요청 예외 (Service=%s Type=%s): %s", service, req_type, e)
-            return {"Result": "ERROR", "Code": "EXCEPTION", "Message": "발송닷컴 서버에 연결할 수 없습니다."}
+            elapsed = _elapsed()
+            logger.warning(
+                "발송닷컴 요청 실패 [%s] Service=%s Type=%s elapsed=%.3fs: %s",
+                e.__class__.__name__, service, req_type, elapsed, e.__class__.__name__,
+            )
+            return {"Result": "ERROR", "Code": "EXCEPTION",
+                    "Message": "발송닷컴 서버에 연결할 수 없습니다."}
 
     async def test_connection(self) -> Dict[str, Any]:
         """계정 정보 유무만 확인. 부작용 없는 사용량조회(TRAFFIC/List) 호출로 실제 인증까지 검증."""
