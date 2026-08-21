@@ -365,3 +365,65 @@ class MemberEditLog(Base):
     change_type  = Column(String(50))    # 변경등록대장에 기록된 경우 유형
     created_by   = Column(String(100))
     created_at   = Column(DateTime, default=datetime.utcnow)
+
+
+class SmsTemplate(Base):
+    """문자 템플릿 - 자주 쓰는 문구를 저장해두고 발송 시 불러와서 사용"""
+    __tablename__ = "sms_templates"
+    id          = Column(Integer, primary_key=True, index=True)
+    name        = Column(String(100), nullable=False)     # 템플릿 이름 (예: 협회비 안내)
+    category    = Column(String(50))                       # 분류 (선택)
+    subject     = Column(String(200))                       # LMS 제목 (선택)
+    content     = Column(Text, nullable=False)               # 본문 (#{성명} 등 변수 포함 가능)
+    service     = Column(String(10), default="SMS")          # 기본 SMS/LMS 구분 (내용 길이에 따라 발송 시 재판단)
+    created_by  = Column(String(100))
+    created_at  = Column(DateTime, default=datetime.utcnow)
+    updated_at  = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    deleted_at  = Column(DateTime, nullable=True)
+
+
+class SmsJob(Base):
+    """문자 발송 작업 1건 - 조건(필터)/문자내용/발송방식을 기록.
+    수신자 목록은 license_holders를 복제하지 않고, 발송 시점에 조회한 결과를
+    SmsRecipient에 스냅샷으로 남긴다 (발송 당시 무엇을 보냈는지 추적하기 위함이며,
+    license_holders 자체를 대체하는 명단이 아니다).
+    """
+    __tablename__ = "sms_jobs"
+    id              = Column(Integer, primary_key=True, index=True)
+    filters         = Column(JSON)                 # 대상자 추출에 사용한 조건 스냅샷
+    template_id     = Column(Integer, nullable=True)
+    service         = Column(String(10))           # SMS / LMS / MMS
+    callback        = Column(String(50))            # 발신번호
+    subject         = Column(String(200))
+    main_text       = Column(Text)                  # 변수 포함 원본 문구
+    send_mode       = Column(String(10), default="즉시")   # 즉시 / 예약
+    scheduled_at    = Column(String(20), nullable=True)      # "YYYY-MM-DD HH:MM" (예약발송인 경우)
+    is_test         = Column(Boolean, default=False)         # 테스트 발송 여부
+    status          = Column(String(20), default="대기")     # 대기/예약대기/발송중/완료/실패/취소
+    total_count     = Column(Integer, default=0)
+    success_count   = Column(Integer, default=0)
+    fail_count      = Column(Integer, default=0)
+    job_no          = Column(String(50), nullable=True)      # 발송닷컴 Job_No
+    cash_after      = Column(Integer, nullable=True)          # 발송 직후 선불잔액(Cash)
+    error_message   = Column(Text, nullable=True)
+    created_by      = Column(String(100))
+    created_at      = Column(DateTime, default=datetime.utcnow)
+    updated_at      = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    sent_at         = Column(DateTime, nullable=True)
+    cancelled_at    = Column(DateTime, nullable=True)
+
+
+class SmsRecipient(Base):
+    """문자 발송 작업의 수신자 1명 - license_holder_id로 원본 회원과 연결(스냅샷 값은 발송 시점 값)"""
+    __tablename__ = "sms_recipients"
+    id                = Column(Integer, primary_key=True, index=True)
+    sms_job_id        = Column(Integer, index=True, nullable=False)
+    license_holder_id = Column(Integer, index=True, nullable=True)   # license_holders.id (원본 연결)
+    name              = Column(String(100))
+    phone             = Column(String(50))
+    region            = Column(String(50))
+    msg_text          = Column(Text, nullable=True)      # 개인별 치환 완료된 최종 문구
+    status            = Column(String(20), default="대기")  # 대기/성공/실패
+    status_detail     = Column(String(200), nullable=True)
+    done_date         = Column(String(30), nullable=True)
+    created_at        = Column(DateTime, default=datetime.utcnow)

@@ -68,6 +68,7 @@ const CATS = {
   reports:   {label:'보고/집계',   tabs:[{id:'dashboard',label:'회원대시보드'},{id:'monthly-report',label:'월례보고서'},{id:'monthly-report-fields',label:'월례보고서 항목관리'}]},
   deadlines: {label:'기한관리',    tabs:[{id:'deadlines',label:'캘린더/목록'},{id:'dl-today',label:'오늘 할 일'},{id:'dl-3days',label:'3일 이내'},{id:'dl-7days',label:'7일 이내'},{id:'dl-over',label:'기한초과'},{id:'dl-done',label:'완료'}]},
   excel:     {label:'엑셀 업로드', tabs:[{id:'upload',label:'파일 업로드'},{id:'history',label:'업로드 이력'},{id:'errors',label:'오류 확인'}]},
+  sms:       {label:'문자발송',    tabs:[{id:'sms-send',label:'문자 보내기'},{id:'sms-reserved',label:'예약 문자'},{id:'sms-templates',label:'문자 템플릿'},{id:'sms-history',label:'발송 이력'}]},
 };
 
 const ST = {
@@ -478,6 +479,7 @@ function extractRehasaSections(raw){
 
 window.viewMember=async(id)=>{
   const r=await api('GET',`/api/members/${id}`).catch(()=>null);if(!r)return;
+  const smsHist=await api('GET',`/api/sms/history/member/${id}`).catch(()=>null);
   const raw=r.raw_data||{};
   const {rehasa,edu}=extractRehasaSections(raw);
 
@@ -529,8 +531,45 @@ window.viewMember=async(id)=>{
       <span>⚠️ 관리번호 ${e_(r.management_number)} — 양도양수대장 기록이 없습니다.</span>
       <button class="btn br btn-xs" onclick="createMissingTransferLedger(${id})">양도양수대장 생성</button>
     </div>`:'';
-  openModal('회원 상세정보',missingLedgerBox+buildDetailSections(sections),
-    `<button class="btn bp btn-sm" onclick="editMember(${id});closeModal()">수정</button>${transferOutBtn}<button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
+  const smsItems=smsHist?.items||[];
+  const smsSection=smsItems.length?`
+    <div class="dtl-sec" style="margin-top:14px">
+      <div class="dtl-sec-hd">문자발송 이력</div>
+      <table class="tbl"><thead><tr><th>발송일시</th><th>내용</th><th>결과</th></tr></thead><tbody>
+        ${smsItems.slice(0,10).map(it=>`<tr>
+          <td>${e_(it.sent_at)}</td>
+          <td style="max-width:260px;white-space:normal">${e_((it.content||'').slice(0,50))}${(it.content||'').length>50?'...':''}</td>
+          <td>${it.status||'-'}${it.status_detail?` (${e_(it.status_detail)})`:''}</td>
+        </tr>`).join('')}
+      </tbody></table>
+    </div>`:'';
+  const smsSendBtn=(r.mobile&&r.status!=='closed')?`<button class="btn bo btn-sm" onclick="_smsQuickSend(${id},'${e_(r.name)}','${e_(r.mobile)}')">문자보내기</button>`:'';
+  openModal('회원 상세정보',missingLedgerBox+buildDetailSections(sections)+smsSection,
+    `<button class="btn bp btn-sm" onclick="editMember(${id});closeModal()">수정</button>${transferOutBtn}${smsSendBtn}<button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
+};
+
+window._smsQuickSend=(id,name,mobile)=>{
+  openModal('문자보내기',`
+    <div class="fi"><label>수신자</label><input class="fc" disabled value="${e_(name)} (${e_(mobile)})"></div>
+    <div class="fi"><label>발신번호</label><input class="fc" id="qsCallback" value="${e_(localStorage.getItem('smsCallback')||'')}" placeholder="숫자만 입력"></div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+      <label><input type="radio" name="qsService" value="SMS" checked> SMS</label>
+      <label><input type="radio" name="qsService" value="LMS"> LMS</label>
+    </div>
+    <div class="fi"><label>내용</label><textarea class="fc" id="qsText" rows="5" placeholder="예: #{성명}님, 안내드립니다."></textarea></div>
+  `,`<button class="btn br btn-sm" id="qsSendBtn">발송</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`);
+  document.getElementById('qsSendBtn').onclick=async()=>{
+    const callback=document.getElementById('qsCallback').value.trim();
+    const main_text=document.getElementById('qsText').value;
+    const service=document.querySelector('input[name="qsService"]:checked').value;
+    if(!callback||!main_text.trim()){toast('발신번호와 내용을 입력하세요','err');return;}
+    if(!await cfm(`${e_(name)}님에게 문자를 발송하시겠습니까?`))return;
+    localStorage.setItem('smsCallback',callback);
+    const rr=await api('POST','/api/sms/send',{
+      filters:{}, recipient_ids:[id], service, callback, main_text, send_mode:'즉시', is_test:false,
+    }).catch(()=>null);
+    if(rr){toast(rr.ok?'발송 완료':'발송 실패: '+(rr.raw?.Message||''),rr.ok?'ok':'err');if(rr.ok)closeModal();}
+  };
 };
 
 window.createMissingTransferLedger=async(id)=>{
@@ -643,6 +682,8 @@ function navigate(cat,sub){
     'dl-7days':()=>renderDeadlines('7일이내'),
     'dl-over': ()=>renderDeadlines('기한초과'),
     'dl-done': ()=>renderDeadlines('완료'),
+    'sms-send':renderSmsSend, 'sms-reserved':renderSmsReserved,
+    'sms-templates':renderSmsTemplates, 'sms-history':renderSmsHistory,
   }[sub]||(() => document.getElementById('content').innerHTML='<p style="padding:20px">준비 중</p>'))();
 }
 
@@ -3183,4 +3224,334 @@ window.viewGlosign=async(id)=>{
     {title:'대상',fields:[['차량번호',r.vehicle_number],['성명',r.name],['지역',r.region],['핸드폰',r.mobile]]},
     {title:'메모',fields:[['메모',r.memo,true]]},
   ]),`<button class="btn bo btn-sm" onclick="refreshGlosign(${r.id});closeModal()">상태 새로고침</button><button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
+};
+
+// ===== 문자발송 관리 =====
+// 원칙: 별도의 회원 명단을 두지 않고, 항상 /api/sms/targets로 license_holders를 실시간 조회한다.
+const SMS_VARS = ['성명','차량번호','지역','차종','유종','회원구분','관리번호','소속업체','가입여부'];
+const SMS_ST = {
+  filters:{}, selectedIds:new Set(), targets:[], total:0, page:1, excludedNoPhone:0,
+  templates:[], service:'SMS', callback:localStorage.getItem('smsCallback')||'',
+};
+
+function _smsFsel(id,allLabel,opts,sel=''){
+  return `<select id="${id}" class="fsel"><option value="">${allLabel}</option>${opts.map(o=>`<option value="${o}" ${o===sel?'selected':''}>${o}</option>`).join('')}</select>`;
+}
+
+async function _smsLoadTemplates(){
+  const d=await api('GET','/api/sms/templates').catch(()=>null);
+  SMS_ST.templates=d?.items||[];
+}
+
+function _smsCollectFilters(){
+  return {
+    region: document.getElementById('smsRegion')?.value||'',
+    category: document.getElementById('smsCategory')?.value||'',
+    membership_status: document.getElementById('smsMembership')?.value||'',
+    vehicle_type: document.getElementById('smsVehType')?.value||'',
+    fuel_type: document.getElementById('smsFuel')?.value||'',
+    age_min: document.getElementById('smsAgeMin')?.value||'',
+    age_max: document.getElementById('smsAgeMax')?.value||'',
+    search: document.getElementById('smsSearch')?.value||'',
+  };
+}
+
+async function renderSmsSend(){
+  await _smsLoadTemplates();
+  SMS_ST.selectedIds=new Set(); SMS_ST.page=1;
+  document.getElementById('content').innerHTML=`
+    <div class="card">
+      <div class="card-hd"><div class="card-hd-l"><span class="card-ico">🎯</span><span class="card-ttl">대상자 조건</span></div></div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;padding:10px 14px">
+        ${rselflt('smsRegion','')}
+        ${_smsFsel('smsCategory','전체 구분',['개인','택배'])}
+        ${_smsFsel('smsMembership','전체 가입여부',['가입','미가입'])}
+        ${_smsFsel('smsVehType','전체 차종',VEH_TYPES)}
+        ${_smsFsel('smsFuel','전체 유종',FUEL_TYPES)}
+        <input id="smsAgeMin" class="fc" style="width:90px" placeholder="연령 이상" type="number">
+        <input id="smsAgeMax" class="fc" style="width:90px" placeholder="연령 이하" type="number">
+        <input id="smsSearch" class="fc" style="width:150px" placeholder="이름/차량번호 검색">
+        <button class="btn bp btn-sm" id="smsSearchBtn">🔍 대상자 조회</button>
+      </div>
+    </div>
+    <div class="card" style="margin-top:10px">
+      <div class="card-hd">
+        <div class="card-hd-l"><span class="card-ico">👥</span><span class="card-ttl">대상자</span><span class="cnt" id="smsCnt">조회 전</span></div>
+        <div><button class="btn bo btn-sm" id="smsSelAll">전체 선택</button> <button class="btn bo btn-sm" id="smsSelNone">전체 해제</button></div>
+      </div>
+      <div id="smsTargetWrap" style="max-height:340px;overflow:auto">
+        <div class="empty-box"><p class="empty-txt">조건을 선택하고 "대상자 조회"를 눌러주세요.</p></div>
+      </div>
+      <div id="smsPager" style="padding:8px"></div>
+    </div>
+    <div class="card" style="margin-top:10px">
+      <div class="card-hd"><div class="card-hd-l"><span class="card-ico">✉️</span><span class="card-ttl">문자 내용</span></div></div>
+      <div style="padding:12px;display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          <select id="smsTplSel" class="fc" style="max-width:220px">
+            <option value="">템플릿 선택</option>
+            ${SMS_ST.templates.map(t=>`<option value="${t.id}">${e_(t.name)}</option>`).join('')}
+          </select>
+          <label><input type="radio" name="smsService" value="SMS" checked> SMS(단문)</label>
+          <label><input type="radio" name="smsService" value="LMS"> LMS(장문)</label>
+          <input id="smsCallback" class="fc" style="width:160px" placeholder="발신번호(숫자만)" value="${e_(SMS_ST.callback)}">
+        </div>
+        <input id="smsSubject" class="fc" placeholder="제목 (LMS일 때만 사용, 선택)">
+        <textarea id="smsMainText" class="fc" rows="5" placeholder="문자 내용을 입력하세요. 예: #{성명}님, 강원도 개인소형화물협회에서 안내드립니다."></textarea>
+        <div style="font-size:12px;color:var(--c-text-3)">사용 가능한 변수: ${SMS_VARS.map(v=>`#{${v}}`).join('  ')}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn bo btn-sm" id="smsTestBtn">🧪 테스트 발송</button>
+          <button class="btn br btn-sm" id="smsSendNowBtn">📤 즉시 발송</button>
+          <button class="btn bg btn-sm" id="smsSendResBtn">⏰ 예약 발송</button>
+        </div>
+      </div>
+    </div>`;
+
+  document.getElementById('smsSearchBtn').onclick=()=>_smsSearch(1);
+  document.getElementById('smsSelAll').onclick=_smsSelectAll;
+  document.getElementById('smsSelNone').onclick=()=>{SMS_ST.selectedIds=new Set();_smsRenderTargetTable();};
+  document.getElementById('smsTplSel').onchange=(e)=>{
+    const t=SMS_ST.templates.find(x=>String(x.id)===e.target.value);
+    if(t){
+      document.getElementById('smsMainText').value=t.content||'';
+      document.getElementById('smsSubject').value=t.subject||'';
+      document.querySelector(`input[name="smsService"][value="${t.service||'SMS'}"]`).checked=true;
+    }
+  };
+  document.getElementById('smsTestBtn').onclick=_smsTestSend;
+  document.getElementById('smsSendNowBtn').onclick=()=>_smsSend('즉시');
+  document.getElementById('smsSendResBtn').onclick=()=>_smsSend('예약');
+}
+
+async function _smsSearch(page=1){
+  SMS_ST.filters=_smsCollectFilters();
+  SMS_ST.page=page;
+  const params=new URLSearchParams({...SMS_ST.filters,page,limit:50});
+  const d=await api('GET',`/api/sms/targets?${params}`).catch(()=>null);
+  if(!d)return;
+  SMS_ST.targets=d.items; SMS_ST.total=d.total; SMS_ST.excludedNoPhone=d.excluded_no_phone;
+  _smsRenderTargetTable();
+}
+
+function _smsRenderTargetTable(){
+  const cntEl=document.getElementById('smsCnt');
+  if(cntEl)cntEl.textContent=`총 ${SMS_ST.total}명${SMS_ST.excludedNoPhone?` (전화번호 없음 ${SMS_ST.excludedNoPhone}명 제외)`:''}`;
+  const wrap=document.getElementById('smsTargetWrap');
+  if(!SMS_ST.targets.length){wrap.innerHTML=`<div class="empty-box"><p class="empty-txt">조건에 맞는 대상자가 없습니다.</p></div>`;return;}
+  wrap.innerHTML=`<table class="tbl"><thead><tr>
+    <th style="width:30px"></th><th>성명</th><th>핸드폰</th><th>지역</th><th>차종</th><th>유종</th><th>나이</th><th>회원구분</th>
+  </tr></thead><tbody>
+    ${SMS_ST.targets.map(m=>`<tr>
+      <td><input type="checkbox" class="smsChk" data-id="${m.id}" ${SMS_ST.selectedIds.has(m.id)?'checked':''}></td>
+      <td>${e_(m.name)}</td><td>${e_(m.mobile)}</td><td>${e_(m.region)}</td>
+      <td>${e_(m.vehicle_type)}</td><td>${e_(m.fuel_type)}</td><td>${m.age??'-'}</td><td>${e_(m.membership_status)}</td>
+    </tr>`).join('')}
+  </tbody></table>`;
+  wrap.querySelectorAll('.smsChk').forEach(cb=>{
+    cb.onchange=()=>{
+      const id=Number(cb.dataset.id);
+      if(cb.checked)SMS_ST.selectedIds.add(id);else SMS_ST.selectedIds.delete(id);
+    };
+  });
+  const pager=document.getElementById('smsPager');
+  const pages=Math.max(1,Math.ceil(SMS_ST.total/50));
+  pager.innerHTML=pages>1?`<div style="display:flex;gap:6px;align-items:center">
+    <button class="btn bo btn-xs" ${SMS_ST.page<=1?'disabled':''} id="smsPrevBtn">이전</button>
+    <span style="font-size:12px">${SMS_ST.page} / ${pages}</span>
+    <button class="btn bo btn-xs" ${SMS_ST.page>=pages?'disabled':''} id="smsNextBtn">다음</button>
+  </div>`:'';
+  if(document.getElementById('smsPrevBtn'))document.getElementById('smsPrevBtn').onclick=()=>_smsSearch(SMS_ST.page-1);
+  if(document.getElementById('smsNextBtn'))document.getElementById('smsNextBtn').onclick=()=>_smsSearch(SMS_ST.page+1);
+}
+
+async function _smsSelectAll(){
+  const params=new URLSearchParams(SMS_ST.filters);
+  const d=await api('GET',`/api/sms/targets/ids?${params}`).catch(()=>null);
+  if(!d)return;
+  SMS_ST.selectedIds=new Set(d.ids);
+  toast(`${d.total}명 전체 선택됨`);
+  _smsRenderTargetTable();
+}
+
+function _smsGetContent(){
+  const service=document.querySelector('input[name="smsService"]:checked')?.value||'SMS';
+  const callback=document.getElementById('smsCallback').value.trim();
+  const subject=document.getElementById('smsSubject').value.trim();
+  const mainText=document.getElementById('smsMainText').value;
+  return {service,callback,subject,mainText};
+}
+
+async function _smsTestSend(){
+  const {service,callback,subject,mainText}=_smsGetContent();
+  if(!callback){toast('발신번호를 입력하세요','err');return;}
+  if(!mainText.trim()){toast('문자 내용을 입력하세요','err');return;}
+  const phonesStr=prompt('테스트로 발송할 번호를 입력하세요 (여러 개는 콤마로 구분)\n예: 01012345678, 01099998888');
+  if(!phonesStr)return;
+  const phones=phonesStr.split(',').map(p=>p.trim()).filter(Boolean);
+  localStorage.setItem('smsCallback',callback);
+  const r=await api('POST','/api/sms/send',{
+    filters:{}, recipient_ids:[], service, callback, subject, main_text:mainText,
+    send_mode:'즉시', is_test:true, test_phones:phones,
+  }).catch(()=>null);
+  if(r)toast(r.ok?'테스트 발송 완료':'테스트 발송 실패: '+(r.raw?.Message||''),r.ok?'ok':'err');
+}
+
+async function _smsSend(mode){
+  const ids=[...SMS_ST.selectedIds];
+  if(!ids.length){toast('발송 대상자를 선택하세요','err');return;}
+  const {service,callback,subject,mainText}=_smsGetContent();
+  if(!callback){toast('발신번호를 입력하세요','err');return;}
+  if(!mainText.trim()){toast('문자 내용을 입력하세요','err');return;}
+  let scheduledAt='';
+  if(mode==='예약'){
+    scheduledAt=prompt('예약 발송 일시를 입력하세요 (형식: YYYY-MM-DD HH:MM)\n예: 2026-08-25 09:30');
+    if(!scheduledAt)return;
+    if(!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(scheduledAt.trim())){toast('형식이 올바르지 않습니다. YYYY-MM-DD HH:MM 형태로 입력하세요','err');return;}
+    scheduledAt=scheduledAt.trim();
+  }
+  const confirmMsg=mode==='즉시'
+    ? `총 <b>${ids.length}명</b>에게 ${service} 문자를 즉시 발송하시겠습니까?<br><br>발신번호: ${e_(callback)}<br>내용: ${e_(mainText.slice(0,80))}${mainText.length>80?'...':''}`
+    : `총 <b>${ids.length}명</b>에게 ${service} 문자를 <b>${e_(scheduledAt)}</b>에 예약 발송하시겠습니까?<br><br>발신번호: ${e_(callback)}<br>내용: ${e_(mainText.slice(0,80))}${mainText.length>80?'...':''}`;
+  if(!await cfm(confirmMsg))return;
+  localStorage.setItem('smsCallback',callback);
+  const r=await api('POST','/api/sms/send',{
+    filters:SMS_ST.filters, recipient_ids:ids, service, callback, subject, main_text:mainText,
+    send_mode:mode, scheduled_at:scheduledAt||null, is_test:false,
+  }).catch(()=>null);
+  if(!r)return;
+  if(mode==='즉시')toast(r.ok?`발송 완료 (${ids.length}명)`:'발송 실패: '+(r.raw?.Message||''),r.ok?'ok':'err');
+  else toast('예약 등록 완료');
+  if(r.ok||mode==='예약'){SMS_ST.selectedIds=new Set();_smsRenderTargetTable();}
+}
+
+// ── 예약 문자 관리 ──────────────────────────────────
+async function renderSmsReserved(){
+  const d=await api('GET','/api/sms/reserved').catch(()=>({items:[]}));
+  const items=d?.items||[];
+  document.getElementById('content').innerHTML=`
+    <div class="card">
+      <div class="card-hd"><div class="card-hd-l"><span class="card-ico">⏰</span><span class="card-ttl">예약 문자</span><span class="cnt">${items.length}건</span></div></div>
+      ${!items.length?`<div class="empty-box"><p class="empty-txt">예약된 문자가 없습니다.</p></div>`:`
+      <table class="tbl"><thead><tr>
+        <th>예약시각</th><th>대상인원</th><th>내용</th><th>상태</th><th>결과</th><th></th>
+      </tr></thead><tbody>
+        ${items.map(j=>`<tr>
+          <td>${e_(j.scheduled_at)}</td><td>${j.total_count}명</td>
+          <td style="max-width:280px;white-space:normal">${e_(j.main_text.slice(0,60))}${j.main_text.length>60?'...':''}</td>
+          <td>${_smsStatusBadge(j.status)}</td>
+          <td>${j.status==='완료'?`성공 ${j.success_count} / 실패 ${j.fail_count}`:'-'}</td>
+          <td>${j.status==='예약대기'?`<button class="btn bo btn-xs" onclick="_smsEditReserved(${j.id})">수정</button> <button class="btn bxl btn-xs" onclick="_smsCancelReserved(${j.id})">취소</button>`:''}</td>
+        </tr>`).join('')}
+      </tbody></table>`}
+    </div>`;
+}
+function _smsStatusBadge(s){
+  const m={'예약대기':'b-warn','발송중':'b-sky','완료':'b-pri','실패':'b-danger','취소':'b-gray'};
+  return `<span class="badge ${m[s]||'b-gray'}">${s}</span>`;
+}
+window._smsCancelReserved=async(id)=>{
+  if(!await cfm('이 예약을 취소하시겠습니까? 취소하면 해당 예약은 발송되지 않습니다.'))return;
+  const r=await api('POST',`/api/sms/reserved/${id}/cancel`).catch(()=>null);
+  if(r){toast('예약이 취소되었습니다');renderSmsReserved();}
+};
+window._smsEditReserved=async(id)=>{
+  const d=await api('GET','/api/sms/reserved').catch(()=>null);
+  const j=d?.items?.find(x=>x.id===id); if(!j)return;
+  openModal('예약 문자 수정',`
+    <div class="fi"><label>예약 일시 (YYYY-MM-DD HH:MM)</label><input class="fc" id="smsEdAt" value="${e_(j.scheduled_at)}"></div>
+    <div class="fi"><label>내용</label><textarea class="fc" id="smsEdText" rows="5">${e_(j.main_text)}</textarea></div>
+  `,`<button class="btn bp btn-sm" id="smsEdSaveBtn">저장</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`);
+  document.getElementById('smsEdSaveBtn').onclick=async()=>{
+    const scheduled_at=document.getElementById('smsEdAt').value.trim();
+    const main_text=document.getElementById('smsEdText').value;
+    if(!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(scheduled_at)){toast('예약 일시 형식이 올바르지 않습니다','err');return;}
+    const r=await api('PUT',`/api/sms/reserved/${id}`,{scheduled_at,main_text}).catch(()=>null);
+    if(r){toast('수정 완료');closeModal();renderSmsReserved();}
+  };
+};
+
+// ── 문자 템플릿 ──────────────────────────────────
+async function renderSmsTemplates(){
+  await _smsLoadTemplates();
+  const items=SMS_ST.templates;
+  document.getElementById('content').innerHTML=`
+    <div class="card">
+      <div class="card-hd"><div class="card-hd-l"><span class="card-ico">📄</span><span class="card-ttl">문자 템플릿</span><span class="cnt">${items.length}건</span></div>
+        <button class="btn bp btn-sm" id="smsTplAddBtn">+ 템플릿 추가</button></div>
+      ${!items.length?`<div class="empty-box"><p class="empty-txt">저장된 템플릿이 없습니다.</p></div>`:`
+      <table class="tbl"><thead><tr><th>이름</th><th>구분</th><th>내용</th><th>수정일</th><th></th></tr></thead><tbody>
+        ${items.map(t=>`<tr>
+          <td>${e_(t.name)}</td><td>${e_(t.category)||'-'}</td>
+          <td style="max-width:300px;white-space:normal">${e_(t.content.slice(0,60))}${t.content.length>60?'...':''}</td>
+          <td>${e_(t.updated_at)}</td>
+          <td style="white-space:nowrap">
+            <button class="btn bo btn-xs" onclick="_smsTplEdit(${t.id})">수정</button>
+            <button class="btn bo btn-xs" onclick="_smsTplCopy(${t.id})">복사</button>
+            <button class="btn bxl btn-xs" onclick="_smsTplDel(${t.id})">삭제</button>
+          </td>
+        </tr>`).join('')}
+      </tbody></table>`}
+    </div>`;
+  document.getElementById('smsTplAddBtn').onclick=()=>_smsTplForm();
+}
+function _smsTplForm(t=null){
+  openModal(t?'템플릿 수정':'템플릿 추가',`
+    <div class="fi"><label>이름</label><input class="fc" id="tplName" value="${e_(t?.name||'')}"></div>
+    <div class="fi"><label>분류(선택)</label><input class="fc" id="tplCat" value="${e_(t?.category||'')}" placeholder="예: 회비안내"></div>
+    <div class="fi"><label>제목(LMS, 선택)</label><input class="fc" id="tplSubject" value="${e_(t?.subject||'')}"></div>
+    <div class="fi"><label>내용</label><textarea class="fc" id="tplContent" rows="6">${e_(t?.content||'')}</textarea></div>
+    <div style="font-size:12px;color:var(--c-text-3)">사용 가능한 변수: ${SMS_VARS.map(v=>`#{${v}}`).join('  ')}</div>
+  `,`<button class="btn bp btn-sm" id="tplSaveBtn">저장</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`);
+  document.getElementById('tplSaveBtn').onclick=async()=>{
+    const data={name:document.getElementById('tplName').value.trim(),
+      category:document.getElementById('tplCat').value.trim(),
+      subject:document.getElementById('tplSubject').value.trim(),
+      content:document.getElementById('tplContent').value, service:'SMS'};
+    if(!data.name||!data.content){toast('이름과 내용은 필수입니다','err');return;}
+    const r=t?await api('PUT',`/api/sms/templates/${t.id}`,data):await api('POST','/api/sms/templates',data);
+    if(r){toast('저장 완료');closeModal();renderSmsTemplates();}
+  };
+}
+window._smsTplEdit=async(id)=>{const t=SMS_ST.templates.find(x=>x.id===id);if(t)_smsTplForm(t);};
+window._smsTplCopy=async(id)=>{const r=await api('POST',`/api/sms/templates/${id}/copy`).catch(()=>null);if(r){toast('복사 완료');renderSmsTemplates();}};
+window._smsTplDel=async(id)=>{if(!await cfm('이 템플릿을 삭제하시겠습니까?'))return;const r=await api('DELETE',`/api/sms/templates/${id}`).catch(()=>null);if(r){toast('삭제됨');renderSmsTemplates();}};
+
+// ── 발송 이력 ──────────────────────────────────
+async function renderSmsHistory(){
+  const d=await api('GET','/api/sms/history').catch(()=>({items:[],total:0}));
+  const items=d?.items||[];
+  document.getElementById('content').innerHTML=`
+    <div class="card">
+      <div class="card-hd"><div class="card-hd-l"><span class="card-ico">📜</span><span class="card-ttl">발송 이력</span><span class="cnt">${d?.total||0}건</span></div></div>
+      ${!items.length?`<div class="empty-box"><p class="empty-txt">발송 이력이 없습니다.</p></div>`:`
+      <table class="tbl"><thead><tr><th>발송일시</th><th>구분</th><th>대상</th><th>내용</th><th>결과</th><th></th></tr></thead><tbody>
+        ${items.map(j=>`<tr>
+          <td>${e_(j.sent_at||j.created_at)}</td>
+          <td>${j.is_test?'<span class="badge b-gray">테스트</span>':j.service}</td>
+          <td>${j.total_count}명</td>
+          <td style="max-width:280px;white-space:normal">${e_(j.main_text.slice(0,60))}${j.main_text.length>60?'...':''}</td>
+          <td>${_smsStatusBadge(j.status)} ${j.status==='완료'?`(성공 ${j.success_count}/실패 ${j.fail_count})`:''}</td>
+          <td><button class="btn bo btn-xs" onclick="_smsHistDetail(${j.id})">상세</button></td>
+        </tr>`).join('')}
+      </tbody></table>`}
+    </div>`;
+}
+window._smsHistDetail=async(id)=>{
+  const d=await api('GET',`/api/sms/history/${id}`).catch(()=>null); if(!d)return;
+  const j=d.job;
+  openModal('발송 상세',`
+    <div style="margin-bottom:10px">
+      <div>발신번호: ${e_(j.callback)} / 구분: ${j.service} / 상태: ${_smsStatusBadge(j.status)}</div>
+      <div>대상: ${j.total_count}명 (성공 ${j.success_count} / 실패 ${j.fail_count})</div>
+      <div style="white-space:pre-wrap;margin-top:6px;padding:8px;background:var(--c-bg-2);border-radius:6px">${e_(j.main_text)}</div>
+    </div>
+    <table class="tbl"><thead><tr><th>성명</th><th>번호</th><th>지역</th><th>상태</th><th>상세</th></tr></thead><tbody>
+      ${d.recipients.map(r=>`<tr><td>${e_(r.name)}</td><td>${e_(r.phone)}</td><td>${e_(r.region)}</td>
+        <td>${r.status}</td><td>${e_(r.status_detail)}</td></tr>`).join('')}
+    </tbody></table>
+  `,`<button class="btn bo btn-sm" onclick="_smsHistRefresh(${id})">🔄 결과 새로고침</button><button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
+};
+window._smsHistRefresh=async(id)=>{
+  const r=await api('POST',`/api/sms/history/${id}/refresh`).catch(()=>null);
+  if(r){toast(r.ok?'결과가 갱신되었습니다':'갱신 실패');_smsHistDetail(id);}
 };

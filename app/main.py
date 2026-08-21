@@ -16,6 +16,7 @@ from app.auth import create_default_admin
 from app.routers import (auth, dashboard, reports, excel)
 from app.routers import (candidates, members, transfer_ledger,
                           closures, change_history, allocation, admin)
+from app.routers import sms as sms_router
 import app.models as _models
 
 # 테이블 생성 (없는 경우만 - checkfirst=True로 기존 테이블 충돌 방지)
@@ -271,6 +272,7 @@ app.include_router(admin.router,          prefix="/api/admin",          tags=["�
 # 기한관리
 from app.routers import deadlines
 app.include_router(deadlines.router)
+app.include_router(sms_router.router)
 
 # 연동 (글로싸인 등)
 from app.routers import integrations
@@ -320,6 +322,15 @@ async def startup():
         logger.warning(f"startup 오류 (무시): {e}")
     finally:
         db.close()
+
+    # 예약문자 스케줄러: 백그라운드 태스크로만 등록 (healthcheck를 막지 않도록 await하지 않음)
+    try:
+        import asyncio as _asyncio
+        from app.routers.sms import run_scheduled_sms_loop
+        _asyncio.create_task(run_scheduled_sms_loop())
+        logger.info("예약문자 스케줄러 시작")
+    except Exception as e:
+        logger.warning(f"예약문자 스케줄러 시작 실패 (무시): {e}")
 
 
 @app.get("/health")
