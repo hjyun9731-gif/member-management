@@ -2701,6 +2701,29 @@ function _pbdMoveMonth(s,n){const d=_pbdDate(s),day=d.getDate();d.setDate(1);d.s
 function _pbdWeekStart(s){const d=_pbdDate(s);d.setDate(d.getDate()-d.getDay());return _pbdFmtDate(d);}
 function _pbdDateLabel(s){const d=_pbdDate(s);return `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일`;}
 function _pbdDayName(s){return ['일','월','화','수','목','금','토'][_pbdDate(s).getDay()];}
+
+function _pbdHolidayName(ds){return (window._pbdHolidays||{})[ds]||'';}
+function _pbdDayDecor(ds){
+  const d=_pbdDate(ds),dow=d.getDay(),holiday=_pbdHolidayName(ds);
+  return {dow,holiday,isSun:dow===0,isSat:dow===6,isHoliday:!!holiday};
+}
+async function _pbdLoadHolidayYear(year){
+  window._pbdHolidays=window._pbdHolidays||{};
+  window._pbdHolidayYears=window._pbdHolidayYears||{};
+  if(window._pbdHolidayYears[year])return;
+  window._pbdHolidayYears[year]='loading';
+  const r=await api('GET',`/api/deadlines/holidays?year=${year}`).catch(()=>null);
+  if(r?.items){
+    r.items.forEach(h=>{if(h?.date)window._pbdHolidays[h.date]=h.name||'공휴일';});
+    window._pbdHolidayYears[year]='loaded';
+  }else{
+    delete window._pbdHolidayYears[year];
+  }
+}
+async function _pbdEnsureHolidays(anchor){
+  const y=_pbdDate(anchor||_pbdToday()).getFullYear();
+  await Promise.all([y-1,y,y+1].map(_pbdLoadHolidayYear));
+}
 function _pbdColor(t){
   const c=String(t?.event_color||'').trim();
   return /^#[0-9A-Fa-f]{6}$/.test(c)?c:DL_ACCENT;
@@ -2762,6 +2785,7 @@ async function renderDeadlines(){
   ct.innerHTML='<div class="pbd-loading"><div class="spin"></div><span>캘린더 불러오는 중</span></div>';
   const list=await api('GET','/api/deadlines?filter=전체&size=5000').catch(()=>({items:[],total:0}));
   window._pbdItems=list?.items||[];
+  await _pbdEnsureHolidays(_pbdState().anchor);
   _pbdMount();
 }
 window.renderDeadlines=renderDeadlines;
@@ -2786,11 +2810,11 @@ function _pbdMiniCalendar(items){
   const first=new Date(y,m,1),start=new Date(first);start.setDate(1-first.getDay());
   const by=_pbdByDate(items);let cells='';
   for(let i=0;i<42;i++){
-    const x=new Date(start);x.setDate(start.getDate()+i);const ds=_pbdFmtDate(x),inMonth=x.getMonth()===m,today=ds===_pbdToday(),sel=ds===s.anchor;
+    const x=new Date(start);x.setDate(start.getDate()+i);const ds=_pbdFmtDate(x),inMonth=x.getMonth()===m,today=ds===_pbdToday(),sel=ds===s.anchor,dc=_pbdDayDecor(ds);
     const dots=(by[ds]||[]).slice(0,3);
-    cells+=`<div class="pbd-mini-day ${inMonth?'':'muted'} ${today?'today':''} ${sel?'selected':''}" onclick="pbdPickDay('${ds}')"><span>${x.getDate()}</span><div>${dots.map(t=>`<i style="background:${_pbdColor(t)}"></i>`).join('')}</div></div>`;
+    cells+=`<div class="pbd-mini-day ${inMonth?'':'muted'} ${today?'today':''} ${sel?'selected':''} ${dc.isSun?'sun':''} ${dc.isSat?'sat':''} ${dc.isHoliday?'holiday':''}" onclick="pbdPickDay('${ds}')" title="${dc.holiday?e_(dc.holiday):''}"><span>${x.getDate()}</span><div>${dots.map(t=>`<i style="background:${_pbdColor(t)}"></i>`).join('')}</div></div>`;
   }
-  return `<section class="pbd-side-card pbd-mini-card"><div class="pbd-mini-head"><strong>${y}년 ${m+1}월</strong><div><button onclick="pbdMiniMove(-1)" aria-label="이전 달">${_pbdChevron('left',15)}</button><button onclick="pbdMiniMove(1)" aria-label="다음 달">${_pbdChevron('right',15)}</button></div></div><div class="pbd-mini-dow"><span class="sun">일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span></div><div class="pbd-mini-grid">${cells}</div></section>`;
+  return `<section class="pbd-side-card pbd-mini-card"><div class="pbd-mini-head"><strong>${y}년 ${m+1}월</strong><div><button onclick="pbdMiniMove(-1)" aria-label="이전 달">${_pbdChevron('left',15)}</button><button onclick="pbdMiniMove(1)" aria-label="다음 달">${_pbdChevron('right',15)}</button></div></div><div class="pbd-mini-dow"><span class="sun">일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span class="sat">토</span></div><div class="pbd-mini-grid">${cells}</div></section>`;
 }
 function _pbdCalendarCard(items){
   const s=_pbdState(),on=s.calendarOn!==false,open=(items||[]).filter(t=>t.status!=='완료').length;
@@ -2840,29 +2864,29 @@ function _pbdMonthView(items){
   const first=new Date(y,m,1),start=new Date(first);start.setDate(1-first.getDay());const by=_pbdByDate(items),today=_pbdToday();
   let cells='';
   for(let i=0;i<42;i++){
-    const x=new Date(start);x.setDate(start.getDate()+i);const ds=_pbdFmtDate(x),inMonth=x.getMonth()===m,isToday=ds===today,arr=by[ds]||[],shown=arr.slice(0,4),rest=arr.length-shown.length;
-    cells+=`<div class="pbd-month-cell ${inMonth?'':'other'} ${isToday?'today':''}" onclick="pbdPickDay('${ds}')" ondblclick="openNewDeadlineForDate('${ds}')"><div class="pbd-day-head"><span></span><div>${isToday?`<b>${x.getDate()}</b>`:`<em>${x.getDate()}</em>`}</div></div><div class="pbd-cell-events">${shown.map(t=>_pbdEventChip(t,ds)).join('')}${rest>0?`<button class="pbd-more" onclick="event.stopPropagation();pbdOpenDay('${ds}')">+${rest}개 더</button>`:''}</div></div>`;
+    const x=new Date(start);x.setDate(start.getDate()+i);const ds=_pbdFmtDate(x),inMonth=x.getMonth()===m,isToday=ds===today,arr=by[ds]||[],shown=arr.slice(0,4),rest=arr.length-shown.length,dc=_pbdDayDecor(ds);
+    cells+=`<div class="pbd-month-cell ${inMonth?'':'other'} ${isToday?'today':''} ${dc.isSun?'sun':''} ${dc.isSat?'sat':''} ${dc.isHoliday?'holiday':''}" onclick="pbdPickDay('${ds}')" ondblclick="openNewDeadlineForDate('${ds}')"><div class="pbd-day-head"><span class="pbd-holiday-name" title="${dc.holiday?e_(dc.holiday):''}">${dc.holiday?e_(dc.holiday):''}</span><div>${isToday?`<b class="${dc.isHoliday||dc.isSun?'red-day':dc.isSat?'blue-day':''}">${x.getDate()}</b>`:`<em>${x.getDate()}</em>`}</div></div><div class="pbd-cell-events">${shown.map(t=>_pbdEventChip(t,ds)).join('')}${rest>0?`<button class="pbd-more" onclick="event.stopPropagation();pbdOpenDay('${ds}')">+${rest}개 더</button>`:''}</div></div>`;
   }
-  return `<div class="pbd-month"><div class="pbd-weekdays"><span class="sun">일요일</span><span>월요일</span><span>화요일</span><span>수요일</span><span>목요일</span><span>금요일</span><span>토요일</span></div><div class="pbd-month-grid">${cells}</div></div>`;
+  return `<div class="pbd-month"><div class="pbd-weekdays"><span class="sun">일요일</span><span>월요일</span><span>화요일</span><span>수요일</span><span>목요일</span><span>금요일</span><span class="sat">토요일</span></div><div class="pbd-month-grid">${cells}</div></div>`;
 }
 function _pbdAllDayChip(t){const c=_pbdColor(t);return `<button class="pbd-allday-chip ${t.status==='완료'?'done':''}" style="background:${c}" onclick="viewDeadline(${t.id})"><span></span>${e_(_dlCleanTitle(t))}</button>`;}
 function _pbdTimeView(items,days){
   const s=_pbdState(),start=days===1?s.anchor:_pbdWeekStart(s.anchor),by=_pbdByDate(items),today=_pbdToday();
   const dates=Array.from({length:days},(_,i)=>_pbdAddDays(start,i));
-  const heads=dates.map(ds=>{const d=_pbdDate(ds),isToday=ds===today;return `<div class="pbd-time-head ${isToday?'today':''}"><span>${_pbdDayName(ds)}</span><b>${d.getDate()}</b></div>`;}).join('');
-  const allday=dates.map(ds=>`<div class="pbd-allday-col" ondblclick="openNewDeadlineForDate('${ds}')">${(by[ds]||[]).slice(0,4).map(_pbdAllDayChip).join('')}</div>`).join('');
+  const heads=dates.map(ds=>{const d=_pbdDate(ds),isToday=ds===today,dc=_pbdDayDecor(ds);return `<div class="pbd-time-head ${isToday?'today':''} ${dc.isSun?'sun':''} ${dc.isSat?'sat':''} ${dc.isHoliday?'holiday':''}"><span>${_pbdDayName(ds)}</span><b>${d.getDate()}</b>${dc.holiday?`<em title="${e_(dc.holiday)}">${e_(dc.holiday)}</em>`:''}</div>`;}).join('');
+  const allday=dates.map(ds=>{const dc=_pbdDayDecor(ds);return `<div class="pbd-allday-col ${dc.isSun?'sun':''} ${dc.isSat?'sat':''} ${dc.isHoliday?'holiday':''}" ondblclick="openNewDeadlineForDate('${ds}')">${(by[ds]||[]).slice(0,4).map(_pbdAllDayChip).join('')}</div>`;}).join('');
   const hours=[];for(let h=0;h<24;h++)hours.push(`${_pbdPad(h)}:00`);
   const labels=hours.map((x,i)=>`<div class="pbd-time-label"><span>${i===0?'':x}</span></div>`).join('');
-  const cols=dates.map(ds=>`<div class="pbd-time-col ${ds===today?'today':''}" ondblclick="openNewDeadlineForDate('${ds}')">${hours.map(()=>'<div class="pbd-hour-line"></div>').join('')}</div>`).join('');
+  const cols=dates.map(ds=>{const dc=_pbdDayDecor(ds);return `<div class="pbd-time-col ${ds===today?'today':''} ${dc.isSun?'sun':''} ${dc.isSat?'sat':''} ${dc.isHoliday?'holiday':''}" ondblclick="openNewDeadlineForDate('${ds}')">${hours.map(()=>'<div class="pbd-hour-line"></div>').join('')}</div>`;}).join('');
   return `<div class="pbd-time-view" style="--days:${days}"><div class="pbd-time-header"><div class="pbd-time-gutter"></div>${heads}</div><div class="pbd-allday"><div class="pbd-time-gutter pbd-allday-label">종일</div>${allday}</div><div class="pbd-time-scroll"><div class="pbd-time-grid"><div class="pbd-time-gutter">${labels}</div>${cols}</div></div></div>`;
 }
 window.pbdToggleSide=()=>{const s=_pbdState();s.sideOpen=!s.sideOpen;_pbdMount();};
 window.pbdSetView=v=>{const s=_pbdState();s.view=v;_pbdMount();};
-window.pbdGoToday=()=>{const s=_pbdState();s.anchor=_pbdToday();_pbdMount();};
-window.pbdMove=dir=>{const s=_pbdState();s.anchor=s.view==='month'?_pbdMoveMonth(s.anchor,dir):s.view==='week'?_pbdAddDays(s.anchor,dir*7):_pbdAddDays(s.anchor,dir);_pbdMount();};
-window.pbdMiniMove=dir=>{const s=_pbdState();s.anchor=_pbdMoveMonth(s.anchor,dir);_pbdMount();};
-window.pbdPickDay=ds=>{const s=_pbdState();s.anchor=ds;_pbdMount();};
-window.pbdOpenDay=ds=>{const s=_pbdState();s.anchor=ds;s.view='day';_pbdMount();};
+window.pbdGoToday=async()=>{const s=_pbdState();s.anchor=_pbdToday();await _pbdEnsureHolidays(s.anchor);_pbdMount();};
+window.pbdMove=async dir=>{const s=_pbdState();s.anchor=s.view==='month'?_pbdMoveMonth(s.anchor,dir):s.view==='week'?_pbdAddDays(s.anchor,dir*7):_pbdAddDays(s.anchor,dir);await _pbdEnsureHolidays(s.anchor);_pbdMount();};
+window.pbdMiniMove=async dir=>{const s=_pbdState();s.anchor=_pbdMoveMonth(s.anchor,dir);await _pbdEnsureHolidays(s.anchor);_pbdMount();};
+window.pbdPickDay=async ds=>{const s=_pbdState();s.anchor=ds;await _pbdEnsureHolidays(ds);_pbdMount();};
+window.pbdOpenDay=async ds=>{const s=_pbdState();s.anchor=ds;s.view='day';await _pbdEnsureHolidays(ds);_pbdMount();};
 window.pbdToggleCalendar=()=>{const s=_pbdState();s.calendarOn=!s.calendarOn;_pbdMount();};
 window.pbdSearch=q=>{const s=_pbdState();s.search=q;s.searchOpen=!!q.trim();_pbdRenderViewOnly();_pbdRenderSearchDrop();};
 window.pbdSearchFocus=()=>{const s=_pbdState();s.searchOpen=!!(s.search||'').trim();_pbdRenderSearchDrop();};

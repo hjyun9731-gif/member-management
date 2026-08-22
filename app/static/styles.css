@@ -772,3 +772,41 @@ body.deadline-mode .content{padding:0;height:calc(100vh - 52px);min-height:620px
 .pbd-event.range-start.range-end{margin-left:0;margin-right:0;border-radius:5px}
 .pbd-color-default{width:100%;height:36px;margin-top:10px;border:0;border-top:1px solid #F2F4F9;background:transparent;display:flex;align-items:center;justify-content:center;gap:8px;color:#5F6575;font-size:12px;font-weight:700;cursor:pointer}
 .pbd-color-default i{width:12px;height:12px;border-radius:50%;display:block}
+
+/* PLANB calendar: Korean weekends + public holidays */
+.pbd-shell{--pbd-saturday:#4C72D8;--pbd-sunday:#D95067;--pbd-holiday-tint:#FFF9FA;--pbd-saturday-tint:#FAFBFF}
+.pbd-mini-dow .sat,.pbd-weekdays .sat{color:var(--pbd-saturday)}
+.pbd-mini-day.sun>span,.pbd-mini-day.holiday>span{color:var(--pbd-sunday);font-weight:700}
+.pbd-mini-day.sat:not(.holiday)>span{color:var(--pbd-saturday);font-weight:700}
+.pbd-mini-day.muted.sun>span,.pbd-mini-day.muted.holiday>span{color:#E7AAB3}
+.pbd-mini-day.muted.sat:not(.holiday)>span{color:#ABBCE7}
+.pbd-mini-day.today>span{color:#fff!important}
+.pbd-mini-day.holiday:not(.today)::after{content:'';position:absolute;top:2px;right:2px;width:3px;height:3px;border-radius:50%;background:var(--pbd-sunday)}
+
+.pbd-month-cell.sun,.pbd-month-cell.holiday{background:var(--pbd-holiday-tint)}
+.pbd-month-cell.sat:not(.holiday){background:var(--pbd-saturday-tint)}
+.pbd-month-cell.other.sun,.pbd-month-cell.other.holiday{background:#FDF9FA}
+.pbd-month-cell.other.sat:not(.holiday){background:#F9FAFD}
+.pbd-month-cell.today{background:#F7F8FE}
+.pbd-month-cell.sun .pbd-day-head em,.pbd-month-cell.holiday .pbd-day-head em{color:var(--pbd-sunday)}
+.pbd-month-cell.sat:not(.holiday) .pbd-day-head em{color:var(--pbd-saturday)}
+.pbd-month-cell.other.sun .pbd-day-head em,.pbd-month-cell.other.holiday .pbd-day-head em{color:#E5A8B2}
+.pbd-month-cell.other.sat:not(.holiday) .pbd-day-head em{color:#A9BAE5}
+.pbd-holiday-name{min-width:0!important;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px!important;font-weight:700;color:var(--pbd-sunday);line-height:1}
+.pbd-month-cell:not(.holiday) .pbd-holiday-name{visibility:hidden}
+.pbd-day-head b.red-day{box-shadow:0 0 0 2px rgba(217,80,103,.16)}
+.pbd-day-head b.blue-day{box-shadow:0 0 0 2px rgba(76,114,216,.14)}
+
+.pbd-time-header{height:48px}
+.pbd-time-head{position:relative;min-width:0;gap:5px;padding:0 5px}
+.pbd-time-head.sun span,.pbd-time-head.sun b,.pbd-time-head.holiday span,.pbd-time-head.holiday b{color:var(--pbd-sunday)}
+.pbd-time-head.sat:not(.holiday) span,.pbd-time-head.sat:not(.holiday) b{color:var(--pbd-saturday)}
+.pbd-time-head.today b{color:#fff!important}
+.pbd-time-head em{font-style:normal;font-size:10px;font-weight:700;color:var(--pbd-sunday);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:calc(100% - 54px)}
+.pbd-allday-col.sun,.pbd-allday-col.holiday,.pbd-time-col.sun,.pbd-time-col.holiday{background:#FFF9FA}
+.pbd-allday-col.sat:not(.holiday),.pbd-time-col.sat:not(.holiday){background:#FAFBFF}
+.pbd-time-col.today{background:#FCFCFF}
+@media(max-width:900px){.pbd-holiday-name{font-size:9px!important}.pbd-time-head em{display:none}}
+
+.pbd-mini-day.selected.sun:not(.today)>span,.pbd-mini-day.selected.holiday:not(.today)>span{color:var(--pbd-sunday)!important}
+.pbd-mini-day.selected.sat:not(.holiday):not(.today)>span{color:var(--pbd-saturday)!important}
