@@ -1,4 +1,4 @@
-﻿// ===== 강원도 개인소형화물협회 업무관리 시스템 v6 =====
+// ===== 강원도 개인소형화물협회 업무관리 시스템 v6 =====
 
 // PWA: 서비스워커 등록 (지원 브라우저에서만, 실패해도 앱 동작에는 영향 없음)
 if ('serviceWorker' in navigator) {
@@ -66,9 +66,9 @@ const CATS = {
   members:   {label:'회원관리',   tabs:[{id:'candidates',label:'예정자/양도양수'},{id:'individual',label:'개인회원'},{id:'delivery',label:'택배회원'}]},
   permits:   {label:'인허가/변경', tabs:[{id:'new-registrations',label:'신규등록대장'},{id:'transfer-ledger',label:'양도양수대장'},{id:'closures',label:'폐업현황'},{id:'change-history',label:'변경이력대장'}]},
   reports:   {label:'보고/집계',   tabs:[{id:'dashboard',label:'회원대시보드'},{id:'monthly-report',label:'월례보고서'},{id:'monthly-report-fields',label:'월례보고서 항목관리'}]},
-  deadlines: {label:'기한관리',    tabs:[{id:'deadlines',label:'캘린더/목록'},{id:'dl-today',label:'오늘 할 일'},{id:'dl-3days',label:'3일 이내'},{id:'dl-7days',label:'7일 이내'},{id:'dl-over',label:'기한초과'},{id:'dl-done',label:'완료'}]},
+  deadlines: {label:'기한관리',    tabs:[{id:'deadlines',label:'PLANB 기한 캘린더'}]},
   excel:     {label:'엑셀 업로드', tabs:[{id:'upload',label:'파일 업로드'},{id:'history',label:'업로드 이력'},{id:'errors',label:'오류 확인'}]},
-  sms:       {label:'명단추출',    tabs:[{id:'sms-send',label:'명단추출'}]},
+  sms:       {label:'문자발송',    tabs:[{id:'sms-send',label:'문자 보내기'},{id:'sms-reserved',label:'예약 문자'},{id:'sms-templates',label:'문자 템플릿'},{id:'sms-history',label:'발송 이력'}]},
 };
 
 const ST = {
@@ -543,7 +543,7 @@ window.viewMember=async(id)=>{
         </tr>`).join('')}
       </tbody></table>
     </div>`:'';
-  const smsSendBtn='';
+  const smsSendBtn=(r.mobile&&r.status!=='closed')?`<button class="btn bo btn-sm" onclick="_smsQuickSend(${id},'${e_(r.name)}','${e_(r.mobile)}')">문자보내기</button>`:'';
   openModal('회원 상세정보',missingLedgerBox+buildDetailSections(sections)+smsSection,
     `<button class="btn bp btn-sm" onclick="editMember(${id});closeModal()">수정</button>${transferOutBtn}${smsSendBtn}<button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
 };
@@ -682,7 +682,8 @@ function navigate(cat,sub){
     'dl-7days':()=>renderDeadlines('7일이내'),
     'dl-over': ()=>renderDeadlines('기한초과'),
     'dl-done': ()=>renderDeadlines('완료'),
-    'sms-send':renderListExtract,
+    'sms-send':renderSmsSend, 'sms-reserved':renderSmsReserved,
+    'sms-templates':renderSmsTemplates, 'sms-history':renderSmsHistory,
   }[sub]||(() => document.getElementById('content').innerHTML='<p style="padding:20px">준비 중</p>'))();
 }
 
@@ -2644,17 +2645,21 @@ document.addEventListener('DOMContentLoaded',()=>{
 
 
 
-// ===== 기한관리 =====
+// ===== 기한관리 · PLANB Calendar 스타일 =====
 const DL_TYPES = ['휴업만료','대폐차기한','대폐차기간연장','차량출고지연확인서','보완서류제출','자격증명발급대기','공문회신기한','시청확인요청','전자서명기한','기타'];
-const DL_COLORS = {'휴업만료':'#e74c3c','대폐차기한':'#e67e22','대폐차기간연장':'#f39c12','차량출고지연확인서':'#9b59b6','보완서류제출':'#3498db','자격증명발급대기':'#1abc9c','공문회신기한':'#2ecc71','시청확인요청':'#27ae60','전자서명기한':'#8e44ad','기타':'#95a5a6'};
+const DL_COLORS = {
+  '휴업만료':'#E0686B','대폐차기한':'#E49B55','대폐차기간연장':'#D6B148','차량출고지연확인서':'#8B79D8',
+  '보완서류제출':'#5B9BE5','자격증명발급대기':'#5AB98B','공문회신기한':'#55A86D','시청확인요청':'#4EA4A0',
+  '전자서명기한':'#A56CC1','기타':'#8A90A2'
+};
 
 function _dlStatusBadge(status){
   const m={'완료':'b-success','기한초과':'b-red','진행중':'b-pri','연장':'b-warn','예정':'b-gray'};
-  return `<span class="badge ${m[status]||'b-gray'}">${status}</span>`;
+  return `<span class="badge ${m[status]||'b-gray'}">${e_(status||'예정')}</span>`;
 }
 function _ddayBadge(dd, status){
   if(status==='완료') return '<span class="badge b-green">완료</span>';
-  if(dd===null) return '<span class="badge b-gray">-</span>';
+  if(dd===null || dd===undefined) return '<span class="badge b-gray">-</span>';
   if(dd<0) return `<span class="badge b-red">D${dd}</span>`;
   if(dd===0) return '<span class="badge b-red">D-day</span>';
   if(dd<=3) return `<span class="badge b-orange">D-${dd}</span>`;
@@ -2662,320 +2667,313 @@ function _ddayBadge(dd, status){
   return `<span class="badge b-gray">D-${dd}</span>`;
 }
 
-async function renderDeadlines(filter='전체'){
-  const ct = document.getElementById('content'); if(!ct)return;
-  const summary = await api('GET','/api/deadlines/summary').catch(()=>({오늘기한:0,'3일이내':0,'7일이내':0,기한초과:0,완료:0}));
-  ST.fl = ST.fl||{}; ST.fl.dl = ST.fl.dl||{filter, view:'list', year:new Date().getFullYear(), month:new Date().getMonth()+1};
-  if(filter!=='전체') ST.fl.dl.filter=filter;
-  const fl = ST.fl.dl;
-
-  ct.innerHTML=`
-  <div class="card">
-    <div class="card-hd">
-      <div class="card-hd-l"><span class="card-ico">📅</span><span class="card-ttl">기한관리</span></div>
-      <button class="btn bp btn-sm" onclick="openNewDeadline()">+ 기한 등록</button>
-    </div>
-    <div class="dl-summary">
-      <div class="dl-card" onclick="renderDeadlines('오늘')"><span class="dl-card-lbl">오늘 기한</span><span class="dl-card-val v-red">${summary.오늘기한}</span></div>
-      <div class="dl-card" onclick="renderDeadlines('3일이내')"><span class="dl-card-lbl">3일 이내</span><span class="dl-card-val v-orange">${summary['3일이내']}</span></div>
-      <div class="dl-card" onclick="renderDeadlines('7일이내')"><span class="dl-card-lbl">7일 이내</span><span class="dl-card-val v-yellow">${summary['7일이내']}</span></div>
-      <div class="dl-card" onclick="renderDeadlines('기한초과')"><span class="dl-card-lbl">기한초과</span><span class="dl-card-val v-sky">${summary.기한초과}</span></div>
-      <div class="dl-card" onclick="renderDeadlines('완료')"><span class="dl-card-lbl">완료</span><span class="dl-card-val v-gray">${summary.완료}</span></div>
-    </div>
-    <div class="frow dl-filters">
-      ${['전체','오늘','3일이내','7일이내','기한초과','완료','휴업만료','대폐차기한','보완서류제출','공문회신기한','전자서명기한'].map(f=>
-        `<button class="btn btn-sm ${fl.filter===f?'bp':'bo'}" onclick="renderDeadlines('${f}')">${f}</button>`).join('')}
-      <button class="btn btn-sm ${fl.view==='calendar'?'bp':'bo'}" style="margin-left:auto" onclick="ST.fl.dl.view='calendar';renderDeadlines(ST.fl.dl.filter)">📆 캘린더</button>
-    </div>
-    <div id="dlBody"><div class="loading-box"><div class="spin"></div></div></div>
-  </div>`;
-
-  if(fl.view==='calendar') await _renderDlCalendar();
-  else await _renderDlList(fl.filter);
+function _pbdPad(n){return String(n).padStart(2,'0');}
+function _pbdFmtDate(d){return `${d.getFullYear()}-${_pbdPad(d.getMonth()+1)}-${_pbdPad(d.getDate())}`;}
+function _pbdDate(s){
+  if(!s) return new Date();
+  const [y,m,d]=String(s).slice(0,10).split('-').map(Number);
+  return new Date(y,m-1,d);
 }
-
-async function _renderDlList(filter){
-  const d = await api('GET',`/api/deadlines?filter=${encodeURIComponent(filter)}&size=200`).catch(()=>null);
-  const el = document.getElementById('dlBody'); if(!el||!d) return;
-  if(!d.items.length){el.innerHTML='<div class="empty-box"><div class="empty-ico">📋</div><p class="empty-txt">해당 기한 건이 없습니다.</p></div>';return;}
-  el.innerHTML=`<div class="tbl-wrap"><table>
-    <thead><tr><th>상태</th><th>D-day</th><th>기한일</th><th>업무구분</th><th>지역</th><th>차량번호</th><th>성명</th><th>핸드폰</th><th>제목</th><th>메모</th><th>관리</th></tr></thead>
-    <tbody>${d.items.map(r=>`<tr>
-      <td>${_dlStatusBadge(r.status)}</td>
-      <td>${_ddayBadge(r.dday,r.status)}</td>
-      <td>${fv(r.due_date)}</td>
-      <td><span style="color:${DL_COLORS[r.task_type]||'#666'};font-weight:600">${fv(r.task_type)}</span></td>
-      <td>${fv(r.region)}</td>
-      <td>${fv(r.vehicle_number)}</td>
-      <td>${fv(r.name)}</td>
-      <td>${fv(r.mobile)}</td>
-      <td><a class="tbl-link" onclick="viewDeadline(${r.id});return false">${fv(r.title)}</a></td>
-      <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis">${fv(r.memo)}</td>
-      <td>
-        ${r.status!=='완료'?`<button class="btn bp btn-xs" onclick="completeDeadline(${r.id})">완료</button>`:''}
-        ${r.task_type.includes('대폐차')?`<button class="btn bo btn-xs" onclick="extendDeadline(${r.id})">연장</button>`:''}
-        <button class="btn bo btn-xs" onclick="editDeadline(${r.id})">수정</button>
-        <button class="btn br btn-xs" onclick="deleteDeadline(${r.id})">삭제</button>
-      </td>
-    </tr>`).join('')}</tbody>
-  </table></div><p style="font-size:12px;color:var(--c-text-3);margin-top:6px">총 ${d.total}건</p>`;
+function _pbdToday(){return _pbdFmtDate(new Date());}
+function _pbdAddDays(s,n){const d=_pbdDate(s);d.setDate(d.getDate()+n);return _pbdFmtDate(d);}
+function _pbdMoveMonth(s,n){const d=_pbdDate(s);const day=d.getDate();d.setDate(1);d.setMonth(d.getMonth()+n);d.setDate(Math.min(day,new Date(d.getFullYear(),d.getMonth()+1,0).getDate()));return _pbdFmtDate(d);}
+function _pbdWeekStart(s){const d=_pbdDate(s);d.setDate(d.getDate()-d.getDay());return _pbdFmtDate(d);}
+function _pbdDateLabel(s){const d=_pbdDate(s);return `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일`;}
+function _pbdDayName(s){return ['일','월','화','수','목','금','토'][_pbdDate(s).getDay()];}
+function _pbdColor(type){return DL_COLORS[type]||'#8A90A2';}
+function _pbdState(){
+  ST.fl=ST.fl||{};
+  if(!ST.fl.dl || !ST.fl.dl.planb){
+    let hidden={};
+    try{hidden=JSON.parse(localStorage.getItem('pbdHiddenTypes')||'{}')||{};}catch{}
+    ST.fl.dl={planb:true,view:localStorage.getItem('pbdView')||'month',anchor:_pbdToday(),sideOpen:true,hiddenTypes:hidden,statusFilter:'전체',search:''};
+  }
+  return ST.fl.dl;
 }
-
-async function _renderDlCalendar(){
-  const fl = ST.fl.dl;
-  const y=fl.year, m=fl.month;
-  const d = await api('GET',`/api/deadlines?filter=전체&size=500`).catch(()=>({items:[]}));
-  const byDate={};
-  (d.items||[]).forEach(t=>{
-    const k=(t.due_date||'').slice(0,10);
-    if(!byDate[k]) byDate[k]=[];
-    byDate[k].push(t);
+function _pbdSaveState(){
+  const s=_pbdState();
+  try{localStorage.setItem('pbdView',s.view);localStorage.setItem('pbdHiddenTypes',JSON.stringify(s.hiddenTypes||{}));}catch{}
+}
+function _pbdMatchStatus(t,filter){
+  const dd=t.dday;
+  if(filter==='전체') return true;
+  if(filter==='완료') return t.status==='완료';
+  if(filter==='기한초과') return t.status==='기한초과' || (t.status!=='완료' && dd!==null && dd<0);
+  if(filter==='오늘') return t.status!=='완료' && dd===0;
+  if(filter==='3일이내') return t.status!=='완료' && dd!==null && dd>=0 && dd<=3;
+  if(filter==='7일이내') return t.status!=='완료' && dd!==null && dd>=0 && dd<=7;
+  if(DL_TYPES.includes(filter)) return t.task_type===filter;
+  return true;
+}
+function _pbdFiltered(items, opts={}){
+  const s=_pbdState();
+  const q=(s.search||'').trim().toLowerCase();
+  return (items||[]).filter(t=>{
+    if(!opts.ignoreTypes && s.hiddenTypes?.[t.task_type]) return false;
+    if(!opts.ignoreStatus && !_pbdMatchStatus(t,s.statusFilter||'전체')) return false;
+    if(q){
+      const hay=[t.title,t.task_type,t.name,t.vehicle_number,t.region,t.mobile,t.memo,t.content].filter(Boolean).join(' ').toLowerCase();
+      if(!hay.includes(q)) return false;
+    }
+    return true;
   });
-  const todayStr=new Date().toISOString().slice(0,10);
-  const first=new Date(y,m-1,1).getDay();
-  const daysInMonth=new Date(y,m,0).getDate();
-  const daysInPrevMonth=new Date(y,m-1,0).getDate();
-  const dow=['일','월','화','수','목','금','토'];
+}
+function _pbdByDate(items){
+  const out={};
+  (items||[]).forEach(t=>{const k=(t.due_date||'').slice(0,10);if(!k)return;(out[k]||(out[k]=[])).push(t);});
+  Object.values(out).forEach(a=>a.sort((x,y)=>(x.status==='완료')-(y.status==='완료') || (x.title||'').localeCompare(y.title||'')));
+  return out;
+}
+function _pbdCount(items,filter){return (items||[]).filter(t=>_pbdMatchStatus(t,filter)).length;}
 
-  const cellHtml=(dateStr,dayNum,dowIdx,inMonth)=>{
-    const items=byDate[dateStr]||[];
-    const isToday=inMonth&&dateStr===todayStr;
-    const dowCls=dowIdx===0?'sun':dowIdx===6?'sat':'';
-    const shown=items.slice(0,3);
-    const rest=items.length-shown.length;
-    return `<div class="dl-cal-cell${isToday?' today':''}" style="${inMonth?'':'opacity:.4'}">
-      <div class="dl-cal-daynum ${isToday?'':dowCls}">${dayNum}</div>
-      ${shown.map(t=>`<div class="dl-cal-chip" style="background:${DL_COLORS[t.task_type]||'#94a3b8'}" title="${e_(t.task_type)} · ${e_(t.name||t.vehicle_number||'')}" onclick="viewDeadline(${t.id})">${e_(t.name||t.vehicle_number||t.task_type)}</div>`).join('')}
-      ${rest>0?`<div class="dl-cal-more" onclick="_dlDayDetail('${dateStr}')">+${rest}건 더보기</div>`:''}
-    </div>`;
-  };
+async function renderDeadlines(filter='전체'){
+  const ct=document.getElementById('content'); if(!ct)return;
+  const s=_pbdState();
+  if(filter && filter!=='전체') s.statusFilter=filter;
+  else if(filter==='전체' && !s.statusFilter) s.statusFilter='전체';
+  ct.innerHTML='<div class="pbd-loading"><div class="spin"></div><span>기한 캘린더 불러오는 중</span></div>';
+  const [list,summary]=await Promise.all([
+    api('GET','/api/deadlines?filter=전체&size=5000').catch(()=>({items:[],total:0})),
+    api('GET','/api/deadlines/summary').catch(()=>({오늘기한:0,'3일이내':0,'7일이내':0,기한초과:0,완료:0}))
+  ]);
+  window._pbdItems=list?.items||[];
+  window._pbdSummary=summary||{};
+  _pbdMount();
+}
+window.renderDeadlines=renderDeadlines;
 
+function _pbdHeaderTitle(){
+  const s=_pbdState(),d=_pbdDate(s.anchor);
+  if(s.view==='month') return `${d.getFullYear()}년 ${d.getMonth()+1}월`;
+  if(s.view==='week'){
+    const a=_pbdDate(_pbdWeekStart(s.anchor)),b=new Date(a);b.setDate(a.getDate()+6);
+    return a.getMonth()===b.getMonth()?`${a.getFullYear()}년 ${a.getMonth()+1}월 ${a.getDate()}–${b.getDate()}일`:`${a.getMonth()+1}월 ${a.getDate()}일 – ${b.getMonth()+1}월 ${b.getDate()}일`;
+  }
+  if(s.view==='day') return `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일`;
+  return '기한 목록';
+}
+function _pbdMiniCalendar(items){
+  const s=_pbdState(),d=_pbdDate(s.anchor),y=d.getFullYear(),m=d.getMonth();
+  const first=new Date(y,m,1),start=new Date(first);start.setDate(1-first.getDay());
+  const byDate=_pbdByDate(items);
   let cells='';
-  // 이전달 꼬리 날짜 (회색 처리)
-  for(let i=first-1;i>=0;i--){
-    const dn=daysInPrevMonth-i;
-    const pm=m-1<1?12:m-1, py=m-1<1?y-1:y;
-    const ds=`${py}-${String(pm).padStart(2,'0')}-${String(dn).padStart(2,'0')}`;
-    cells+=cellHtml(ds,dn,(first-i-1+7)%7,false);
+  for(let i=0;i<42;i++){
+    const x=new Date(start);x.setDate(start.getDate()+i);
+    const ds=_pbdFmtDate(x),inMonth=x.getMonth()===m,today=ds===_pbdToday(),selected=ds===s.anchor,has=(byDate[ds]||[]).some(t=>t.status!=='완료');
+    cells+=`<button class="pbd-mini-day ${inMonth?'':'muted'} ${today?'today':''} ${selected?'selected':''}" onclick="pbdPickDay('${ds}')"><span>${x.getDate()}</span>${has?'<i></i>':''}</button>`;
   }
-  for(let i=1;i<=daysInMonth;i++){
-    const ds=`${y}-${String(m).padStart(2,'0')}-${String(i).padStart(2,'0')}`;
-    cells+=cellHtml(ds,i,new Date(y,m-1,i).getDay(),true);
-  }
-  // 다음달 앞부분 채우기 (7의 배수로)
-  const totalSoFar=first+daysInMonth;
-  const trailing=(7-(totalSoFar%7))%7;
-  for(let i=1;i<=trailing;i++){
-    const nm=m+1>12?1:m+1, ny=m+1>12?y+1:y;
-    const ds=`${ny}-${String(nm).padStart(2,'0')}-${String(i).padStart(2,'0')}`;
-    cells+=cellHtml(ds,i,new Date(ny,nm-1,i).getDay(),false);
-  }
-
-  const usedTypes=[...new Set((d.items||[]).map(t=>t.task_type))].filter(Boolean);
-
-  const cal=`<div class="dl-cal">
-    <div class="dl-cal-hd">
-      <button class="dl-cal-nav" onclick="ST.fl.dl.month--;if(ST.fl.dl.month<1){ST.fl.dl.month=12;ST.fl.dl.year--;}renderDeadlines(ST.fl.dl.filter)">◀</button>
-      <div class="dl-cal-title">${y}년 ${m}월</div>
-      <button class="dl-cal-nav" onclick="ST.fl.dl.month++;if(ST.fl.dl.month>12){ST.fl.dl.month=1;ST.fl.dl.year++;}renderDeadlines(ST.fl.dl.filter)">▶</button>
-      <button class="dl-cal-today-btn" onclick="const t=new Date();ST.fl.dl.year=t.getFullYear();ST.fl.dl.month=t.getMonth()+1;renderDeadlines(ST.fl.dl.filter)">오늘</button>
-    </div>
-    <div class="dl-cal-grid">
-      ${dow.map((w,i)=>`<div class="dl-cal-dow ${i===0?'sun':i===6?'sat':''}">${w}</div>`).join('')}
-      ${cells}
-    </div>
-    ${usedTypes.length?`<div class="dl-cal-legend">${usedTypes.map(t=>`<div class="dl-cal-legend-item"><span class="dl-cal-legend-dot" style="background:${DL_COLORS[t]||'#94a3b8'}"></span>${e_(t)}</div>`).join('')}</div>`:''}
+  return `<div class="pbd-mini">
+    <div class="pbd-mini-hd"><strong>${y}년 ${m+1}월</strong><div><button onclick="pbdMiniMove(-1)" title="이전 달">‹</button><button onclick="pbdMiniMove(1)" title="다음 달">›</button></div></div>
+    <div class="pbd-mini-dow"><span class="sun">일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span class="sat">토</span></div>
+    <div class="pbd-mini-grid">${cells}</div>
   </div>`;
-  const el=document.getElementById('dlBody'); if(!el)return;
-  el.innerHTML=cal;
-  window._dlByDate=byDate;
+}
+function _pbdTypeList(items){
+  const s=_pbdState();
+  return `<section class="pbd-side-section pbd-calendars">
+    <div class="pbd-side-title"><span>기한 캘린더</span><button onclick="pbdShowAllTypes()" title="모두 표시">전체</button></div>
+    <div class="pbd-type-list">${DL_TYPES.map(type=>{
+      const on=!s.hiddenTypes?.[type],count=(items||[]).filter(t=>t.task_type===type).length,color=_pbdColor(type);
+      return `<button class="pbd-type-row ${on?'on':'off'}" onclick='pbdToggleType(${JSON.stringify(type)})'>
+        <span class="pbd-check" style="--c:${color}">${on?'<svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>':''}</span>
+        <span class="pbd-type-name">${e_(type)}</span><span class="pbd-type-count">${count}</span><span class="pbd-type-dot" style="background:${color}"></span>
+      </button>`;
+    }).join('')}</div>
+  </section>`;
+}
+function _pbdTodoList(items){
+  const open=(items||[]).filter(t=>t.status!=='완료' && t.due_date).sort((a,b)=>(a.dday??99999)-(b.dday??99999)).slice(0,10);
+  return `<section class="pbd-side-section pbd-todos">
+    <div class="pbd-side-title"><span>할 일</span><button onclick="openNewDeadlineForDate('${_pbdToday()}')">＋</button></div>
+    <div class="pbd-todo-list">${open.length?open.map(t=>{
+      const late=(t.dday??0)<0,today=t.dday===0;
+      return `<div class="pbd-todo-row">
+        <button class="pbd-todo-check" onclick="event.stopPropagation();completeDeadline(${t.id})" title="완료 처리"></button>
+        <button class="pbd-todo-body" onclick="viewDeadline(${t.id})"><span class="pbd-todo-title">${e_(t.title||t.task_type)}</span><span class="pbd-todo-meta ${late?'late':today?'today':''}">${e_(t.due_date)} · ${t.dday===0?'오늘':t.dday<0?`${Math.abs(t.dday)}일 지남`:`D-${t.dday}`}</span></button>
+        <span class="pbd-todo-dot" style="background:${_pbdColor(t.task_type)}"></span>
+      </div>`;
+    }).join(''):'<div class="pbd-side-empty">도래한 기한이 없습니다.</div>'}</div>
+  </section>`;
+}
+function _pbdSummaryBar(items){
+  const s=_pbdState();
+  const defs=[['오늘','오늘',_pbdCount(items,'오늘')],['3일이내','3일 이내',_pbdCount(items,'3일이내')],['7일이내','7일 이내',_pbdCount(items,'7일이내')],['기한초과','기한초과',_pbdCount(items,'기한초과')],['완료','완료',_pbdCount(items,'완료')]];
+  return `<div class="pbd-summary-bar">${defs.map(([key,lbl,n])=>`<button class="pbd-stat ${s.statusFilter===key?'active':''} ${key==='기한초과'?'danger':''}" onclick='pbdSetStatus(${JSON.stringify(key)})'><span>${lbl}</span><b>${n}</b></button>`).join('')}<button class="pbd-filter-clear ${s.statusFilter==='전체'?'is-all':''}" onclick="pbdSetStatus('전체')">전체 기한</button></div>`;
+}
+function _pbdMount(){
+  const ct=document.getElementById('content');if(!ct)return;
+  const s=_pbdState(),items=window._pbdItems||[];
+  const visible=_pbdFiltered(items);
+  ct.innerHTML=`<div class="pbd-app ${s.sideOpen?'':'side-closed'}">
+    <aside class="pbd-sidebar">
+      <div class="pbd-brand"><span class="pbd-logo"><i></i><i></i><i></i><i></i><i></i></span><strong>PlanB</strong><span>Deadline</span></div>
+      ${_pbdMiniCalendar(items)}
+      <div class="pbd-side-scroll">${_pbdTypeList(items)}${_pbdTodoList(items)}</div>
+    </aside>
+    <main class="pbd-main">
+      <header class="pbd-toolbar">
+        <div class="pbd-toolbar-left">
+          <button class="pbd-icon-btn" onclick="pbdToggleSide()" title="사이드바">☰</button>
+          <div class="pbd-nav-group"><button onclick="pbdMove(-1)" title="이전">‹</button><button class="today-btn" onclick="pbdGoToday()">오늘</button><button onclick="pbdMove(1)" title="다음">›</button></div>
+          <div class="pbd-title-wrap"><h2>${_pbdHeaderTitle()}</h2><span id="pbdHeaderSub">${visible.length}건 표시</span></div>
+        </div>
+        <div class="pbd-toolbar-right">
+          <div class="pbd-search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><path d="M21 21l-4.3-4.3"></path></svg><input id="pbdSearch" value="${e_(s.search||'')}" placeholder="기한 검색" oninput="pbdSearch(this.value)" onkeydown="if(event.key==='Escape'){pbdClearSearch()}"/><kbd>Ctrl F</kbd>${s.search?'<button onclick="pbdClearSearch()">×</button>':''}</div>
+          <div class="pbd-view-switch">${[['month','월'],['week','주'],['day','일'],['list','목록']].map(([v,l])=>`<button class="${s.view===v?'active':''}" onclick="pbdSetView('${v}')">${l}</button>`).join('')}</div>
+          <button class="pbd-new-btn" onclick="openNewDeadlineForDate('${s.view==='day'?s.anchor:_pbdToday()}')">＋ 새 기한</button>
+        </div>
+      </header>
+      ${_pbdSummaryBar(items)}
+      <div class="pbd-view" id="pbdMainView">${_pbdCurrentView(visible)}</div>
+    </main>
+  </div>`;
+  _pbdSaveState();
+}
+function _pbdRenderViewOnly(){
+  const el=document.getElementById('pbdMainView');if(!el)return;
+  const v=_pbdFiltered(window._pbdItems||[]);
+  el.innerHTML=_pbdCurrentView(v);
+  const sub=document.getElementById('pbdHeaderSub');if(sub)sub.textContent=`${v.length}건 표시`;
+}
+function _pbdCurrentView(items){
+  const s=_pbdState();
+  if(s.view==='week') return _pbdWeekView(items);
+  if(s.view==='day') return _pbdDayView(items);
+  if(s.view==='list') return _pbdListView(items);
+  return _pbdMonthView(items);
+}
+function _pbdEventChip(t,compact=false){
+  const color=_pbdColor(t.task_type),done=t.status==='완료',late=t.status==='기한초과'||(t.dday!==null&&t.dday<0&&t.status!=='완료');
+  const who=t.name||t.vehicle_number||'';
+  return `<button class="pbd-event ${done?'done':''} ${late?'late':''}" style="--event:${color}" onclick="event.stopPropagation();viewDeadline(${t.id})" title="${e_(t.task_type)} · ${e_(t.title||'')} ${who?'· '+e_(who):''}"><i></i><span>${e_(compact?(who||t.title||t.task_type):(t.title||who||t.task_type))}</span>${!compact&&t.dday!==null&&t.status!=='완료'?`<em>${t.dday===0?'D':t.dday<0?`+${Math.abs(t.dday)}`:`-${t.dday}`}</em>`:''}</button>`;
+}
+function _pbdMonthView(items){
+  const s=_pbdState(),d=_pbdDate(s.anchor),y=d.getFullYear(),m=d.getMonth();
+  const first=new Date(y,m,1),start=new Date(first);start.setDate(1-first.getDay());
+  const by=_pbdByDate(items),today=_pbdToday();
+  let cells='';
+  for(let i=0;i<42;i++){
+    const x=new Date(start);x.setDate(start.getDate()+i);const ds=_pbdFmtDate(x),dow=x.getDay(),inMonth=x.getMonth()===m,isToday=ds===today,isSel=ds===s.anchor,arr=by[ds]||[],shown=arr.slice(0,4),rest=arr.length-shown.length;
+    cells+=`<div class="pbd-month-cell ${inMonth?'':'other'} ${isToday?'today':''} ${isSel?'selected':''}" onclick="pbdPickDay('${ds}')" ondblclick="openNewDeadlineForDate('${ds}')">
+      <div class="pbd-day-head"><span class="${dow===0?'sun':dow===6?'sat':''}">${x.getDate()}</span><button onclick="event.stopPropagation();openNewDeadlineForDate('${ds}')">＋</button></div>
+      <div class="pbd-cell-events">${shown.map(t=>_pbdEventChip(t,true)).join('')}${rest>0?`<button class="pbd-more" onclick="event.stopPropagation();pbdOpenDay('${ds}')">+${rest}건 더보기</button>`:''}</div>
+    </div>`;
+  }
+  return `<div class="pbd-month"><div class="pbd-weekdays"><span class="sun">일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span class="sat">토</span></div><div class="pbd-month-grid">${cells}</div></div>`;
+}
+function _pbdWeekView(items){
+  const s=_pbdState(),start=_pbdWeekStart(s.anchor),by=_pbdByDate(items),today=_pbdToday();
+  let cols='';
+  for(let i=0;i<7;i++){
+    const ds=_pbdAddDays(start,i),d=_pbdDate(ds),arr=by[ds]||[],isToday=ds===today;
+    cols+=`<section class="pbd-week-col ${isToday?'today':''}" onclick="pbdPickDay('${ds}')">
+      <header><span>${['일','월','화','수','목','금','토'][i]}</span><b>${d.getDate()}</b><em>${arr.length}건</em></header>
+      <div class="pbd-week-events">${arr.length?arr.map(t=>`<div class="pbd-week-card" style="--event:${_pbdColor(t.task_type)}" onclick="event.stopPropagation();viewDeadline(${t.id})"><div class="pbd-week-card-top"><span>${e_(t.task_type)}</span>${_ddayBadge(t.dday,t.status)}</div><strong>${e_(t.title||t.task_type)}</strong><small>${e_([t.name,t.vehicle_number,t.region].filter(Boolean).join(' · '))}</small></div>`).join(''):`<button class="pbd-add-slot" onclick="event.stopPropagation();openNewDeadlineForDate('${ds}')">＋ 기한 추가</button>`}</div>
+    </section>`;
+  }
+  return `<div class="pbd-week">${cols}</div>`;
+}
+function _pbdDayView(items){
+  const s=_pbdState(),ds=s.anchor,arr=(items||[]).filter(t=>(t.due_date||'').slice(0,10)===ds),today=ds===_pbdToday();
+  return `<div class="pbd-day-view">
+    <div class="pbd-day-hero ${today?'today':''}"><div><span>${_pbdDayName(ds)}요일</span><strong>${_pbdDate(ds).getDate()}</strong></div><section><h3>${_pbdDateLabel(ds)}</h3><p>${arr.length?`이 날짜에 ${arr.length}건의 기한이 있습니다.`:'등록된 기한이 없습니다.'}</p></section><button onclick="openNewDeadlineForDate('${ds}')">＋ 이 날짜에 기한 등록</button></div>
+    <div class="pbd-day-list">${arr.length?arr.map(t=>`<article class="pbd-day-card" style="--event:${_pbdColor(t.task_type)}" onclick="viewDeadline(${t.id})"><i></i><div class="pbd-day-card-main"><div><span class="pbd-type-pill">${e_(t.task_type)}</span>${_dlStatusBadge(t.status)}${_ddayBadge(t.dday,t.status)}</div><h4>${e_(t.title||t.task_type)}</h4><p>${e_([t.name,t.vehicle_number,t.region,t.mobile].filter(Boolean).join(' · '))}</p>${t.memo?`<small>${e_(t.memo)}</small>`:''}</div><span class="pbd-chevron">›</span></article>`).join(''):'<div class="pbd-empty"><div>✓</div><h3>이 날짜의 기한이 없습니다</h3><p>빈 날짜를 더블클릭하거나 위 버튼으로 새 기한을 등록할 수 있습니다.</p></div>'}</div>
+  </div>`;
+}
+function _pbdListView(items){
+  const rows=[...(items||[])].sort((a,b)=>(a.due_date||'9999').localeCompare(b.due_date||'9999'));
+  if(!rows.length) return '<div class="pbd-empty"><div>⌕</div><h3>표시할 기한이 없습니다</h3><p>검색어나 필터를 변경해 보세요.</p></div>';
+  return `<div class="pbd-list-wrap"><table class="pbd-table"><thead><tr><th>기한일</th><th>D-day</th><th>업무구분</th><th>대상</th><th>제목</th><th>지역</th><th>상태</th><th></th></tr></thead><tbody>${rows.map(t=>`<tr onclick="viewDeadline(${t.id})"><td><strong>${e_(t.due_date||'-')}</strong></td><td>${_ddayBadge(t.dday,t.status)}</td><td><span class="pbd-list-type"><i style="background:${_pbdColor(t.task_type)}"></i>${e_(t.task_type)}</span></td><td>${e_([t.name,t.vehicle_number].filter(Boolean).join(' · ')||'-')}</td><td class="pbd-list-title">${e_(t.title||'-')}</td><td>${e_(t.region||'-')}</td><td>${_dlStatusBadge(t.status)}</td><td><button class="pbd-row-more" onclick="event.stopPropagation();viewDeadline(${t.id})">•••</button></td></tr>`).join('')}</tbody></table></div>`;
 }
 
-window._dlDayDetail=(dateStr)=>{
-  const items=(window._dlByDate&&window._dlByDate[dateStr])||[];
-  const [yy,mm,dd]=dateStr.split('-');
-  openModal(`${yy}년 ${Number(mm)}월 ${Number(dd)}일 기한 (${items.length}건)`,
-    `<div class="tbl-wrap"><table>
-      <thead><tr><th>상태</th><th>업무구분</th><th>지역</th><th>차량번호</th><th>성명</th><th>제목</th></tr></thead>
-      <tbody>${items.map(t=>`<tr>
-        <td>${_dlStatusBadge(t.status)}</td>
-        <td><span style="color:${DL_COLORS[t.task_type]||'#666'};font-weight:600">${fv(t.task_type)}</span></td>
-        <td>${fv(t.region)}</td>
-        <td>${fv(t.vehicle_number)}</td>
-        <td>${fv(t.name)}</td>
-        <td><a class="tbl-link" onclick="closeModal();viewDeadline(${t.id});return false">${fv(t.title)}</a></td>
-      </tr>`).join('')}</tbody>
-    </table></div>`,
-    `<button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`);
-};
+window.pbdToggleSide=()=>{const s=_pbdState();s.sideOpen=!s.sideOpen;_pbdMount();};
+window.pbdSetView=(view)=>{const s=_pbdState();s.view=view;_pbdSaveState();_pbdMount();};
+window.pbdGoToday=()=>{const s=_pbdState();s.anchor=_pbdToday();_pbdMount();};
+window.pbdMove=(dir)=>{const s=_pbdState();s.anchor=s.view==='month'?_pbdMoveMonth(s.anchor,dir):s.view==='week'?_pbdAddDays(s.anchor,dir*7):s.view==='day'?_pbdAddDays(s.anchor,dir):_pbdMoveMonth(s.anchor,dir);_pbdMount();};
+window.pbdMiniMove=(dir)=>{const s=_pbdState();s.anchor=_pbdMoveMonth(s.anchor,dir);_pbdMount();};
+window.pbdPickDay=(ds)=>{const s=_pbdState();s.anchor=ds;_pbdMount();};
+window.pbdToggleType=(type)=>{const s=_pbdState();s.hiddenTypes=s.hiddenTypes||{};s.hiddenTypes[type]=!s.hiddenTypes[type];_pbdSaveState();_pbdMount();};
+window.pbdShowAllTypes=()=>{const s=_pbdState();s.hiddenTypes={};_pbdSaveState();_pbdMount();};
+window.pbdSetStatus=(filter)=>{const s=_pbdState();s.statusFilter=(s.statusFilter===filter&&filter!=='전체')?'전체':filter;_pbdMount();};
+window.pbdSearch=(q)=>{const s=_pbdState();s.search=q;_pbdRenderViewOnly();};
+window.pbdClearSearch=()=>{const s=_pbdState();s.search='';_pbdMount();setTimeout(()=>document.getElementById('pbdSearch')?.focus(),0);};
+window.pbdOpenDay=(ds)=>{const s=_pbdState();s.anchor=ds;s.view='day';_pbdSaveState();_pbdMount();};
+
+// Ctrl+F는 기한관리 화면에서 PLANB 검색창으로 포커스
+if(!window._pbdShortcutBound){
+  window._pbdShortcutBound=true;
+  document.addEventListener('keydown',e=>{
+    if((e.ctrlKey||e.metaKey)&&String(e.key).toLowerCase()==='f' && document.querySelector('.pbd-app')){
+      e.preventDefault();document.getElementById('pbdSearch')?.focus();document.getElementById('pbdSearch')?.select();
+    }
+  });
+}
 
 async function viewDeadline(id){
   const r=await api('GET',`/api/deadlines/${id}`).catch(()=>null); if(!r)return;
   const sections=[
     {title:'기본 정보',fields:[['업무구분',r.task_type],['제목',r.title],['상태',r.status],['D-day',r.dday_label]]},
-    {title:'일정',fields:[['시작일',r.start_date],['기한일',r.due_date],['사전알림',r.reminder_days+'일 전'],['완료일',r.completed_at]]},
-    {title:'대상',fields:[['차량번호',r.vehicle_number],['성명',r.name],['지역',r.region],['핸드폰',r.mobile]]},
+    {title:'일정',fields:[['시작일',r.start_date],['기한일',r.due_date],['사전알림',(r.reminder_days||'7,3,0')+'일 전'],['완료일',r.completed_at]]},
+    {title:'대상',fields:[['차량번호',r.vehicle_number],['성명',r.name],['지역',r.region],['핸드폰',r.mobile],['담당자',r.manager]]},
     {title:'내용',fields:[['내용',r.content,true],['메모',r.memo,true]]},
     ...(r.extended_from?[{title:'연장 이력',fields:[['기존기한',r.extended_from],['연장기한',r.extended_to],['연장사유',r.extension_reason,true]]}]:[]),
   ];
   openModal('기한 상세',buildDetailSections(sections),
-    `<button class="btn bp btn-sm" onclick="editDeadline(${id});closeModal()">수정</button>
-     ${r.status!=='완료'?`<button class="btn b-green btn-sm" onclick="completeDeadline(${id});closeModal()">완료처리</button>`:''}
-     ${r.task_type.includes('대폐차')?`<button class="btn bo btn-sm" onclick="extendDeadline(${id});closeModal()">기간연장</button>`:''}
+    `<button class="btn bp btn-sm" onclick="closeModal();editDeadline(${id})">수정</button>
+     ${r.status!=='완료'?`<button class="btn b-green btn-sm" onclick="closeModal();completeDeadline(${id})">완료처리</button>`:''}
+     ${String(r.task_type||'').includes('대폐차')?`<button class="btn bo btn-sm" onclick="closeModal();extendDeadline(${id})">기간연장</button>`:''}
+     <button class="btn br btn-sm" onclick="closeModal();deleteDeadline(${id})">삭제</button>
      <button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
 }
-
-function _dlForm(r={}){
-  const f=(name,lbl,val,type='text',extra='')=>`
-    <div class="dl-field">
-      <label class="dl-lbl">${lbl}</label>
-      <input class="dl-inp" id="dl_${name}" type="${type}" value="${e_(val||'')}" ${extra}>
-    </div>`;
-  const fs=(name,lbl,val,opts)=>`
-    <div class="dl-field">
-      <label class="dl-lbl">${lbl}</label>
-      <select class="dl-inp" id="dl_${name}" onchange="_dlAutoTitle()">
-        ${opts.map(o=>`<option value="${o}" ${val===o?'selected':''}>${o}</option>`).join('')}
-      </select>
-    </div>`;
-  const fta=(name,lbl,val,rows=3)=>`
-    <div class="dl-field dl-full">
-      <label class="dl-lbl">${lbl}</label>
-      <textarea class="dl-inp dl-ta" id="dl_${name}" rows="${rows}">${e_(val||'')}</textarea>
-    </div>`;
-  const defType = r.task_type || '휴업만료';
-  const defTitle = r.title || (r.name ? `${defType} - ${r.name}${r.vehicle_number?' / '+r.vehicle_number:''}` : '');
-  return `
-  <style>
-    .dl-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 18px;padding:4px 2px}
-    .dl-full{grid-column:1/-1}
-    .dl-field{display:flex;flex-direction:column;gap:4px}
-    .dl-lbl{font-size:11px;font-weight:600;color:var(--c-text-3,#64748b)}
-    .dl-inp{width:100%;height:38px;border:1px solid var(--c-border,#d8dee9);border-radius:8px;padding:8px 10px;font-size:14px;box-sizing:border-box;background:var(--c-bg,#fff);color:var(--c-text,#1a1a1a)}
-    .dl-inp:focus{outline:none;border-color:var(--c-primary,#6c63ff);box-shadow:0 0 0 2px rgba(108,99,255,.15)}
-    .dl-ta{height:auto;min-height:72px;resize:vertical}
-    @media(max-width:600px){.dl-grid{grid-template-columns:1fr}.dl-full{grid-column:1}}
-  </style>
-  <div class="dl-grid">
-    ${fs('task_type','업무구분',defType,DL_TYPES)}
-    ${fs('status','상태',r.status||'예정',['예정','진행중','완료','기한초과','연장'])}
-    <div class="dl-field dl-full">
-      <label class="dl-lbl">제목</label>
-      <input class="dl-inp" id="dl_title" value="${e_(defTitle)}" placeholder="제목 (업무구분+성명 자동 생성)">
-    </div>
-    ${f('vehicle_number','차량번호',r.vehicle_number,'text','onchange="_dlAutoTitle()"')}
-    ${f('name','성명',r.name,'text','onchange="_dlAutoTitle()"')}
-    ${f('region','지역',r.region)}
-    ${f('mobile','핸드폰',r.mobile,'tel')}
-    ${f('reminder_days','사전알림(일)',r.reminder_days||'7,3,0','text','placeholder="예: 7,3,0"')}
-    ${f('start_date','시작일',r.start_date,'date')}
-    ${f('due_date','기한일 *',r.due_date,'date')}
-    ${fta('content','내용',r.content,3)}
-    ${fta('memo','메모',r.memo,2)}
-  </div>`;
-}
-
-function _dlAutoTitle(){
-  const t=document.getElementById('dl_task_type')?.value||'';
-  const n=document.getElementById('dl_name')?.value||'';
-  const v=document.getElementById('dl_vehicle_number')?.value||'';
-  const el=document.getElementById('dl_title');
-  if(el&&!el.dataset.manual){
-    const parts=[t,n&&v?`${n} / ${v}`:n||v].filter(Boolean);
-    el.value=parts.join(' - ');
-  }
-}
-
-// 사용자가 직접 수정하면 자동생성 중단
-document.addEventListener('input',e=>{
-  if(e.target.id==='dl_title') e.target.dataset.manual='1';
-});
-
-function _dlVal(){
-  const g=id=>document.getElementById(id)?.value||'';
-  return {task_type:g('dl_task_type'),title:g('dl_title'),vehicle_number:g('dl_vehicle_number'),
-    name:g('dl_name'),region:g('dl_region'),mobile:g('dl_mobile'),
-    start_date:g('dl_start_date'),due_date:g('dl_due_date'),
-    reminder_days:g('dl_reminder_days'),status:g('dl_status'),
-    content:g('dl_content'),memo:g('dl_memo')};
-}
-
-function openNewDeadline(){
-  openModal('기한 등록',_dlForm(),
-    `<button class="btn bp btn-sm" onclick="saveNewDeadline()">저장</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
-}
-window.saveNewDeadline=async()=>{
-  const data=_dlVal();
-  if(!data.title||!data.due_date){toast('제목과 기한일을 입력해주세요','warning');return;}
-  const r=await api('POST','/api/deadlines',data).catch(()=>null);
-  if(r){toast('기한 등록 완료');closeModal();renderDeadlines(ST.fl?.dl?.filter||'전체');}
-};
-
-window.editDeadline=async(id)=>{
-  const r=await api('GET',`/api/deadlines/${id}`).catch(()=>null); if(!r)return;
-  openModal('기한 수정',_dlForm(r),
-    `<button class="btn bp btn-sm" onclick="saveEditDeadline(${id})">저장</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
-};
-window.saveEditDeadline=async(id)=>{
-  const res=await api('PUT',`/api/deadlines/${id}`,_dlVal()).catch(()=>null);
-  if(res){toast('수정 완료');closeModal();renderDeadlines(ST.fl?.dl?.filter||'전체');}
-};
-
-window.completeDeadline=async(id)=>{
-  if(!await cfm('완료 처리하시겠습니까?'))return;
-  const r=await api('POST',`/api/deadlines/${id}/complete`).catch(()=>null);
-  if(r){toast('완료 처리됨');renderDeadlines(ST.fl?.dl?.filter||'전체');}
-};
-
-window.extendDeadline=async(id)=>{
-  const r=await api('GET',`/api/deadlines/${id}`).catch(()=>null); if(!r)return;
-  openModal('기간 연장',`<div class="form-grid">
-    <div class="form-group cs2"><label class="form-lbl">기존 기한</label><input class="form-ctrl" value="${e_(r.due_date)}" disabled></div>
-    <div class="form-group cs2"><label class="form-lbl">연장 기한</label><input class="form-ctrl" id="ext_to" type="date" value="${r.due_date}"></div>
-    <div class="form-group cs4"><label class="form-lbl">연장 사유</label><textarea class="form-ctrl" id="ext_reason" rows="2"></textarea></div>
-  </div>`,
-    `<button class="btn bp btn-sm" onclick="saveExtend(${id})">연장 저장</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'msm');
-};
-window.saveExtend=async(id)=>{
-  const to=document.getElementById('ext_to')?.value;
-  const reason=document.getElementById('ext_reason')?.value;
-  if(!to){toast('연장 기한을 입력해주세요','warning');return;}
-  const r=await api('POST',`/api/deadlines/${id}/extend`,{extended_to:to,reason}).catch(()=>null);
-  if(r){toast('기간 연장 완료');closeModal();renderDeadlines(ST.fl?.dl?.filter||'전체');}
-};
-
-window.deleteDeadline=async(id)=>{
-  if(!await cfm('삭제하시겠습니까?'))return;
-  await api('DELETE',`/api/deadlines/${id}`).catch(()=>null);
-  toast('삭제됨');renderDeadlines(ST.fl?.dl?.filter||'전체');
-};
-
 window.viewDeadline=viewDeadline;
 
-// 회원 상세에서 기한 영역 로드
-window.loadMemberDeadlines=async(memberId, containerId)=>{
-  const el=document.getElementById(containerId); if(!el)return;
-  const d=await api('GET',`/api/deadlines/member/${memberId}`).catch(()=>({items:[]}));
-  if(!d.items.length){
-    el.innerHTML='<p style="font-size:12px;color:var(--c-text-3)">등록된 기한 없음 <button class="btn bp btn-xs" onclick="openNewDeadlineForMember('+memberId+')">+ 등록</button></p>';
-    return;
-  }
-  el.innerHTML=d.items.slice(0,5).map(t=>`
-    <div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--c-border)">
-      ${_ddayBadge(t.dday,t.status)}
-      <span style="font-size:12px;color:${DL_COLORS[t.task_type]||'#666'}">${t.task_type}</span>
-      <span style="font-size:12px">${t.due_date}</span>
-      <span style="font-size:12px;flex:1">${t.title}</span>
-      <button class="btn bp btn-xs" onclick="viewDeadline(${t.id})">상세</button>
-    </div>`).join('')+
-    `<button class="btn bp btn-xs" style="margin-top:6px" onclick="openNewDeadlineForMember(${memberId})">+ 기한 등록</button>`;
+function _dlForm(r={}){
+  const f=(name,lbl,val,type='text',extra='')=>`<div class="dl-field"><label class="dl-lbl">${lbl}</label><input class="dl-inp" id="dl_${name}" type="${type}" value="${e_(val||'')}" ${extra}></div>`;
+  const fs=(name,lbl,val,opts)=>`<div class="dl-field"><label class="dl-lbl">${lbl}</label><select class="dl-inp" id="dl_${name}" ${name==='task_type'?'onchange="_dlAutoTitle()"':''}>${opts.map(o=>`<option value="${e_(o)}" ${val===o?'selected':''}>${e_(o)}</option>`).join('')}</select></div>`;
+  const fta=(name,lbl,val,rows=3)=>`<div class="dl-field dl-full"><label class="dl-lbl">${lbl}</label><textarea class="dl-inp dl-ta" id="dl_${name}" rows="${rows}">${e_(val||'')}</textarea></div>`;
+  const defType=r.task_type||'휴업만료';
+  const defTitle=r.title||(r.name?`${defType} - ${r.name}${r.vehicle_number?' / '+r.vehicle_number:''}`:'');
+  return `<div class="dl-grid pbd-form"><input type="hidden" id="dl_member_id" value="${e_(r.member_id||'')}"><input type="hidden" id="dl_license_holder_id" value="${e_(r.license_holder_id||'')}">
+    ${fs('task_type','업무구분',defType,DL_TYPES)}${fs('status','상태',r.status||'예정',['예정','진행중','완료','기한초과','연장'])}
+    <div class="dl-field dl-full"><label class="dl-lbl">제목 *</label><input class="dl-inp" id="dl_title" value="${e_(defTitle)}" placeholder="업무구분 + 성명/차량번호 자동 생성"></div>
+    ${f('vehicle_number','차량번호',r.vehicle_number,'text','onchange="_dlAutoTitle()"')}${f('name','성명',r.name,'text','onchange="_dlAutoTitle()"')}
+    ${f('region','지역',r.region)}${f('mobile','핸드폰',r.mobile,'tel')}
+    ${f('start_date','시작일',r.start_date,'date')}${f('due_date','기한일 *',r.due_date,'date')}
+    ${f('reminder_days','사전알림(일)',r.reminder_days||'7,3,0','text','placeholder="예: 7,3,0"')}${f('manager','담당자',r.manager||'')}
+    ${fta('content','내용',r.content,3)}${fta('memo','메모',r.memo,2)}
+  </div>`;
+}
+window._dlAutoTitle=function(){
+  const t=document.getElementById('dl_task_type')?.value||'',n=document.getElementById('dl_name')?.value||'',v=document.getElementById('dl_vehicle_number')?.value||'',el=document.getElementById('dl_title');
+  if(el&&!el.dataset.manual){const parts=[t,n&&v?`${n} / ${v}`:n||v].filter(Boolean);el.value=parts.join(' - ');}
 };
+document.addEventListener('input',e=>{if(e.target.id==='dl_title')e.target.dataset.manual='1';});
+function _dlVal(){const g=id=>document.getElementById(id)?.value||'';const memberId=g('dl_member_id'),holderId=g('dl_license_holder_id');return {member_id:memberId?Number(memberId):null,license_holder_id:holderId?Number(holderId):null,task_type:g('dl_task_type'),title:g('dl_title'),vehicle_number:g('dl_vehicle_number'),name:g('dl_name'),region:g('dl_region'),mobile:g('dl_mobile'),start_date:g('dl_start_date'),due_date:g('dl_due_date'),reminder_days:g('dl_reminder_days'),status:g('dl_status'),manager:g('dl_manager'),content:g('dl_content'),memo:g('dl_memo')};}
 
-window.openNewDeadlineForMember=async(memberId)=>{
-  const m=await api('GET',`/api/members/${memberId}`).catch(()=>null);
-  openModal('기한 등록',_dlForm({member_id:memberId,vehicle_number:m?.vehicle_number||'',name:m?.name||'',region:m?.region||'',mobile:m?.mobile||''}),
-    `<button class="btn bp btn-sm" onclick="saveNewDeadline()">저장</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
+function openNewDeadline(){openNewDeadlineForDate(_pbdToday());}
+window.openNewDeadline=openNewDeadline;
+window.openNewDeadlineForDate=(dateStr)=>{
+  openModal('새 기한',_dlForm({start_date:dateStr||'',due_date:dateStr||''}),`<button class="btn bp btn-sm" onclick="saveNewDeadline()">저장</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
 };
+window.saveNewDeadline=async()=>{
+  const data=_dlVal();if(!data.title||!data.due_date){toast('제목과 기한일을 입력해주세요','warning');return;}
+  const r=await api('POST','/api/deadlines',data).catch(()=>null);if(r){toast('기한 등록 완료');closeModal();const s=_pbdState();s.anchor=r.due_date||s.anchor;s.statusFilter='전체';s.search='';await renderDeadlines('전체');}
+};
+window.editDeadline=async(id)=>{const r=await api('GET',`/api/deadlines/${id}`).catch(()=>null);if(!r)return;openModal('기한 수정',_dlForm(r),`<button class="btn bp btn-sm" onclick="saveEditDeadline(${id})">저장</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');};
+window.saveEditDeadline=async(id)=>{const res=await api('PUT',`/api/deadlines/${id}`,_dlVal()).catch(()=>null);if(res){toast('수정 완료');closeModal();await renderDeadlines('전체');}};
+window.completeDeadline=async(id)=>{if(!await cfm('완료 처리하시겠습니까?'))return;const r=await api('POST',`/api/deadlines/${id}/complete`).catch(()=>null);if(r){toast('완료 처리됨');await renderDeadlines('전체');}};
+window.extendDeadline=async(id)=>{const r=await api('GET',`/api/deadlines/${id}`).catch(()=>null);if(!r)return;openModal('기간 연장',`<div class="form-grid"><div class="form-group cs2"><label class="form-lbl">기존 기한</label><input class="form-ctrl" value="${e_(r.due_date)}" disabled></div><div class="form-group cs2"><label class="form-lbl">연장 기한</label><input class="form-ctrl" id="ext_to" type="date" value="${e_(r.due_date)}"></div><div class="form-group cs4"><label class="form-lbl">연장 사유</label><textarea class="form-ctrl" id="ext_reason" rows="2"></textarea></div></div>`,`<button class="btn bp btn-sm" onclick="saveExtend(${id})">연장 저장</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'msm');};
+window.saveExtend=async(id)=>{const to=document.getElementById('ext_to')?.value,reason=document.getElementById('ext_reason')?.value;if(!to){toast('연장 기한을 입력해주세요','warning');return;}const r=await api('POST',`/api/deadlines/${id}/extend`,{extended_to:to,reason}).catch(()=>null);if(r){toast('기간 연장 완료');closeModal();await renderDeadlines('전체');}};
+window.deleteDeadline=async(id)=>{if(!await cfm('삭제하시겠습니까?'))return;const r=await api('DELETE',`/api/deadlines/${id}`).catch(()=>null);if(r){toast('삭제됨');closeModal();await renderDeadlines('전체');}};
+
+// 회원 상세에서 기한 영역 로드
+window.loadMemberDeadlines=async(memberId,containerId)=>{
+  const el=document.getElementById(containerId);if(!el)return;const d=await api('GET',`/api/deadlines/member/${memberId}`).catch(()=>({items:[]}));
+  if(!d.items.length){el.innerHTML='<p style="font-size:12px;color:var(--c-text-3)">등록된 기한 없음 <button class="btn bp btn-xs" onclick="openNewDeadlineForMember('+memberId+')">+ 등록</button></p>';return;}
+  el.innerHTML=d.items.slice(0,5).map(t=>`<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--c-border)">${_ddayBadge(t.dday,t.status)}<span style="font-size:12px;color:${_pbdColor(t.task_type)}">${e_(t.task_type)}</span><span style="font-size:12px">${e_(t.due_date)}</span><span style="font-size:12px;flex:1">${e_(t.title)}</span><button class="btn bp btn-xs" onclick="viewDeadline(${t.id})">상세</button></div>`).join('')+`<button class="btn bp btn-xs" style="margin-top:6px" onclick="openNewDeadlineForMember(${memberId})">+ 기한 등록</button>`;
+};
+window.openNewDeadlineForMember=async(memberId)=>{const m=await api('GET',`/api/members/${memberId}`).catch(()=>null);openModal('기한 등록',_dlForm({member_id:memberId,vehicle_number:m?.vehicle_number||'',name:m?.name||'',region:m?.region||'',mobile:m?.mobile||''}),`<button class="btn bp btn-sm" onclick="saveNewDeadline()">저장</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');};
+
 
 // ===== 전자서명 관리 =====
 const GS_STATUS = ['요청대기','서명대기','일부완료','완료','거절','취소','만료','오류'];
@@ -3317,38 +3315,56 @@ function _smsCollectFilters(){
   };
 }
 
-async function renderListExtract(){
-  SMS_ST.selectedIds=new Set(); SMS_ST.page=1; SMS_ST.targets=[]; SMS_ST.total=0; SMS_ST.excludedNoPhone=0;
+async function renderSmsSend(){
+  await _smsLoadTemplates();
+  SMS_ST.selectedIds=new Set(); SMS_ST.page=1;
   document.getElementById('content').innerHTML=`
     <div class="card" style="overflow:visible">
-      <div class="card-hd"><div class="card-hd-l"><span class="card-ico">🎯</span><span class="card-ttl">대상자 검색조건</span></div></div>
+      <div class="card-hd"><div class="card-hd-l"><span class="card-ico">🎯</span><span class="card-ttl">대상자 조건</span></div></div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;padding:10px 14px;overflow:visible">
         ${_smsMsel('region','지역 전체',REGIONS)}
-        ${_smsMsel('category','회원구분 전체',SMS_CATEGORY_OPTS)}
+        ${_smsMsel('category','구분 전체',SMS_CATEGORY_OPTS)}
         ${_smsMsel('membership_status','가입여부 전체',SMS_MEMBERSHIP_OPTS)}
         ${_smsMsel('vehicle_type','차량형태 전체',SMS_VEH_CATS)}
         ${_smsMsel('fuel_type','유종 전체',SMS_FUEL_CATS)}
         <input id="smsAgeMin" class="fc" style="width:90px" placeholder="연령 이상" type="number">
         <input id="smsAgeMax" class="fc" style="width:90px" placeholder="연령 이하" type="number">
         <input id="smsSearch" class="fc" style="width:150px" placeholder="이름/차량번호 검색">
-        <button class="btn bp btn-sm" id="smsSearchBtn">🔍 검색</button>
+        <button class="btn bp btn-sm" id="smsSearchBtn">🔍 대상자 조회</button>
       </div>
     </div>
     <div class="card" style="margin-top:10px">
       <div class="card-hd">
-        <div class="card-hd-l"><span class="card-ico">👥</span><span class="card-ttl">검색 결과</span><span class="cnt" id="smsCnt">조회 전</span></div>
+        <div class="card-hd-l"><span class="card-ico">👥</span><span class="card-ttl">대상자</span><span class="cnt" id="smsCnt">조회 전</span></div>
         <div><button class="btn bo btn-sm" id="smsSelAll">전체 선택</button> <button class="btn bo btn-sm" id="smsSelNone">전체 해제</button></div>
       </div>
-      <div id="smsTargetWrap" style="max-height:420px;overflow:auto">
-        <div class="empty-box"><p class="empty-txt">조건을 선택하고 "검색"을 눌러주세요.</p></div>
+      <div id="smsTargetWrap" style="max-height:340px;overflow:auto">
+        <div class="empty-box"><p class="empty-txt">조건을 선택하고 "대상자 조회"를 눌러주세요.</p></div>
       </div>
       <div id="smsPager" style="padding:8px"></div>
     </div>
     <div class="card" style="margin-top:10px">
-      <div class="card-hd"><div class="card-hd-l"><span class="card-ico">📥</span><span class="card-ttl">엑셀 다운로드</span></div></div>
-      <div style="padding:12px;display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn bp btn-sm" id="lxDownSelBtn">선택 명단 엑셀 다운로드</button>
-        <button class="btn bo btn-sm" id="lxDownAllBtn">검색 결과 전체 엑셀 다운로드</button>
+      <div class="card-hd"><div class="card-hd-l"><span class="card-ico">✉️</span><span class="card-ttl">문자 내용</span></div></div>
+      <div style="padding:12px;display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          <select id="smsTplSel" class="fc" style="max-width:220px">
+            <option value="">템플릿 선택</option>
+            ${SMS_ST.templates.map(t=>`<option value="${t.id}">${e_(t.name)}</option>`).join('')}
+          </select>
+          <label><input type="radio" name="smsService" value="SMS" checked> SMS(단문)</label>
+          <label><input type="radio" name="smsService" value="LMS"> LMS(장문)</label>
+          <input id="smsCallback" class="fc" style="width:160px" placeholder="발신번호(숫자만)" value="${e_(SMS_ST.callback)}">
+        </div>
+        <input id="smsSubject" class="fc" placeholder="제목 (LMS일 때만 사용, 선택)">
+        <textarea id="smsMainText" class="fc" rows="5" placeholder="문자 내용을 입력하세요. 예: #{성명}님, 강원도 개인소형화물협회에서 안내드립니다."></textarea>
+        <div style="font-size:12px;color:var(--c-text-3)">사용 가능한 변수: ${SMS_VARS.map(v=>`#{${v}}`).join('  ')}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn bo btn-sm" id="smsTestBtn">🧪 테스트 발송</button>
+          <button class="btn br btn-sm" id="smsSendNowBtn">📤 즉시 발송</button>
+          <button class="btn bg btn-sm" id="smsSendResBtn">⏰ 예약 발송</button>
+          ${isAdmin()?`<button class="btn bo btn-sm" id="smsDiagBtn">🔌 발송닷컴 연결 진단</button>`:''}
+          ${isAdmin()?`<button class="btn bo btn-sm" id="smsSingleTestBtn">📱 SMS 1건 테스트</button>`:''}
+        </div>
       </div>
     </div>`;
 
@@ -3356,26 +3372,21 @@ async function renderListExtract(){
   document.getElementById('smsSearchBtn').onclick=()=>_smsSearch(1);
   document.getElementById('smsSelAll').onclick=_smsSelectAll;
   document.getElementById('smsSelNone').onclick=()=>{SMS_ST.selectedIds=new Set();_smsRenderTargetTable();};
-  document.getElementById('lxDownSelBtn').onclick=_lxDownloadSelected;
-  document.getElementById('lxDownAllBtn').onclick=_lxDownloadAll;
-}
-
-function _lxFilenameToday(){
-  const d=new Date();
-  const p=n=>String(n).padStart(2,'0');
-  return `명단추출_${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}.xlsx`;
-}
-
-function _lxDownloadSelected(){
-  if(!SMS_ST.selectedIds.size){toast('선택된 대상자가 없습니다','err');return;}
-  const ids=[...SMS_ST.selectedIds].join(',');
-  dl(`/api/sms/export/selected?ids=${encodeURIComponent(ids)}`,_lxFilenameToday());
-}
-
-function _lxDownloadAll(){
-  if(!SMS_ST.total){toast('검색 결과가 없습니다','err');return;}
-  const params=new URLSearchParams(SMS_ST.filters||{});
-  dl(`/api/sms/export/all?${params}`,_lxFilenameToday());
+  document.getElementById('smsTplSel').onchange=(e)=>{
+    const t=SMS_ST.templates.find(x=>String(x.id)===e.target.value);
+    if(t){
+      document.getElementById('smsMainText').value=t.content||'';
+      document.getElementById('smsSubject').value=t.subject||'';
+      document.querySelector(`input[name="smsService"][value="${t.service||'SMS'}"]`).checked=true;
+    }
+  };
+  document.getElementById('smsTestBtn').onclick=_smsTestSend;
+  document.getElementById('smsSendNowBtn').onclick=()=>_smsSend('즉시');
+  document.getElementById('smsSendResBtn').onclick=()=>_smsSend('예약');
+  if(isAdmin()){
+    document.getElementById('smsDiagBtn').onclick=_smsNetworkDiag;
+    document.getElementById('smsSingleTestBtn').onclick=_smsAdminSingleTest;
+  }
 }
 
 async function _smsNetworkDiag(){
@@ -3433,17 +3444,16 @@ async function _smsSearch(page=1){
 
 function _smsRenderTargetTable(){
   const cntEl=document.getElementById('smsCnt');
-  if(cntEl)cntEl.textContent=`검색 결과 총 ${SMS_ST.total}명${SMS_ST.excludedNoPhone?` (전화번호 없음 ${SMS_ST.excludedNoPhone}명 제외)`:''}`;
+  if(cntEl)cntEl.textContent=`총 ${SMS_ST.total}명${SMS_ST.excludedNoPhone?` (전화번호 없음 ${SMS_ST.excludedNoPhone}명 제외)`:''}`;
   const wrap=document.getElementById('smsTargetWrap');
   if(!SMS_ST.targets.length){wrap.innerHTML=`<div class="empty-box"><p class="empty-txt">조건에 맞는 대상자가 없습니다.</p></div>`;return;}
   wrap.innerHTML=`<table class="tbl"><thead><tr>
-    <th style="width:30px"></th><th>이름</th><th>휴대폰번호</th><th>지역</th><th>회원구분</th><th>가입여부</th><th>차량번호</th><th>차량형태</th><th>유종</th>
+    <th style="width:30px"></th><th>성명</th><th>핸드폰</th><th>지역</th><th>차종</th><th>유종</th><th>나이</th><th>회원구분</th>
   </tr></thead><tbody>
     ${SMS_ST.targets.map(m=>`<tr>
       <td><input type="checkbox" class="smsChk" data-id="${m.id}" ${SMS_ST.selectedIds.has(m.id)?'checked':''}></td>
       <td>${e_(m.name)}</td><td>${e_(m.mobile)}</td><td>${e_(m.region)}</td>
-      <td>${e_(m.category)}</td><td>${e_(m.membership_status)}</td><td>${e_(m.vehicle_number)}</td>
-      <td>${e_(m.vehicle_type)}</td><td>${e_(m.fuel_type)}</td>
+      <td>${e_(m.vehicle_type)}</td><td>${e_(m.fuel_type)}</td><td>${m.age??'-'}</td><td>${e_(m.membership_status)}</td>
     </tr>`).join('')}
   </tbody></table>`;
   wrap.querySelectorAll('.smsChk').forEach(cb=>{

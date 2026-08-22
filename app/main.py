@@ -323,16 +323,14 @@ async def startup():
     finally:
         db.close()
 
-    # 예약문자 스케줄러: 문자발송(발송닷컴 연동) 기능은 더 이상 사용하지 않으므로 비활성화.
-    # 관련 코드/테이블은 삭제하지 않고 그대로 두되, 어떤 경로로도 발송닷컴 API가
-    # 자동 호출되지 않도록 백그라운드 태스크 등록만 끊는다.
-    # try:
-    #     import asyncio as _asyncio
-    #     from app.routers.sms import run_scheduled_sms_loop
-    #     _asyncio.create_task(run_scheduled_sms_loop())
-    #     logger.info("예약문자 스케줄러 시작")
-    # except Exception as e:
-    #     logger.warning(f"예약문자 스케줄러 시작 실패 (무시): {e}")
+    # 예약문자 스케줄러: 백그라운드 태스크로만 등록 (healthcheck를 막지 않도록 await하지 않음)
+    try:
+        import asyncio as _asyncio
+        from app.routers.sms import run_scheduled_sms_loop
+        _asyncio.create_task(run_scheduled_sms_loop())
+        logger.info("예약문자 스케줄러 시작")
+    except Exception as e:
+        logger.warning(f"예약문자 스케줄러 시작 실패 (무시): {e}")
 
 
 @app.get("/health")
