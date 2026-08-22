@@ -438,8 +438,15 @@ async def send_sms(data: SendRequest, db: Session = Depends(get_db),
         db.commit()
         destinations = [{"Phone": p, "Name": "테스트"} for p in phones]
         ok, resp = await _do_immediate_send(db, job, recipients, destinations)
-        message = "테스트 문자가 정상 발송되었습니다." if ok else _clean_result_message(resp)
-        return {"success": ok, "message": message, "ok": ok, "job_id": job.id, "job_no": job.job_no}
+        if not ok:
+            # 발송닷컴 호출 실패를 우리 API의 성공(200)으로 반환하지 않는다.
+            # job/recipients는 이미 "실패"로 커밋됐으니 이력에서 확인 가능.
+            raise HTTPException(
+                status_code=502,
+                detail=f"{_clean_result_message(resp)} (job_id={job.id})",
+            )
+        return {"success": True, "message": "테스트 문자가 정상 발송되었습니다.",
+                "ok": True, "job_id": job.id, "job_no": job.job_no}
 
     # ── 실제 발송: 선택된 recipient_ids를 license_holders에서 그대로 재조회 ──
     if not data.recipient_ids:
@@ -484,8 +491,13 @@ async def send_sms(data: SendRequest, db: Session = Depends(get_db),
                 "Replace_Datas": _replace_datas_for(m)}
         destinations.append(dest)
     ok, resp = await _do_immediate_send(db, job, recipients, destinations)
-    message = f"발송 완료 ({len(members)}명)" if ok else _clean_result_message(resp)
-    return {"success": ok, "message": message, "ok": ok, "job_id": job.id, "job_no": job.job_no, "total": len(members)}
+    if not ok:
+        raise HTTPException(
+            status_code=502,
+            detail=f"{_clean_result_message(resp)} (job_id={job.id})",
+        )
+    return {"success": True, "message": f"발송 완료 ({len(members)}명)",
+            "ok": True, "job_id": job.id, "job_no": job.job_no, "total": len(members)}
 
 
 # ────────────────────────────────────────────────────────────
@@ -662,6 +674,14 @@ async def member_history(license_holder_id: int, db: Session = Depends(get_db),
 @router.get("/connection-test")
 async def connection_test(current_user: models.User = Depends(get_current_user)):
     return await balsong.test_connection()
+
+
+@router.get("/network-diag")
+async def network_diag(current_user: models.User = Depends(require_admin)):
+    """balsong.com에 대한 저수준 네트워크 점검 (DNS/TCP/TLS/무인증 GET).
+    실제 발송 계정정보나 발송 데이터는 전혀 사용하지 않는다.
+    운영(Railway) 환경에서 호출해야 그 네트워크 기준의 결과를 볼 수 있다."""
+    return await balsong.network_diagnostics()
 
 
 # ────────────────────────────────────────────────────────────

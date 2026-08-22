@@ -118,7 +118,21 @@ class BalsongClient:
                 (key, (None, str(value).encode("utf-8"), "text/plain; charset=utf-8"))
             )
 
-        logger.info("발송닷컴 요청 시작: Service=%s Type=%s URL=%s", service, req_type, BASE_URL)
+        dest_count = None
+        if "Destination" in fields and fields["Destination"] is not None:
+            try:
+                dest_count = len(json.loads(fields["Destination"]))
+            except Exception:
+                dest_count = -1  # 파싱 실패 시 -1로 표시 (값 자체는 로그에 남기지 않음)
+        msg_len = len(str(fields.get("Main_Text") or ""))
+        field_keys = list(fields.keys())  # 값이 아니라 필드 이름만 (UserID/UserPW 등 값은 절대 포함 안 함)
+
+        logger.info(
+            "발송닷컴 요청 시작: method=POST url=%s Service=%s Type=%s "
+            "fields=%s destination_count=%s message_len=%s timeout(connect/read/write/pool)=%s/%s/%s/%s",
+            BASE_URL, service, req_type, field_keys, dest_count, msg_len,
+            _HTTPX_TIMEOUT.connect, _HTTPX_TIMEOUT.read, _HTTPX_TIMEOUT.write, _HTTPX_TIMEOUT.pool,
+        )
         started = time.monotonic()
 
         def _elapsed() -> float:
@@ -230,6 +244,77 @@ class BalsongClient:
         raw = await self.get_usage(today.year, today.month)
         ok = raw.get("Result") == "OK"
         return {"ok": ok, "has_credentials": True, "raw": raw}
+
+    async def network_diagnostics(self) -> Dict[str, Any]:
+        """balsong.com 서버 자체에 대한 저수준 네트워크 점검 (인증정보/발송 없이).
+        운영(Railway) 컨테이너에서 실행해야 실제 원인 파악에 의미가 있다 —
+        이 서버가 있는 네트워크에서 balsong.com이 IP 차단/화이트리스트/포트 문제로
+        막혀 있는지, 아니면 TCP/TLS는 되는데 우리 요청 방식(HTTP)에서 응답이 없는지를
+        구분하기 위한 것. UserID/UserPW/실제 발송 데이터는 전혀 사용하지 않는다."""
+        import socket
+        host = "balsong.com"
+        result: Dict[str, Any] = {"host": host}
+
+        # 1) DNS 해석
+        t0 = time.monotonic()
+        try:
+            addrs = socket.getaddrinfo(host, 443)
+            result["dns"] = {"ok": True, "elapsed": round(time.monotonic() - t0, 3),
+                              "addresses": sorted({a[4][0] for a in addrs})}
+        except Exception as e:
+            result["dns"] = {"ok": False, "elapsed": round(time.monotonic() - t0, 3),
+                              "error": e.__class__.__name__}
+            return result  # DNS부터 안 되면 이후 단계는 의미 없음
+
+        # 2) TCP 443 포트 연결 (순수 소켓, TLS 이전)
+        t0 = time.monotonic()
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, 443), timeout=10.0)
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+            result["tcp_connect"] = {"ok": True, "elapsed": round(time.monotonic() - t0, 3)}
+        except Exception as e:
+            result["tcp_connect"] = {"ok": False, "elapsed": round(time.monotonic() - t0, 3),
+                                      "error": e.__class__.__name__}
+            return result
+
+        # 3) TLS 핸드셰이크
+        t0 = time.monotonic()
+        try:
+            ctx = ssl.create_default_context()
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, 443, ssl=ctx, server_hostname=host), timeout=10.0)
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+            result["tls_handshake"] = {"ok": True, "elapsed": round(time.monotonic() - t0, 3)}
+        except Exception as e:
+            result["tls_handshake"] = {"ok": False, "elapsed": round(time.monotonic() - t0, 3),
+                                        "error": e.__class__.__name__}
+            return result
+
+        # 4) 인증정보 없이 순수 GET (엔드포인트가 존재하는지, 어떤 응답을 주는지 확인용.
+        #    실패해도 정상 - 이 API가 GET을 지원 안 할 수도 있음. 상태코드/응답만 참고.)
+        t0 = time.monotonic()
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as c:
+                r = await c.get(BASE_URL)
+            result["plain_get"] = {
+                "ok": True, "elapsed": round(time.monotonic() - t0, 3),
+                "status": r.status_code, "content_type": r.headers.get("content-type", ""),
+                "body_preview": _strip_markup(r.text, 150),
+            }
+        except Exception as e:
+            result["plain_get"] = {"ok": False, "elapsed": round(time.monotonic() - t0, 3),
+                                    "error": e.__class__.__name__}
+
+        return result
 
     async def send_message(self, *, service: str, callback: str, main_text: str,
                             destinations: List[Dict[str, Any]],
