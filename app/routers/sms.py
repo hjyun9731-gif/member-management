@@ -12,6 +12,7 @@
   묶어서 보낸다. 수신자별로 반복 호출하지 않는다 (문서의 호출 제한 규정).
 """
 import re
+import io
 import json
 import asyncio
 import logging
@@ -19,10 +20,11 @@ from datetime import datetime
 from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
+from openpyxl import Workbook
 
 from app.database import get_db, SessionLocal
 from app.auth import get_current_user, require_admin
@@ -162,6 +164,7 @@ def _fmt_target(m) -> dict:
         "name": m.name or "",
         "mobile": m.mobile or "",
         "region": m.region or "",
+        "vehicle_number": m.vehicle_number or "",
         "vehicle_type": sms_classify_vehicle(m.vehicle_type, m.fuel_type),
         "fuel_type": sms_classify_fuel(m.fuel_type, m.vehicle_type),
         "age": calc_age_from_resident(m.resident_number),
@@ -233,6 +236,90 @@ async def get_target_ids(
                                    fuel_type_cats=_csv_list(fuel_type),
                                    age_min=age_min_i, age_max=age_max_i)
     return {"total": len(filtered), "ids": [m.id for m in filtered]}
+
+
+# ────────────────────────────────────────────────────────────
+# 1-1. 명단추출 (엑셀 다운로드) - 조회만 하며 회원 DB를 수정하지 않는다.
+#      발송닷컴 API는 절대 호출하지 않는다.
+# ────────────────────────────────────────────────────────────
+
+_EXPORT_HEADERS = ["번호", "이름", "휴대폰번호", "지역", "회원구분", "가입여부", "차량번호", "차량형태", "유종"]
+
+
+def _build_targets_xlsx(rows: List) -> bytes:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "명단"
+    ws.append(_EXPORT_HEADERS)
+    for idx, m in enumerate(rows, start=1):
+        # 휴대폰번호는 반드시 문자열로 기록 (엑셀에서 앞자리 0 소실 방지)
+        mobile = str(m.mobile or "")
+        ws.append([
+            idx, m.name or "", mobile, m.region or "", m.category or "",
+            m.membership_status or "", m.vehicle_number or "",
+            sms_classify_vehicle(m.vehicle_type, m.fuel_type),
+            sms_classify_fuel(m.fuel_type, m.vehicle_type),
+        ])
+        ws.cell(row=idx + 1, column=3).number_format = "@"
+    widths = [6, 10, 14, 10, 8, 8, 12, 10, 8]
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[chr(64 + i)].width = w
+    out = io.BytesIO()
+    wb.save(out)
+    return out.getvalue()
+
+
+def _xlsx_response(content: bytes) -> StreamingResponse:
+    return StreamingResponse(
+        io.BytesIO(content),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=list_extract.xlsx"},
+    )
+
+
+@router.get("/export/all")
+async def export_all_targets(
+    region: Optional[str] = Query(None),
+    category: Optional[str] = Query(None),
+    membership_status: Optional[str] = Query(None),
+    vehicle_type: Optional[str] = Query(None),
+    fuel_type: Optional[str] = Query(None),
+    age_min: Optional[str] = Query(None),
+    age_max: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """현재 검색조건에 해당하는 전체 대상자를 XLSX로 추출한다 (페이지 제한 없음).
+    조회 전용이며 회원 DB는 전혀 수정하지 않는다. 발송닷컴 API는 호출하지 않는다."""
+    age_min_i = int(age_min) if age_min not in (None, "") else None
+    age_max_i = int(age_max) if age_max not in (None, "") else None
+    q = _build_target_query(db, region=_csv_list(region), category=_csv_list(category),
+                             membership_status=_csv_list(membership_status), search=search)
+    filtered = _apply_all_filters(q.all(), vehicle_type_cats=_csv_list(vehicle_type),
+                                   fuel_type_cats=_csv_list(fuel_type),
+                                   age_min=age_min_i, age_max=age_max_i)
+    return _xlsx_response(_build_targets_xlsx(filtered))
+
+
+@router.get("/export/selected")
+async def export_selected_targets(
+    ids: str = Query(..., description="콤마로 구분된 id 목록"),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """체크한 대상자만 XLSX로 추출한다. 조회 전용이며 회원 DB는 전혀 수정하지 않는다.
+    발송닷컴 API는 호출하지 않는다."""
+    id_list = [int(x) for x in ids.split(",") if x.strip().isdigit()]
+    if not id_list:
+        raise HTTPException(400, "선택된 대상자가 없습니다.")
+    members = db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.id.in_(id_list),
+        models.LicenseHolder.deleted_at.is_(None),
+    ).all()
+    order = {mid: i for i, mid in enumerate(id_list)}
+    members.sort(key=lambda m: order.get(m.id, 10 ** 9))
+    return _xlsx_response(_build_targets_xlsx(members))
 
 
 @router.get("/filter-options")

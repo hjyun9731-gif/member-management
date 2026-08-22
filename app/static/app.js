@@ -68,7 +68,7 @@ const CATS = {
   reports:   {label:'보고/집계',   tabs:[{id:'dashboard',label:'회원대시보드'},{id:'monthly-report',label:'월례보고서'},{id:'monthly-report-fields',label:'월례보고서 항목관리'}]},
   deadlines: {label:'기한관리',    tabs:[{id:'deadlines',label:'캘린더/목록'},{id:'dl-today',label:'오늘 할 일'},{id:'dl-3days',label:'3일 이내'},{id:'dl-7days',label:'7일 이내'},{id:'dl-over',label:'기한초과'},{id:'dl-done',label:'완료'}]},
   excel:     {label:'엑셀 업로드', tabs:[{id:'upload',label:'파일 업로드'},{id:'history',label:'업로드 이력'},{id:'errors',label:'오류 확인'}]},
-  sms:       {label:'문자발송',    tabs:[{id:'sms-send',label:'문자 보내기'},{id:'sms-reserved',label:'예약 문자'},{id:'sms-templates',label:'문자 템플릿'},{id:'sms-history',label:'발송 이력'}]},
+  sms:       {label:'명단추출',    tabs:[{id:'sms-send',label:'명단추출'}]},
 };
 
 const ST = {
@@ -543,7 +543,7 @@ window.viewMember=async(id)=>{
         </tr>`).join('')}
       </tbody></table>
     </div>`:'';
-  const smsSendBtn=(r.mobile&&r.status!=='closed')?`<button class="btn bo btn-sm" onclick="_smsQuickSend(${id},'${e_(r.name)}','${e_(r.mobile)}')">문자보내기</button>`:'';
+  const smsSendBtn='';
   openModal('회원 상세정보',missingLedgerBox+buildDetailSections(sections)+smsSection,
     `<button class="btn bp btn-sm" onclick="editMember(${id});closeModal()">수정</button>${transferOutBtn}${smsSendBtn}<button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
 };
@@ -682,8 +682,7 @@ function navigate(cat,sub){
     'dl-7days':()=>renderDeadlines('7일이내'),
     'dl-over': ()=>renderDeadlines('기한초과'),
     'dl-done': ()=>renderDeadlines('완료'),
-    'sms-send':renderSmsSend, 'sms-reserved':renderSmsReserved,
-    'sms-templates':renderSmsTemplates, 'sms-history':renderSmsHistory,
+    'sms-send':renderListExtract,
   }[sub]||(() => document.getElementById('content').innerHTML='<p style="padding:20px">준비 중</p>'))();
 }
 
@@ -3318,56 +3317,38 @@ function _smsCollectFilters(){
   };
 }
 
-async function renderSmsSend(){
-  await _smsLoadTemplates();
-  SMS_ST.selectedIds=new Set(); SMS_ST.page=1;
+async function renderListExtract(){
+  SMS_ST.selectedIds=new Set(); SMS_ST.page=1; SMS_ST.targets=[]; SMS_ST.total=0; SMS_ST.excludedNoPhone=0;
   document.getElementById('content').innerHTML=`
     <div class="card" style="overflow:visible">
-      <div class="card-hd"><div class="card-hd-l"><span class="card-ico">🎯</span><span class="card-ttl">대상자 조건</span></div></div>
+      <div class="card-hd"><div class="card-hd-l"><span class="card-ico">🎯</span><span class="card-ttl">대상자 검색조건</span></div></div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;padding:10px 14px;overflow:visible">
         ${_smsMsel('region','지역 전체',REGIONS)}
-        ${_smsMsel('category','구분 전체',SMS_CATEGORY_OPTS)}
+        ${_smsMsel('category','회원구분 전체',SMS_CATEGORY_OPTS)}
         ${_smsMsel('membership_status','가입여부 전체',SMS_MEMBERSHIP_OPTS)}
         ${_smsMsel('vehicle_type','차량형태 전체',SMS_VEH_CATS)}
         ${_smsMsel('fuel_type','유종 전체',SMS_FUEL_CATS)}
         <input id="smsAgeMin" class="fc" style="width:90px" placeholder="연령 이상" type="number">
         <input id="smsAgeMax" class="fc" style="width:90px" placeholder="연령 이하" type="number">
         <input id="smsSearch" class="fc" style="width:150px" placeholder="이름/차량번호 검색">
-        <button class="btn bp btn-sm" id="smsSearchBtn">🔍 대상자 조회</button>
+        <button class="btn bp btn-sm" id="smsSearchBtn">🔍 검색</button>
       </div>
     </div>
     <div class="card" style="margin-top:10px">
       <div class="card-hd">
-        <div class="card-hd-l"><span class="card-ico">👥</span><span class="card-ttl">대상자</span><span class="cnt" id="smsCnt">조회 전</span></div>
+        <div class="card-hd-l"><span class="card-ico">👥</span><span class="card-ttl">검색 결과</span><span class="cnt" id="smsCnt">조회 전</span></div>
         <div><button class="btn bo btn-sm" id="smsSelAll">전체 선택</button> <button class="btn bo btn-sm" id="smsSelNone">전체 해제</button></div>
       </div>
-      <div id="smsTargetWrap" style="max-height:340px;overflow:auto">
-        <div class="empty-box"><p class="empty-txt">조건을 선택하고 "대상자 조회"를 눌러주세요.</p></div>
+      <div id="smsTargetWrap" style="max-height:420px;overflow:auto">
+        <div class="empty-box"><p class="empty-txt">조건을 선택하고 "검색"을 눌러주세요.</p></div>
       </div>
       <div id="smsPager" style="padding:8px"></div>
     </div>
     <div class="card" style="margin-top:10px">
-      <div class="card-hd"><div class="card-hd-l"><span class="card-ico">✉️</span><span class="card-ttl">문자 내용</span></div></div>
-      <div style="padding:12px;display:flex;flex-direction:column;gap:8px">
-        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-          <select id="smsTplSel" class="fc" style="max-width:220px">
-            <option value="">템플릿 선택</option>
-            ${SMS_ST.templates.map(t=>`<option value="${t.id}">${e_(t.name)}</option>`).join('')}
-          </select>
-          <label><input type="radio" name="smsService" value="SMS" checked> SMS(단문)</label>
-          <label><input type="radio" name="smsService" value="LMS"> LMS(장문)</label>
-          <input id="smsCallback" class="fc" style="width:160px" placeholder="발신번호(숫자만)" value="${e_(SMS_ST.callback)}">
-        </div>
-        <input id="smsSubject" class="fc" placeholder="제목 (LMS일 때만 사용, 선택)">
-        <textarea id="smsMainText" class="fc" rows="5" placeholder="문자 내용을 입력하세요. 예: #{성명}님, 강원도 개인소형화물협회에서 안내드립니다."></textarea>
-        <div style="font-size:12px;color:var(--c-text-3)">사용 가능한 변수: ${SMS_VARS.map(v=>`#{${v}}`).join('  ')}</div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn bo btn-sm" id="smsTestBtn">🧪 테스트 발송</button>
-          <button class="btn br btn-sm" id="smsSendNowBtn">📤 즉시 발송</button>
-          <button class="btn bg btn-sm" id="smsSendResBtn">⏰ 예약 발송</button>
-          ${isAdmin()?`<button class="btn bo btn-sm" id="smsDiagBtn">🔌 발송닷컴 연결 진단</button>`:''}
-          ${isAdmin()?`<button class="btn bo btn-sm" id="smsSingleTestBtn">📱 SMS 1건 테스트</button>`:''}
-        </div>
+      <div class="card-hd"><div class="card-hd-l"><span class="card-ico">📥</span><span class="card-ttl">엑셀 다운로드</span></div></div>
+      <div style="padding:12px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn bp btn-sm" id="lxDownSelBtn">선택 명단 엑셀 다운로드</button>
+        <button class="btn bo btn-sm" id="lxDownAllBtn">검색 결과 전체 엑셀 다운로드</button>
       </div>
     </div>`;
 
@@ -3375,21 +3356,26 @@ async function renderSmsSend(){
   document.getElementById('smsSearchBtn').onclick=()=>_smsSearch(1);
   document.getElementById('smsSelAll').onclick=_smsSelectAll;
   document.getElementById('smsSelNone').onclick=()=>{SMS_ST.selectedIds=new Set();_smsRenderTargetTable();};
-  document.getElementById('smsTplSel').onchange=(e)=>{
-    const t=SMS_ST.templates.find(x=>String(x.id)===e.target.value);
-    if(t){
-      document.getElementById('smsMainText').value=t.content||'';
-      document.getElementById('smsSubject').value=t.subject||'';
-      document.querySelector(`input[name="smsService"][value="${t.service||'SMS'}"]`).checked=true;
-    }
-  };
-  document.getElementById('smsTestBtn').onclick=_smsTestSend;
-  document.getElementById('smsSendNowBtn').onclick=()=>_smsSend('즉시');
-  document.getElementById('smsSendResBtn').onclick=()=>_smsSend('예약');
-  if(isAdmin()){
-    document.getElementById('smsDiagBtn').onclick=_smsNetworkDiag;
-    document.getElementById('smsSingleTestBtn').onclick=_smsAdminSingleTest;
-  }
+  document.getElementById('lxDownSelBtn').onclick=_lxDownloadSelected;
+  document.getElementById('lxDownAllBtn').onclick=_lxDownloadAll;
+}
+
+function _lxFilenameToday(){
+  const d=new Date();
+  const p=n=>String(n).padStart(2,'0');
+  return `명단추출_${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}.xlsx`;
+}
+
+function _lxDownloadSelected(){
+  if(!SMS_ST.selectedIds.size){toast('선택된 대상자가 없습니다','err');return;}
+  const ids=[...SMS_ST.selectedIds].join(',');
+  dl(`/api/sms/export/selected?ids=${encodeURIComponent(ids)}`,_lxFilenameToday());
+}
+
+function _lxDownloadAll(){
+  if(!SMS_ST.total){toast('검색 결과가 없습니다','err');return;}
+  const params=new URLSearchParams(SMS_ST.filters||{});
+  dl(`/api/sms/export/all?${params}`,_lxFilenameToday());
 }
 
 async function _smsNetworkDiag(){
@@ -3447,16 +3433,17 @@ async function _smsSearch(page=1){
 
 function _smsRenderTargetTable(){
   const cntEl=document.getElementById('smsCnt');
-  if(cntEl)cntEl.textContent=`총 ${SMS_ST.total}명${SMS_ST.excludedNoPhone?` (전화번호 없음 ${SMS_ST.excludedNoPhone}명 제외)`:''}`;
+  if(cntEl)cntEl.textContent=`검색 결과 총 ${SMS_ST.total}명${SMS_ST.excludedNoPhone?` (전화번호 없음 ${SMS_ST.excludedNoPhone}명 제외)`:''}`;
   const wrap=document.getElementById('smsTargetWrap');
   if(!SMS_ST.targets.length){wrap.innerHTML=`<div class="empty-box"><p class="empty-txt">조건에 맞는 대상자가 없습니다.</p></div>`;return;}
   wrap.innerHTML=`<table class="tbl"><thead><tr>
-    <th style="width:30px"></th><th>성명</th><th>핸드폰</th><th>지역</th><th>차종</th><th>유종</th><th>나이</th><th>회원구분</th>
+    <th style="width:30px"></th><th>이름</th><th>휴대폰번호</th><th>지역</th><th>회원구분</th><th>가입여부</th><th>차량번호</th><th>차량형태</th><th>유종</th>
   </tr></thead><tbody>
     ${SMS_ST.targets.map(m=>`<tr>
       <td><input type="checkbox" class="smsChk" data-id="${m.id}" ${SMS_ST.selectedIds.has(m.id)?'checked':''}></td>
       <td>${e_(m.name)}</td><td>${e_(m.mobile)}</td><td>${e_(m.region)}</td>
-      <td>${e_(m.vehicle_type)}</td><td>${e_(m.fuel_type)}</td><td>${m.age??'-'}</td><td>${e_(m.membership_status)}</td>
+      <td>${e_(m.category)}</td><td>${e_(m.membership_status)}</td><td>${e_(m.vehicle_number)}</td>
+      <td>${e_(m.vehicle_type)}</td><td>${e_(m.fuel_type)}</td>
     </tr>`).join('')}
   </tbody></table>`;
   wrap.querySelectorAll('.smsChk').forEach(cb=>{
