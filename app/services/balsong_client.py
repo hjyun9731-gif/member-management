@@ -126,7 +126,16 @@ class BalsongClient:
 
         try:
             async with httpx.AsyncClient(timeout=_HTTPX_TIMEOUT) as c:
-                r = await c.post(BASE_URL, files=multipart_fields)
+                # 실제로 전송될 요청을 먼저 만들어서, httpx가 채워넣은 진짜
+                # Content-Type(=multipart/form-data; boundary=...)을 전송 직전에 확인/기록한다.
+                # (요청 자체는 이 request 객체를 그대로 보내므로 이중 인코딩되지 않는다.)
+                req = c.build_request("POST", BASE_URL, files=multipart_fields)
+                sent_content_type = req.headers.get("content-type", "")
+                logger.info(
+                    "발송닷컴 요청 전송 직전 Content-Type: %s (Service=%s Type=%s)",
+                    sent_content_type, service, req_type,
+                )
+                r = await c.send(req)
             elapsed = _elapsed()
             content_type = r.headers.get("content-type", "")
             try:
@@ -237,16 +246,18 @@ class BalsongClient:
         if not destinations:
             return {"Result": "ERROR", "Code": "NO_DESTINATION", "Message": "수신자가 없습니다."}
 
+        # 문서 기준 필수 필드: UserID, UserPW, Service, Type, Callback, Subject,
+        # Main_Text, Destination. Callback은 하이픈 없는 숫자만, Subject는 값이
+        # 없더라도 필드 자체는 항상 보낸다(문서상 필수 필드이므로 생략하지 않는다).
         fields = self._auth_fields()
         fields.update({
             "Service": service,
             "Type": "Send",
-            "Callback": callback,
+            "Callback": re.sub(r"\D", "", callback or ""),
+            "Subject": subject or "",
             "Main_Text": main_text,
             "Destination": json.dumps(destinations, ensure_ascii=False),
         })
-        if subject:
-            fields["Subject"] = subject
         if send_date:
             fields["Send_Date"] = send_date  # "YYYY-MM-DD HH:MM"
         return await self._post(fields)
