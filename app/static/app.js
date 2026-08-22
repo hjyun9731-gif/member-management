@@ -3365,6 +3365,8 @@ async function renderSmsSend(){
           <button class="btn bo btn-sm" id="smsTestBtn">🧪 테스트 발송</button>
           <button class="btn br btn-sm" id="smsSendNowBtn">📤 즉시 발송</button>
           <button class="btn bg btn-sm" id="smsSendResBtn">⏰ 예약 발송</button>
+          ${isAdmin()?`<button class="btn bo btn-sm" id="smsDiagBtn">🔌 발송닷컴 연결 진단</button>`:''}
+          ${isAdmin()?`<button class="btn bo btn-sm" id="smsSingleTestBtn">📱 SMS 1건 테스트</button>`:''}
         </div>
       </div>
     </div>`;
@@ -3384,6 +3386,53 @@ async function renderSmsSend(){
   document.getElementById('smsTestBtn').onclick=_smsTestSend;
   document.getElementById('smsSendNowBtn').onclick=()=>_smsSend('즉시');
   document.getElementById('smsSendResBtn').onclick=()=>_smsSend('예약');
+  if(isAdmin()){
+    document.getElementById('smsDiagBtn').onclick=_smsNetworkDiag;
+    document.getElementById('smsSingleTestBtn').onclick=_smsAdminSingleTest;
+  }
+}
+
+async function _smsNetworkDiag(){
+  const d=await api('GET','/api/sms/network-diag').catch(()=>null);
+  if(!d)return;
+  const step=(label,obj)=>{
+    if(!obj)return `<div class="fi"><label>${label}</label><div>-</div></div>`;
+    const extra=obj.status!==undefined?` / HTTP status=${e_(String(obj.status))}`:'';
+    const errTxt=obj.error?` / exception=${e_(obj.error)}`:'';
+    return `<div class="fi"><label>${label}</label><div>${obj.ok?'✅ 성공':'❌ 실패'} (${obj.elapsed}s)${extra}${errTxt}</div></div>`;
+  };
+  openModal('발송닷컴 연결 진단 결과',`
+    ${step('DNS',d.dns)}
+    ${step('TCP 443',d.tcp_connect)}
+    ${step('TLS',d.tls_handshake)}
+    ${step('HTTPS GET',d.plain_get)}
+    ${d.plain_get&&d.plain_get.body_preview?`<div class="fi"><label>응답 미리보기</label><div style="font-size:12px;word-break:break-all">${e_(d.plain_get.body_preview)}</div></div>`:''}
+  `,`<button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'msm');
+}
+
+async function _smsAdminSingleTest(){
+  const {service,callback,subject,mainText}=_smsGetContent();
+  if(!callback){toast('발신번호를 입력하세요','err');return;}
+  if(!mainText.trim()){toast('문자 내용을 입력하세요','err');return;}
+  const phone=prompt('실제로 발송할 수신자 번호 1개를 입력하세요 (예: 01012345678)\n※ 실제로 문자 1건이 발송됩니다.');
+  if(!phone)return;
+  let res,r;
+  try{
+    res=await fetch('/api/sms/admin-test-send',{
+      method:'POST',
+      headers:{'Content-Type':'application/json',Authorization:`Bearer ${localStorage.getItem('authToken')}`},
+      body:JSON.stringify({service,callback,subject,main_text:mainText,phone}),
+    });
+    r=await res.json().catch(()=>null);
+  }catch(e){toast('서버 연결 오류','err');return;}
+  if(!r){toast(`오류 (HTTP ${res?res.status:'-'})`,'err');return;}
+  openModal('SMS 1건 테스트 결과',`
+    <div class="fi"><label>발송 성공 여부</label><div>${r.ok?'✅ 성공':'❌ 실패'}</div></div>
+    <div class="fi"><label>Result</label><div>${e_(r.result??'')}</div></div>
+    <div class="fi"><label>Code</label><div>${e_(String(r.code??''))}</div></div>
+    <div class="fi"><label>Message</label><div>${e_(r.message??'')}</div></div>
+    <div class="fi"><label>Job_No</label><div>${e_(String(r.job_no??''))}</div></div>
+  `,`<button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'msm');
 }
 
 async function _smsSearch(page=1){

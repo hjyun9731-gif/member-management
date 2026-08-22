@@ -19,6 +19,7 @@ from datetime import datetime
 from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
@@ -682,6 +683,49 @@ async def network_diag(current_user: models.User = Depends(require_admin)):
     실제 발송 계정정보나 발송 데이터는 전혀 사용하지 않는다.
     운영(Railway) 환경에서 호출해야 그 네트워크 기준의 결과를 볼 수 있다."""
     return await balsong.network_diagnostics()
+
+
+class AdminTestSendRequest(BaseModel):
+    service: str = "SMS"
+    callback: str
+    subject: Optional[str] = None
+    main_text: str
+    phone: str
+
+
+@router.post("/admin-test-send")
+async def admin_test_send(data: AdminTestSendRequest,
+                           current_user: models.User = Depends(require_admin)):
+    """관리자 전용 - 실제 수신자 1명에게만 발송닷컴으로 SMS/LMS 1건을 보내고,
+    발송닷컴의 원본 Result/Code/Message/Job_No를 그대로(가공 없이) 반환한다.
+    balsong_client의 send_message()를 그대로 사용 - 별도의 발송 로직을 만들지 않는다.
+    타임아웃/오류로 응답을 못 받으면 절대 성공(ok=True)으로 표시하지 않는다.
+    회원 발송이력(SmsJob/SmsRecipient)에는 남기지 않는 순수 연결 테스트용 endpoint."""
+    phone = re.sub(r"\D", "", data.phone or "")
+    if not _PHONE_RE.match(phone):
+        raise HTTPException(400, "유효한 휴대폰 번호가 아닙니다.")
+    if data.service not in ("SMS", "LMS", "MMS"):
+        raise HTTPException(400, "service는 SMS/LMS/MMS 중 하나여야 합니다.")
+    if not data.callback:
+        raise HTTPException(400, "발신번호(Callback)를 입력하세요.")
+    if not data.main_text.strip():
+        raise HTTPException(400, "문자 내용을 입력하세요.")
+
+    resp = await balsong.send_message(
+        service=data.service, callback=data.callback, main_text=data.main_text,
+        destinations=[{"Phone": phone, "Name": "테스트"}], subject=data.subject,
+    )
+    ok = resp.get("Result") == "OK" and resp.get("Code") in (0, "0")
+    payload = {
+        "ok": ok,
+        "result": resp.get("Result"),
+        "code": resp.get("Code"),
+        "message": resp.get("Message") or "",
+        "job_no": resp.get("Job_No"),
+    }
+    if not ok:
+        return JSONResponse(status_code=502, content=payload)
+    return payload
 
 
 # ────────────────────────────────────────────────────────────
