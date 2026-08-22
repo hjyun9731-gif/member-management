@@ -721,3 +721,11 @@ body.deadline-mode .content{padding:0;height:calc(100vh - 52px);min-height:620px
 @media(max-width:1180px){.pbd-title-wrap span{display:none}.pbd-search{width:240px}.pbd-toolbar{padding:0 14px;gap:9px}.pbd-new-btn{padding:0 13px}.pbd-sidebar{width:260px}}
 @media(max-width:900px){body.deadline-mode .content{height:auto;min-height:calc(100vh - 52px);overflow:auto}.pbd-shell{min-height:760px}.pbd-sidebar{display:none}.pbd-search{width:220px}.pbd-title-wrap strong{font-size:18px}.pbd-new-btn{font-size:0;width:40px;padding:0;justify-content:center}.pbd-view-switch button{width:38px}.pbd-month-grid{min-height:620px}.pbd-event-title{font-size:10px}}
 @media(max-width:620px){.pbd-titlebar{padding:0 8px}.pbd-brand>span{display:none}.pbd-search{width:180px}.pbd-search kbd{display:none}.pbd-toolbar{overflow-x:auto}.pbd-title-wrap{display:none}.pbd-view-switch{margin-left:auto}.pbd-edit-grid{grid-template-columns:1fr}.pbd-edit-grid label:nth-child(2n){border-left:0}.pbd-edit-grid label:nth-child(2){border-top:1px solid #F2F4F9!important}}
+
+/* 기한관리 입력창 단순화: 기한일 + D-7/D-3/당일 알림 */
+.pbd-reminder-row{min-height:52px!important}
+.pbd-reminder-checks{margin-left:auto;display:flex;align-items:center;gap:7px}
+.pbd-reminder-checks>div{height:30px;display:flex;align-items:center;gap:5px;padding:0 9px;border:1px solid #E7EAF2;border-radius:9px;background:#F8F9FC;color:#5F6575;cursor:pointer}
+.pbd-reminder-checks input{width:14px;height:14px;margin:0;accent-color:#5B6CF0;cursor:pointer}
+.pbd-reminder-checks em{font-size:12px;font-style:normal;font-weight:700;white-space:nowrap}
+@media(max-width:620px){.pbd-reminder-row{align-items:flex-start!important}.pbd-reminder-checks{gap:4px;flex-wrap:wrap;justify-content:flex-end}.pbd-reminder-checks>div{padding:0 7px}}
