@@ -729,3 +729,46 @@ body.deadline-mode .content{padding:0;height:calc(100vh - 52px);min-height:620px
 .pbd-reminder-checks input{width:14px;height:14px;margin:0;accent-color:#5B6CF0;cursor:pointer}
 .pbd-reminder-checks em{font-size:12px;font-style:normal;font-weight:700;white-space:nowrap}
 @media(max-width:620px){.pbd-reminder-row{align-items:flex-start!important}.pbd-reminder-checks{gap:4px;flex-wrap:wrap;justify-content:flex-end}.pbd-reminder-checks>div{padding:0 7px}}
+
+
+/* PLANB 일정 기간 + 일정별 색상 */
+.pbd-search-color{width:10px;height:10px;border-radius:50%;flex:none;margin:0 4px}
+.pbd-event .pbd-event-dot{background:var(--event-color,#5B6CF0)}
+.pbd-event.range{background:var(--event-color,#5B6CF0);color:#fff;border-radius:5px;padding-left:7px;padding-right:7px}
+.pbd-event.range .pbd-event-dot{display:none}
+.pbd-event.range .pbd-event-title{color:#fff;font-weight:700}
+.pbd-event.range.done{opacity:.48}
+.pbd-event.range:hover{filter:brightness(.97);background:var(--event-color,#5B6CF0)}
+.pbd-date-row{min-height:52px!important}
+.pbd-date-editor{margin-left:auto;display:flex;align-items:center;justify-content:flex-end;gap:7px;min-width:0;flex-wrap:wrap}
+.pbd-date-editor input[type=date]{border:0;outline:0;background:transparent;font-size:13px;font-weight:700;color:#1C1F26;min-width:132px;text-align:right}
+.pbd-range-sep{font-size:13px;color:#B0B6C4;font-weight:600}
+.pbd-add-end{height:28px;padding:0 8px;border:0;background:transparent;color:#5B6CF0;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap}
+.pbd-remove-end{width:27px;height:27px;border:0;border-radius:7px;background:#F1F3F9;color:#8B91A3;font-size:18px;line-height:1;align-items:center;justify-content:center;cursor:pointer}
+.pbd-color-row{min-height:50px;display:flex;align-items:center;gap:12px;padding:10px 12px;border-top:1px solid #F2F4F9}
+.pbd-color-row>span.pbd-color-ico{width:18px;color:#9AA0B0;display:flex;align-items:center;justify-content:center;flex:none;font-size:10px}
+.pbd-color-row>b{font-size:13px;font-weight:500;color:#2A2E3D;white-space:nowrap}
+.pbd-color-value{margin-left:auto;min-width:0;border:0;background:transparent;display:flex;align-items:center;gap:7px;cursor:pointer;color:#3A3F4E;font-size:13px;font-weight:700;padding:4px 0}
+.pbd-color-value i{width:12px;height:12px;border-radius:50%;flex:none}
+.pbd-color-value em{font-style:normal;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pbd-color-value>span{font-size:20px;color:#C2C7D4;font-weight:400;line-height:1}
+.pbd-color-palette{border-top:1px solid #F2F4F9;padding:10px 12px 13px;background:#fff}
+.pbd-color-palette-title{font-size:11px;font-weight:800;color:#9AA0B0;margin-bottom:10px}
+.pbd-color-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px 8px}
+.pbd-color-opt{border:0;background:transparent;display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;padding:2px;min-width:0}
+.pbd-color-opt>span{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid rgba(0,0,0,.06);box-sizing:border-box;transition:transform .12s,box-shadow .12s}
+.pbd-color-opt.selected>span{box-shadow:0 0 0 2px #2A2E3D}
+.pbd-color-opt:hover>span{transform:scale(1.06)}
+.pbd-color-opt>em{font-size:11px;line-height:1.2;font-style:normal;font-weight:700;color:#9499AB;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.pbd-detail-title{display:flex;align-items:center;gap:9px}
+.pbd-detail-color{width:13px;height:13px;border-radius:50%;flex:none}
+.pbd-detail-card em{display:flex;align-items:center;justify-content:flex-end;gap:7px}
+.pbd-detail-swatch{width:11px;height:11px;border-radius:50%;display:inline-block;flex:none}
+@media(max-width:620px){.pbd-date-row{align-items:flex-start!important}.pbd-date-editor{gap:4px}.pbd-date-editor input[type=date]{min-width:124px}.pbd-color-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
+
+.pbd-event.range-start{margin-right:-4px;border-top-right-radius:0;border-bottom-right-radius:0}
+.pbd-event.range-mid{margin-left:-4px;margin-right:-4px;border-radius:0}
+.pbd-event.range-end{margin-left:-4px;border-top-left-radius:0;border-bottom-left-radius:0}
+.pbd-event.range-start.range-end{margin-left:0;margin-right:0;border-radius:5px}
+.pbd-color-default{width:100%;height:36px;margin-top:10px;border:0;border-top:1px solid #F2F4F9;background:transparent;display:flex;align-items:center;justify-content:center;gap:8px;color:#5F6575;font-size:12px;font-weight:700;cursor:pointer}
+.pbd-color-default i{width:12px;height:12px;border-radius:50%;display:block}

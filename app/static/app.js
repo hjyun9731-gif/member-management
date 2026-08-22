@@ -2651,6 +2651,11 @@ document.addEventListener('DOMContentLoaded',()=>{
 // 하나의 "기한관리" 캘린더로 단순화한다. 기존 task_type 값은 데이터 호환용으로만 보존한다.
 const DL_DEFAULT_TYPE = '기한관리';
 const DL_ACCENT = '#5B6CF0';
+const DL_EVENT_COLORS = [
+  {hex:'#5B9BE5',name:'바다'}, {hex:'#5AB98B',name:'숲'}, {hex:'#8A78E0',name:'라벤더'}, {hex:'#E87FA0',name:'장미'},
+  {hex:'#E0AE5A',name:'호박'}, {hex:'#E0686B',name:'토마토'}, {hex:'#4FB0C0',name:'공작'}, {hex:'#8A909E',name:'그래파이트'},
+  {hex:'#EA9A45',name:'귤'}, {hex:'#A6C255',name:'청포도'}, {hex:'#B96BAA',name:'자두'}, {hex:'#5468C0',name:'남색'},
+];
 
 function _dlCleanTitle(t){
   let v=String(t?.title||'').trim();
@@ -2662,6 +2667,13 @@ function _dlCleanTitle(t){
 }
 function _ddayText(t){
   if(t?.status==='완료') return '완료';
+  const r=_pbdDateRange(t);
+  if(r.isRange){
+    const today=_pbdToday();
+    if(today<r.start){const n=Math.round((_pbdDate(r.start)-_pbdDate(today))/86400000);return n===0?'오늘':`D-${n}`;}
+    if(today<=r.end)return '진행 중';
+    return '종료';
+  }
   const dd=t?.dday;
   if(dd===null||dd===undefined) return '';
   if(dd===0) return '오늘';
@@ -2690,7 +2702,26 @@ function _pbdMoveMonth(s,n){const d=_pbdDate(s),day=d.getDate();d.setDate(1);d.s
 function _pbdWeekStart(s){const d=_pbdDate(s);d.setDate(d.getDate()-d.getDay());return _pbdFmtDate(d);}
 function _pbdDateLabel(s){const d=_pbdDate(s);return `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일`;}
 function _pbdDayName(s){return ['일','월','화','수','목','금','토'][_pbdDate(s).getDay()];}
-function _pbdColor(){return DL_ACCENT;}
+function _pbdColor(t){
+  const c=String(t?.event_color||'').trim();
+  return /^#[0-9A-Fa-f]{6}$/.test(c)?c:DL_ACCENT;
+}
+function _pbdColorName(hex){
+  const c=String(hex||'').toUpperCase();
+  const hit=DL_EVENT_COLORS.find(x=>x.hex.toUpperCase()===c);
+  return hit?hit.name:'기본';
+}
+function _pbdDateRange(t){
+  const a=(t?.start_date||t?.due_date||'').slice(0,10);
+  const b=(t?.due_date||t?.start_date||'').slice(0,10);
+  return {start:a,end:b,isRange:!!(a&&b&&a!==b)};
+}
+function _pbdDateRangeText(t){
+  const r=_pbdDateRange(t);
+  if(!r.start&&!r.end)return '-';
+  return r.isRange?`${r.start} ~ ${r.end}`:(r.end||r.start);
+}
+
 function _pbdState(){
   ST.fl=ST.fl||{};
   if(!ST.fl.dl||!ST.fl.dl.planbExact){
@@ -2707,13 +2738,21 @@ function _pbdFiltered(items){
   const q=(s.search||'').trim().toLowerCase();
   return (items||[]).filter(t=>{
     if(!q)return true;
-    const hay=[_dlCleanTitle(t),t.name,t.vehicle_number,t.region,t.mobile,t.manager,t.memo,t.content,t.due_date].filter(Boolean).join(' ').toLowerCase();
+    const hay=[_dlCleanTitle(t),t.name,t.vehicle_number,t.region,t.mobile,t.manager,t.memo,t.content,t.start_date,t.due_date].filter(Boolean).join(' ').toLowerCase();
     return hay.includes(q);
   });
 }
 function _pbdByDate(items){
   const out={};
-  (items||[]).forEach(t=>{const k=(t.due_date||'').slice(0,10);if(!k)return;(out[k]||(out[k]=[])).push(t);});
+  (items||[]).forEach(t=>{
+    const r=_pbdDateRange(t);
+    if(!r.start&&!r.end)return;
+    const a=_pbdDate(r.start||r.end),b=_pbdDate(r.end||r.start);
+    if(Number.isNaN(a.getTime())||Number.isNaN(b.getTime()))return;
+    if(b<a){const k=_pbdFmtDate(a);(out[k]||(out[k]=[])).push(t);return;}
+    const x=new Date(a);let guard=0;
+    while(x<=b&&guard<370){const k=_pbdFmtDate(x);(out[k]||(out[k]=[])).push(t);x.setDate(x.getDate()+1);guard++;}
+  });
   Object.values(out).forEach(a=>a.sort((x,y)=>(x.status==='완료')-(y.status==='완료')||_dlCleanTitle(x).localeCompare(_dlCleanTitle(y))));
   return out;
 }
@@ -2750,7 +2789,7 @@ function _pbdMiniCalendar(items){
   for(let i=0;i<42;i++){
     const x=new Date(start);x.setDate(start.getDate()+i);const ds=_pbdFmtDate(x),inMonth=x.getMonth()===m,today=ds===_pbdToday(),sel=ds===s.anchor;
     const dots=(by[ds]||[]).slice(0,3);
-    cells+=`<div class="pbd-mini-day ${inMonth?'':'muted'} ${today?'today':''} ${sel?'selected':''}" onclick="pbdPickDay('${ds}')"><span>${x.getDate()}</span><div>${dots.map(()=>'<i></i>').join('')}</div></div>`;
+    cells+=`<div class="pbd-mini-day ${inMonth?'':'muted'} ${today?'today':''} ${sel?'selected':''}" onclick="pbdPickDay('${ds}')"><span>${x.getDate()}</span><div>${dots.map(t=>`<i style="background:${_pbdColor(t)}"></i>`).join('')}</div></div>`;
   }
   return `<section class="pbd-side-card pbd-mini-card"><div class="pbd-mini-head"><strong>${y}년 ${m+1}월</strong><div><button onclick="pbdMiniMove(-1)" aria-label="이전 달">${_pbdChevron('left',15)}</button><button onclick="pbdMiniMove(1)" aria-label="다음 달">${_pbdChevron('right',15)}</button></div></div><div class="pbd-mini-dow"><span class="sun">일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span></div><div class="pbd-mini-grid">${cells}</div></section>`;
 }
@@ -2759,7 +2798,7 @@ function _pbdCalendarCard(items){
   return `<section class="pbd-side-card pbd-cal-card"><div class="pbd-card-head"><span>캘린더</span></div><div class="pbd-cal-row" onclick="pbdToggleCalendar()"><span class="pbd-cal-check ${on?'on':''}">${on?'<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>':''}</span><span class="pbd-cal-icon">${_pbdCalendarIcon(14)}</span><span class="pbd-cal-name">기한관리</span><span class="pbd-cal-count">${open}</span></div></section>`;
 }
 function _pbdTodoCard(items){
-  const open=(items||[]).filter(t=>t.status!=='완료'&&t.due_date).sort((a,b)=>(a.dday??99999)-(b.dday??99999)).slice(0,14);
+  const open=(items||[]).filter(t=>{if(t.status==='완료'||!t.due_date)return false;const r=_pbdDateRange(t);return !r.isRange||r.end>=_pbdToday();}).sort((a,b)=>(a.dday??99999)-(b.dday??99999)).slice(0,14);
   return `<section class="pbd-todo-card"><div class="pbd-card-head pbd-todo-head"><span>할 일</span><small>${open.length}</small></div><div class="pbd-todo-scroll">${open.length?open.map(t=>{const late=(t.dday??0)<0;return `<div class="pbd-todo-row"><button class="pbd-todo-check" onclick="event.stopPropagation();completeDeadline(${t.id})" aria-label="완료"></button><button class="pbd-todo-title" onclick="viewDeadline(${t.id})">${e_(_dlCleanTitle(t))}</button><span class="pbd-todo-due ${late?'late':''}" onclick="viewDeadline(${t.id})">${e_(_ddayText(t))}</span></div>`;}).join(''):'<div class="pbd-side-empty">할 일이 없습니다.</div>'}</div><div class="pbd-todo-add"><span>+</span><button onclick="openNewDeadlineForDate('${_pbdToday()}')">할 일 추가</button></div></section>`;
 }
 function _pbdChevron(dir,size=17){const pts=dir==='left'?'15 18 9 12 15 6':'9 18 15 12 9 6';return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="${pts}"></polyline></svg>`;}
@@ -2774,7 +2813,7 @@ function _pbdSearchDropHtml(){
   const s=_pbdState();if(!s.searchOpen||!(s.search||'').trim())return '';
   const rows=_pbdSearchMatches();
   if(!rows.length)return '<div class="pbd-search-empty">검색 결과가 없습니다</div>';
-  return rows.map(t=>`<button class="pbd-search-row" onmousedown="event.preventDefault()" onclick="viewDeadline(${t.id});pbdSearchBlurNow()"><span class="pbd-search-ico">${_pbdCalendarPlainIcon()}</span><span><strong>${e_(_dlCleanTitle(t))}</strong><small>${e_([t.due_date,t.name,t.vehicle_number].filter(Boolean).join(' · '))}</small></span></button>`).join('');
+  return rows.map(t=>`<button class="pbd-search-row" onmousedown="event.preventDefault()" onclick="viewDeadline(${t.id});pbdSearchBlurNow()"><span class="pbd-search-color" style="background:${_pbdColor(t)}"></span><span><strong>${e_(_dlCleanTitle(t))}</strong><small>${e_([_pbdDateRangeText(t),t.name,t.vehicle_number].filter(Boolean).join(' · '))}</small></span></button>`).join('');
 }
 function _pbdCalendarPlainIcon(){return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M16 2v4M8 2v4M3 10h18"></path></svg>';}
 function _pbdMount(){
@@ -2789,9 +2828,13 @@ function _pbdMount(){
 function _pbdRenderSearchDrop(){const e=document.getElementById('pbdSearchDrop');if(e)e.innerHTML=_pbdSearchDropHtml();}
 function _pbdRenderViewOnly(){const e=document.getElementById('pbdMainView');if(e)e.innerHTML=_pbdCurrentView(_pbdFiltered(window._pbdItems||[]));}
 function _pbdCurrentView(items){const v=_pbdState().view;if(v==='week')return _pbdTimeView(items,7);if(v==='day')return _pbdTimeView(items,1);return _pbdMonthView(items);}
-function _pbdEventChip(t){
-  const done=t.status==='완료',late=t.status==='기한초과'||(t.dday!==null&&t.dday<0&&t.status!=='완료');
-  return `<button class="pbd-event ${done?'done':''} ${late?'late':''}" onclick="event.stopPropagation();viewDeadline(${t.id})" title="${e_(_dlCleanTitle(t))}"><span class="pbd-event-dot"></span><span class="pbd-event-title">${e_(_dlCleanTitle(t))}</span></button>`;
+function _pbdEventChip(t,ds){
+  const done=t.status==='완료',r=_pbdDateRange(t),isRange=r.isRange;
+  const dow=_pbdDate(ds).getDay(),segStart=isRange&&(ds===r.start||dow===0),segEnd=isRange&&(ds===r.end||dow===6);
+  const cls=isRange?`range ${segStart?'range-start':''} ${segEnd?'range-end':''} ${!segStart&&!segEnd?'range-mid':''}`:'';
+  const c=_pbdColor(t);
+  const title=isRange&&!segStart?'':_dlCleanTitle(t);
+  return `<button class="pbd-event ${done?'done':''} ${cls}" style="--event-color:${c}" onclick="event.stopPropagation();viewDeadline(${t.id})" title="${e_(_dlCleanTitle(t))} · ${e_(_pbdDateRangeText(t))}"><span class="pbd-event-dot"></span><span class="pbd-event-title">${e_(title)}</span></button>`;
 }
 function _pbdMonthView(items){
   const s=_pbdState(),d=_pbdDate(s.anchor),y=d.getFullYear(),m=d.getMonth();
@@ -2799,11 +2842,11 @@ function _pbdMonthView(items){
   let cells='';
   for(let i=0;i<42;i++){
     const x=new Date(start);x.setDate(start.getDate()+i);const ds=_pbdFmtDate(x),inMonth=x.getMonth()===m,isToday=ds===today,arr=by[ds]||[],shown=arr.slice(0,4),rest=arr.length-shown.length;
-    cells+=`<div class="pbd-month-cell ${inMonth?'':'other'} ${isToday?'today':''}" onclick="pbdPickDay('${ds}')" ondblclick="openNewDeadlineForDate('${ds}')"><div class="pbd-day-head"><span></span><div>${isToday?`<b>${x.getDate()}</b>`:`<em>${x.getDate()}</em>`}</div></div><div class="pbd-cell-events">${shown.map(_pbdEventChip).join('')}${rest>0?`<button class="pbd-more" onclick="event.stopPropagation();pbdOpenDay('${ds}')">+${rest}개 더</button>`:''}</div></div>`;
+    cells+=`<div class="pbd-month-cell ${inMonth?'':'other'} ${isToday?'today':''}" onclick="pbdPickDay('${ds}')" ondblclick="openNewDeadlineForDate('${ds}')"><div class="pbd-day-head"><span></span><div>${isToday?`<b>${x.getDate()}</b>`:`<em>${x.getDate()}</em>`}</div></div><div class="pbd-cell-events">${shown.map(t=>_pbdEventChip(t,ds)).join('')}${rest>0?`<button class="pbd-more" onclick="event.stopPropagation();pbdOpenDay('${ds}')">+${rest}개 더</button>`:''}</div></div>`;
   }
   return `<div class="pbd-month"><div class="pbd-weekdays"><span class="sun">일요일</span><span>월요일</span><span>화요일</span><span>수요일</span><span>목요일</span><span>금요일</span><span>토요일</span></div><div class="pbd-month-grid">${cells}</div></div>`;
 }
-function _pbdAllDayChip(t){return `<button class="pbd-allday-chip ${t.status==='완료'?'done':''}" onclick="viewDeadline(${t.id})"><span></span>${e_(_dlCleanTitle(t))}</button>`;}
+function _pbdAllDayChip(t){const c=_pbdColor(t);return `<button class="pbd-allday-chip ${t.status==='완료'?'done':''}" style="background:${c}" onclick="viewDeadline(${t.id})"><span></span>${e_(_dlCleanTitle(t))}</button>`;}
 function _pbdTimeView(items,days){
   const s=_pbdState(),start=days===1?s.anchor:_pbdWeekStart(s.anchor),by=_pbdByDate(items),today=_pbdToday();
   const dates=Array.from({length:days},(_,i)=>_pbdAddDays(start,i));
@@ -2829,12 +2872,20 @@ window.pbdSearchBlurNow=()=>{const s=_pbdState();s.searchOpen=false;_pbdRenderSe
 window.pbdClearSearch=()=>{const s=_pbdState();s.search='';s.searchOpen=false;_pbdMount();setTimeout(()=>document.getElementById('pbdSearch')?.focus(),0);};
 if(!window._pbdShortcutBound){window._pbdShortcutBound=true;document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&String(e.key).toLowerCase()==='f'&&document.querySelector('.pbd-shell')){e.preventDefault();const x=document.getElementById('pbdSearch');x?.focus();x?.select();}});}
 
+function _pbdDisplayStatus(t){
+  if(t?.status==='완료')return '완료';
+  const r=_pbdDateRange(t);
+  if(r.isRange){const today=_pbdToday();if(today<r.start)return '예정';if(today<=r.end)return '진행 중';return '종료';}
+  return t?.status||'예정';
+}
 function _pbdDetailHtml(r){
   const target=[r.name,r.vehicle_number].filter(Boolean).join(' · ')||'-';
   const sub=[r.region,r.mobile].filter(Boolean).join(' · ');
   const note=[r.content,r.memo].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join('\n\n');
-  return `<div class="pbd-detail"><div class="pbd-detail-title">${e_(_dlCleanTitle(r))}</div><div class="pbd-detail-card"><div><span>${_pbdCalendarPlainIcon()}</span><b>기한일</b><em>${e_(r.due_date||'-')}</em></div><div><span>◷</span><b>D-day</b><em>${e_(r.dday_label||'-')}</em></div><div><span>✓</span><b>상태</b><em>${e_(r.status||'예정')}</em></div></div><div class="pbd-detail-section">대상</div><div class="pbd-detail-card"><div><span>○</span><b>${e_(target)}</b><em>${e_(sub)}</em></div>${r.manager?`<div><span>⌁</span><b>담당자</b><em>${e_(r.manager)}</em></div>`:''}</div>${note?`<div class="pbd-detail-section">메모</div><div class="pbd-detail-note">${e_(note).replace(/\n/g,'<br>')}</div>`:''}</div>`;
+  const dr=_pbdDateRange(r),dateLabel=dr.isRange?'기간':'기한일',ddLabel=dr.isRange?'일정 상태':'D-day',ddValue=dr.isRange?_ddayText(r):(r.dday_label||'-');
+  return `<div class="pbd-detail"><div class="pbd-detail-title"><span class="pbd-detail-color" style="background:${_pbdColor(r)}"></span>${e_(_dlCleanTitle(r))}</div><div class="pbd-detail-card"><div><span>${_pbdCalendarPlainIcon()}</span><b>${dateLabel}</b><em>${e_(_pbdDateRangeText(r))}</em></div><div><span>◷</span><b>${ddLabel}</b><em>${e_(ddValue)}</em></div><div><span>●</span><b>일정 색</b><em><i class="pbd-detail-swatch" style="background:${_pbdColor(r)}"></i>${e_(_pbdColorName(_pbdColor(r)))}</em></div><div><span>✓</span><b>상태</b><em>${e_(_pbdDisplayStatus(r))}</em></div></div><div class="pbd-detail-section">대상</div><div class="pbd-detail-card"><div><span>○</span><b>${e_(target)}</b><em>${e_(sub)}</em></div>${r.manager?`<div><span>⌁</span><b>담당자</b><em>${e_(r.manager)}</em></div>`:''}</div>${note?`<div class="pbd-detail-section">메모</div><div class="pbd-detail-note">${e_(note).replace(/\n/g,'<br>')}</div>`:''}</div>`;
 }
+
 async function viewDeadline(id){
   const r=await api('GET',`/api/deadlines/${id}`).catch(()=>null);if(!r)return;
   openModal('일정 상세',_pbdDetailHtml(r),`<button class="pbd-mbtn primary" onclick="closeModal();editDeadline(${id})">수정</button>${r.status!=='완료'?`<button class="pbd-mbtn" onclick="closeModal();completeDeadline(${id})">완료</button>`:''}<button class="pbd-mbtn danger" onclick="closeModal();deleteDeadline(${id})">삭제</button><button class="pbd-mbtn ghost" onclick="closeModal()">닫기</button>`,'pbd-modal');
@@ -2848,25 +2899,51 @@ function _dlForm(r={}){
   const rem=remRaw.split(',').map(v=>v.trim()).filter(Boolean);
   const checked=d=>rem.includes(String(d))?'checked':'';
   const memo=[r.content,r.memo].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join('\n\n');
-  return `<div class="pbd-edit"><input type="hidden" id="dl_member_id" value="${e_(r.member_id||'')}"><input type="hidden" id="dl_license_holder_id" value="${e_(r.license_holder_id||'')}"><input type="hidden" id="dl_status" value="${e_(r.status||'예정')}"><input type="hidden" id="dl_task_type" value="${e_(DL_DEFAULT_TYPE)}"><div class="pbd-edit-card pbd-edit-title"><input id="dl_title" value="${e_(title)}" placeholder="제목" autocomplete="off"></div><div class="pbd-edit-label">기한</div><div class="pbd-edit-card"><label><span>${_pbdCalendarPlainIcon()}</span><b>기한일</b><input id="dl_due_date" type="date" value="${e_(r.due_date||r.start_date||'')}"></label><label class="pbd-reminder-row"><span>♢</span><b>사전알림</b><div class="pbd-reminder-checks"><div><input class="pbd-reminder-cb" type="checkbox" value="7" ${checked(7)}><em>D-7</em></div><div><input class="pbd-reminder-cb" type="checkbox" value="3" ${checked(3)}><em>D-3</em></div><div><input class="pbd-reminder-cb" type="checkbox" value="0" ${checked(0)}><em>당일</em></div></div></label></div><div class="pbd-edit-label">대상</div><div class="pbd-edit-card pbd-edit-grid"><label><b>성명</b><input id="dl_name" value="${e_(r.name||'')}"></label><label><b>차량번호</b><input id="dl_vehicle_number" value="${e_(r.vehicle_number||'')}"></label><label><b>지역</b><input id="dl_region" value="${e_(r.region||'')}"></label><label><b>핸드폰</b><input id="dl_mobile" value="${e_(r.mobile||'')}"></label><label class="full"><b>담당자</b><input id="dl_manager" value="${e_(r.manager||'')}"></label></div><div class="pbd-edit-label">메모</div><div class="pbd-edit-card pbd-edit-text"><textarea id="dl_memo" rows="4" placeholder="메모">${e_(memo)}</textarea></div></div>`;
+  const startDate=(r.start_date||r.due_date||'').slice(0,10),endDate=(r.due_date||r.start_date||'').slice(0,10);
+  const hasRange=!!(startDate&&endDate&&startDate!==endDate);
+  const color=_pbdColor(r),colorName=_pbdColorName(color);
+  const palette=DL_EVENT_COLORS.map(c=>`<button type="button" class="pbd-color-opt ${c.hex.toUpperCase()===color.toUpperCase()?'selected':''}" onclick="pbdSetEventColor('${c.hex}','${c.name}')" title="${c.name}"><span style="background:${c.hex}">${c.hex.toUpperCase()===color.toUpperCase()?'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg>':''}</span><em>${c.name}</em></button>`).join('');
+  return `<div class="pbd-edit"><input type="hidden" id="dl_member_id" value="${e_(r.member_id||'')}"><input type="hidden" id="dl_license_holder_id" value="${e_(r.license_holder_id||'')}"><input type="hidden" id="dl_status" value="${e_(r.status||'예정')}"><input type="hidden" id="dl_task_type" value="${e_(DL_DEFAULT_TYPE)}"><input type="hidden" id="dl_has_range" value="${hasRange?'1':'0'}"><input type="hidden" id="dl_event_color" value="${e_(color)}"><div class="pbd-edit-card pbd-edit-title"><input id="dl_title" value="${e_(title)}" placeholder="제목" autocomplete="off"></div><div class="pbd-edit-label">일시</div><div class="pbd-edit-card"><label class="pbd-date-row"><span>${_pbdCalendarPlainIcon()}</span><b id="dl_date_label">${hasRange?'기간':'기한일'}</b><div class="pbd-date-editor"><input id="dl_start_date" type="date" value="${e_(startDate)}" onchange="pbdSyncStartDate(this.value)"><span id="dl_range_sep" class="pbd-range-sep" style="display:${hasRange?'inline':'none'}">~</span><input id="dl_due_date" type="date" value="${e_(endDate)}" onchange="pbdSyncEndDate(this.value)" style="display:${hasRange?'inline-block':'none'}"><button type="button" id="dl_add_end" class="pbd-add-end" onclick="event.preventDefault();pbdToggleDateRange(true)" style="display:${hasRange?'none':'inline-flex'}">+ 종료일</button><button type="button" id="dl_remove_end" class="pbd-remove-end" onclick="event.preventDefault();pbdToggleDateRange(false)" style="display:${hasRange?'inline-flex':'none'}" title="기간 해제">×</button></div></label><label class="pbd-reminder-row"><span>♢</span><b>사전알림</b><div class="pbd-reminder-checks"><div><input class="pbd-reminder-cb" type="checkbox" value="7" ${checked(7)}><em>D-7</em></div><div><input class="pbd-reminder-cb" type="checkbox" value="3" ${checked(3)}><em>D-3</em></div><div><input class="pbd-reminder-cb" type="checkbox" value="0" ${checked(0)}><em>당일</em></div></div></label><div class="pbd-color-row"><span class="pbd-color-ico">●</span><b>일정 색</b><button type="button" class="pbd-color-value" onclick="pbdToggleColorPalette()"><i id="dl_color_dot" style="background:${color}"></i><em id="dl_color_name">${colorName}</em><span>›</span></button></div><div id="dl_color_palette" class="pbd-color-palette" style="display:none"><div class="pbd-color-palette-title">일정 색</div><div class="pbd-color-grid">${palette}</div><button type="button" class="pbd-color-default" onclick="pbdSetEventColor('${DL_ACCENT}','기본')"><i style="background:${DL_ACCENT}"></i><span>기본색으로</span></button></div></div><div class="pbd-edit-label">대상</div><div class="pbd-edit-card pbd-edit-grid"><label><b>성명</b><input id="dl_name" value="${e_(r.name||'')}"></label><label><b>차량번호</b><input id="dl_vehicle_number" value="${e_(r.vehicle_number||'')}"></label><label><b>지역</b><input id="dl_region" value="${e_(r.region||'')}"></label><label><b>핸드폰</b><input id="dl_mobile" value="${e_(r.mobile||'')}"></label><label class="full"><b>담당자</b><input id="dl_manager" value="${e_(r.manager||'')}"></label></div><div class="pbd-edit-label">메모</div><div class="pbd-edit-card pbd-edit-text"><textarea id="dl_memo" rows="4" placeholder="메모">${e_(memo)}</textarea></div></div>`;
 }
+window.pbdToggleDateRange=show=>{
+  const h=document.getElementById('dl_has_range'),start=document.getElementById('dl_start_date'),end=document.getElementById('dl_due_date');
+  if(!h||!start||!end)return;
+  h.value=show?'1':'0';
+  if(show&&!end.value)end.value=start.value;
+  if(show&&end.value&&start.value&&end.value<start.value)end.value=start.value;
+  end.style.display=show?'inline-block':'none';
+  const sep=document.getElementById('dl_range_sep'),add=document.getElementById('dl_add_end'),rm=document.getElementById('dl_remove_end'),lbl=document.getElementById('dl_date_label');
+  if(sep)sep.style.display=show?'inline':'none';if(add)add.style.display=show?'none':'inline-flex';if(rm)rm.style.display=show?'inline-flex':'none';if(lbl)lbl.textContent=show?'기간':'기한일';
+};
+window.pbdSyncStartDate=v=>{const h=document.getElementById('dl_has_range'),end=document.getElementById('dl_due_date');if(!end)return;if(h?.value!=='1')end.value=v;else if(v&&(!end.value||end.value<v))end.value=v;};
+window.pbdSyncEndDate=v=>{const start=document.getElementById('dl_start_date');if(v&&start?.value&&v<start.value){toast('종료일은 시작일보다 빠를 수 없습니다','warning');const e=document.getElementById('dl_due_date');if(e)e.value=start.value;}};
+window.pbdToggleColorPalette=()=>{const el=document.getElementById('dl_color_palette');if(el)el.style.display=el.style.display==='none'?'block':'none';};
+window.pbdSetEventColor=(hex,name)=>{
+  if(!/^#[0-9A-Fa-f]{6}$/.test(String(hex||'')))return;
+  const x=document.getElementById('dl_event_color'),dot=document.getElementById('dl_color_dot'),nm=document.getElementById('dl_color_name'),pal=document.getElementById('dl_color_palette');
+  if(x)x.value=hex;if(dot)dot.style.background=hex;if(nm)nm.textContent=name||_pbdColorName(hex);
+  document.querySelectorAll('.pbd-color-opt').forEach(b=>{b.classList.toggle('selected',b.querySelector('span')?.style.backgroundColor===dot?.style.backgroundColor);const s=b.querySelector('span');if(s)s.innerHTML=b.classList.contains('selected')?'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg>':'';});
+  if(pal)pal.style.display='none';
+};
 function _dlVal(){
   const g=id=>document.getElementById(id)?.value||'';
-  const mid=g('dl_member_id'),hid=g('dl_license_holder_id'),due=g('dl_due_date');
+  const mid=g('dl_member_id'),hid=g('dl_license_holder_id'),start=g('dl_start_date'),hasRange=g('dl_has_range')==='1';
+  const end=hasRange?(g('dl_due_date')||start):start;
   const reminders=[...document.querySelectorAll('.pbd-reminder-cb:checked')].map(x=>x.value).join(',');
-  return {member_id:mid?Number(mid):null,license_holder_id:hid?Number(hid):null,task_type:DL_DEFAULT_TYPE,title:g('dl_title').trim(),vehicle_number:g('dl_vehicle_number').trim(),name:g('dl_name').trim(),region:g('dl_region').trim(),mobile:g('dl_mobile').trim(),start_date:due,due_date:due,reminder_days:reminders,status:g('dl_status')||'예정',manager:g('dl_manager').trim(),content:'',memo:g('dl_memo').trim()};
+  return {member_id:mid?Number(mid):null,license_holder_id:hid?Number(hid):null,task_type:DL_DEFAULT_TYPE,title:g('dl_title').trim(),vehicle_number:g('dl_vehicle_number').trim(),name:g('dl_name').trim(),region:g('dl_region').trim(),mobile:g('dl_mobile').trim(),start_date:start,due_date:end,reminder_days:reminders,event_color:g('dl_event_color')||DL_ACCENT,status:g('dl_status')||'예정',manager:g('dl_manager').trim(),content:'',memo:g('dl_memo').trim()};
 }
+
 function _pbdEditFooter(saveCall){return `<button class="pbd-mbtn primary" onclick="${saveCall}">저장</button><button class="pbd-mbtn ghost" onclick="closeModal()">취소</button>`;}
 function openNewDeadline(){openNewDeadlineForDate(_pbdToday());}
 window.openNewDeadline=openNewDeadline;
 window.openNewDeadlineForDate=dateStr=>openModal('새 일정',_dlForm({start_date:dateStr||'',due_date:dateStr||''}),_pbdEditFooter('saveNewDeadline()'),'pbd-modal');
-window.saveNewDeadline=async()=>{const d=_dlVal();if(!d.title||!d.due_date){toast('제목과 기한일을 입력해주세요','warning');return;}const r=await api('POST','/api/deadlines',d).catch(()=>null);if(r){toast('일정 등록 완료');closeModal();const s=_pbdState();s.anchor=r.due_date||s.anchor;await renderDeadlines();}};
+window.saveNewDeadline=async()=>{const d=_dlVal();if(!d.title||!d.start_date){toast('제목과 날짜를 입력해주세요','warning');return;}if(d.due_date<d.start_date){toast('종료일은 시작일보다 빠를 수 없습니다','warning');return;}const r=await api('POST','/api/deadlines',d).catch(()=>null);if(r){toast('일정 등록 완료');closeModal();const s=_pbdState();s.anchor=r.start_date||r.due_date||s.anchor;await renderDeadlines();}};
 window.editDeadline=async id=>{const r=await api('GET',`/api/deadlines/${id}`).catch(()=>null);if(!r)return;openModal('일정 수정',_dlForm(r),_pbdEditFooter(`saveEditDeadline(${id})`),'pbd-modal');};
-window.saveEditDeadline=async id=>{const r=await api('PUT',`/api/deadlines/${id}`,_dlVal()).catch(()=>null);if(r){toast('수정 완료');closeModal();await renderDeadlines();}};
+window.saveEditDeadline=async id=>{const d=_dlVal();if(!d.title||!d.start_date){toast('제목과 날짜를 입력해주세요','warning');return;}if(d.due_date<d.start_date){toast('종료일은 시작일보다 빠를 수 없습니다','warning');return;}const r=await api('PUT',`/api/deadlines/${id}`,d).catch(()=>null);if(r){toast('수정 완료');closeModal();await renderDeadlines();}};
 window.completeDeadline=async id=>{if(!await cfm('완료 처리하시겠습니까?'))return;const r=await api('POST',`/api/deadlines/${id}/complete`).catch(()=>null);if(r){toast('완료 처리됨');closeModal();await renderDeadlines();}};
 window.deleteDeadline=async id=>{if(!await cfm('삭제하시겠습니까?'))return;const r=await api('DELETE',`/api/deadlines/${id}`).catch(()=>null);if(r){toast('삭제됨');closeModal();await renderDeadlines();}};
 
-window.loadMemberDeadlines=async(memberId,containerId)=>{const el=document.getElementById(containerId);if(!el)return;const d=await api('GET',`/api/deadlines/member/${memberId}`).catch(()=>({items:[]}));if(!d.items.length){el.innerHTML=`<p style="font-size:12px;color:var(--c-text-3)">등록된 기한 없음 <button class="btn bp btn-xs" onclick="openNewDeadlineForMember(${memberId})">+ 등록</button></p>`;return;}el.innerHTML=d.items.slice(0,5).map(t=>`<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--c-border)">${_ddayBadge(t.dday,t.status)}<span style="font-size:12px">${e_(t.due_date)}</span><span style="font-size:12px;flex:1">${e_(_dlCleanTitle(t))}</span><button class="btn bp btn-xs" onclick="viewDeadline(${t.id})">상세</button></div>`).join('')+`<button class="btn bp btn-xs" style="margin-top:6px" onclick="openNewDeadlineForMember(${memberId})">+ 기한 등록</button>`;};
+window.loadMemberDeadlines=async(memberId,containerId)=>{const el=document.getElementById(containerId);if(!el)return;const d=await api('GET',`/api/deadlines/member/${memberId}`).catch(()=>({items:[]}));if(!d.items.length){el.innerHTML=`<p style="font-size:12px;color:var(--c-text-3)">등록된 기한 없음 <button class="btn bp btn-xs" onclick="openNewDeadlineForMember(${memberId})">+ 등록</button></p>`;return;}el.innerHTML=d.items.slice(0,5).map(t=>`<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--c-border)">${_ddayBadge(t.dday,t.status)}<span style="font-size:12px">${e_(_pbdDateRangeText(t))}</span><span style="font-size:12px;flex:1">${e_(_dlCleanTitle(t))}</span><button class="btn bp btn-xs" onclick="viewDeadline(${t.id})">상세</button></div>`).join('')+`<button class="btn bp btn-xs" style="margin-top:6px" onclick="openNewDeadlineForMember(${memberId})">+ 기한 등록</button>`;};
 window.openNewDeadlineForMember=async memberId=>{const m=await api('GET',`/api/members/${memberId}`).catch(()=>null);openModal('기한 등록',_dlForm({member_id:memberId,vehicle_number:m?.vehicle_number||'',name:m?.name||'',region:m?.region||'',mobile:m?.mobile||''}),_pbdEditFooter('saveNewDeadline()'),'pbd-modal');};
 
 

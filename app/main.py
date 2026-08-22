@@ -95,6 +95,8 @@ def _run_migrations():
         ("management_number",     "candidates",       "VARCHAR(50)"),
         # 월례보고서 항목 관리: 직접입력 항목의 기본값(월계/누계 초기 표시값)
         ("default_value",         "report_field_defs","VARCHAR(200)"),
+        # PLANB 기한관리: 일정별 색상
+        ("event_color",           "deadline_tasks",   "VARCHAR(20)"),
     ]
 
     for col_name, table_name, col_type in new_cols:

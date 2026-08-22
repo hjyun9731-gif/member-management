@@ -17,15 +17,29 @@ def _calc_dday(due: str) -> int | None:
         return (d - date.today()).days
     except: return None
 
+def _dday_base(task) -> str:
+    # 단일 일정은 due_date, 기간 일정은 start_date를 D-day/알림 기준으로 사용한다.
+    # 기존 기한 데이터(start_date==due_date)는 그대로 동작한다.
+    start = (task.start_date or "")[:10]
+    due = (task.due_date or "")[:10]
+    if start and due and start != due:
+        return start
+    return due or start
+
 def _auto_status(task) -> str:
     if task.status in ("완료",): return task.status
-    dd = _calc_dday(task.due_date)
+    dd = _calc_dday(_dday_base(task))
     if dd is None: return task.status
+    # 기간 일정(예: 8/5~8/10 휴가)은 일반 기한처럼 종료 후 '기한초과'로 만들지 않는다.
+    start = (task.start_date or "")[:10]
+    due = (task.due_date or "")[:10]
+    if start and due and start != due:
+        return task.status or "예정"
     if dd < 0: return "기한초과"
     return task.status or "예정"
 
 def _fmt(t) -> dict:
-    dd = _calc_dday(t.due_date)
+    dd = _calc_dday(_dday_base(t))
     st = _auto_status(t)
     return {
         "id": t.id, "member_id": t.member_id, "license_holder_id": t.license_holder_id,
@@ -34,6 +48,7 @@ def _fmt(t) -> dict:
         "task_type": t.task_type or "", "title": t.title or "",
         "content": t.content or "", "start_date": t.start_date or "",
         "due_date": t.due_date or "", "reminder_days": t.reminder_days or "7,3,0",
+        "event_color": t.event_color or "#5B6CF0",
         "status": st, "dday": dd,
         "dday_label": (f"D{dd:+d}" if dd is not None else "-") if dd != 0 else "D-day",
         "completed_at": t.completed_at or "", "extended_from": t.extended_from or "",
@@ -50,11 +65,11 @@ async def deadline_summary(db: Session = Depends(get_db), _=Depends(get_current_
     rows = _base_q(db).all()
     today_n = d3 = d7 = over = done = 0
     for t in rows:
-        dd = _calc_dday(t.due_date)
+        dd = _calc_dday(_dday_base(t))
         st = _auto_status(t)
         if st == "완료": done += 1; continue
         if dd is None: continue
-        if dd < 0: over += 1
+        if st == "기한초과": over += 1
         elif dd == 0: today_n += 1
         elif dd <= 3: d3 += 1
         elif dd <= 7: d7 += 1
@@ -76,7 +91,7 @@ async def list_deadlines(
 
     today = date.today()
     def _pass(t):
-        dd = _calc_dday(t.due_date)
+        dd = _calc_dday(_dday_base(t))
         st = _auto_status(t)
         if filter == "전체": return True
         if filter == "완료": return st == "완료"

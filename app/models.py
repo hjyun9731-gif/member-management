@@ -312,6 +312,7 @@ class DeadlineTask(Base):
     start_date       = Column(String(20))
     due_date         = Column(String(20), index=True)
     reminder_days    = Column(String(20), default="7,3,0")
+    event_color      = Column(String(20), default="#5B6CF0")  # 일정별 표시 색상
     status           = Column(String(20), default="예정")  # 예정/진행중/완료/기한초과/연장
     completed_at     = Column(String(20))
     extended_from    = Column(String(20))
