@@ -19,6 +19,10 @@ from app.routers import (candidates, members, transfer_ledger,
 from app.routers import sms as sms_router
 import app.models as _models
 
+# === RECEIVABLES MODULE IMPORT ===
+from app.routers import receivables
+import app.receivables_models as _receivables_models
+
 # 테이블 생성 (없는 경우만 - checkfirst=True로 기존 테이블 충돌 방지)
 try:
     _models.Base.metadata.create_all(bind=engine, checkfirst=True)
@@ -270,6 +274,9 @@ app.include_router(dashboard.router,      prefix="/api/dashboard",      tags=["�
 app.include_router(reports.router,        prefix="/api/reports",        tags=["보고서"])
 app.include_router(excel.router,          prefix="/api/excel",          tags=["엑셀"])
 app.include_router(admin.router,          prefix="/api/admin",          tags=["관리자"])
+
+# === RECEIVABLES MODULE ROUTER ===
+app.include_router(receivables.router)
 
 # 기한관리
 from app.routers import deadlines

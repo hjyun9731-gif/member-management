@@ -1,0 +1,18 @@
+기존 파일 변경:
+- app/main.py
+- app/static/index.html
+
+새로 추가된 파일:
+- 통합_변경범위_검증.txt
+- 수납미수금_검증결과.txt
+- 수납미수금_통합완료_안내.txt
+- app/receivables_models.py
+- app/static/receivables.css
+- app/static/receivables.html
+- app/static/receivables-launcher.js
+- app/static/receivables.js
+- app/routers/receivables.py
+- app/data/legacy_receivables_2026.json
+
+삭제된 기존 파일:
+- 없음

@@ -12,6 +12,13 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="협회 업무관리">
   <link rel="stylesheet" href="/static/styles.css?v=20260822pbrange">
+
+  <!-- RECEIVABLES TOP NAV STYLE -->
+  <style id="receivablesTopNavStyle">
+    .receivables-top-link{display:inline-flex;align-items:center;justify-content:center;padding:8px 14px;border-radius:7px;color:#495164;text-decoration:none;font-size:13px;font-weight:700;white-space:nowrap;transition:.15s ease;background:#eef4ff;border:1px solid #dce7ff;margin-left:2px}
+    .receivables-top-link:hover{background:#dfeaff;color:#3158c8}
+    @media(max-width:1100px){.receivables-top-link{padding:6px 10px;font-size:12px}}
+  </style>
 </head>
 <body>
 <header class="hdr">
@@ -25,6 +32,7 @@
 
   <nav class="cat-nav" id="catNav">
     <button class="cat-btn" data-cat="members">회원관리</button>
+    <a class="receivables-top-link" href="/receivables" title="수납·미수금 통합관리">수납/미수금</a>
     <button class="cat-btn" data-cat="permits">인허가/변경</button>
     <button class="cat-btn" data-cat="reports">보고/집계</button>
     <button class="cat-btn" data-cat="deadlines">기한관리</button>

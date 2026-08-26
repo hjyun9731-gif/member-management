@@ -1,0 +1,31 @@
+검증 결과
+
+1) 기존 변경범위
+- 기존 변경 파일: app/main.py, app/static/index.html
+- 기존 삭제 파일: 0개
+- 회원등록/회원수정/폐업/양도양수/월마감/자격증명 등 기존 라우터 파일: 변경 없음
+
+2) 문법 검사
+- app/main.py: py_compile 통과
+- app/receivables_models.py: py_compile 통과
+- app/routers/receivables.py: py_compile 통과
+- app/static/receivables.js: node --check 통과
+
+3) 부과 규칙 단위검증
+- 2026-09-01 신규 → 2026-10-01 첫 부과: 통과
+- 2026-09-15 신규 → 2026-10-01 첫 부과: 통과
+- 2026-09-30 신규 → 2026-10-01 첫 부과: 통과
+- 2026-12-31 신규 → 2027-01-01 첫 부과: 통과
+- membership_status='가입' → 협회비: 통과
+- membership_status='미가입' → 관리비: 통과
+
+4) 원본 장부 데이터
+- 회원 3,239명
+- current_arrears 합계 335,675,000원
+- 월별 데이터 38,868건
+
+5) 메뉴/라우트
+- app/static/index.html 상단에 /receivables 링크 존재
+- app/main.py에 receivables router include 존재
+
+참고: 현재 작업 컨테이너에는 원 저장소 requirements의 python-jose/passlib가 설치되어 있지 않고 외부 패키지 설치 네트워크도 차단되어 있어 FastAPI 전체 런타임 기동 테스트는 수행하지 못했습니다. Railway에서는 기존 requirements.txt가 그대로 설치되므로 필요한 의존성은 이미 명시되어 있습니다.

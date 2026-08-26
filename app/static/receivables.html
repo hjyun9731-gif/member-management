@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>수납·미수금 | 회원관리시스템</title>
+  <link rel="stylesheet" href="/static/receivables.css" />
+</head>
+<body>
+  <div id="appShell" class="app-shell">
+    <header class="topbar">
+      <div class="brand-wrap">
+        <a class="back-link" href="/">← 전체 회원관리</a>
+        <div class="brand">
+          <div class="brand-mark">₩</div>
+          <div><strong>수납 · 미수금</strong><span>전체회원관리 연동 모듈</span></div>
+        </div>
+      </div>
+      <div class="top-actions">
+        <div class="live-pill"><i></i><span>공용 DB 연결</span></div>
+        <button id="syncBtn" class="ghost-btn" type="button">회원 동기화</button>
+        <button id="logoutBtn" class="ghost-btn" type="button">로그아웃</button>
+      </div>
+    </header>
+
+    <nav class="tabs" aria-label="수납 미수금 메뉴">
+      <button class="tab active" data-view="payment">수납처리</button>
+      <button class="tab" data-view="arrears">미수금현황</button>
+      <button class="tab" data-view="closed">폐업 미수금</button>
+      <button class="tab" data-view="contacts">연락관리</button>
+    </nav>
+
+    <main class="page">
+      <section class="kpi-grid">
+        <article class="kpi-card"><div class="kpi-icon pink">₩</div><div><span>활성 미수금</span><strong id="kpiActiveTotal">-</strong><small id="kpiActiveCount">-</small></div></article>
+        <article class="kpi-card"><div class="kpi-icon blue">사람</div><div><span>미수 회원</span><strong id="kpiArrearsMembers">-</strong><small>활성회원 기준</small></div></article>
+        <article class="kpi-card"><div class="kpi-icon mint">폐업</div><div><span>폐업 미수금</span><strong id="kpiClosedTotal">-</strong><small id="kpiClosedCount">-</small></div></article>
+        <article class="kpi-card"><div class="kpi-icon yellow">오늘</div><div><span>오늘 수납</span><strong id="kpiTodayPaid">-</strong><small>공용 DB 합계</small></div></article>
+      </section>
+
+      <section class="workspace">
+        <article class="panel member-panel">
+          <div class="panel-head">
+            <div><h2 id="listTitle">회원 찾기</h2><p id="listSubtitle">신규등록 회원도 자동으로 표시됩니다.</p></div>
+            <span id="memberCount" class="count-badge">0명</span>
+          </div>
+          <div class="filters">
+            <div class="search-box"><span>⌕</span><input id="searchInput" placeholder="성명 또는 차량번호" autocomplete="off" /></div>
+            <select id="regionFilter"><option value="">전체 지역</option></select>
+            <select id="accountFilter"><option value="">전체 계정</option><option>협회비</option><option>관리비</option><option>70세</option></select>
+            <select id="contactFilter"><option value="">연락 전체</option><option>미연락</option><option>연락완료</option><option>부재</option><option>재연락 필요</option><option>문자발송</option></select>
+          </div>
+          <div class="member-table-wrap">
+            <table class="member-table">
+              <thead><tr><th>성명</th><th>계정</th><th>차량번호</th><th>지역</th><th class="num">현재 미수금</th><th>연락</th></tr></thead>
+              <tbody id="memberRows"></tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="panel detail-panel">
+          <div id="emptyState" class="empty-state">
+            <div class="mascot-row"><span class="mascot cat">🐱</span><span class="mascot frog">🐸</span></div>
+            <h2>회원을 선택해주세요</h2>
+            <p>왼쪽에서 회원을 선택하면 월별 부과·입금·미수금과 연락 이력을 한눈에 볼 수 있어요.</p>
+          </div>
+
+          <div id="detailContent" class="detail-content hidden">
+            <div class="member-summary">
+              <div class="identity">
+                <div class="name-row"><h2 id="detailName">-</h2><span id="detailStatus" class="status-badge">-</span></div>
+                <div class="info-grid">
+                  <div><span>계정</span><strong id="detailAccount">-</strong></div>
+                  <div><span>차량번호</span><strong id="detailVehicle">-</strong></div>
+                  <div><span>지역</span><strong id="detailRegion">-</strong></div>
+                  <div><span>연락상태</span><strong id="detailContact">-</strong></div>
+                </div>
+              </div>
+              <div class="balance-box"><span>현재 미수금</span><strong id="detailBalance">-</strong><small id="detailClosure"></small></div>
+            </div>
+
+            <div class="section-head compact"><div><h3>2026 월별 장부</h3><p>원본 엑셀 이력 + 프로그램 추가 수납</p></div><div class="year-chip">2026</div></div>
+            <div class="monthly-wrap">
+              <table class="monthly-table">
+                <thead><tr><th>월</th><th class="num">원본 부과금</th><th class="num">원본 입금</th><th>원본 입금일</th><th class="num">자동부과</th><th class="num">추가입금</th><th class="num">현재 미수금</th></tr></thead>
+                <tbody id="monthlyRows"></tbody>
+              </table>
+            </div>
+
+            <div class="action-grid">
+              <section class="action-card payment-card">
+                <div class="section-head"><div><h3>입금 등록</h3><p>폐업회원도 남은 미수금 수납 가능</p></div><span class="mascot-mini">🐱</span></div>
+                <div class="quick-amounts"><button data-amount="5000">5천</button><button data-amount="10000">1만</button><button data-amount="20000">2만</button><button data-amount="50000">5만</button><button id="fullAmountBtn">전액</button></div>
+                <div class="form-grid three"><label>입금일<input id="paymentDate" type="date" /></label><label>입금액<input id="paymentAmount" type="number" min="1" placeholder="0" /></label><label>입금방법<select id="paymentMethod"><option>계좌이체</option><option>카드</option><option>현금</option><option>기타</option></select></label></div>
+                <label>메모<input id="paymentMemo" placeholder="선택 입력" /></label>
+                <button id="savePaymentBtn" class="primary-btn" type="button">입금 저장</button>
+              </section>
+
+              <section class="action-card contact-card">
+                <div class="section-head"><div><h3>연락 기록</h3><p>언제, 누가, 어떻게 연락했는지 보존</p></div><span class="mascot-mini">🐸</span></div>
+                <div class="form-grid three"><label>연락일<input id="contactDate" type="date" /></label><label>방법<select id="contactMethod"><option>전화</option><option>문자</option><option>카카오톡</option><option>우편</option><option>기타</option></select></label><label>상태<select id="contactStatus"><option>연락완료</option><option>부재</option><option>재연락 필요</option><option>문자발송</option><option>미연락</option></select></label></div>
+                <label>메모<input id="contactMemo" placeholder="예: 9/2 다시 연락 요청" /></label>
+                <button id="saveContactBtn" class="secondary-btn" type="button">연락 기록 저장</button>
+              </section>
+            </div>
+
+            <details class="history-box"><summary>프로그램 추가 입금·연락 이력 보기</summary><div class="history-grid"><div><h4>추가 입금</h4><div id="paymentHistory"></div></div><div><h4>연락 이력</h4><div id="contactHistory"></div></div></div></details>
+          </div>
+        </article>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast"></div>
+  <div id="loginOverlay" class="login-overlay hidden">
+    <form id="loginForm" class="login-card">
+      <div class="login-mascot">🐸</div><h2>회원관리 로그인</h2><p>기존 회원관리시스템 계정으로 로그인하세요.</p>
+      <label>아이디<input id="loginUsername" autocomplete="username" /></label>
+      <label>비밀번호<input id="loginPassword" type="password" autocomplete="current-password" /></label>
+      <button class="primary-btn" type="submit">로그인</button><div id="loginError" class="login-error"></div>
+    </form>
+  </div>
+  <script src="/static/receivables.js" defer></script>
+</body>
+</html>
