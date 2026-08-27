@@ -101,6 +101,8 @@ def _run_migrations():
         ("default_value",         "report_field_defs","VARCHAR(200)"),
         # PLANB 기한관리: 일정별 색상
         ("event_color",           "deadline_tasks",   "VARCHAR(20)"),
+        # 수납/미수금 모듈: 가입/미가입 정합성 자동보정이 수동 지정 계정을 덮어쓰지 않도록 구분
+        ("account_manual_override", "receivable_profiles", "INTEGER"),
     ]
 
     for col_name, table_name, col_type in new_cols:

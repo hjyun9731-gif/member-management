@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -152,8 +153,11 @@ def _match_seed(member):
 
 
 def _infer_account(member) -> str:
-    status = str(getattr(member, "membership_status", "") or "").strip()
-    return "협회비" if status == "가입" else "관리비"
+    """가입 여부는 membership_status 원본 문자열이 아니라 membership_date의 유효성으로 판정한다.
+    예: membership_date='2026-08-26'인데 membership_status가 '미가입'으로 잘못 남아있어도
+    유효한 가입일자가 있으면 협회비로 분류한다. 전체회원관리(license_holders)의 원본 값은
+    이 함수가 절대 수정하지 않는다 — 미수금 모듈 내부의 파생 판정으로만 사용."""
+    return "협회비" if _parse_date(getattr(member, "membership_date", None)) is not None else "관리비"
 
 
 def _member_registration_date(member) -> date:
@@ -270,7 +274,48 @@ def _sync_charges(db: Session):
 def _sync_all(db: Session):
     p = _sync_profiles(db)
     c = _sync_charges(db)
-    return {"profiles_created": p, "charges_created": c}
+    r = _repair_account_types(db)
+    return {"profiles_created": p, "charges_created": c, "accounts_repaired": r}
+
+
+def _repair_account_types(db: Session):
+    """가입/미가입 정합성 자동보정 (요청 4번).
+    - MUSTARD 원장에서 이관된 계정(legacy_source_row 있음)은 원본 그대로 보존.
+    - 사용자가 PATCH /account 로 직접 지정한 계정(account_manual_override=1)도 보존.
+    - 그 외에는 membership_date 유효성 기준으로 재판정하여 다르면 갱신한다."""
+    members = {m.id: m for m in db.query(models.LicenseHolder).all()}
+    fixed = 0
+    candidates = db.query(ReceivableProfile).filter(ReceivableProfile.legacy_source_row.is_(None)).all()
+    for p in candidates:
+        if int(p.account_manual_override or 0) == 1:
+            continue
+        member = members.get(p.member_id)
+        if not member:
+            continue
+        correct = _infer_account(member)
+        if p.account_type != correct:
+            p.account_type = correct
+            p.unit_fee = ACCOUNT_FEES.get(correct, 5000)
+            fixed += 1
+    if fixed:
+        db.commit()
+    return fixed
+
+
+_SYNC_THROTTLE_SECONDS = 300  # 5분 — 조회 API마다 3,239명 전체 재동기화하지 않는다 (요청 8번 성능)
+_last_full_sync_ts = 0.0
+
+
+def _maybe_sync_all(db: Session):
+    """조회(GET) 경로 전용: 마지막 전체 동기화 후 5분이 지나지 않았으면 건너뛴다.
+    신규등록/폐업을 바로 반영하고 싶으면 /api/receivables/sync 를 직접 호출하면 즉시 강제 동기화된다."""
+    global _last_full_sync_ts
+    now = time.monotonic()
+    if now - _last_full_sync_ts < _SYNC_THROTTLE_SECONDS:
+        return None
+    result = _sync_all(db)
+    _last_full_sync_ts = now
+    return result
 
 
 def _balance_maps(db: Session):
@@ -320,6 +365,50 @@ def _serialize_member(member, profile, balance, latest_contact, closure=None):
     }
 
 
+@router.get("/api/receivables/verify")
+def verify_legacy_import(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """MUSTARD 이관 데이터(legacy_receivables_2026.json)와 현재 DB 상태를 대조검증한다 (요청 9번).
+    재이관은 하지 않고, 이미 이관된 legacy_balance/계정 값과 원본 JSON 값이 일치하는지만 비교한다."""
+    _load_seed()
+    seed_rows = _seed_cache or []
+    seed_total = sum(int(r.get("current_arrears") or 0) for r in seed_rows)
+    seed_by_account = {}
+    for r in seed_rows:
+        seed_by_account[r.get("account_type") or "미상"] = seed_by_account.get(r.get("account_type") or "미상", 0) + 1
+
+    profiles = db.query(ReceivableProfile).filter(ReceivableProfile.legacy_source_row.isnot(None)).all()
+    db_total_legacy_balance = sum(int(p.legacy_balance or 0) for p in profiles)
+    db_by_account = {}
+    for p in profiles:
+        db_by_account[p.account_type] = db_by_account.get(p.account_type, 0) + 1
+
+    charges, payments = _balance_maps(db)
+    db_current_total = 0
+    for p in profiles:
+        db_current_total += int(p.legacy_balance or 0) + int(charges.get(p.member_id, 0) or 0) - int(payments.get(p.member_id, 0) or 0)
+
+    return {
+        "legacy_json": {
+            "row_count": len(seed_rows),
+            "total_arrears_2026_08": seed_total,
+            "by_account_type": seed_by_account,
+        },
+        "current_db": {
+            "matched_profile_count": len(profiles),
+            "total_legacy_balance_asis": db_total_legacy_balance,
+            "total_current_balance_incl_auto_charges": db_current_total,
+            "by_account_type": db_by_account,
+        },
+        "match": {
+            "row_count_matches": len(seed_rows) == len(profiles),
+            "legacy_balance_matches": seed_total == db_total_legacy_balance,
+        },
+    }
+
+
 @router.get("/receivables")
 def receivables_page():
     return FileResponse(STATIC_DIR / "receivables.html")
@@ -330,7 +419,10 @@ def sync_receivables(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return {"ok": True, **_sync_all(db)}
+    global _last_full_sync_ts
+    result = _sync_all(db)
+    _last_full_sync_ts = time.monotonic()
+    return {"ok": True, **result}
 
 
 @router.get("/api/receivables/summary")
@@ -338,7 +430,7 @@ def summary(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    _sync_all(db)
+    _maybe_sync_all(db)
     members = {m.id: m for m in db.query(models.LicenseHolder).all()}
     profiles = db.query(ReceivableProfile).all()
     charges, payments = _balance_maps(db)
@@ -381,10 +473,12 @@ def list_members(
     region: str = "",
     account_type: str = "",
     contact_status: str = "",
+    page: Optional[int] = Query(None, ge=1),
+    limit: Optional[int] = Query(None, ge=1, le=500),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    _sync_all(db)
+    _maybe_sync_all(db)
     members = {m.id: m for m in db.query(models.LicenseHolder).all()}
     profiles = db.query(ReceivableProfile).all()
     closures = _closure_map(db)
@@ -409,7 +503,16 @@ def list_members(
         if nq and nq not in _norm(m.name) and nq not in _norm(m.vehicle_number): continue
         result.append(_serialize_member(m, p, bal, latest, closures.get(m.id)))
     result.sort(key=lambda x: (-x["balance"], x["name"], x["vehicle_number"]))
-    return {"items": result, "count": len(result)}
+    total = len(result)
+    # page/limit을 명시적으로 넘긴 경우에만 슬라이스한다 — 기존 화면(receivables.js)이
+    # 파라미터 없이 호출하면 지금까지와 동일하게 전체 목록을 그대로 받는다 (회귀 없음).
+    if limit is not None:
+        page = page or 1
+        start = (page - 1) * limit
+        result = result[start:start + limit]
+        return {"items": result, "count": total, "page": page, "limit": limit,
+                "pages": max(1, (total + limit - 1) // limit)}
+    return {"items": result, "count": total}
 
 
 @router.get("/api/receivables/members/{member_id}")
@@ -419,7 +522,7 @@ def member_detail(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    _sync_all(db)
+    _maybe_sync_all(db)
     member = db.query(models.LicenseHolder).filter(models.LicenseHolder.id == member_id).first()
     profile = db.query(ReceivableProfile).filter(ReceivableProfile.member_id == member_id).first()
     if not member or not profile:
@@ -602,5 +705,6 @@ def update_account(
     profile.account_type = payload.account_type
     profile.unit_fee = ACCOUNT_FEES[payload.account_type]
     profile.vehicle_count = payload.vehicle_count
+    profile.account_manual_override = 1
     db.commit()
     return {"ok": True}

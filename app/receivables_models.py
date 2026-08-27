@@ -15,6 +15,7 @@ class ReceivableProfile(Base):
     legacy_months = Column(JSON, nullable=False, default=list)
     legacy_source_row = Column(Integer, nullable=True)
     legacy_note = Column(Text, nullable=True)
+    account_manual_override = Column(Integer, nullable=False, default=0)  # 0/1 (PATCH /account 로 수동 지정된 경우 1 — 자동 재판정 대상에서 제외)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
