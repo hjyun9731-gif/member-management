@@ -1,0 +1,27 @@
+2026-08-27 CLEAN RELEASE
+
+기준: 사용자가 업로드한 member-management-main(3).zip (원격 main 59676ef 기준)
+수정 범위:
+- app/routers/members.py
+- app/routers/receivables.py
+- app/static/receivables.html
+- app/static/receivables.js
+- app/static/receivables.css
+- .gitignore 보강
+
+정리 사항:
+- __pycache__ 제거
+- *.pyc / *.pyo / *.pyd 제거
+- .env 제외 (.env.example만 유지)
+- .git 메타데이터 미포함
+- 로컬 DB 파일 미포함
+
+핵심 수정:
+- 신규회원 수납/미수금 즉시 노출
+- 0원 신규회원도 부과대기로 조회
+- 첫 부과일 표시
+- 가입일자 기준 협회비/관리비 판정
+- 서버 페이지네이션/DB 검색/집계 SQL 기반 고속화
+- 동명이인 legacy 오매칭 방지 강화
+
+기존 회원관리/폐업/양도양수/기한관리 등 다른 업무 파일은 기준 ZIP 그대로 유지.

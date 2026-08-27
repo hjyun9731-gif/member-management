@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>수납·미수금 | 회원관리시스템</title>
-  <link rel="stylesheet" href="/static/receivables.css" />
+  <link rel="stylesheet" href="/static/receivables.css?v=20260827-fast2" />
 </head>
 <body>
   <div id="appShell" class="app-shell">
@@ -34,6 +34,7 @@
       <section class="kpi-grid">
         <article class="kpi-card"><div class="kpi-icon pink">₩</div><div><span>활성 미수금</span><strong id="kpiActiveTotal">-</strong><small id="kpiActiveCount">-</small></div></article>
         <article class="kpi-card"><div class="kpi-icon blue">사람</div><div><span>미수 회원</span><strong id="kpiArrearsMembers">-</strong><small>활성회원 기준</small></div></article>
+        <article id="kpiPendingCard" class="kpi-card clickable"><div class="kpi-icon purple">대기</div><div><span>신규 부과대기</span><strong id="kpiPending">-</strong><small>다음 달 1일부터 부과</small></div></article>
         <article class="kpi-card"><div class="kpi-icon mint">폐업</div><div><span>폐업 미수금</span><strong id="kpiClosedTotal">-</strong><small id="kpiClosedCount">-</small></div></article>
         <article class="kpi-card"><div class="kpi-icon yellow">오늘</div><div><span>오늘 수납</span><strong id="kpiTodayPaid">-</strong><small>공용 DB 합계</small></div></article>
       </section>
@@ -45,17 +46,19 @@
             <span id="memberCount" class="count-badge">0명</span>
           </div>
           <div class="filters">
-            <div class="search-box"><span>⌕</span><input id="searchInput" placeholder="성명 또는 차량번호" autocomplete="off" /></div>
+            <div class="search-box"><span>⌕</span><input id="searchInput" placeholder="성명 · 차량번호 · 관리번호 · 핸드폰" autocomplete="off" /></div>
             <select id="regionFilter"><option value="">전체 지역</option></select>
             <select id="accountFilter"><option value="">전체 계정</option><option>협회비</option><option>관리비</option><option>70세</option></select>
+            <select id="billingFilter"><option value="">부과상태 전체</option><option value="pending">부과대기</option><option value="arrears">미수</option><option value="settled">완납</option></select>
             <select id="contactFilter"><option value="">연락 전체</option><option>미연락</option><option>연락완료</option><option>부재</option><option>재연락 필요</option><option>문자발송</option></select>
           </div>
           <div class="member-table-wrap">
             <table class="member-table">
-              <thead><tr><th>성명</th><th>계정</th><th>차량번호</th><th>지역</th><th class="num">현재 미수금</th><th>연락</th></tr></thead>
+              <thead><tr><th>성명</th><th>계정</th><th>차량번호</th><th>지역</th><th class="num">현재 미수금</th><th>부과상태</th><th>연락</th></tr></thead>
               <tbody id="memberRows"></tbody>
             </table>
           </div>
+          <div class="pager"><button id="prevPageBtn" type="button">이전</button><span id="pageInfo">1 / 1</span><button id="nextPageBtn" type="button">다음</button></div>
         </article>
 
         <article class="panel detail-panel">
@@ -73,11 +76,14 @@
                   <div><span>계정</span><strong id="detailAccount">-</strong></div>
                   <div><span>차량번호</span><strong id="detailVehicle">-</strong></div>
                   <div><span>지역</span><strong id="detailRegion">-</strong></div>
+                  <div><span>부과상태</span><strong id="detailBilling">-</strong></div>
+                  <div><span>첫 부과일</span><strong id="detailFirstCharge">-</strong></div>
                   <div><span>연락상태</span><strong id="detailContact">-</strong></div>
                 </div>
               </div>
               <div class="balance-box"><span>현재 미수금</span><strong id="detailBalance">-</strong><small id="detailClosure"></small></div>
             </div>
+            <div id="pendingNotice" class="pending-notice hidden"></div>
 
             <div class="section-head compact"><div><h3>2026 월별 장부</h3><p>원본 엑셀 이력 + 프로그램 추가 수납</p></div><div class="year-chip">2026</div></div>
             <div class="monthly-wrap">
@@ -120,6 +126,6 @@
       <button class="primary-btn" type="submit">로그인</button><div id="loginError" class="login-error"></div>
     </form>
   </div>
-  <script src="/static/receivables.js" defer></script>
+  <script src="/static/receivables.js?v=20260827-fast2" defer></script>
 </body>
 </html>

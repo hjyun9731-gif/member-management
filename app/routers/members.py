@@ -10,7 +10,7 @@ import datetime
 from app.database import get_db
 from app.auth import get_current_user, require_admin
 from app import models, crud
-from app.excel_utils import records_to_excel, normalize_fuel
+from app.excel_utils import records_to_excel, normalize_fuel, normalize_membership_status
 
 router = APIRouter()
 
@@ -40,7 +40,7 @@ def _fmt(m):
         "address": m.address or "",
         "phone": m.phone or "",
         "mobile": m.mobile or "",
-        "membership_status": m.membership_status or "",
+        "membership_status": normalize_membership_status(m.membership_date or ""),
         "membership_date": m.membership_date or "",
         "approval_date": m.approval_date or "",
         "certificate_issue_date": m.certificate_issue_date or "",
@@ -385,10 +385,9 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
     # 허용 필드만 필터링
     filtered_data = {k: v for k, v in data.items() if k in _ALLOWED_UPDATE_FIELDS}
 
-    # 가입일자(membership_date) 변경 시 membership_status 재판정
-    # 단, membership_status를 직접 명시한 경우는 그 값 우선
-    if 'membership_date' in filtered_data and 'membership_status' not in filtered_data:
-        from app.excel_utils import normalize_membership_status
+    # 가입상태의 유일한 기준은 가입일자. 화면이 membership_status를 함께 보내더라도
+    # "가입일자 있음 + 미가입" 모순값이 저장되지 않도록 가입일자를 항상 우선한다.
+    if 'membership_date' in filtered_data:
         filtered_data['membership_status'] = normalize_membership_status(
             filtered_data.get('membership_date') or ''
         )

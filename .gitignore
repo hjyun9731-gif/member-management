@@ -1,7 +1,28 @@
+# Secrets / local environment
+.env
+.env.*
+!.env.example
+
+# Python generated files
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Local databases / runtime files
 *.db
 *.sqlite3
 server_err.txt
-.env
-venv/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
