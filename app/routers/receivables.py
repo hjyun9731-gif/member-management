@@ -35,6 +35,14 @@ KST = ZoneInfo("Asia/Seoul")
 ACCOUNT_FEES = {"협회비": 10000, "관리비": 5000, "70세": 5000}
 CONTACT_STATUSES = {"미연락", "연락완료", "부재", "재연락 필요", "문자발송"}
 
+# 기존 MUSTARD/엑셀 원장은 2026년 8월까지의 "월말 미수금"을 이미 포함한다.
+# 따라서 1~8월 자동부과를 다시 더하면 이중부과가 된다.
+LEGACY_YEAR = 2026
+LEGACY_DATA_THROUGH_MONTH = 8
+LEGACY_DATA_THROUGH_KEY = "2026-08"
+LEGACY_NEXT_BILL_DATE = date(2026, 9, 1)
+LEGACY_NEW_MEMBER_CUTOFF = date(2026, 8, 1)
+
 
 class PaymentIn(BaseModel):
     payment_date: str
@@ -193,18 +201,16 @@ def _member_registration_date(member) -> date:
 
 def _make_profile(member, seed=None) -> ReceivableProfile:
     if seed:
+        # legacy_balance는 2026-08 원본 장부의 "현재 미수금(8월 미수금)" 그 자체다.
+        # 1~8월 부과를 ReceivableCharge로 다시 만들면 이중계산되므로,
+        # 프로그램 자동부과는 원장 컷오버 다음 달(2026-09)부터만 시작한다.
         acct = seed.get("account_type") or _infer_account(member)
-        last_month = int(seed.get("last_month") or 0)
-        if last_month:
-            first_charge = _first_of_next_month(date(2026, last_month, 1))
-        else:
-            first_charge = _first_of_next_month(_member_registration_date(member))
         return ReceivableProfile(
             member_id=member.id,
             account_type=acct,
             unit_fee=ACCOUNT_FEES.get(acct, 5000),
             vehicle_count=max(1, int(seed.get("vehicle_count") or 1)),
-            first_charge_date=first_charge.isoformat(),
+            first_charge_date=LEGACY_NEXT_BILL_DATE.isoformat(),
             legacy_balance=int(seed.get("current_arrears") or 0),
             legacy_months=seed.get("months") or [],
             legacy_source_row=seed.get("source_row"),
@@ -213,10 +219,9 @@ def _make_profile(member, seed=None) -> ReceivableProfile:
 
     acct = _infer_account(member)
     first_charge = _first_of_next_month(_member_registration_date(member))
-    # 기존 원장 컷오버 이전 회원을 profile 신규생성했다고 과거부터 소급부과하지 않는다.
-    cutover = date(2026, 9, 1)
-    if first_charge < cutover:
-        first_charge = cutover
+    # 원장 이관 이전 기존회원이 profile만 늦게 생성됐다고 과거 부과를 소급 생성하지 않는다.
+    if first_charge < LEGACY_NEXT_BILL_DATE:
+        first_charge = LEGACY_NEXT_BILL_DATE
     return ReceivableProfile(
         member_id=member.id,
         account_type=acct,
@@ -239,7 +244,7 @@ def _eligible_missing_profiles_query(db: Session):
             models.LicenseHolder.closure_id.isnot(None),
             models.LicenseHolder.status != "active",
         ))
-        .order_by(models.LicenseHolder.id.asc())
+        .order_by(models.LicenseHolder.id.desc())
     )
 
 
@@ -323,6 +328,61 @@ def _closure_map(db: Session):
     return out
 
 
+def _month_key(d: date) -> str:
+    return f"{d.year:04d}-{d.month:02d}"
+
+
+def _is_true_new_member(member, profile) -> bool:
+    """'부과대기'는 기존 원장 회원이 아니라 실제 신규등록자에게만 붙인다."""
+    if profile.legacy_source_row is not None:
+        return False
+    reg = _member_registration_date(member)
+    return reg >= LEGACY_NEW_MEMBER_CUTOFF
+
+
+def _valid_auto_charge(profile, member, closure, charge, today: Optional[date] = None) -> bool:
+    """현재 미수금에 포함해도 되는 자동부과만 판정한다.
+
+    - 미래월 자동부과: 무효
+    - legacy 회원 2026-08 이전/당월 자동부과: 원본 원장과 중복이므로 무효
+    - 폐업/양도/이관 월 이후 자동부과: 무효
+    """
+    today = today or datetime.now(KST).date()
+    month = str(charge.billing_month or "")
+    if not month or month > _month_key(today):
+        return False
+    if profile.legacy_source_row is not None and month <= LEGACY_DATA_THROUGH_KEY:
+        return False
+    if not _is_active(member):
+        close_d = _parse_date(getattr(closure, "closure_date", None)) if closure else None
+        if close_d and month > _month_key(close_d):
+            return False
+    return True
+
+
+def _repair_invalid_auto_charges(db: Session) -> int:
+    """이전 버그로 생성된 잘못된 auto charge만 삭제한다.
+    원본 legacy 장부/입금/수동 데이터는 절대 건드리지 않는다.
+    """
+    rows = db.query(ReceivableCharge).filter(ReceivableCharge.source == "auto").all()
+    if not rows:
+        return 0
+    profiles = {p.member_id: p for p in db.query(ReceivableProfile).all()}
+    members = {m.id: m for m in db.query(models.LicenseHolder).all()}
+    closures = _closure_map(db)
+    today = datetime.now(KST).date()
+    removed = 0
+    for ch in rows:
+        p = profiles.get(ch.member_id)
+        m = members.get(ch.member_id)
+        if not p or not m or not _valid_auto_charge(p, m, closures.get(ch.member_id), ch, today):
+            db.delete(ch)
+            removed += 1
+    if removed:
+        db.commit()
+    return removed
+
+
 def _sync_charges(db: Session) -> int:
     """월 자동부과 생성. 수동 sync/백그라운드에서만 실행되어 화면 조회를 막지 않는다."""
     today = datetime.now(KST).date()
@@ -373,11 +433,17 @@ def _sync_charges(db: Session) -> int:
 
 
 def _sync_all(db: Session):
-    # 계정 정합성을 먼저 맞춘 뒤 charge를 생성해야 새 월부터 올바른 계정 snapshot이 들어간다.
+    # 잘못 생성된 미래/중복/폐업후 자동부과를 먼저 제거한 뒤 새 월을 생성한다.
+    removed = _repair_invalid_auto_charges(db)
     p = _sync_profiles_full(db)
     r = _repair_account_types(db)
     c = _sync_charges(db)
-    return {"profiles_created": p, "charges_created": c, "accounts_repaired": r}
+    return {
+        "profiles_created": p,
+        "charges_created": c,
+        "charges_removed": removed,
+        "accounts_repaired": r,
+    }
 
 
 # 조회 API는 즉시 응답하고, 무거운 전체 동기화는 응답 뒤 백그라운드에서만 실행.
@@ -414,11 +480,24 @@ def _schedule_background_sync(background_tasks: BackgroundTasks):
 
 
 def _charge_payment_subqueries(db: Session):
+    """잔액 집계용 서브쿼리.
+
+    legacy_balance가 이미 2026-08까지의 누적 미수이므로, legacy 회원의
+    1~8월 auto charge와 모든 미래월 charge는 잔액에서 제외한다.
+    이 필터 덕분에 DB 정리 작업이 아직 끝나기 전에도 화면 잔액이 즉시 정상화된다.
+    """
+    today_month = _month_key(datetime.now(KST).date())
     charges_sq = (
         db.query(
             ReceivableCharge.member_id.label("member_id"),
             func.coalesce(func.sum(ReceivableCharge.amount), 0).label("charge_total"),
         )
+        .join(ReceivableProfile, ReceivableProfile.member_id == ReceivableCharge.member_id)
+        .filter(ReceivableCharge.billing_month <= today_month)
+        .filter(or_(
+            ReceivableProfile.legacy_source_row.is_(None),
+            ReceivableCharge.billing_month > LEGACY_DATA_THROUGH_KEY,
+        ))
         .group_by(ReceivableCharge.member_id)
         .subquery()
     )
@@ -483,12 +562,14 @@ def _latest_closure_subquery(db: Session):
     )
 
 
-def _billing_state(active: bool, balance: int, first_charge_date: str) -> str:
+def _billing_state(member, profile, balance: int) -> str:
     today = datetime.now(KST).date()
-    first = _parse_date(first_charge_date)
+    first = _parse_date(profile.first_charge_date)
+    active = _is_active(member)
     if not active:
         return "폐업 미수" if balance > 0 else "폐업 완납"
-    if first and first > today:
+    # 핵심: 기존 MUSTARD/엑셀 원장 회원은 first_charge_date가 9/1이어도 신규가 아니다.
+    if _is_true_new_member(member, profile) and first and first > today:
         return "부과대기"
     if balance > 0:
         return "미수"
@@ -498,6 +579,9 @@ def _billing_state(active: bool, balance: int, first_charge_date: str) -> str:
 def _serialize_member(member, profile, balance, contact_status="미연락", last_contact_date="", closure_date="", closure_type=""):
     active = _is_active(member)
     canonical_membership = "가입" if is_association_member(getattr(member, "membership_date", None)) else "미가입"
+    billing_state = _billing_state(member, profile, int(balance))
+    # '첫 부과일'은 실제 신규등록자에게만 보여준다. legacy 기존회원의 9/1은 내부 컷오버일일 뿐이다.
+    display_first_charge = profile.first_charge_date if _is_true_new_member(member, profile) else ""
     return {
         "member_id": member.id,
         "name": member.name or "",
@@ -512,8 +596,9 @@ def _serialize_member(member, profile, balance, contact_status="미연락", last
         "member_status": "활성" if active else "폐업/변동",
         "active": active,
         "balance": int(balance),
-        "first_charge_date": profile.first_charge_date or "",
-        "billing_state": _billing_state(active, int(balance), profile.first_charge_date or ""),
+        "first_charge_date": display_first_charge or "",
+        "billing_state": billing_state,
+        "legacy_member": profile.legacy_source_row is not None,
         "closure_date": closure_date or "",
         "closure_type": closure_type or "",
         "contact_status": contact_status or "미연락",
@@ -640,7 +725,6 @@ def summary(
     active_cond = _active_sql()
     closed_cond = _closed_sql()
     today_iso = datetime.now(KST).date().isoformat()
-    pending_cond = and_(active_cond, ReceivableProfile.first_charge_date > today_iso)
 
     row = (
         db.query(
@@ -650,7 +734,6 @@ def summary(
             func.coalesce(func.sum(case((closed_cond, 1), else_=0)), 0).label("closed_members"),
             func.coalesce(func.sum(case((and_(closed_cond, balance_expr > 0), 1), else_=0)), 0).label("closed_arrears_members"),
             func.coalesce(func.sum(case((closed_cond, positive_balance), else_=0)), 0).label("closed_arrears_total"),
-            func.coalesce(func.sum(case((pending_cond, 1), else_=0)), 0).label("pending_members"),
         )
         .select_from(ReceivableProfile)
         .join(models.LicenseHolder, models.LicenseHolder.id == ReceivableProfile.member_id)
@@ -668,6 +751,17 @@ def summary(
         .scalar()
         or 0
     )
+    # 부과대기는 legacy 기존회원이 아니라 실제 신규등록자만 집계한다.
+    pending_rows = (
+        db.query(ReceivableProfile, models.LicenseHolder)
+        .join(models.LicenseHolder, models.LicenseHolder.id == ReceivableProfile.member_id)
+        .filter(ReceivableProfile.legacy_source_row.is_(None))
+        .filter(ReceivableProfile.first_charge_date > today_iso)
+        .filter(_active_sql())
+        .all()
+    )
+    pending_members = sum(1 for p, m in pending_rows if _is_true_new_member(m, p))
+
     _schedule_background_sync(background_tasks)
     return {
         "active_members": int(row.active_members or 0),
@@ -676,7 +770,7 @@ def summary(
         "closed_members": int(row.closed_members or 0),
         "closed_arrears_members": int(row.closed_arrears_members or 0),
         "closed_arrears_total": int(row.closed_arrears_total or 0),
-        "pending_members": int(row.pending_members or 0),
+        "pending_members": int(pending_members),
         "today_paid": int(today_paid),
     }
 
@@ -743,8 +837,13 @@ def list_members(
             query = query.filter(latest_contact_sq.c.status == contact_status)
 
     today_iso = datetime.now(KST).date().isoformat()
+    pending_post_filter = billing_status == "pending"
     if billing_status == "pending":
-        query = query.filter(_active_sql(), ReceivableProfile.first_charge_date > today_iso)
+        query = query.filter(
+            _active_sql(),
+            ReceivableProfile.legacy_source_row.is_(None),
+            ReceivableProfile.first_charge_date > today_iso,
+        )
     elif billing_status == "arrears":
         query = query.filter(balance_expr > 0)
     elif billing_status == "settled":
@@ -762,13 +861,17 @@ def list_members(
             )
         )
 
-    total = query.order_by(None).with_entities(func.count()).scalar() or 0
-    rows = (
-        query.order_by(balance_expr.desc(), models.LicenseHolder.name.asc(), models.LicenseHolder.vehicle_number.asc())
-        .offset((page - 1) * limit)
-        .limit(limit)
-        .all()
-    )
+    ordered = query.order_by(balance_expr.desc(), models.LicenseHolder.name.asc(), models.LicenseHolder.vehicle_number.asc())
+    if pending_post_filter:
+        # 후보 자체가 소수라서 실제 등록일을 Python에서 정확히 파싱 후 페이지네이션한다.
+        candidate_rows = ordered.all()
+        candidate_rows = [r for r in candidate_rows if _is_true_new_member(r[0], r[1])]
+        total = len(candidate_rows)
+        start = (page - 1) * limit
+        rows = candidate_rows[start:start + limit]
+    else:
+        total = query.order_by(None).with_entities(func.count()).scalar() or 0
+        rows = ordered.offset((page - 1) * limit).limit(limit).all()
 
     items = [
         _serialize_member(
@@ -806,12 +909,21 @@ def member_detail(
     if not profile:
         raise HTTPException(404, "미수금 프로필을 찾을 수 없습니다.")
 
-    charge_total = (
-        db.query(func.coalesce(func.sum(ReceivableCharge.amount), 0))
-        .filter(ReceivableCharge.member_id == member_id)
-        .scalar()
-        or 0
+    closure = (
+        db.query(models.Closure)
+        .filter(models.Closure.member_id == member_id, models.Closure.deleted_at.is_(None))
+        .order_by(models.Closure.id.desc())
+        .first()
     )
+
+    # 과거 버그로 DB에 남아 있어도 미래/legacy중복/폐업후 auto charge는 상세 잔액에서 제외한다.
+    all_member_charges = db.query(ReceivableCharge).filter(ReceivableCharge.member_id == member_id).all()
+    valid_member_charges = [
+        ch for ch in all_member_charges
+        if ch.source != "auto" or _valid_auto_charge(profile, member, closure, ch)
+    ]
+    charge_total = sum(int(ch.amount or 0) for ch in valid_member_charges)
+
     payment_total = (
         db.query(func.coalesce(func.sum(ReceivablePayment.amount), 0))
         .filter(ReceivablePayment.member_id == member_id, ReceivablePayment.cancelled_at.is_(None))
@@ -820,12 +932,6 @@ def member_detail(
     )
     balance = int(profile.legacy_balance or 0) + int(charge_total) - int(payment_total)
 
-    closure = (
-        db.query(models.Closure)
-        .filter(models.Closure.member_id == member_id, models.Closure.deleted_at.is_(None))
-        .order_by(models.Closure.id.desc())
-        .first()
-    )
     latest = (
         db.query(ReceivableContactLog)
         .filter(ReceivableContactLog.member_id == member_id)
@@ -833,14 +939,10 @@ def member_detail(
         .first()
     )
 
-    program_charges = (
-        db.query(ReceivableCharge)
-        .filter(
-            ReceivableCharge.member_id == member_id,
-            ReceivableCharge.billing_month.like(f"{year}-%"),
-        )
-        .all()
-    )
+    program_charges = [
+        ch for ch in valid_member_charges
+        if str(ch.billing_month or "").startswith(f"{year}-")
+    ]
     program_payments = (
         db.query(ReceivablePayment)
         .filter(
@@ -869,11 +971,10 @@ def member_detail(
     if year <= 2026:
         running = 0
     else:
-        before_charges = (
-            db.query(func.coalesce(func.sum(ReceivableCharge.amount), 0))
-            .filter(ReceivableCharge.member_id == member_id, ReceivableCharge.billing_month < f"{year}-01")
-            .scalar()
-            or 0
+        before_valid_charges = sum(
+            int(ch.amount or 0)
+            for ch in valid_member_charges
+            if str(ch.billing_month or "") < f"{year}-01"
         )
         before_payments = (
             db.query(func.coalesce(func.sum(ReceivablePayment.amount), 0))
@@ -885,17 +986,34 @@ def member_detail(
             .scalar()
             or 0
         )
-        running = int(profile.legacy_balance or 0) + int(before_charges) - int(before_payments)
+        running = int(profile.legacy_balance or 0) + int(before_valid_charges) - int(before_payments)
 
     monthly = []
+    today = datetime.now(KST).date()
+    current_month_key = _month_key(today)
+    close_d = _parse_date(getattr(closure, "closure_date", None)) if closure else None
+    close_month_key = _month_key(close_d) if close_d else None
+
     for m in range(1, 13):
         legacy = legacy_by_month.get(m) or {}
+        month_key = f"{year}-{m:02d}"
+        has_legacy_row = any(legacy.get(k) is not None for k in ("billed_total", "payment", "arrears")) or bool(legacy.get("payment_date"))
+
+        # 원본 장부의 월말 미수금을 그 달의 기준값으로 그대로 사용한다.
         if legacy.get("arrears") is not None:
             running = int(legacy.get("arrears") or 0)
+
         auto_charge = int(ch_by_month.get(m, 0) or 0)
         extra_paid = int(pay_by_month.get(m, 0) or 0)
         running += auto_charge
         running -= extra_paid
+
+        # 미래월/폐업 이후 월에 아무 원본·프로그램 활동이 없으면 '현재 미수금'을 만들어내지 않는다.
+        inactive_future = month_key > current_month_key
+        after_closure = bool(close_month_key and month_key > close_month_key)
+        no_program_activity = auto_charge == 0 and extra_paid == 0
+        display_current = None if (not has_legacy_row and no_program_activity and (inactive_future or after_closure)) else running
+
         monthly.append(
             {
                 "month": m,
@@ -906,7 +1024,7 @@ def member_detail(
                 "auto_charge": auto_charge,
                 "additional_payment": extra_paid,
                 "additional_payment_dates": pay_dates.get(m, []),
-                "current_arrears": running,
+                "current_arrears": display_current,
             }
         )
 
