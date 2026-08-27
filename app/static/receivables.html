@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>수납·미수금 | 회원관리시스템</title>
-  <link rel="stylesheet" href="/static/receivables.css?v=20260827-fast2" />
+  <link rel="stylesheet" href="/static/receivables.css?v=20260827-closure3" />
 </head>
 <body>
   <div id="appShell" class="app-shell">
@@ -26,7 +26,7 @@
     <nav class="tabs" aria-label="수납 미수금 메뉴">
       <button class="tab active" data-view="payment">수납처리</button>
       <button class="tab" data-view="arrears">미수금현황</button>
-      <button class="tab" data-view="closed">폐업 미수금</button>
+      <button class="tab" data-view="closed">폐업관리</button>
       <button class="tab" data-view="contacts">연락관리</button>
     </nav>
 
@@ -54,7 +54,7 @@
           </div>
           <div class="member-table-wrap">
             <table class="member-table">
-              <thead><tr><th>성명</th><th>계정</th><th>차량번호</th><th>지역</th><th class="num">현재 미수금</th><th>부과상태</th><th>연락</th></tr></thead>
+              <thead id="memberHead"></thead>
               <tbody id="memberRows"></tbody>
             </table>
           </div>
@@ -81,9 +81,18 @@
                   <div><span>연락상태</span><strong id="detailContact">-</strong></div>
                 </div>
               </div>
-              <div class="balance-box"><span>현재 미수금</span><strong id="detailBalance">-</strong><small id="detailClosure"></small></div>
+              <div class="balance-box"><span id="detailBalanceLabel">현재 미수금</span><strong id="detailBalance">-</strong><small id="detailClosure"></small></div>
             </div>
             <div id="pendingNotice" class="pending-notice hidden"></div>
+            <div id="closureInfo" class="closure-info hidden">
+              <div><span>폐업관리번호</span><strong id="detailClosureMgmt">-</strong></div>
+              <div><span>구분</span><strong id="detailClosureType">-</strong></div>
+              <div><span>폐업/처리일</span><strong id="detailClosureDate">-</strong></div>
+              <div><span>접수일</span><strong id="detailClosureReceipt">-</strong></div>
+              <div><span>양수인</span><strong id="detailTransferee">-</strong></div>
+              <div><span>이관/양도지역</span><strong id="detailTransferRegion">-</strong></div>
+              <div class="wide"><span>사유</span><strong id="detailClosureReason">-</strong></div>
+            </div>
 
             <div class="section-head compact"><div><h3>2026 월별 장부</h3><p>원본 엑셀 이력 + 프로그램 추가 수납</p></div><div class="year-chip">2026</div></div>
             <div class="monthly-wrap">
@@ -126,6 +135,6 @@
       <button class="primary-btn" type="submit">로그인</button><div id="loginError" class="login-error"></div>
     </form>
   </div>
-  <script src="/static/receivables.js?v=20260827-fast2" defer></script>
+  <script src="/static/receivables.js?v=20260827-closure3" defer></script>
 </body>
 </html>

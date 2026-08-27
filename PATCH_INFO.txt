@@ -1,0 +1,21 @@
+폐업관리/선입금/연락이력 연동 수정 PATCH
+
+수정 파일 4개:
+- app/routers/receivables.py
+- app/static/receivables.html
+- app/static/receivables.js
+- app/static/receivables.css
+
+핵심:
+1) 폐업 판정을 license_holders.status/deleted_at가 아니라 실제 closures.member_id 연결 기준으로 변경
+2) 폐업관리번호/구분(폐업·양도·이관)/처리일/접수일/양수인/지역/사유 표시
+3) 폐업관리 화면은 미수 >0만이 아니라 실제 폐업회원 전체 조회 (완납/선납 포함)
+4) 폐업 전 저장한 입금/연락은 동일 member_id 이력 그대로 조회
+5) 선입금으로 잔액이 음수면 '선납금'으로 표시
+6) 실제 Closure가 없는 stale closed 상태 회원은 폐업목록에 오판정하지 않음
+
+로컬 검증:
+- status=closed지만 Closure 없음 -> 활성 미수로 표시 PASS
+- 실제 양도 Closure + 선입금 50,000 -> 폐업관리 표시, 양-99/양도 표시, 선납금 50,000 표시 PASS
+- 폐업 전 연락기록 -> 폐업 후 상세에서 그대로 조회 PASS
+- 폐업 전 입금기록 -> 폐업 후 상세에서 그대로 조회 PASS
