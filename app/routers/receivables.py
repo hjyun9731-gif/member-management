@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import re
 import threading
-import time
 from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
@@ -18,13 +17,14 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app.auth import get_current_user
-from app.database import SessionLocal, get_db
+from app.database import get_db
 from app.excel_utils import is_association_member
 from app.receivables_models import (
     ReceivableCharge,
     ReceivableContactLog,
     ReceivablePayment,
     ReceivableProfile,
+    ReceivableSystemState,
 )
 
 router = APIRouter()
@@ -42,6 +42,8 @@ LEGACY_DATA_THROUGH_MONTH = 8
 LEGACY_DATA_THROUGH_KEY = "2026-08"
 LEGACY_NEXT_BILL_DATE = date(2026, 9, 1)
 LEGACY_NEW_MEMBER_CUTOFF = date(2026, 8, 1)
+LEGACY_BASELINE_KEY = "legacy_baseline_2026_08_28_v1"
+LEDGER_MODE = "database"
 
 
 class PaymentIn(BaseModel):
@@ -150,6 +152,10 @@ _seed_by_combo = None
 _seed_by_vehicle = None
 _seed_by_name_region = None
 _seed_by_name_plate_tail = None
+_legacy_baseline_ready = False
+_legacy_baseline_lock = threading.Lock()
+_billing_ready_month = None
+_billing_month_lock = threading.Lock()
 
 
 def _load_seed():
@@ -197,6 +203,14 @@ def _match_seed(member):
         candidates = _seed_by_name_plate_tail.get((nn, digits[-4:]), [])
         if len(candidates) == 1:
             return candidates[0]
+
+    # 최신 원장에 차량번호가 공란인 행은 성명+지역이 유일하고, 원장쪽 차량번호도
+    # 실제로 공란인 경우에만 제한적으로 매칭한다. 일반 행에는 성명 단독 매칭 금지.
+    nr = _norm(getattr(member, "region", ""))
+    nr_candidates = _seed_by_name_region.get((nn, nr), [])
+    blank_vehicle_candidates = [r for r in nr_candidates if not _norm(r.get("vehicle_number"))]
+    if len(blank_vehicle_candidates) == 1:
+        return blank_vehicle_candidates[0]
     return None
 
 
@@ -264,7 +278,7 @@ def _eligible_missing_profiles_query(db: Session):
     )
 
 
-def _sync_missing_profiles_fast(db: Session, limit: int = 100) -> int:
+def _sync_missing_profiles_fast(db: Session, limit: int = 100, allow_legacy_seed: bool = False) -> int:
     """신규회원 즉시 노출용. 전체 3천명을 읽지 않고 '프로필 없는 회원'만 인덱스로 조회."""
     members = _eligible_missing_profiles_query(db).limit(limit).all()
     if not members:
@@ -274,7 +288,7 @@ def _sync_missing_profiles_fast(db: Session, limit: int = 100) -> int:
         # 관리자 단순삭제(폐업기록 없음)는 미수금 신규대상에서 제외.
         if member.deleted_at is not None and not member.closure_id and (member.status or "active") == "active":
             continue
-        db.add(_make_profile(member, _match_seed(member)))
+        db.add(_make_profile(member, _match_seed(member) if allow_legacy_seed else None))
         created += 1
     if created:
         try:
@@ -285,7 +299,7 @@ def _sync_missing_profiles_fast(db: Session, limit: int = 100) -> int:
     return created
 
 
-def _sync_profiles_full(db: Session) -> int:
+def _sync_profiles_full(db: Session, allow_legacy_seed: bool = False) -> int:
     created = 0
     while True:
         batch = _eligible_missing_profiles_query(db).limit(500).all()
@@ -296,7 +310,7 @@ def _sync_profiles_full(db: Session) -> int:
             if member.deleted_at is not None and not member.closure_id and (member.status or "active") == "active":
                 # 다시 조회되지 않도록 이 경우는 full sync에서 건너뛰되 loop 탈출 방지
                 continue
-            db.add(_make_profile(member, _match_seed(member)))
+            db.add(_make_profile(member, _match_seed(member) if allow_legacy_seed else None))
             batch_created += 1
         if not batch_created:
             break
@@ -309,38 +323,88 @@ def _sync_profiles_full(db: Session) -> int:
     return created
 
 
-def _repair_legacy_markers(db: Session) -> int:
-    """과거 버전에서 빠진 legacy_source_row만 복구한다.
+def _baseline_marker(db: Session):
+    return db.query(ReceivableSystemState).filter(ReceivableSystemState.key == LEGACY_BASELINE_KEY).first()
 
-    금액/입금/부과 데이터는 건드리지 않는다. 원본 seed와 차량정보+성명이
-    안전하게 매칭되는 profile에 source_row 표식만 채워 이후 SQL 집계도
-    기존회원과 신규회원을 빠르게 구분할 수 있게 한다.
+
+def _apply_legacy_baseline_once(db: Session) -> int:
+    """최신 미수금 Excel 스냅샷을 DB 공식 원장으로 **최초 1회만** 이관한다.
+
+    이관 완료 여부는 프로세스 메모리가 아니라 receivable_system_state에 영구 기록한다.
+    따라서 Railway 재배포/재기동/여러 worker에서도 Excel/JSON이 기존 DB 잔액을 다시
+    덮어쓰지 않는다. 이후 수납·선납·부과·폐업·연락은 PostgreSQL 데이터만 누적한다.
     """
-    rows = (
-        db.query(ReceivableProfile, models.LicenseHolder)
-        .join(models.LicenseHolder, models.LicenseHolder.id == ReceivableProfile.member_id)
-        .filter(ReceivableProfile.legacy_source_row.is_(None))
-        .all()
-    )
-    fixed = 0
-    for p, member in rows:
-        seed = _match_seed(member)
-        if not seed:
-            continue
-        source_row = seed.get("source_row")
-        if source_row is None:
-            continue
-        p.legacy_source_row = int(source_row)
-        # 월별 원장 자체가 비어 있는 과거 profile만 원본 표시자료를 복구한다.
-        # legacy_balance/입금/charge 금액은 절대 변경하지 않는다.
-        if not (p.legacy_months or []):
-            p.legacy_months = seed.get("months") or []
-        if not p.legacy_note and seed.get("legacy_note"):
-            p.legacy_note = seed.get("legacy_note")
-        fixed += 1
-    if fixed:
-        db.commit()
-    return fixed
+    global _legacy_baseline_ready
+    if _legacy_baseline_ready:
+        return 0
+
+    with _legacy_baseline_lock:
+        if _legacy_baseline_ready:
+            return 0
+        if _baseline_marker(db):
+            _legacy_baseline_ready = True
+            return 0
+
+        # 최초 이관 때만 기존 회원 profile을 seed와 함께 생성한다.
+        _sync_profiles_full(db, allow_legacy_seed=True)
+
+        rows = (
+            db.query(ReceivableProfile, models.LicenseHolder)
+            .join(models.LicenseHolder, models.LicenseHolder.id == ReceivableProfile.member_id)
+            .all()
+        )
+        imported = 0
+        for profile, member in rows:
+            seed = _match_seed(member)
+            if not seed:
+                continue
+
+            profile.legacy_source_row = int(seed.get("source_row")) if seed.get("source_row") is not None else None
+            profile.legacy_balance = int(seed.get("current_arrears") or 0)
+            profile.legacy_months = seed.get("months") or []
+            profile.legacy_note = seed.get("legacy_note") or None
+            profile.vehicle_count = max(1, int(seed.get("vehicle_count") or 1))
+
+            # 기존 원장 계정은 원장 기준. 수동지정 계정만 보존한다.
+            if int(getattr(profile, "account_manual_override", 0) or 0) != 1:
+                account = seed.get("account_type") or _infer_account(member)
+                profile.account_type = account
+                profile.unit_fee = ACCOUNT_FEES.get(account, 5000)
+
+            # 2026-08까지의 잔액은 snapshot에 이미 포함되어 있으므로 9월부터 DB 자동부과.
+            profile.first_charge_date = LEGACY_NEXT_BILL_DATE.isoformat()
+            imported += 1
+
+        payload = json.loads(DATA_FILE.read_text(encoding="utf-8")) if DATA_FILE.exists() else {}
+        state_value = json.dumps(
+            {
+                "source_filename": payload.get("source_filename", ""),
+                "source_sha256": payload.get("source_sha256", ""),
+                "source_rows": len(payload.get("rows", []) or []),
+                "matched_profiles": imported,
+                "cutover_through": LEGACY_DATA_THROUGH_KEY,
+                "next_bill_date": LEGACY_NEXT_BILL_DATE.isoformat(),
+                "ledger_mode": LEDGER_MODE,
+                "excel_reupload_required": False,
+                "applied_at": datetime.now(KST).isoformat(),
+            },
+            ensure_ascii=False,
+        )
+        db.add(ReceivableSystemState(key=LEGACY_BASELINE_KEY, value=state_value))
+        try:
+            db.commit()
+        except IntegrityError:
+            # 다중 worker가 동시에 최초 이관을 시도한 경우 PK marker가 중복을 차단한다.
+            db.rollback()
+            if not _baseline_marker(db):
+                raise
+        _legacy_baseline_ready = True
+        return imported
+
+
+def _ensure_db_ledger_ready(db: Session) -> int:
+    """DB 공식원장 준비. 평상시에는 프로세스당 최초 1회 marker SELECT만 수행한다."""
+    return _apply_legacy_baseline_once(db)
 
 
 def _repair_account_types(db: Session) -> int:
@@ -365,16 +429,63 @@ def _repair_account_types(db: Session) -> int:
 
 
 def _closure_map(db: Session):
-    rows = (
-        db.query(models.Closure)
-        .filter(models.Closure.deleted_at.is_(None))
-        .order_by(models.Closure.id.desc())
+    """현재 폐업 상태인 회원의 *현재 폐업건*만 member_id -> Closure로 반환한다.
+
+    과거 폐업/양도/이관 이력이 같은 member_id에 남아 있어도 현재 회원이 active이면
+    자동부과 중단/폐업미수 판정에 사용하면 안 된다. 현재 상태의 기준은
+    license_holders.status + license_holders.closure_id 이다.
+
+    구자료 중 status='closed'인데 closure_id가 비어 있는 경우에만 최신 member_id 폐업건을
+    보조적으로 사용한다. active 회원에는 절대 과거 폐업건을 붙이지 않는다.
+    """
+    members = (
+        db.query(models.LicenseHolder)
+        .filter(
+            models.LicenseHolder.deleted_at.is_(None),
+            models.LicenseHolder.status == "closed",
+        )
         .all()
     )
+    if not members:
+        return {}
+
+    by_closure_id = {}
+    explicit_ids = {m.closure_id for m in members if getattr(m, "closure_id", None)}
+    if explicit_ids:
+        for c in (
+            db.query(models.Closure)
+            .filter(
+                models.Closure.id.in_(explicit_ids),
+                models.Closure.deleted_at.is_(None),
+            )
+            .all()
+        ):
+            by_closure_id[c.id] = c
+
     out = {}
-    for c in rows:
-        if c.member_id and c.member_id not in out:
-            out[c.member_id] = c
+    missing = []
+    for m in members:
+        cid = getattr(m, "closure_id", None)
+        c = by_closure_id.get(cid) if cid else None
+        if c is not None:
+            out[m.id] = c
+        else:
+            missing.append(m.id)
+
+    # 하위호환: status=closed이지만 closure_id가 없는 구자료만 최신 연결 폐업건으로 보강.
+    if missing:
+        rows = (
+            db.query(models.Closure)
+            .filter(
+                models.Closure.member_id.in_(missing),
+                models.Closure.deleted_at.is_(None),
+            )
+            .order_by(models.Closure.id.desc())
+            .all()
+        )
+        for c in rows:
+            if c.member_id and c.member_id not in out:
+                out[c.member_id] = c
     return out
 
 
@@ -408,8 +519,9 @@ def _has_legacy_evidence(member, profile) -> bool:
     if int(getattr(profile, "legacy_balance", 0) or 0) != 0:
         return True
 
-    # source_row가 누락된 과거 DB도 원본 seed의 차량번호+성명 일치로 마지막 확인.
-    return _match_seed(member) is not None
+    # 컷오버 이후 신규 판정에서 bundled Excel/JSON을 다시 조회하지 않는다.
+    # 최초 이관 때 매칭된 회원은 legacy_source_row/legacy_months/legacy_balance에 영구 표식이 남는다.
+    return False
 
 
 def _true_registration_date(member) -> Optional[date]:
@@ -526,54 +638,84 @@ def _sync_charges(db: Session) -> int:
     return added
 
 
+def _ensure_current_month_billing(db: Session) -> int:
+    """현재 월 자동부과를 월 1회 보장한다.
+
+    2026-08까지는 최신 원장 snapshot에 포함되어 있어 자동부과하지 않는다.
+    2026-09부터는 해당 월 첫 수납화면 접근 시 DB에서 자동 생성하며,
+    완료 marker를 영구 저장해 재기동 후에도 매 요청마다 전수부과를 반복하지 않는다.
+    """
+    global _billing_ready_month
+    today = datetime.now(KST).date()
+    month_key = _month_key(today)
+    if month_key <= LEGACY_DATA_THROUGH_KEY:
+        _billing_ready_month = month_key
+        return 0
+    if _billing_ready_month == month_key:
+        return 0
+
+    state_key = f"receivable_billing_generated:{month_key}"
+    with _billing_month_lock:
+        if _billing_ready_month == month_key:
+            return 0
+        if db.query(ReceivableSystemState).filter(ReceivableSystemState.key == state_key).first():
+            _billing_ready_month = month_key
+            return 0
+
+        # 부과 직전 계정/폐업 상태를 다시 확인한다.
+        _repair_account_types(db)
+        _repair_invalid_auto_charges(db)
+        added = _sync_charges(db)
+        db.add(
+            ReceivableSystemState(
+                key=state_key,
+                value=json.dumps(
+                    {"billing_month": month_key, "charges_created": added, "applied_at": datetime.now(KST).isoformat()},
+                    ensure_ascii=False,
+                ),
+            )
+        )
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            # 다른 worker가 먼저 marker를 만들었을 수 있다.
+            if not db.query(ReceivableSystemState).filter(ReceivableSystemState.key == state_key).first():
+                raise
+        _billing_ready_month = month_key
+        return added
+
+
 def _sync_all(db: Session):
-    # 과거 profile의 legacy 표식을 먼저 복구해 기존회원이 신규로 오판되지 않게 한다.
-    legacy_markers = _repair_legacy_markers(db)
-    # 잘못 생성된 미래/중복/폐업후 자동부과를 제거한 뒤 새 월을 생성한다.
+    """운영 DB 동기화. Excel/JSON 재반영은 절대 하지 않는다."""
+    baseline_imported = _ensure_db_ledger_ready(db)
+    p = _sync_profiles_full(db, allow_legacy_seed=False)
     removed = _repair_invalid_auto_charges(db)
-    p = _sync_profiles_full(db)
     r = _repair_account_types(db)
-    c = _sync_charges(db)
+    c = _ensure_current_month_billing(db)
+    # 신규 profile이 이번 달부터 즉시 부과대상인 back-date 입력일 수 있으므로 마지막 보정 1회.
+    if p:
+        c += _sync_charges(db)
     return {
         "profiles_created": p,
         "charges_created": c,
         "charges_removed": removed,
         "accounts_repaired": r,
-        "legacy_markers_repaired": legacy_markers,
+        "legacy_baseline_imported_once": baseline_imported,
+        "ledger_mode": LEDGER_MODE,
+        "excel_reupload_required": False,
     }
 
 
-# 조회 API는 즉시 응답하고, 무거운 전체 동기화는 응답 뒤 백그라운드에서만 실행.
-_BG_SYNC_INTERVAL_SECONDS = 600
-_bg_lock = threading.Lock()
-_last_bg_sync_ts = 0.0
-_bg_sync_queued = False
-
-
-def _background_sync_runner():
-    global _last_bg_sync_ts, _bg_sync_queued
-    if not _bg_lock.acquire(blocking=False):
-        return
-    db = SessionLocal()
-    try:
-        _sync_all(db)
-        _last_bg_sync_ts = time.monotonic()
-    except Exception:
-        db.rollback()
-    finally:
-        db.close()
-        _bg_sync_queued = False
-        _bg_lock.release()
-
-
 def _schedule_background_sync(background_tasks: BackgroundTasks):
-    global _bg_sync_queued
-    if _bg_sync_queued:
-        return
-    if time.monotonic() - _last_bg_sync_ts < _BG_SYNC_INTERVAL_SECONDS:
-        return
-    _bg_sync_queued = True
-    background_tasks.add_task(_background_sync_runner)
+    """호환용 no-op.
+
+    과거에는 목록/요약 요청마다 10분 간격으로 3천명 전체 sync를 백그라운드에서 돌렸다.
+    운영 DB가 공식원장이 된 뒤에는 그 전수작업 자체를 없애 DB 경합과 지연을 줄인다.
+    신규회원은 목록 요청의 missing-profile 쿼리로 즉시 연결되고, 월 부과는 /sync 및
+    수납화면 최초 접근 시 필요한 범위에서 보장한다.
+    """
+    return None
 
 
 def _charge_payment_subqueries(db: Session):
@@ -634,14 +776,12 @@ def _latest_contact_subquery(db: Session):
     )
 
 
-def _latest_closure_subquery(db: Session):
-    """폐업/양도/이관의 실제 Closure 행을 회원별 최신 1건으로 가져온다.
+def _current_closure_subquery(db: Session):
+    """LicenseHolder.closure_id가 가리키는 현재 폐업건의 메타데이터.
 
-    수납·미수금의 폐업 판정은 LicenseHolder.status/deleted_at가 아니라
-    이 Closure 행의 존재를 기준으로 한다. 그래야 단순 상태오류/과거 이관 시점의
-    stale status 때문에 기존 원장 회원이 폐업으로 오판되지 않는다.
+    과거 Closure.member_id 이력은 현재 활성/폐업 판정에 사용하지 않는다.
     """
-    ranked = (
+    return (
         db.query(
             models.Closure.id.label("closure_id"),
             models.Closure.member_id.label("member_id"),
@@ -653,48 +793,26 @@ def _latest_closure_subquery(db: Session):
             models.Closure.transfer_region.label("transfer_region"),
             models.Closure.receipt_date.label("receipt_date"),
             models.Closure.data_type.label("data_type"),
-            func.row_number().over(
-                partition_by=models.Closure.member_id,
-                order_by=models.Closure.id.desc(),
-            ).label("rn"),
         )
-        .filter(models.Closure.deleted_at.is_(None), models.Closure.member_id.isnot(None))
-        .subquery()
-    )
-    return (
-        db.query(
-            ranked.c.closure_id.label("closure_id"),
-            ranked.c.member_id.label("member_id"),
-            ranked.c.management_number.label("management_number"),
-            ranked.c.closure_date.label("closure_date"),
-            ranked.c.closure_type.label("closure_type"),
-            ranked.c.reason.label("reason"),
-            ranked.c.transferee.label("transferee"),
-            ranked.c.transfer_region.label("transfer_region"),
-            ranked.c.receipt_date.label("receipt_date"),
-            ranked.c.data_type.label("data_type"),
-        )
-        .filter(ranked.c.rn == 1)
+        .filter(models.Closure.deleted_at.is_(None))
         .subquery()
     )
 
 
-def _receivable_active_sql(latest_closure_sq):
-    """수납 모듈의 활성 판정.
-
-    실제 Closure가 없고 관리자 삭제/예정자가 아니면 활성으로 본다.
-    LicenseHolder.status가 과거 데이터 때문에 잘못 closed로 남아 있어도 Closure가
-    없으면 폐업 미수 목록으로 보내지 않는다.
-    """
+def _receivable_active_sql(_current_closure_sq=None):
+    """현재 회원관리의 status를 그대로 따른 활성회원 판정."""
     return and_(
-        latest_closure_sq.c.closure_id.is_(None),
         models.LicenseHolder.deleted_at.is_(None),
-        or_(models.LicenseHolder.status.is_(None), models.LicenseHolder.status != "pending"),
+        or_(models.LicenseHolder.status.is_(None), models.LicenseHolder.status == "active"),
     )
 
 
-def _receivable_closed_sql(latest_closure_sq):
-    return latest_closure_sq.c.closure_id.isnot(None)
+def _receivable_closed_sql(_current_closure_sq=None):
+    """현재 회원관리에서 실제 closed 상태인 회원만 폐업 현재회원으로 판정."""
+    return and_(
+        models.LicenseHolder.deleted_at.is_(None),
+        models.LicenseHolder.status == "closed",
+    )
 
 
 def _billing_state(member, profile, balance: int, is_closed: bool = False) -> str:
@@ -731,7 +849,7 @@ def _serialize_member(
     transfer_region="",
     closure_receipt_date="",
 ):
-    is_closed = closure_id is not None
+    is_closed = (getattr(member, "status", None) or "active") == "closed"
     canonical_membership = "가입" if is_association_member(getattr(member, "membership_date", None)) else "미가입"
     billing_state = _billing_state(member, profile, int(balance), is_closed=is_closed)
     # '첫 부과일'은 실제 신규등록자에게만 보여준다. legacy 기존회원의 9/1은 내부 컷오버일일 뿐이다.
@@ -777,7 +895,8 @@ def _ensure_profile_for_member(db: Session, member_id: int):
         return None
     if (member.status or "active") == "pending":
         return None
-    p = _make_profile(member, _match_seed(member))
+    _ensure_db_ledger_ready(db)
+    p = _make_profile(member, None)
     db.add(p)
     try:
         db.commit()
@@ -798,6 +917,7 @@ def meta(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    _ensure_db_ledger_ready(db)
     regions = [
         r[0]
         for r in db.query(models.LicenseHolder.region)
@@ -806,7 +926,7 @@ def meta(
         .order_by(models.LicenseHolder.region.asc())
         .all()
     ]
-    return {"regions": regions, "account_types": list(ACCOUNT_FEES), "contact_statuses": sorted(CONTACT_STATUSES)}
+    return {"regions": regions, "account_types": list(ACCOUNT_FEES), "contact_statuses": sorted(CONTACT_STATUSES), "ledger_mode": LEDGER_MODE, "excel_reupload_required": False, "baseline_key": LEGACY_BASELINE_KEY}
 
 
 @router.get("/api/receivables/sync")
@@ -823,16 +943,30 @@ def verify_legacy_import(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    _ensure_db_ledger_ready(db)
+    payload = json.loads(DATA_FILE.read_text(encoding="utf-8")) if DATA_FILE.exists() else {}
     _load_seed()
     seed_rows = _seed_cache or []
-    seed_total = sum(int(r.get("current_arrears") or 0) for r in seed_rows)
+
+    def signed_stats(values):
+        vals = [int(v or 0) for v in values]
+        return {
+            "arrears_members": sum(1 for v in vals if v > 0),
+            "arrears_total": sum(v for v in vals if v > 0),
+            "prepaid_members": sum(1 for v in vals if v < 0),
+            "prepaid_total": sum(-v for v in vals if v < 0),
+            "settled_members": sum(1 for v in vals if v == 0),
+            "net_balance": sum(vals),
+        }
+
+    seed_stats = signed_stats([r.get("current_arrears") for r in seed_rows])
     seed_by_account = {}
     for r in seed_rows:
         k = r.get("account_type") or "미상"
         seed_by_account[k] = seed_by_account.get(k, 0) + 1
 
     profiles = db.query(ReceivableProfile).filter(ReceivableProfile.legacy_source_row.isnot(None)).all()
-    db_total_legacy_balance = sum(int(p.legacy_balance or 0) for p in profiles)
+    db_stats = signed_stats([p.legacy_balance for p in profiles])
     db_by_account = {}
     for p in profiles:
         db_by_account[p.account_type] = db_by_account.get(p.account_type, 0) + 1
@@ -843,30 +977,50 @@ def verify_legacy_import(
         + func.coalesce(charges_sq.c.charge_total, 0)
         - func.coalesce(payments_sq.c.payment_total, 0)
     )
-    db_current_total = (
-        db.query(func.coalesce(func.sum(balance_expr), 0))
-        .outerjoin(charges_sq, charges_sq.c.member_id == ReceivableProfile.member_id)
-        .outerjoin(payments_sq, payments_sq.c.member_id == ReceivableProfile.member_id)
-        .filter(ReceivableProfile.legacy_source_row.isnot(None))
-        .scalar()
-        or 0
-    )
+    current_balances = [
+        int(v or 0) for (v,) in (
+            db.query(balance_expr)
+            .outerjoin(charges_sq, charges_sq.c.member_id == ReceivableProfile.member_id)
+            .outerjoin(payments_sq, payments_sq.c.member_id == ReceivableProfile.member_id)
+            .filter(ReceivableProfile.legacy_source_row.isnot(None))
+            .all()
+        )
+    ]
+
+    marker = _baseline_marker(db)
+    marker_value = {}
+    if marker and marker.value:
+        try:
+            marker_value = json.loads(marker.value)
+        except Exception:
+            marker_value = {"raw": marker.value}
 
     return {
-        "legacy_json": {
-            "row_count": len(seed_rows),
-            "total_arrears_2026_08": seed_total,
-            "by_account_type": seed_by_account,
+        "system": {
+            "ledger_mode": LEDGER_MODE,
+            "excel_reupload_required": False,
+            "baseline_applied": bool(marker),
+            "baseline": marker_value,
         },
-        "current_db": {
+        "legacy_json": {
+            "source_filename": payload.get("source_filename", ""),
+            "source_sha256": payload.get("source_sha256", ""),
+            "row_count": len(seed_rows),
+            **seed_stats,
+            "by_account_type": seed_by_account,
+            "excluded_rows": payload.get("excluded_rows", []),
+        },
+        "current_db_legacy_snapshot": {
             "matched_profile_count": len(profiles),
-            "total_legacy_balance_asis": db_total_legacy_balance,
-            "total_current_balance_incl_auto_charges": int(db_current_total),
+            **db_stats,
             "by_account_type": db_by_account,
         },
+        "current_db_after_program_activity": signed_stats(current_balances),
         "match": {
             "row_count_matches": len(seed_rows) == len(profiles),
-            "legacy_balance_matches": seed_total == db_total_legacy_balance,
+            "legacy_net_balance_matches": seed_stats["net_balance"] == db_stats["net_balance"],
+            "legacy_arrears_total_matches": seed_stats["arrears_total"] == db_stats["arrears_total"],
+            "legacy_prepaid_total_matches": seed_stats["prepaid_total"] == db_stats["prepaid_total"],
         },
     }
 
@@ -877,6 +1031,8 @@ def summary(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    _ensure_db_ledger_ready(db)
+    _ensure_current_month_billing(db)
     charges_sq, payments_sq = _charge_payment_subqueries(db)
     balance_expr = (
         func.coalesce(ReceivableProfile.legacy_balance, 0)
@@ -884,9 +1040,10 @@ def summary(
         - func.coalesce(payments_sq.c.payment_total, 0)
     )
     positive_balance = case((balance_expr > 0, balance_expr), else_=0)
-    latest_closure_sq = _latest_closure_subquery(db)
-    active_cond = _receivable_active_sql(latest_closure_sq)
-    closed_cond = _receivable_closed_sql(latest_closure_sq)
+    prepaid_balance = case((balance_expr < 0, -balance_expr), else_=0)
+    current_closure_sq = _current_closure_subquery(db)
+    active_cond = _receivable_active_sql(current_closure_sq)
+    closed_cond = _receivable_closed_sql(current_closure_sq)
     today_iso = datetime.now(KST).date().isoformat()
 
     row = (
@@ -894,15 +1051,19 @@ def summary(
             func.coalesce(func.sum(case((active_cond, 1), else_=0)), 0).label("active_members"),
             func.coalesce(func.sum(case((and_(active_cond, balance_expr > 0), 1), else_=0)), 0).label("active_arrears_members"),
             func.coalesce(func.sum(case((active_cond, positive_balance), else_=0)), 0).label("active_arrears_total"),
+            func.coalesce(func.sum(case((and_(active_cond, balance_expr < 0), 1), else_=0)), 0).label("active_prepaid_members"),
+            func.coalesce(func.sum(case((active_cond, prepaid_balance), else_=0)), 0).label("active_prepaid_total"),
             func.coalesce(func.sum(case((closed_cond, 1), else_=0)), 0).label("closed_members"),
             func.coalesce(func.sum(case((and_(closed_cond, balance_expr > 0), 1), else_=0)), 0).label("closed_arrears_members"),
             func.coalesce(func.sum(case((closed_cond, positive_balance), else_=0)), 0).label("closed_arrears_total"),
+            func.coalesce(func.sum(case((and_(closed_cond, balance_expr < 0), 1), else_=0)), 0).label("closed_prepaid_members"),
+            func.coalesce(func.sum(case((closed_cond, prepaid_balance), else_=0)), 0).label("closed_prepaid_total"),
         )
         .select_from(ReceivableProfile)
         .join(models.LicenseHolder, models.LicenseHolder.id == ReceivableProfile.member_id)
         .outerjoin(charges_sq, charges_sq.c.member_id == ReceivableProfile.member_id)
         .outerjoin(payments_sq, payments_sq.c.member_id == ReceivableProfile.member_id)
-        .outerjoin(latest_closure_sq, latest_closure_sq.c.member_id == ReceivableProfile.member_id)
+        .outerjoin(current_closure_sq, current_closure_sq.c.closure_id == models.LicenseHolder.closure_id)
         .one()
     )
 
@@ -919,10 +1080,10 @@ def summary(
     pending_rows = (
         db.query(ReceivableProfile, models.LicenseHolder)
         .join(models.LicenseHolder, models.LicenseHolder.id == ReceivableProfile.member_id)
-        .outerjoin(latest_closure_sq, latest_closure_sq.c.member_id == ReceivableProfile.member_id)
+        .outerjoin(current_closure_sq, current_closure_sq.c.closure_id == models.LicenseHolder.closure_id)
         .filter(ReceivableProfile.legacy_source_row.is_(None))
         .filter(ReceivableProfile.first_charge_date > today_iso)
-        .filter(_receivable_active_sql(latest_closure_sq))
+        .filter(_receivable_active_sql(current_closure_sq))
         .all()
     )
     pending_members = sum(1 for p, m in pending_rows if _is_true_new_member(m, p))
@@ -932,11 +1093,220 @@ def summary(
         "active_members": int(row.active_members or 0),
         "active_arrears_members": int(row.active_arrears_members or 0),
         "active_arrears_total": int(row.active_arrears_total or 0),
+        "active_prepaid_members": int(row.active_prepaid_members or 0),
+        "active_prepaid_total": int(row.active_prepaid_total or 0),
         "closed_members": int(row.closed_members or 0),
         "closed_arrears_members": int(row.closed_arrears_members or 0),
         "closed_arrears_total": int(row.closed_arrears_total or 0),
+        "closed_prepaid_members": int(row.closed_prepaid_members or 0),
+        "closed_prepaid_total": int(row.closed_prepaid_total or 0),
         "pending_members": int(pending_members),
         "today_paid": int(today_paid),
+    }
+
+
+def _normalize_closure_type(v: str) -> str:
+    v = str(v or "").strip()
+    return "폐업" if v == "폐지" else (v or "폐업")
+
+
+def _hydrate_closure_records(db: Session, closure_rows):
+    """폐업관리 화면용. 폐업현황(closures) 행 자체를 기준으로 표시하고,
+    수납 원장 연결은 member_id 우선 + 폐업현황 라우터의 안전 매칭 규칙으로 보강한다.
+
+    중요: 폐업현황 행이 원장과 연결되지 않아도 행 자체는 숨기지 않는다.
+    관리번호/구분/접수일/처리일/양수인/이관지역은 Closure가 원본이다.
+    """
+    if not closure_rows:
+        return []
+
+    # 기존 폐업현황 화면과 동일한 안전 매칭 규칙을 재사용한다.
+    from app.routers.closures import _build_member_lookup, _find_linked_member
+
+    by_id, by_vehicle, by_resident = _build_member_lookup(db, closure_rows)
+    linked = {}
+    member_ids = set()
+    for c in closure_rows:
+        m = _find_linked_member(c, by_id, by_vehicle, by_resident)
+        linked[c.id] = m
+        if m is not None:
+            member_ids.add(m.id)
+
+    profile_map = {}
+    balance_map = {}
+    contact_map = {}
+    if member_ids:
+        charges_sq, payments_sq = _charge_payment_subqueries(db)
+        balance_expr = (
+            func.coalesce(ReceivableProfile.legacy_balance, 0)
+            + func.coalesce(charges_sq.c.charge_total, 0)
+            - func.coalesce(payments_sq.c.payment_total, 0)
+        ).label("balance")
+        for profile, balance in (
+            db.query(ReceivableProfile, balance_expr)
+            .outerjoin(charges_sq, charges_sq.c.member_id == ReceivableProfile.member_id)
+            .outerjoin(payments_sq, payments_sq.c.member_id == ReceivableProfile.member_id)
+            .filter(ReceivableProfile.member_id.in_(member_ids))
+            .all()
+        ):
+            profile_map[profile.member_id] = profile
+            balance_map[profile.member_id] = int(balance or 0)
+
+        latest_contact_sq = _latest_contact_subquery(db)
+        for mid, status, contact_date in (
+            db.query(
+                latest_contact_sq.c.member_id,
+                latest_contact_sq.c.status,
+                latest_contact_sq.c.contact_date,
+            )
+            .filter(latest_contact_sq.c.member_id.in_(member_ids))
+            .all()
+        ):
+            contact_map[int(mid)] = (status or "미연락", contact_date or "")
+
+    items = []
+    for c in closure_rows:
+        m = linked.get(c.id)
+        ct = _normalize_closure_type(c.closure_type)
+        if m is not None:
+            profile = profile_map.get(m.id)
+            contact_status, last_contact_date = contact_map.get(m.id, ("미연락", ""))
+            if profile is not None:
+                item = _serialize_member(
+                    m, profile, balance_map.get(m.id, 0),
+                    contact_status, last_contact_date,
+                    c.id, c.management_number or "", c.closure_date or "", ct,
+                    c.reason or "", c.transferee or "", c.transfer_region or "",
+                    c.receipt_date or "",
+                )
+            else:
+                item = {
+                    "member_id": m.id,
+                    "name": m.name or c.name or "",
+                    "vehicle_number": m.vehicle_number or c.vehicle_number or "",
+                    "region": m.region or c.region or "",
+                    "category": m.category or "",
+                    "account_type": "협회비" if is_association_member(getattr(m, "membership_date", None)) else "관리비",
+                    "unit_fee": 0, "vehicle_count": 1,
+                    "membership_status": "가입" if is_association_member(getattr(m, "membership_date", None)) else "미가입",
+                    "membership_date": m.membership_date or "",
+                    "member_status": ct, "active": False,
+                    "balance": None, "arrears_amount": 0, "prepaid_amount": 0,
+                    "first_charge_date": "", "billing_state": "폐업기록",
+                    "legacy_member": False,
+                    "contact_status": contact_status, "last_contact_date": last_contact_date,
+                }
+            # 폐업관리 목록의 식별정보는 현재 회원정보가 아니라 해당 폐업현황 행을 우선한다.
+            item.update({
+                "name": c.name or item.get("name", ""),
+                "vehicle_number": c.vehicle_number or item.get("vehicle_number", ""),
+                "region": c.region or item.get("region", ""),
+            })
+        else:
+            # 과거 폐업현황은 회원마스터/미수원장과 연결되지 않아도 반드시 보여준다.
+            item = {
+                "member_id": None,
+                "name": c.name or "",
+                "vehicle_number": c.vehicle_number or "",
+                "region": c.region or "",
+                "category": "", "account_type": "", "unit_fee": 0, "vehicle_count": 1,
+                "membership_status": "", "membership_date": "",
+                "member_status": ct, "active": False,
+                "balance": None, "arrears_amount": 0, "prepaid_amount": 0,
+                "first_charge_date": "", "billing_state": "폐업기록",
+                "legacy_member": False,
+                "contact_status": "", "last_contact_date": "",
+            }
+
+        item.update({
+            "closure_id": c.id,
+            "closure_management_number": c.management_number or "",
+            "closure_date": c.closure_date or "",
+            "closure_type": ct,
+            "closure_reason": c.reason or "",
+            "transferee": c.transferee or "",
+            "transfer_region": c.transfer_region or "",
+            "closure_receipt_date": c.receipt_date or "",
+            "closure_record_only": m is None,
+            "has_receivable_link": bool(m is not None and profile_map.get(m.id) is not None),
+        })
+        items.append(item)
+    return items
+
+
+def _list_closure_records(
+    db: Session, *, q: str = "", region: str = "", account_type: str = "",
+    contact_status: str = "", billing_status: str = "", arrears_only: bool = False,
+    page: int = 1, limit: int = 50,
+):
+    """수납/미수금의 '폐업관리'는 회원상태 추정 목록이 아니라
+    인허가/변경 > 폐업현황(closures) 원장을 그대로 기준으로 한다.
+    """
+    base = db.query(models.Closure).filter(models.Closure.deleted_at.is_(None))
+    base = base.filter(or_(
+        and_(models.Closure.vehicle_number.isnot(None), models.Closure.vehicle_number != ""),
+        and_(models.Closure.name.isnot(None), models.Closure.name != ""),
+    ))
+    if region:
+        base = base.filter(models.Closure.region == region)
+    raw_q = (q or "").strip()
+    if raw_q:
+        pat = f"%{raw_q}%"
+        base = base.filter(or_(
+            models.Closure.management_number.ilike(pat),
+            models.Closure.name.ilike(pat),
+            models.Closure.vehicle_number.ilike(pat),
+            models.Closure.region.ilike(pat),
+            models.Closure.transferee.ilike(pat),
+            models.Closure.transfer_region.ilike(pat),
+            models.Closure.closure_type.ilike(pat),
+        ))
+
+    # 폐업현황의 최신 입력 순서가 실제 폐업현황 화면의 최근 자료와 가장 안정적으로 일치한다.
+    ordered = base.order_by(models.Closure.id.desc())
+    needs_link_filter = bool(account_type or contact_status or billing_status or arrears_only)
+    if not needs_link_filter:
+        total = base.order_by(None).count()
+        closure_rows = ordered.offset((page - 1) * limit).limit(limit).all()
+        items = _hydrate_closure_records(db, closure_rows)
+    else:
+        # 원장/연락 필터를 사용하는 경우에만 연결정보를 보강한 뒤 필터한다.
+        # 기본 폐업관리 조회는 위 경로로 DB 페이지네이션하므로 빠르다.
+        all_items = _hydrate_closure_records(db, ordered.all())
+        def keep(x):
+            if account_type and x.get("account_type") != account_type:
+                return False
+            if contact_status:
+                cs = x.get("contact_status") or ""
+                if contact_status == "미연락":
+                    if cs not in ("", "미연락"):
+                        return False
+                elif cs != contact_status:
+                    return False
+            bal = x.get("balance")
+            if arrears_only and not (isinstance(bal, (int, float)) and bal > 0):
+                return False
+            if billing_status == "arrears" and not (isinstance(bal, (int, float)) and bal > 0):
+                return False
+            if billing_status == "settled" and bal != 0:
+                return False
+            if billing_status == "prepaid" and not (isinstance(bal, (int, float)) and bal < 0):
+                return False
+            if billing_status == "pending":
+                return False
+            return True
+        filtered = [x for x in all_items if keep(x)]
+        total = len(filtered)
+        start = (page - 1) * limit
+        items = filtered[start:start + limit]
+
+    return {
+        "items": items,
+        "count": int(total),
+        "page": page,
+        "limit": limit,
+        "pages": max(1, (int(total) + limit - 1) // limit),
+        "source": "closures",
     }
 
 
@@ -949,18 +1319,33 @@ def list_members(
     region: str = "",
     account_type: str = "",
     contact_status: str = "",
-    billing_status: str = Query("", pattern="^(|pending|arrears|settled)$"),
+    billing_status: str = Query("", pattern="^(|pending|arrears|settled|prepaid)$"),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=10, le=200),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    # 핵심: 신규등록 회원만 즉시 소량 동기화. 전체 3,239명 full sync는 하지 않는다.
-    _sync_missing_profiles_fast(db, limit=100)
+    # 최신 Excel은 최초 1회만 DB로 이관된다. 이후 신규회원만 빠르게 연결한다.
+    _ensure_db_ledger_ready(db)
+    created_profiles = _sync_missing_profiles_fast(db, limit=100, allow_legacy_seed=False)
+    _ensure_current_month_billing(db)
+    if created_profiles:
+        _sync_charges(db)
+
+    # 폐업관리는 반드시 인허가/변경 > 폐업현황(closures) 원장을 직접 기준으로 한다.
+    # member_id가 없는 과거 자료도 관리번호/구분과 함께 그대로 보여야 한다.
+    if scope == "closed":
+        result = _list_closure_records(
+            db, q=q, region=region, account_type=account_type,
+            contact_status=contact_status, billing_status=billing_status,
+            arrears_only=arrears_only, page=page, limit=limit,
+        )
+        _schedule_background_sync(background_tasks)
+        return result
 
     charges_sq, payments_sq = _charge_payment_subqueries(db)
     latest_contact_sq = _latest_contact_subquery(db)
-    latest_closure_sq = _latest_closure_subquery(db)
+    current_closure_sq = _current_closure_subquery(db)
     balance_expr = (
         func.coalesce(ReceivableProfile.legacy_balance, 0)
         + func.coalesce(charges_sq.c.charge_total, 0)
@@ -974,27 +1359,27 @@ def list_members(
             balance_expr,
             latest_contact_sq.c.status.label("contact_status"),
             latest_contact_sq.c.contact_date.label("last_contact_date"),
-            latest_closure_sq.c.closure_id.label("closure_id"),
-            latest_closure_sq.c.management_number.label("closure_management_number"),
-            latest_closure_sq.c.closure_date.label("closure_date"),
-            latest_closure_sq.c.closure_type.label("closure_type"),
-            latest_closure_sq.c.reason.label("closure_reason"),
-            latest_closure_sq.c.transferee.label("transferee"),
-            latest_closure_sq.c.transfer_region.label("transfer_region"),
-            latest_closure_sq.c.receipt_date.label("closure_receipt_date"),
+            current_closure_sq.c.closure_id.label("closure_id"),
+            current_closure_sq.c.management_number.label("closure_management_number"),
+            current_closure_sq.c.closure_date.label("closure_date"),
+            current_closure_sq.c.closure_type.label("closure_type"),
+            current_closure_sq.c.reason.label("closure_reason"),
+            current_closure_sq.c.transferee.label("transferee"),
+            current_closure_sq.c.transfer_region.label("transfer_region"),
+            current_closure_sq.c.receipt_date.label("closure_receipt_date"),
         )
         .join(ReceivableProfile, ReceivableProfile.member_id == models.LicenseHolder.id)
         .outerjoin(charges_sq, charges_sq.c.member_id == ReceivableProfile.member_id)
         .outerjoin(payments_sq, payments_sq.c.member_id == ReceivableProfile.member_id)
         .outerjoin(latest_contact_sq, latest_contact_sq.c.member_id == models.LicenseHolder.id)
-        .outerjoin(latest_closure_sq, latest_closure_sq.c.member_id == models.LicenseHolder.id)
+        .outerjoin(current_closure_sq, current_closure_sq.c.closure_id == models.LicenseHolder.closure_id)
     )
 
     if scope == "active":
-        query = query.filter(_receivable_active_sql(latest_closure_sq))
+        query = query.filter(_receivable_active_sql(current_closure_sq))
     elif scope == "closed":
         # 폐업/양도/이관 실제 Closure 기록이 있는 회원만 표시한다.
-        query = query.filter(_receivable_closed_sql(latest_closure_sq))
+        query = query.filter(_receivable_closed_sql(current_closure_sq))
 
     if arrears_only:
         query = query.filter(balance_expr > 0)
@@ -1012,14 +1397,16 @@ def list_members(
     pending_post_filter = billing_status == "pending"
     if billing_status == "pending":
         query = query.filter(
-            _receivable_active_sql(latest_closure_sq),
+            _receivable_active_sql(current_closure_sq),
             ReceivableProfile.legacy_source_row.is_(None),
             ReceivableProfile.first_charge_date > today_iso,
         )
     elif billing_status == "arrears":
         query = query.filter(balance_expr > 0)
     elif billing_status == "settled":
-        query = query.filter(balance_expr <= 0)
+        query = query.filter(balance_expr == 0)
+    elif billing_status == "prepaid":
+        query = query.filter(balance_expr < 0)
 
     raw_q = (q or "").strip()
     if raw_q:
@@ -1030,10 +1417,10 @@ def list_members(
                 models.LicenseHolder.vehicle_number.ilike(pat),
                 models.LicenseHolder.management_number.ilike(pat),
                 models.LicenseHolder.mobile.ilike(pat),
-                latest_closure_sq.c.management_number.ilike(pat),
-                latest_closure_sq.c.closure_type.ilike(pat),
-                latest_closure_sq.c.transferee.ilike(pat),
-                latest_closure_sq.c.transfer_region.ilike(pat),
+                current_closure_sq.c.management_number.ilike(pat),
+                current_closure_sq.c.closure_type.ilike(pat),
+                current_closure_sq.c.transferee.ilike(pat),
+                current_closure_sq.c.transfer_region.ilike(pat),
             )
         )
 
@@ -1085,9 +1472,12 @@ def list_members(
 def member_detail(
     member_id: int,
     year: int = 2026,
+    closure_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    _ensure_db_ledger_ready(db)
+    _ensure_current_month_billing(db)
     member = db.query(models.LicenseHolder).filter(models.LicenseHolder.id == member_id).first()
     if not member:
         raise HTTPException(404, "회원을 찾을 수 없습니다.")
@@ -1095,12 +1485,46 @@ def member_detail(
     if not profile:
         raise HTTPException(404, "미수금 프로필을 찾을 수 없습니다.")
 
-    closure = (
-        db.query(models.Closure)
-        .filter(models.Closure.member_id == member_id, models.Closure.deleted_at.is_(None))
-        .order_by(models.Closure.id.desc())
-        .first()
-    )
+    # 현재 폐업상태와 과거 폐업현황 조회 문맥을 분리한다.
+    # active 회원에게 과거 closure 이력이 있어도 현재 폐업으로 취급하지 않는다.
+    current_closure = None
+    if (member.status or "active") == "closed":
+        if getattr(member, "closure_id", None):
+            current_closure = (
+                db.query(models.Closure)
+                .filter(
+                    models.Closure.id == member.closure_id,
+                    models.Closure.deleted_at.is_(None),
+                )
+                .first()
+            )
+        if current_closure is None:
+            current_closure = (
+                db.query(models.Closure)
+                .filter(models.Closure.member_id == member_id, models.Closure.deleted_at.is_(None))
+                .order_by(models.Closure.id.desc())
+                .first()
+            )
+
+    selected_closure = None
+    if closure_id is not None:
+        candidate = (
+            db.query(models.Closure)
+            .filter(models.Closure.id == closure_id, models.Closure.deleted_at.is_(None))
+            .first()
+        )
+        if candidate is not None:
+            direct = getattr(candidate, "member_id", None) == member_id
+            same_identity = (
+                _norm(candidate.name) == _norm(member.name)
+                and _norm(candidate.vehicle_number) == _norm(member.vehicle_number)
+                and bool(_norm(candidate.name)) and bool(_norm(candidate.vehicle_number))
+            )
+            if direct or same_identity:
+                selected_closure = candidate
+
+    # 계산/자동부과 중단에는 현재 폐업건만 사용한다.
+    closure = current_closure
 
     # 과거 버그로 DB에 남아 있어도 미래/legacy중복/폐업후 auto charge는 상세 잔액에서 제외한다.
     all_member_charges = db.query(ReceivableCharge).filter(ReceivableCharge.member_id == member_id).all()
@@ -1235,15 +1659,28 @@ def member_detail(
         balance,
         latest.status if latest else "미연락",
         latest.contact_date if latest else "",
-        getattr(closure, "id", None),
-        getattr(closure, "management_number", "") or "",
-        getattr(closure, "closure_date", "") or "",
-        getattr(closure, "closure_type", "") or "",
-        getattr(closure, "reason", "") or "",
-        getattr(closure, "transferee", "") or "",
-        getattr(closure, "transfer_region", "") or "",
-        getattr(closure, "receipt_date", "") or "",
+        getattr(current_closure, "id", None),
+        getattr(current_closure, "management_number", "") or "",
+        getattr(current_closure, "closure_date", "") or "",
+        getattr(current_closure, "closure_type", "") or "",
+        getattr(current_closure, "reason", "") or "",
+        getattr(current_closure, "transferee", "") or "",
+        getattr(current_closure, "transfer_region", "") or "",
+        getattr(current_closure, "receipt_date", "") or "",
     )
+    if selected_closure is not None:
+        member_json["closure_context"] = {
+            "id": selected_closure.id,
+            "management_number": selected_closure.management_number or "",
+            "closure_type": _normalize_closure_type(selected_closure.closure_type),
+            "closure_date": selected_closure.closure_date or "",
+            "receipt_date": selected_closure.receipt_date or "",
+            "transferee": selected_closure.transferee or "",
+            "transfer_region": selected_closure.transfer_region or "",
+            "reason": selected_closure.reason or "",
+        }
+    else:
+        member_json["closure_context"] = None
     return {
         "member": member_json,
         "profile": {
@@ -1287,6 +1724,7 @@ def add_payment(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    _ensure_db_ledger_ready(db)
     d = _parse_date(payload.payment_date)
     if not d:
         raise HTTPException(400, "입금일 형식이 올바르지 않습니다.")
@@ -1330,6 +1768,7 @@ def add_contact(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    _ensure_db_ledger_ready(db)
     if payload.status not in CONTACT_STATUSES:
         raise HTTPException(400, "지원하지 않는 연락상태입니다.")
     d = _parse_date(payload.contact_date)
@@ -1358,6 +1797,7 @@ def update_account(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    _ensure_db_ledger_ready(db)
     if payload.account_type not in ACCOUNT_FEES:
         raise HTTPException(400, "계정은 협회비/관리비/70세 중 하나여야 합니다.")
     profile = _ensure_profile_for_member(db, member_id)

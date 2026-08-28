@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>수납·미수금 | 회원관리시스템</title>
-  <link rel="stylesheet" href="/static/receivables.css?v=20260827-closure3" />
+  <link rel="stylesheet" href="/static/receivables.css?v=20260828-currentstate3" />
 </head>
 <body>
   <div id="appShell" class="app-shell">
@@ -17,8 +17,8 @@
         </div>
       </div>
       <div class="top-actions">
-        <div class="live-pill"><i></i><span>공용 DB 연결</span></div>
-        <button id="syncBtn" class="ghost-btn" type="button">회원 동기화</button>
+        <div class="live-pill"><i></i><span id="ledgerModeLabel">PostgreSQL 공식원장</span></div>
+        <button id="syncBtn" class="ghost-btn" type="button" title="회원 신규연동·월 자동부과만 확인합니다. Excel 원장은 다시 덮어쓰지 않습니다.">회원/부과 동기화</button>
         <button id="logoutBtn" class="ghost-btn" type="button">로그아웃</button>
       </div>
     </header>
@@ -35,6 +35,7 @@
         <article class="kpi-card"><div class="kpi-icon pink">₩</div><div><span>활성 미수금</span><strong id="kpiActiveTotal">-</strong><small id="kpiActiveCount">-</small></div></article>
         <article class="kpi-card"><div class="kpi-icon blue">사람</div><div><span>미수 회원</span><strong id="kpiArrearsMembers">-</strong><small>활성회원 기준</small></div></article>
         <article id="kpiPendingCard" class="kpi-card clickable"><div class="kpi-icon purple">대기</div><div><span>신규 부과대기</span><strong id="kpiPending">-</strong><small>다음 달 1일부터 부과</small></div></article>
+        <article id="kpiPrepaidCard" class="kpi-card clickable"><div class="kpi-icon sky">선납</div><div><span>활성 선납금</span><strong id="kpiPrepaidTotal">-</strong><small id="kpiPrepaidCount">-</small></div></article>
         <article class="kpi-card"><div class="kpi-icon mint">폐업</div><div><span>폐업 미수금</span><strong id="kpiClosedTotal">-</strong><small id="kpiClosedCount">-</small></div></article>
         <article class="kpi-card"><div class="kpi-icon yellow">오늘</div><div><span>오늘 수납</span><strong id="kpiTodayPaid">-</strong><small>공용 DB 합계</small></div></article>
       </section>
@@ -49,7 +50,7 @@
             <div class="search-box"><span>⌕</span><input id="searchInput" placeholder="성명 · 차량번호 · 관리번호 · 핸드폰" autocomplete="off" /></div>
             <select id="regionFilter"><option value="">전체 지역</option></select>
             <select id="accountFilter"><option value="">전체 계정</option><option>협회비</option><option>관리비</option><option>70세</option></select>
-            <select id="billingFilter"><option value="">부과상태 전체</option><option value="pending">부과대기</option><option value="arrears">미수</option><option value="settled">완납</option></select>
+            <select id="billingFilter"><option value="">부과상태 전체</option><option value="pending">부과대기</option><option value="arrears">미수</option><option value="settled">완납</option><option value="prepaid">선납</option></select>
             <select id="contactFilter"><option value="">연락 전체</option><option>미연락</option><option>연락완료</option><option>부재</option><option>재연락 필요</option><option>문자발송</option></select>
           </div>
           <div class="member-table-wrap">
@@ -65,7 +66,7 @@
           <div id="emptyState" class="empty-state">
             <div class="mascot-row"><span class="mascot cat">🐱</span><span class="mascot frog">🐸</span></div>
             <h2>회원을 선택해주세요</h2>
-            <p>왼쪽에서 회원을 선택하면 월별 부과·입금·미수금과 연락 이력을 한눈에 볼 수 있어요.</p>
+            <p>왼쪽에서 회원을 선택하면 월별 부과·입금·미수금과 회원업무를 한눈에 처리할 수 있습니다.</p>
           </div>
 
           <div id="detailContent" class="detail-content hidden">
@@ -94,10 +95,18 @@
               <div class="wide"><span>사유</span><strong id="detailClosureReason">-</strong></div>
             </div>
 
-            <div class="section-head compact"><div><h3>2026 월별 장부</h3><p>원본 엑셀 이력 + 프로그램 추가 수납</p></div><div class="year-chip">2026</div></div>
+            <div id="memberWorkBar" class="member-work-bar">
+              <div><strong>회원업무</strong><span id="memberWorkHint">현재 회원 상태와 동일하게 처리됩니다.</span></div>
+              <div class="member-work-actions">
+                <button id="openMemberWorkBtn" class="work-btn danger" type="button">폐업·양도·이관 처리</button>
+                <a class="work-btn ghost" href="/">전체회원관리 열기</a>
+              </div>
+            </div>
+
+            <div class="section-head compact"><div><h3>2026 월별 장부</h3><p>8월까지 1회 이관 원장 + 이후 프로그램 수납·부과</p></div><div class="year-chip">2026</div></div>
             <div class="monthly-wrap">
               <table class="monthly-table">
-                <thead><tr><th>월</th><th class="num">원본 부과금</th><th class="num">원본 입금</th><th>원본 입금일</th><th class="num">원본 미수금</th><th class="num">자동부과</th><th class="num">추가입금</th><th class="num">반영 미수금</th></tr></thead>
+                <thead><tr><th>월</th><th class="num">원본 부과금</th><th class="num">원본 입금</th><th>원본 입금일</th><th class="num">원본 미수금</th><th class="num">자동부과</th><th class="num">추가입금</th><th class="num">반영 잔액</th></tr></thead>
                 <tbody id="monthlyRows"></tbody>
               </table>
             </div>
@@ -126,6 +135,27 @@
     </main>
   </div>
 
+  <div id="memberActionModal" class="action-modal hidden" aria-hidden="true">
+    <div class="action-modal-card">
+      <div class="action-modal-head"><div><strong id="actionMemberName">회원 업무처리</strong><span id="actionMemberVehicle"></span></div><button id="closeActionModalBtn" type="button">×</button></div>
+      <div class="action-modal-body">
+        <label>처리구분<select id="memberActionType"><option value="폐업">폐업</option><option value="양도">양도</option><option value="이관">이관</option></select></label>
+        <div class="form-grid three">
+          <label>접수일<input id="memberActionReceipt" type="date" /></label>
+          <label>처리일<input id="memberActionDate" type="date" /></label>
+          <label>관리번호<input id="memberActionMgmt" /></label>
+        </div>
+        <div id="transferExtra" class="form-grid two hidden">
+          <label id="transfereeWrap">양수인<input id="memberActionTransferee" placeholder="양수인 성명" /></label>
+          <label>이관/양도지역<input id="memberActionRegion" placeholder="지역" /></label>
+        </div>
+        <label>사유/비고<input id="memberActionReason" placeholder="선택 입력" /></label>
+        <div class="action-modal-note">기존 전체회원관리의 폐업 처리 API를 그대로 사용합니다. 처리 후 미수·선납·입금·연락 이력은 삭제되지 않습니다.</div>
+      </div>
+      <div class="action-modal-foot"><button id="cancelActionBtn" class="work-btn ghost" type="button">취소</button><button id="saveMemberActionBtn" class="work-btn danger" type="button">처리 저장</button></div>
+    </div>
+  </div>
+
   <div id="toast" class="toast"></div>
   <div id="loginOverlay" class="login-overlay hidden">
     <form id="loginForm" class="login-card">
@@ -135,6 +165,6 @@
       <button class="primary-btn" type="submit">로그인</button><div id="loginError" class="login-error"></div>
     </form>
   </div>
-  <script src="/static/receivables.js?v=20260827-closure3" defer></script>
+  <script src="/static/receivables.js?v=20260828-currentstate3" defer></script>
 </body>
 </html>
