@@ -323,14 +323,21 @@ def _infer_account(member) -> str:
     return "협회비" if is_association_member(getattr(member, "membership_date", None)) else "관리비"
 
 
-def _member_registration_date(member) -> date:
-    """신규 첫 부과 기준일: 인가/등록일 우선, 없으면 실제 생성일, 마지막으로 가입일자."""
-    return (
-        _parse_date(getattr(member, "approval_date", None))
-        or _parse_date(getattr(member, "membership_date", None))
-        or _parse_date(getattr(member, "created_at", None))
-        or datetime.now(KST).date()
-    )
+def _billing_basis_date(member, account_type: str) -> Optional[date]:
+    """첫 부과 기준일.
+
+    사용자 업무규칙:
+    - 협회비: 가입일자(membership_date) 기준
+    - 관리비: 자격증명발급일자(certificate_issue_date) 기준
+    - 기준일자가 없으면 자동부과하지 않는다.
+    - created_at / 인가일자는 첫 부과일 대체값으로 사용하지 않는다.
+    """
+    if account_type == "협회비":
+        return _parse_date(getattr(member, "membership_date", None))
+    if account_type == "관리비":
+        return _parse_date(getattr(member, "certificate_issue_date", None))
+    # 70세는 기존 원장/수동계정 보존용이므로 기존 profile의 첫 부과일을 유지한다.
+    return None
 
 
 def _make_profile(member, seed=None) -> ReceivableProfile:
@@ -352,16 +359,17 @@ def _make_profile(member, seed=None) -> ReceivableProfile:
         )
 
     acct = _infer_account(member)
-    first_charge = _first_of_next_month(_member_registration_date(member))
+    basis = _billing_basis_date(member, acct)
+    first_charge = _first_of_next_month(basis) if basis else None
     # 원장 이관 이전 기존회원이 profile만 늦게 생성됐다고 과거 부과를 소급 생성하지 않는다.
-    if first_charge < LEGACY_NEXT_BILL_DATE:
+    if first_charge and first_charge < LEGACY_NEXT_BILL_DATE:
         first_charge = LEGACY_NEXT_BILL_DATE
     return ReceivableProfile(
         member_id=member.id,
         account_type=acct,
         unit_fee=ACCOUNT_FEES.get(acct, 5000),
         vehicle_count=1,
-        first_charge_date=first_charge.isoformat(),
+        first_charge_date=first_charge.isoformat() if first_charge else "",
         legacy_balance=0,
         legacy_months=[],
     )
@@ -658,6 +666,11 @@ def _repair_account_types(db: Session) -> int:
         if p.account_type != correct or int(p.unit_fee or 0) != ACCOUNT_FEES.get(correct, 5000):
             p.account_type = correct
             p.unit_fee = ACCOUNT_FEES.get(correct, 5000)
+            basis = _billing_basis_date(member, correct)
+            first_charge = _first_of_next_month(basis) if basis else None
+            if first_charge and first_charge < LEGACY_NEXT_BILL_DATE:
+                first_charge = LEGACY_NEXT_BILL_DATE
+            p.first_charge_date = first_charge.isoformat() if first_charge else ""
             fixed += 1
     if fixed:
         db.commit()
@@ -760,23 +773,17 @@ def _has_legacy_evidence(member, profile) -> bool:
     return False
 
 
-def _true_registration_date(member) -> Optional[date]:
-    """신규 판정용 실제 업무일자.
-
-    created_at은 기존 회원을 DB로 일괄 이관한 날짜일 수 있으므로 신규 판정에
-    절대 사용하지 않는다. 인가일자/가입일자처럼 실제 회원 업무일자만 사용한다.
-    """
-    return (
-        _parse_date(getattr(member, "approval_date", None))
-        or _parse_date(getattr(member, "membership_date", None))
-    )
+def _true_registration_date(member, profile=None) -> Optional[date]:
+    """신규 부과대기 판정도 실제 첫 부과 기준일과 동일한 업무일자를 사용한다."""
+    account_type = getattr(profile, "account_type", None) or _infer_account(member)
+    return _billing_basis_date(member, account_type)
 
 
 def _is_true_new_member(member, profile) -> bool:
-    """'부과대기'는 원장에 없고 실제 2026-08 이후 신규등록된 회원에게만 붙인다."""
+    """'부과대기'는 원장에 없고 실제 기준일이 컷오버 이후인 신규회원에게만 붙인다."""
     if _has_legacy_evidence(member, profile):
         return False
-    reg = _true_registration_date(member)
+    reg = _true_registration_date(member, profile)
     return bool(reg and reg >= LEGACY_NEW_MEMBER_CUTOFF)
 
 
@@ -1128,13 +1135,22 @@ def _serialize_member(
     is_closed = (getattr(member, "status", None) or "active") == "closed"
     canonical_membership = "가입" if is_association_member(getattr(member, "membership_date", None)) else "미가입"
     billing_state = _billing_state(member, profile, int(balance), is_closed=is_closed)
-    # '첫 부과일'은 실제 신규등록자에게만 보여준다. legacy 기존회원의 9/1은 내부 컷오버일일 뿐이다.
-    display_first_charge = profile.first_charge_date if (not is_closed and _is_true_new_member(member, profile)) else ""
+    # legacy 기존회원의 9/1은 내부 컷오버일일 뿐 화면에 노출하지 않는다.
+    # 신규/비legacy 회원은 기준일자가 없을 때 첫 부과일을 0으로 명확히 표시한다.
+    if not is_closed and not _has_legacy_evidence(member, profile):
+        display_first_charge = profile.first_charge_date or "0"
+    else:
+        display_first_charge = ""
     return {
         "member_id": member.id,
         "name": member.name or "",
+        "management_number": getattr(member, "management_number", "") or "",
         "vehicle_number": member.vehicle_number or "",
         "region": member.region or "",
+        "address": getattr(member, "address", "") or "",
+        "mobile": getattr(member, "mobile", "") or "",
+        "phone": getattr(member, "phone", "") or "",
+        "certificate_issue_date": getattr(member, "certificate_issue_date", "") or "",
         "category": member.category or "",
         "account_type": profile.account_type,
         "unit_fee": int(profile.unit_fee or 0),
@@ -2953,5 +2969,12 @@ def update_account(
     profile.unit_fee = ACCOUNT_FEES[payload.account_type]
     profile.vehicle_count = payload.vehicle_count
     profile.account_manual_override = 1
+    member = db.query(models.LicenseHolder).filter(models.LicenseHolder.id == member_id).first()
+    if member and payload.account_type in ("협회비", "관리비"):
+        basis = _billing_basis_date(member, payload.account_type)
+        first_charge = _first_of_next_month(basis) if basis else None
+        if first_charge and first_charge < LEGACY_NEXT_BILL_DATE:
+            first_charge = LEGACY_NEXT_BILL_DATE
+        profile.first_charge_date = first_charge.isoformat() if first_charge else ""
     db.commit()
     return {"ok": True}
