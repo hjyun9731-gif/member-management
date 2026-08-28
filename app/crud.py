@@ -1167,6 +1167,7 @@ def register_candidate_as_member(db: Session, candidate_id: int,
                     transferee_member_id=member.id,
                     transfer_ledger_id=ledger.id,
                     member_id=None,                # 내부 양도자 특정 불가 - null 허용
+                    original_mgmt_match_status="unmatched",  # 양도자 정보 자체가 없어 매칭 대상 없음
                 )
                 db.add(closure)
                 db.flush()
@@ -1265,6 +1266,9 @@ def close_member_no_commit(db: Session, member_id: int, closure_type: str,
         agent_mobile=getattr(member, 'agent_mobile', '') or '',
         memo=getattr(member, 'memo', '') or '',
         member_id=member_id,
+        # 회원의 '원래' 관리번호를 폐업번호와 별도로 보존 (member_id로 직접 연결되므로 확실함)
+        original_management_number=member.management_number or "",
+        original_mgmt_match_status="linked",
     )
     db.add(closure)
     db.flush()
@@ -1284,6 +1288,119 @@ def close_member(db: Session, member_id: int, closure_type: str,
     db.commit()
     db.refresh(closure)
     return closure
+
+
+def _norm_vehicle(v) -> str:
+    """차량번호 비교용 정규화 (closures.py _norm_vn과 동일 규칙)."""
+    import re as _re
+    v = str(v or '').strip()
+    v = _re.sub(r'\s+', '', v)
+    v = _re.sub(r'호$', '', v)
+    return v.lower()
+
+
+def _match_original_member_for_closure(c, by_resident, by_vehicle, by_name_phone, by_certificate):
+    """폐업현황 1건에 대해 원래 회원을 우선순위대로 매칭한다.
+    우선순위: 주민등록번호 완전일치 > 차량번호(정규화) > 성명+전화(핸드폰) 조합 > 자격증명발급번호.
+    후보가 2명 이상이면 임의로 고르지 않고 'ambiguous'로 반환한다."""
+    rn = (getattr(c, 'resident_number', '') or '').strip()
+    if rn:
+        cands = by_resident.get(rn, [])
+        if len(cands) == 1:
+            return cands[0], "matched_resident"
+        if len(cands) > 1:
+            return None, "ambiguous"
+
+    vn = _norm_vehicle(c.vehicle_number)
+    if vn:
+        cands = by_vehicle.get(vn, [])
+        if len(cands) == 1:
+            return cands[0], "matched_vehicle"
+        if len(cands) > 1:
+            name = (c.name or '').strip()
+            narrowed = [m for m in cands if name and (m.name or '').strip() == name]
+            if len(narrowed) == 1:
+                return narrowed[0], "matched_vehicle"
+            return None, "ambiguous"
+
+    name = (c.name or '').strip()
+    phone = (getattr(c, 'phone', '') or getattr(c, 'mobile', '') or '').strip()
+    if name and phone:
+        cands = by_name_phone.get((name, phone), [])
+        if len(cands) == 1:
+            return cands[0], "matched_name_phone"
+        if len(cands) > 1:
+            return None, "ambiguous"
+
+    cert = (getattr(c, 'certificate_number', '') or '').strip()
+    if cert:
+        cands = by_certificate.get(cert, [])
+        if len(cands) == 1:
+            return cands[0], "matched_certificate"
+        if len(cands) > 1:
+            return None, "ambiguous"
+
+    return None, "unmatched"
+
+
+def backfill_closure_original_management_numbers(db: Session) -> dict:
+    """과거(이전자료 포함) 폐업/이관 데이터 전수에 대해 회원의 '원래' 관리번호를 복구한다.
+
+    - original_management_number가 이미 채워진 건은 건드리지 않는다(멱등 - 여러 번
+      실행해도 안전. 서버 재기동마다 자동 실행되어도 무방).
+    - member_id가 있으면 그 회원을 그대로 사용(가장 확실함).
+    - 없으면 주민등록번호 > 차량번호 > 성명+전화 > 자격증명발급번호 순으로 매칭.
+    - 후보가 2명 이상(ambiguous)이거나 전혀 못 찾은 경우(unmatched)는 임의로 채우지
+      않고 상태만 기록한다 - '관리번호 확인필요' 목록(조회 API)에서 별도로 노출된다.
+    - 기존 회원 ID를 새로 만들지 않는다. member_id가 비어있었는데 매칭에 성공하면
+      그 매칭된 기존 회원 ID로 연결관계만 복구한다(회원 자체는 새로 생성하지 않음)."""
+    targets = db.query(models.Closure).filter(
+        models.Closure.original_management_number.is_(None),
+        models.Closure.deleted_at.is_(None),
+    ).all()
+    counts = {"processed": 0, "linked_by_id": 0, "matched": 0, "ambiguous": 0, "unmatched": 0}
+    if not targets:
+        return counts
+
+    all_members = db.query(models.LicenseHolder).filter(models.LicenseHolder.deleted_at.is_(None)).all()
+    by_id = {m.id: m for m in all_members}
+    by_resident, by_vehicle, by_name_phone, by_certificate = {}, {}, {}, {}
+    for m in all_members:
+        rn = (getattr(m, 'resident_number', '') or '').strip()
+        if rn:
+            by_resident.setdefault(rn, []).append(m)
+        vn = _norm_vehicle(m.vehicle_number)
+        if vn:
+            by_vehicle.setdefault(vn, []).append(m)
+        nm = (m.name or '').strip()
+        ph = (getattr(m, 'phone', '') or getattr(m, 'mobile', '') or '').strip()
+        if nm and ph:
+            by_name_phone.setdefault((nm, ph), []).append(m)
+        cert = (getattr(m, 'certificate_number', '') or '').strip()
+        if cert:
+            by_certificate.setdefault(cert, []).append(m)
+
+    for c in targets:
+        counts["processed"] += 1
+        mid = getattr(c, "member_id", None)
+        if mid and mid in by_id:
+            c.original_management_number = by_id[mid].management_number or ""
+            c.original_mgmt_match_status = "linked"
+            counts["linked_by_id"] += 1
+            continue
+        member, status = _match_original_member_for_closure(
+            c, by_resident, by_vehicle, by_name_phone, by_certificate)
+        if member:
+            c.original_management_number = member.management_number or ""
+            c.original_mgmt_match_status = status
+            if not mid:
+                c.member_id = member.id  # 새 회원ID 생성 없이, 매칭된 기존 회원과 연결관계만 복구
+            counts["matched"] += 1
+        else:
+            c.original_mgmt_match_status = status  # "ambiguous" 또는 "unmatched"
+            counts[status] = counts.get(status, 0) + 1
+    db.commit()
+    return counts
 
 
 # ===== 도내 양도양수 (거래 단위 일괄 처리) =====

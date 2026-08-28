@@ -11,7 +11,7 @@ from app.excel_utils import records_to_excel, parse_date_sort, normalize_closure
 
 router = APIRouter()
 
-SEARCH = ["name", "vehicle_number", "management_number", "region", "reason", "company_name", "memo"]
+SEARCH = ["name", "vehicle_number", "management_number", "original_management_number", "region", "reason", "company_name", "memo"]
 
 # 폐업현황 상세정보 보강 시 회원정보로 채워넣을 필드 목록
 # (기존 이전자료 폐업현황에 값이 비어있어도 회원정보에서 조회되게 함)
@@ -98,6 +98,8 @@ def _fmt(c, member=None):
     result = {
         "id": c.id,
         "management_number": c.management_number or "",
+        "original_management_number": getattr(c, 'original_management_number', '') or "",
+        "original_mgmt_match_status": getattr(c, 'original_mgmt_match_status', '') or "",
         "closure_type": ct,
         "data_type": c.data_type or "신규자료",
         "region": c.region or "",
@@ -140,6 +142,12 @@ def _fmt(c, member=None):
                 v = getattr(member, f, None)
                 if v:
                     result[f] = v
+        # original_management_number는 필드명이 달라(회원 쪽 management_number) 별도 처리.
+        # DB에 아직 채워지지 않았어도(백필 배치 실행 전 등) 조회 시점에는 정확한 값을 보여준다.
+        if not result.get("original_management_number") and getattr(member, "management_number", None):
+            result["original_management_number"] = member.management_number
+            if not result.get("original_mgmt_match_status"):
+                result["original_mgmt_match_status"] = "linked"
     return result
 
 
@@ -229,6 +237,25 @@ async def export_excel(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=closures.xlsx"},
     )
+
+
+@router.get("/mgmt-check-needed")
+async def mgmt_check_needed(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """관리번호 소급복구에서 자동매칭이 안 된(후보 2명 이상=ambiguous, 못찾음=unmatched)
+    폐업/이관 자료 목록. 임의로 채우지 않고 이 목록으로 사람이 직접 확인하도록 한다."""
+    rows = db.query(models.Closure).filter(
+        models.Closure.original_management_number.is_(None),
+        models.Closure.deleted_at.is_(None),
+        models.Closure.original_mgmt_match_status.in_(["ambiguous", "unmatched"]),
+    ).all()
+    by_id, by_vehicle, by_resident = _build_member_lookup(db, rows)
+    items = [_fmt(c, _find_linked_member(c, by_id, by_vehicle, by_resident)) for c in rows]
+    return {
+        "count": len(items),
+        "ambiguous_count": sum(1 for c in rows if c.original_mgmt_match_status == "ambiguous"),
+        "unmatched_count": sum(1 for c in rows if c.original_mgmt_match_status == "unmatched"),
+        "items": items,
+    }
 
 
 @router.get("/{cid}")

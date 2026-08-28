@@ -462,7 +462,7 @@ function buildDetailSections(sections){
     const body=`<div class="dtl-grid">${visFields.map(([l,v,full])=>`
         <div class="dtl-item ${full?'full':''}">
           <div class="dtl-lbl">${l}</div>
-          <div class="dtl-val${l==='관리번호'||l==='자격증번호'?' mono':''}">${e_(l==='사업자번호'?_autoBizNo(String(v)):fv(v))}</div>
+          <div class="dtl-val${l==='관리번호'||l==='폐업관리번호'||l==='자격증번호'?' mono':''}">${e_(l==='사업자번호'?_autoBizNo(String(v)):fv(v))}</div>
         </div>`).join('')}</div>`;
     if(sec.title==='원본 엑셀 데이터')
       return `<details class="dtl-sec"><summary class="dtl-sec-hd" style="cursor:pointer">📄 원본 엑셀 데이터 보기</summary>${body}</details>`;
@@ -617,7 +617,7 @@ window.viewClosure=async(id)=>{
   const rawReceipt=raw['접수일자']||raw['접수일']||'';
   const rawSeq=raw['번호']||'';
   const sections=[
-    {title:'기본 정보',fields:[['관리번호',r.management_number],['처리구분',r.closure_type],['자료구분',r.data_type],['지역',r.region],['차량번호',r.vehicle_number],['성명',r.name],['상호',r.company_name]]},
+    {title:'기본 정보',fields:[['관리번호',r.original_management_number||'-'],['폐업관리번호',r.management_number],['처리구분',r.closure_type],['자료구분',r.data_type],['지역',r.region],['차량번호',r.vehicle_number],['성명',r.name],['상호',r.company_name]]},
     {title:'차량 정보',fields:[['차종',r.vehicle_type||raw['차종']||raw['차량종류']||''],['유종',r.fuel_type||raw['유종']||raw['연료']||''],['구조변경',r.structure_change||raw['구조변경']||'',true]]},
     {title:'연락처 / 주소',fields:[['전화번호',r.phone||rawPhone],['핸드폰',r.mobile||rawMobile],['주소',r.address||rawAddr,true],['공문주소',r.official_address||'',true],['주민등록번호',r.resident_number||rawResNo]]},
     {title:'회원 / 자격',fields:[['가입여부',r.membership_status],['가입일자',r.membership_date||rawMemDate],['인가일자',r.approval_date],['자격증명발급일자',r.certificate_issue_date||rawCertDate],['자격증명발급번호',r.certificate_number||rawCertNo],['운전면허번호',r.driver_license_number||rawDrvLic]]},
@@ -1618,7 +1618,7 @@ async function renderClosures(){
     </div>`;
 
   const sk='cl';
-  const hdrs=[{label:'관리번호'},{label:'구분'},{label:'지역'},{label:'차량번호'},{label:'성명'},{label:'양수인'},{label:'이관지역'},{label:'접수일자'},{label:'처리일자'},{label:'관리',noSort:true}];
+  const hdrs=[{label:'기존관리번호'},{label:'폐업관리번호'},{label:'구분'},{label:'지역'},{label:'차량번호'},{label:'성명'},{label:'양수인'},{label:'이관지역'},{label:'접수일자'},{label:'처리일자'},{label:'관리',noSort:true}];
 
   const doSearch=async(pg=1)=>{
     ST.fl.cl={region:document.getElementById('clRegF').value,closure_type:document.getElementById('clTypF').value,data_type:document.getElementById('clDtF').value,date_order:document.getElementById('clSortF').value,search:document.getElementById('clSrch').value.trim()};
@@ -1630,6 +1630,7 @@ async function renderClosures(){
     tw.innerHTML=`<div class="tbl-wrap"><table>
       <thead><tr>${plainHeaders(hdrs)}</tr></thead>
       <tbody>${d.items.map(r=>`<tr>
+        <td><a class="click-link" onclick="viewClosure(${r.id});return false">${fv(r.original_management_number)||'<span class=\"muted\">-</span>'}</a></td>
         <td><a class="click-link" onclick="viewClosure(${r.id});return false"><strong>${fv(r.management_number)}</strong></a></td>
         <td>${ctBadge(r.closure_type)}</td>
         <td>${fv(r.region)}</td>
@@ -1664,7 +1665,8 @@ window.editClosure=async(id)=>{
   const raw=(r.raw_data&&typeof r.raw_data==='object')?r.raw_data:{};
   openModal(id?'폐업 수정':'폐업 등록',`<form id="clForm">
     ${sec('처리정보',`
-      ${fi('management_number','관리번호',r.management_number||'')}
+      ${r.original_management_number?`<div class="fi"><label>관리번호(원래)</label><input class="fc" value="${e_(r.original_management_number)}" disabled style="background:#f5f5f5;color:#666"></div>`:''}
+      ${fi('management_number','폐업관리번호',r.management_number||'')}
       <div class="fi"><label>처리구분</label>${ssel('closure_type',CLOSURE_TYPES,r.closure_type||'폐업')}</div>
       <div class="fi"><label>자료구분</label>${ssel('data_type',['신규자료','이전자료'],r.data_type||'신규자료')}</div>
       ${fi('receipt_date','접수일자',r.receipt_date||'')} ${fi('closure_date','처리일자',r.closure_date||'')}

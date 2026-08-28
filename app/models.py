@@ -200,6 +200,13 @@ class Closure(Base):
     transferee_member_id = Column(Integer, nullable=True)  # 양수인 회원 ID (도내 양도양수 연결)
     transfer_ledger_id = Column(Integer, nullable=True)     # 연결된 양도양수대장 기록 ID
     member_id = Column(Integer, nullable=True)
+    # 관리번호 구조 분리: 위 management_number는 폐업/양도/이관 시 새로 발급되는 번호(폐-80/양-28/이-4).
+    # 아래 두 필드는 그 회원의 '원래' 전체면허자 관리번호(예: 양25-186)를 별도로 보존한다.
+    # 폐업 처리한다고 해서 회원의 원래 관리번호를 지우거나 덮어쓰지 않는다.
+    original_management_number = Column(String(50), nullable=True, index=True)
+    # linked(member_id로 직접 연결) / matched_resident / matched_vehicle /
+    # matched_name_phone / matched_certificate / ambiguous(후보 2명 이상) / unmatched(못찾음)
+    original_mgmt_match_status = Column(String(20), nullable=True)
     upload_id = Column(Integer, nullable=True)     # 업로드 이력 ID
     raw_data = Column(JSON)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

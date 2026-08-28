@@ -96,6 +96,9 @@ def _run_migrations():
         ("event_color",           "deadline_tasks",   "VARCHAR(20)"),
         # 수납/미수금 모듈: 가입/미가입 정합성 자동보정이 수동 지정 계정을 덮어쓰지 않도록 구분
         ("account_manual_override", "receivable_profiles", "INTEGER"),
+        # 폐업현황 관리번호 구조 분리: 회원 원래 관리번호와 폐업/이관 번호를 별도 보존
+        ("original_management_number", "closures", "VARCHAR(50)"),
+        ("original_mgmt_match_status", "closures", "VARCHAR(20)"),
     ]
 
     for col_name, table_name, col_type in new_cols:
@@ -247,6 +250,21 @@ def _backfill_certificate_logs():
     finally:
         db.close()
 
+
+def _backfill_closure_original_mgmt_numbers():
+    """폐업현황 관리번호 구조 분리: 과거(이전자료 포함) 전체 폐업/이관 데이터에
+    대해 회원의 '원래' 관리번호를 복구한다. 멱등 처리 - 서버 재기동마다 실행되어도
+    이미 채워진 건은 건드리지 않고, 새로 회원이 매칭되는 건만 채운다."""
+    from app import crud
+    db = SessionLocal()
+    try:
+        result = crud.backfill_closure_original_management_numbers(db)
+        logger.info(f"폐업현황 원래 관리번호 소급 복구 완료: {result}")
+    except Exception as e:
+        logger.warning(f"폐업현황 원래 관리번호 소급 복구 경고 (무시): {e}")
+    finally:
+        db.close()
+
 _maintenance_lock = None
 
 
@@ -271,6 +289,7 @@ def _run_deferred_db_maintenance():
             ("양도양수 자기참조 복구", _fix_self_referencing_transfer_ledger),
             ("관리번호 UNIQUE 인덱스", _add_management_number_unique_index),
             ("자격증명 발급이력 백필", _backfill_certificate_logs),
+            ("폐업현황 원래 관리번호 소급 복구", _backfill_closure_original_mgmt_numbers),
         ]
         for name, job in jobs:
             try:
