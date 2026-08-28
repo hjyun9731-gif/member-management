@@ -1,18 +1,9 @@
-긴급 수정: Railway ImportError
+수납/미수금 0명/대시(-) 자동복구 패치
 
-오류:
-ImportError: cannot import name 'ReceivableSystemState' from 'app.receivables_models'
-
-원인:
-app/routers/receivables.py는 ReceivableSystemState를 import하고 있었지만
-app/receivables_models.py에는 해당 모델 클래스가 빠져 있었습니다.
+변경 파일: app/routers/receivables.py 1개
 
 수정:
-app/receivables_models.py에 receivable_system_state 모델을 추가했습니다.
-기존 ReceivableProfile / ReceivableCharge / ReceivablePayment / ReceivableContactLog 정의는 유지합니다.
-
-적용 파일:
-app/receivables_models.py 1개
-
-배포 시 Base.metadata.create_all()이 receivable_system_state 테이블을 없는 경우에만 생성합니다.
-기존 수납/미수금/회원 데이터는 삭제하거나 초기화하지 않습니다.
+1) Railway 전체 DB 유지보수가 백그라운드로 도는 동안에도 /receivables 접속 시 receivables 전용 5개 테이블만 즉시 준비
+2) receivable_system_state marker만 있고 실제 receivable_profiles/legacy snapshot이 비어 있는 불완전 이관 상태 자동 복구
+3) 최신 2026 미수금 snapshot은 baseline 필드에만 복구하고 기존 프로그램 입금/선납/연락 테이블은 삭제/초기화하지 않음
+4) 전체회원관리/인허가/폐업/양도양수/기한관리 파일 무변경

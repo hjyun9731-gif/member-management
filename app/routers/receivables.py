@@ -11,13 +11,13 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, case, func, or_
+from sqlalchemy import and_, case, func, or_, inspect, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import models
 from app.auth import get_current_user
-from app.database import get_db
+from app.database import get_db, engine
 from app.excel_utils import is_association_member
 from app.receivables_models import (
     ReceivableCharge,
@@ -44,6 +44,48 @@ LEGACY_NEXT_BILL_DATE = date(2026, 9, 1)
 LEGACY_NEW_MEMBER_CUTOFF = date(2026, 8, 1)
 LEGACY_BASELINE_KEY = "legacy_baseline_2026_08_28_v1"
 LEDGER_MODE = "database"
+
+# receivables 전용 lazy schema guard.
+# Railway healthcheck를 빠르게 통과시키기 위해 main.py의 전체 DB 유지보수는
+# 백그라운드에서 돌지만, 사용자가 /receivables를 먼저 열어도 이 모듈의
+# 5개 테이블만 즉시 준비되도록 한다. 전체회원관리 테이블/로직은 건드리지 않는다.
+_receivables_schema_ready = False
+_receivables_schema_lock = threading.Lock()
+
+
+def _ensure_receivables_schema_ready() -> None:
+    global _receivables_schema_ready
+    if _receivables_schema_ready:
+        return
+    with _receivables_schema_lock:
+        if _receivables_schema_ready:
+            return
+
+        tables = [
+            ReceivableProfile.__table__,
+            ReceivableCharge.__table__,
+            ReceivablePayment.__table__,
+            ReceivableContactLog.__table__,
+            ReceivableSystemState.__table__,
+        ]
+        # 이 모듈 테이블만 checkfirst=True로 생성한다. 기존 회원/인허가 테이블은 대상 아님.
+        ReceivableProfile.metadata.create_all(bind=engine, tables=tables, checkfirst=True)
+
+        # create_all은 기존 테이블의 누락 컬럼을 ALTER하지 않으므로,
+        # 과거 receivable_profiles가 이미 존재하는 경우 이 컬럼만 안전하게 보강한다.
+        try:
+            cols = {c['name'] for c in inspect(engine).get_columns('receivable_profiles')}
+            if 'account_manual_override' not in cols:
+                with engine.begin() as conn:
+                    conn.execute(text(
+                        'ALTER TABLE receivable_profiles '
+                        'ADD COLUMN account_manual_override INTEGER DEFAULT 0'
+                    ))
+        except Exception:
+            # main.py의 기존 migration도 동일 컬럼을 보강하므로 동시 실행 경쟁은 무시 가능.
+            pass
+
+        _receivables_schema_ready = True
 
 
 class PaymentIn(BaseModel):
@@ -403,7 +445,72 @@ def _apply_legacy_baseline_once(db: Session) -> int:
 
 
 def _ensure_db_ledger_ready(db: Session) -> int:
-    """DB 공식원장 준비. 평상시에는 프로세스당 최초 1회 marker SELECT만 수행한다."""
+    """DB 공식원장 준비.
+
+    1) receivables 전용 테이블을 lazy-create하여 Railway background migration보다
+       사용자가 먼저 화면을 열어도 500/0명 화면이 나오지 않게 한다.
+    2) marker만 남고 실제 profile/legacy snapshot이 비어 있는 불완전 이관 상태는
+       자동 복구한다. 기존 payments/contact_logs는 삭제하거나 덮어쓰지 않는다.
+    """
+    _ensure_receivables_schema_ready()
+
+    marker = _baseline_marker(db)
+    if marker is not None:
+        profile_count = db.query(func.count(ReceivableProfile.id)).scalar() or 0
+        legacy_count = (
+            db.query(func.count(ReceivableProfile.id))
+            .filter(ReceivableProfile.legacy_source_row.isnot(None))
+            .scalar()
+            or 0
+        )
+
+        # 과거 배포 중 marker만 생성됐거나 profile이 비어버린 경우 self-heal.
+        # 최신 Excel snapshot은 이 시점에만 baseline 필드로 복구되고,
+        # 이후 프로그램에서 쌓인 입금/선납/연락 행은 별도 테이블이므로 그대로 보존된다.
+        if profile_count == 0 or legacy_count == 0:
+            _sync_profiles_full(db, allow_legacy_seed=True)
+            rows = (
+                db.query(ReceivableProfile, models.LicenseHolder)
+                .join(models.LicenseHolder, models.LicenseHolder.id == ReceivableProfile.member_id)
+                .all()
+            )
+            repaired = 0
+            for profile, member in rows:
+                seed = _match_seed(member)
+                if not seed:
+                    continue
+                profile.legacy_source_row = int(seed.get('source_row')) if seed.get('source_row') is not None else None
+                profile.legacy_balance = int(seed.get('current_arrears') or 0)
+                profile.legacy_months = seed.get('months') or []
+                profile.legacy_note = seed.get('legacy_note') or None
+                profile.vehicle_count = max(1, int(seed.get('vehicle_count') or 1))
+                if int(getattr(profile, 'account_manual_override', 0) or 0) != 1:
+                    account = seed.get('account_type') or _infer_account(member)
+                    profile.account_type = account
+                    profile.unit_fee = ACCOUNT_FEES.get(account, 5000)
+                profile.first_charge_date = LEGACY_NEXT_BILL_DATE.isoformat()
+                repaired += 1
+            db.commit()
+
+            # marker value도 실제 복구 결과로 갱신하여 다음 재기동에서 재작업하지 않는다.
+            try:
+                info = json.loads(marker.value or '{}') if marker.value else {}
+            except Exception:
+                info = {}
+            info.update({
+                'matched_profiles': repaired,
+                'recovered_at': datetime.now(KST).isoformat(),
+                'recovery_reason': 'marker_without_legacy_profiles',
+                'ledger_mode': LEDGER_MODE,
+                'excel_reupload_required': False,
+            })
+            marker.value = json.dumps(info, ensure_ascii=False)
+            db.commit()
+
+            global _legacy_baseline_ready
+            _legacy_baseline_ready = True
+            return repaired
+
     return _apply_legacy_baseline_once(db)
 
 
