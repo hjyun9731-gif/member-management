@@ -1,16 +1,21 @@
 from __future__ import annotations
 
+import io
 import json
 import re
 import threading
 from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 from sqlalchemy import and_, case, func, or_, inspect, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -1488,7 +1493,10 @@ def list_members(
         # 폐업/양도/이관 실제 Closure 기록이 있는 회원만 표시한다.
         query = query.filter(_receivable_closed_sql(current_closure_sq))
 
-    if arrears_only:
+    # 명시적인 부과상태 필터가 있으면 그 필터를 우선한다.
+    # 예: 미수금현황 탭(arrears_only=true)에서 '선납'을 선택했을 때
+    # balance > 0 과 balance < 0 이 동시에 걸려 0건이 되는 충돌을 막는다.
+    if arrears_only and not billing_status:
         query = query.filter(balance_expr > 0)
     if region:
         query = query.filter(models.LicenseHolder.region == region)
@@ -1573,6 +1581,249 @@ def list_members(
         "limit": limit,
         "pages": max(1, (int(total) + limit - 1) // limit),
     }
+
+
+
+def _excel_safe_text(value) -> str:
+    """Excel 수식 주입을 막으면서 화면에 보이는 문자열은 그대로 보존한다."""
+    if value is None:
+        return ""
+    text_value = str(value)
+    if text_value.startswith(("=", "+", "-", "@")):
+        return "'" + text_value
+    return text_value
+
+
+def _export_view_label(view: str) -> str:
+    return {
+        "payment": "수납처리",
+        "arrears": "미수금현황",
+        "closed": "폐업관리",
+        "contacts": "연락관리",
+    }.get(view, "수납미수금")
+
+
+@router.get("/api/receivables/export.xlsx")
+def export_receivables_excel(
+    view: str = Query("payment", pattern="^(payment|arrears|closed|contacts)$"),
+    scope: str = Query("active", pattern="^(active|closed|all)$"),
+    arrears_only: bool = False,
+    q: str = "",
+    region: str = "",
+    account_type: str = "",
+    contact_status: str = "",
+    billing_status: str = Query("", pattern="^(|pending|arrears|settled|prepaid)$"),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """현재 화면의 검색/지역/계정/부과상태/연락상태 필터를 그대로 적용해 전체 결과를 XLSX로 내려준다.
+
+    화면의 50건 페이지가 아니라, 현재 필터에 해당하는 전체 건을 다운로드한다.
+    회원마스터의 주소/핸드폰번호를 함께 포함하며 폐업현황은 Closure 스냅샷을 우선 사용한다.
+    """
+    _ensure_db_ledger_ready(db)
+
+    # 기존 목록 API와 완전히 같은 판정/필터를 재사용한다. Python 내부 호출이므로
+    # 외부 API의 limit<=200 제약과 무관하게 필터 결과 전체를 한 번에 받는다.
+    result = list_members(
+        background_tasks=BackgroundTasks(),
+        scope=scope,
+        arrears_only=arrears_only,
+        q=q,
+        region=region,
+        account_type=account_type,
+        contact_status=contact_status,
+        billing_status=billing_status,
+        page=1,
+        limit=1000000,
+        db=db,
+        current_user=current_user,
+    )
+    items = result.get("items", [])
+
+    member_ids = {int(x["member_id"]) for x in items if x.get("member_id") is not None}
+    closure_ids = {int(x["closure_id"]) for x in items if x.get("closure_id") is not None}
+
+    member_map = {}
+    if member_ids:
+        member_map = {
+            m.id: m
+            for m in db.query(models.LicenseHolder)
+            .filter(models.LicenseHolder.id.in_(member_ids))
+            .all()
+        }
+
+    closure_map = {}
+    if closure_ids:
+        closure_map = {
+            c.id: c
+            for c in db.query(models.Closure)
+            .filter(models.Closure.id.in_(closure_ids))
+            .all()
+        }
+
+    wb = Workbook()
+    ws = wb.active
+    sheet_label = _export_view_label(view)
+    ws.title = sheet_label[:31]
+
+    headers = [
+        "성명", "계정", "차량번호", "지역", "주소", "핸드폰번호", "전화번호",
+        "현재잔액", "미수금", "선납금", "부과상태", "현재상태",
+        "연락상태", "최근연락일", "가입일자", "회원관리번호",
+        "폐업관리번호", "구분", "접수일", "처리일", "양수인",
+        "이관/양도지역", "사유",
+    ]
+    last_col = get_column_letter(len(headers))
+
+    ws.merge_cells(f"A1:{last_col}1")
+    ws["A1"] = f"수납 · 미수금 - {sheet_label}"
+    ws["A1"].font = Font(name="맑은 고딕", size=15, bold=True, color="1F2937")
+    ws["A1"].fill = PatternFill("solid", fgColor="EEE9FF")
+    ws["A1"].alignment = Alignment(vertical="center")
+    ws.row_dimensions[1].height = 30
+
+    billing_label = {
+        "pending": "부과대기",
+        "arrears": "미수",
+        "settled": "완납",
+        "prepaid": "선납",
+    }.get(billing_status, "전체")
+    filter_parts = [
+        f"검색: {(q or '').strip() or '전체'}",
+        f"지역: {region or '전체'}",
+        f"계정: {account_type or '전체'}",
+        f"부과상태: {billing_label}",
+        f"연락상태: {contact_status or '전체'}",
+        f"결과: {len(items):,}{'건' if view == 'closed' else '명'}",
+    ]
+    ws.merge_cells(f"A2:{last_col}2")
+    ws["A2"] = " | ".join(filter_parts)
+    ws["A2"].font = Font(name="맑은 고딕", size=10, color="667085")
+    ws["A2"].fill = PatternFill("solid", fgColor="F8FAFC")
+
+    ws.merge_cells(f"A3:{last_col}3")
+    ws["A3"] = f"다운로드 기준: {datetime.now(KST).strftime('%Y-%m-%d %H:%M:%S')} · PostgreSQL 공식원장"
+    ws["A3"].font = Font(name="맑은 고딕", size=9, color="98A2B3")
+
+    header_row = 5
+    for col_idx, label in enumerate(headers, 1):
+        cell = ws.cell(header_row, col_idx, label)
+        cell.font = Font(name="맑은 고딕", size=10, bold=True, color="344054")
+        cell.fill = PatternFill("solid", fgColor="EAF2FF")
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[header_row].height = 24
+
+    thin = Side(style="thin", color="E7EAF0")
+    data_start = header_row + 1
+    for row_idx, item in enumerate(items, data_start):
+        mid = item.get("member_id")
+        cid = item.get("closure_id")
+        member = member_map.get(int(mid)) if mid is not None else None
+        closure = closure_map.get(int(cid)) if cid is not None else None
+
+        # 폐업관리 내보내기는 당시 폐업현황에 저장된 주소/연락처를 우선하고,
+        # 비어 있으면 현재 회원마스터 값으로 보완한다.
+        if view == "closed" and closure is not None:
+            address = closure.address or (getattr(member, "address", "") if member else "")
+            mobile = closure.mobile or (getattr(member, "mobile", "") if member else "")
+            phone = closure.phone or (getattr(member, "phone", "") if member else "")
+        else:
+            address = getattr(member, "address", "") if member else (getattr(closure, "address", "") if closure else "")
+            mobile = getattr(member, "mobile", "") if member else (getattr(closure, "mobile", "") if closure else "")
+            phone = getattr(member, "phone", "") if member else (getattr(closure, "phone", "") if closure else "")
+
+        balance = item.get("balance")
+        if isinstance(balance, (int, float)):
+            balance_num = int(balance)
+            arrears_amount = max(balance_num, 0)
+            prepaid_amount = max(-balance_num, 0)
+        else:
+            balance_num = None
+            arrears_amount = None
+            prepaid_amount = None
+
+        if view == "closed":
+            current_state = "과거기록" if mid is None else ("현재활동" if item.get("active") else "폐업")
+        else:
+            current_state = "활성" if item.get("active") else "폐업"
+
+        member_management_number = getattr(member, "management_number", "") if member else ""
+        row_values = [
+            _excel_safe_text(item.get("name", "")),
+            _excel_safe_text(item.get("account_type", "")),
+            _excel_safe_text(item.get("vehicle_number", "")),
+            _excel_safe_text(item.get("region", "")),
+            _excel_safe_text(address),
+            _excel_safe_text(mobile),
+            _excel_safe_text(phone),
+            balance_num,
+            arrears_amount,
+            prepaid_amount,
+            _excel_safe_text(item.get("billing_state", "")),
+            current_state,
+            _excel_safe_text(item.get("contact_status", "")),
+            _excel_safe_text(item.get("last_contact_date", "")),
+            _excel_safe_text(item.get("membership_date", "")),
+            _excel_safe_text(member_management_number),
+            _excel_safe_text(item.get("closure_management_number", "")),
+            _excel_safe_text(item.get("closure_type", "")),
+            _excel_safe_text(item.get("closure_receipt_date", "")),
+            _excel_safe_text(item.get("closure_date", "")),
+            _excel_safe_text(item.get("transferee", "")),
+            _excel_safe_text(item.get("transfer_region", "")),
+            _excel_safe_text(item.get("closure_reason", "")),
+        ]
+        for col_idx, value in enumerate(row_values, 1):
+            cell = ws.cell(row_idx, col_idx, value)
+            cell.font = Font(name="맑은 고딕", size=10, color="344054")
+            cell.alignment = Alignment(vertical="center", wrap_text=(col_idx in (5, 23)))
+            cell.border = Border(bottom=thin)
+
+        # 금액은 숫자로 저장하여 사용자가 Excel에서 바로 합계/필터 가능하게 한다.
+        for col_idx in (8, 9, 10):
+            ws.cell(row_idx, col_idx).number_format = '#,##0;[Red]-#,##0'
+            ws.cell(row_idx, col_idx).alignment = Alignment(horizontal="right", vertical="center")
+        if balance_num is not None and balance_num < 0:
+            ws.cell(row_idx, 8).font = Font(name="맑은 고딕", size=10, bold=True, color="2563EB")
+            ws.cell(row_idx, 10).font = Font(name="맑은 고딕", size=10, bold=True, color="2563EB")
+        elif balance_num is not None and balance_num > 0:
+            ws.cell(row_idx, 8).font = Font(name="맑은 고딕", size=10, bold=True, color="C2413B")
+            ws.cell(row_idx, 9).font = Font(name="맑은 고딕", size=10, bold=True, color="C2413B")
+
+    data_end = max(header_row, header_row + len(items))
+    ws.auto_filter.ref = f"A{header_row}:{last_col}{data_end}"
+    ws.freeze_panes = f"A{data_start}"
+
+    widths = {
+        1: 14, 2: 11, 3: 18, 4: 11, 5: 38, 6: 16, 7: 15,
+        8: 14, 9: 14, 10: 14, 11: 14, 12: 12, 13: 14, 14: 13,
+        15: 13, 16: 15, 17: 15, 18: 10, 19: 13, 20: 13, 21: 15,
+        22: 20, 23: 30,
+    }
+    for col_idx, width in widths.items():
+        ws.column_dimensions[get_column_letter(col_idx)].width = width
+
+    ws.sheet_view.showGridLines = False
+    ws.auto_filter.ref = f"A{header_row}:{last_col}{data_end}"
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    stamp = datetime.now(KST).strftime("%Y%m%d_%H%M")
+    filename = f"수납미수금_{sheet_label}_{stamp}.xlsx"
+    encoded = quote(filename)
+    response_headers = {
+        "Content-Disposition": f"attachment; filename=receivables_{stamp}.xlsx; filename*=UTF-8''{encoded}",
+        "Cache-Control": "no-store",
+        "X-Export-Count": str(len(items)),
+    }
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=response_headers,
+    )
 
 
 @router.get("/api/receivables/members/{member_id}")
