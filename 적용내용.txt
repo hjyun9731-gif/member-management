@@ -1,13 +1,12 @@
-Railway Healthcheck 실패 수정 패치
+Railway Healthcheck 2차 수정
 
-변경 파일:
-- app/main.py
+변경 파일 2개:
+- app/railway_entry.py (신규)
 - railway.json
 
-핵심 변경:
-1) 서버 import/startup 전에 실행되던 DB 유지보수 작업을 제거하지 않고 서버 기동 후 백그라운드로 이동
-2) /health는 DB 작업과 무관하게 즉시 응답 가능
-3) 기본 관리자 생성도 백그라운드 처리
-4) Railway healthcheck timeout 300초로 완충
-
-기존 회원/수납/미수금/폐업/양도/이관 기능 로직은 변경하지 않음.
+동작:
+1) Railway 포트를 먼저 열고 /health 즉시 200 응답
+2) 기존 app.main:app은 백그라운드에서 로드
+3) 로드 완료 후 모든 정상 요청을 기존 앱에 그대로 위임
+4) 기존 앱 import/startup 실패 시 traceback을 Runtime Logs에 남기고 프로세스 종료
+5) 회원/미수금/폐업/양도/이관 업무 로직 자체는 변경하지 않음
