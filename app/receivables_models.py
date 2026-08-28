@@ -56,3 +56,16 @@ class ReceivableContactLog(Base):
     memo = Column(Text, nullable=True)
     created_by = Column(String(100), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class ReceivableSystemState(Base):
+    """수납/미수금 시스템의 영구 상태값.
+
+    최신 Excel/MUSTARD 스냅샷은 최초 1회만 DB 기준원장으로 이관하고,
+    이후에는 이 테이블의 marker를 기준으로 재이관하지 않는다.
+    """
+    __tablename__ = "receivable_system_state"
+    key = Column(String(120), primary_key=True)
+    value = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())

@@ -1,12 +1,18 @@
-Railway Healthcheck 2차 수정
+긴급 수정: Railway ImportError
 
-변경 파일 2개:
-- app/railway_entry.py (신규)
-- railway.json
+오류:
+ImportError: cannot import name 'ReceivableSystemState' from 'app.receivables_models'
 
-동작:
-1) Railway 포트를 먼저 열고 /health 즉시 200 응답
-2) 기존 app.main:app은 백그라운드에서 로드
-3) 로드 완료 후 모든 정상 요청을 기존 앱에 그대로 위임
-4) 기존 앱 import/startup 실패 시 traceback을 Runtime Logs에 남기고 프로세스 종료
-5) 회원/미수금/폐업/양도/이관 업무 로직 자체는 변경하지 않음
+원인:
+app/routers/receivables.py는 ReceivableSystemState를 import하고 있었지만
+app/receivables_models.py에는 해당 모델 클래스가 빠져 있었습니다.
+
+수정:
+app/receivables_models.py에 receivable_system_state 모델을 추가했습니다.
+기존 ReceivableProfile / ReceivableCharge / ReceivablePayment / ReceivableContactLog 정의는 유지합니다.
+
+적용 파일:
+app/receivables_models.py 1개
+
+배포 시 Base.metadata.create_all()이 receivable_system_state 테이블을 없는 경우에만 생성합니다.
+기존 수납/미수금/회원 데이터는 삭제하거나 초기화하지 않습니다.
