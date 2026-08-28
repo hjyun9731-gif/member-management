@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>수납·미수금 | 회원관리시스템</title>
-  <link rel="stylesheet" href="/static/receivables.css?v=20260828-uplus-crmpro" />
+  <link rel="stylesheet" href="/static/receivables.css?v=20260828-finalops1" />
 </head>
 <body>
   <div id="appShell" class="app-shell">
@@ -17,8 +17,9 @@
         </div>
       </div>
       <div class="top-actions">
-        <div class="live-pill"><i></i><span>공용 DB 연결</span></div>
-        <button id="syncBtn" class="ghost-btn" type="button">회원 동기화</button>
+        <div class="live-pill"><i></i><span id="ledgerModeLabel">PostgreSQL 공식원장</span></div>
+        <button id="bulkImportBtn" class="bulk-import-btn" type="button">통장/결제 일괄수납</button>
+        <button id="syncBtn" class="ghost-btn" type="button" title="회원 신규연동·월 자동부과만 확인합니다. Excel 원장은 다시 덮어쓰지 않습니다.">회원/부과 동기화</button>
         <button id="logoutBtn" class="ghost-btn" type="button">로그아웃</button>
       </div>
     </header>
@@ -26,7 +27,7 @@
     <nav class="tabs" aria-label="수납 미수금 메뉴">
       <button class="tab active" data-view="payment">수납처리</button>
       <button class="tab" data-view="arrears">미수금현황</button>
-      <button class="tab" data-view="closed">폐업 미수금</button>
+      <button class="tab" data-view="closed">폐업관리</button>
       <button class="tab" data-view="contacts">연락관리</button>
     </nav>
 
@@ -34,6 +35,8 @@
       <section class="kpi-grid">
         <article class="kpi-card"><div class="kpi-icon pink">₩</div><div><span>활성 미수금</span><strong id="kpiActiveTotal">-</strong><small id="kpiActiveCount">-</small></div></article>
         <article class="kpi-card"><div class="kpi-icon blue">사람</div><div><span>미수 회원</span><strong id="kpiArrearsMembers">-</strong><small>활성회원 기준</small></div></article>
+        <article id="kpiPendingCard" class="kpi-card clickable"><div class="kpi-icon purple">대기</div><div><span>신규 부과대기</span><strong id="kpiPending">-</strong><small>다음 달 1일부터 부과</small></div></article>
+        <article id="kpiPrepaidCard" class="kpi-card clickable"><div class="kpi-icon sky">선납</div><div><span>활성 선납금</span><strong id="kpiPrepaidTotal">-</strong><small id="kpiPrepaidCount">-</small></div></article>
         <article class="kpi-card"><div class="kpi-icon mint">폐업</div><div><span>폐업 미수금</span><strong id="kpiClosedTotal">-</strong><small id="kpiClosedCount">-</small></div></article>
         <article class="kpi-card"><div class="kpi-icon yellow">오늘</div><div><span>오늘 수납</span><strong id="kpiTodayPaid">-</strong><small>공용 DB 합계</small></div></article>
       </section>
@@ -41,51 +44,78 @@
       <section class="workspace">
         <article class="panel member-panel">
           <div class="panel-head">
-            <div><h2 id="listTitle">회원 찾기</h2><p id="listSubtitle">신규등록 회원도 자동으로 표시됩니다.</p></div>
-            <span id="memberCount" class="count-badge">0명</span>
+            <div class="panel-title-block">
+              <div class="panel-title-row"><h2 id="listTitle">회원 찾기</h2>
+                <div id="closureModeSwitch" class="closure-mode-switch hidden" aria-label="폐업조회 범위">
+                  <button type="button" class="closure-mode-btn active" data-closure-mode="current">현재 폐업자</button>
+                  <button type="button" class="closure-mode-btn" data-closure-mode="history">전체 폐업이력</button>
+                </div>
+              </div>
+              <p id="listSubtitle">신규등록 회원도 자동으로 표시됩니다.</p>
+            </div>
+            <div class="panel-head-actions"><span id="memberCount" class="count-badge">0명</span><button id="excelExportBtn" class="excel-export-btn" type="button">엑셀 다운로드</button></div>
           </div>
           <div class="filters">
-            <div class="search-box"><span>⌕</span><input id="searchInput" placeholder="성명 또는 차량번호" autocomplete="off" /></div>
+            <div class="search-box"><span>⌕</span><input id="searchInput" placeholder="성명 · 차량번호 · 관리번호 · 핸드폰" autocomplete="off" /></div>
             <select id="regionFilter"><option value="">전체 지역</option></select>
             <select id="accountFilter"><option value="">전체 계정</option><option>협회비</option><option>관리비</option><option>70세</option></select>
+            <select id="billingFilter"><option value="">부과상태 전체</option><option value="pending">부과대기</option><option value="arrears">미수</option><option value="settled">완납</option><option value="prepaid">선납</option></select>
             <select id="contactFilter"><option value="">연락 전체</option><option>미연락</option><option>연락완료</option><option>부재</option><option>재연락 필요</option><option>문자발송</option></select>
           </div>
           <div class="member-table-wrap">
             <table class="member-table">
-              <thead><tr><th>회원</th><th>계정</th><th>차량번호</th><th>지역 · 주소</th><th>핸드폰</th><th class="num">잔액</th></tr></thead>
+              <thead id="memberHead"></thead>
               <tbody id="memberRows"></tbody>
             </table>
           </div>
+          <div class="pager"><button id="prevPageBtn" type="button">이전</button><span id="pageInfo">1 / 1</span><button id="nextPageBtn" type="button">다음</button></div>
         </article>
 
         <article class="panel detail-panel">
           <div id="emptyState" class="empty-state">
             <div class="mascot-row"><span class="mascot cat">🐱</span><span class="mascot frog">🐸</span></div>
             <h2>회원을 선택해주세요</h2>
-            <p>왼쪽에서 회원을 선택하면 월별 부과·입금·미수금과 연락 이력을 한눈에 볼 수 있어요.</p>
+            <p>왼쪽에서 회원을 선택하면 월별 부과·입금·미수금과 회원업무를 한눈에 처리할 수 있습니다.</p>
           </div>
 
           <div id="detailContent" class="detail-content hidden">
             <div class="member-summary">
               <div class="identity">
-                <div class="name-row"><h2 id="detailName">-</h2><span id="detailStatus" class="status-badge">-</span><button id="smsQuickBtn" class="sms-quick-btn" type="button">U+ 문자</button></div>
+                <div class="name-row"><h2 id="detailName">-</h2><span id="detailStatus" class="status-badge">-</span></div>
                 <div class="info-grid">
-                  <div><span>관리번호</span><strong id="detailManagement">-</strong></div>
                   <div><span>계정</span><strong id="detailAccount">-</strong></div>
                   <div><span>차량번호</span><strong id="detailVehicle">-</strong></div>
                   <div><span>지역</span><strong id="detailRegion">-</strong></div>
-                  <div><span>핸드폰</span><strong id="detailMobile">-</strong></div>
-                  <div class="wide-info"><span>주소</span><strong id="detailAddress">-</strong></div>
+                  <div><span>부과상태</span><strong id="detailBilling">-</strong></div>
+                  <div><span>첫 부과일</span><strong id="detailFirstCharge">-</strong></div>
                   <div><span>연락상태</span><strong id="detailContact">-</strong></div>
                 </div>
               </div>
-              <div class="balance-box"><span>현재 미수금</span><strong id="detailBalance">-</strong><small id="detailClosure"></small></div>
+              <div class="balance-box"><span id="detailBalanceLabel">현재 미수금</span><strong id="detailBalance">-</strong><small id="detailClosure"></small></div>
+            </div>
+            <div id="pendingNotice" class="pending-notice hidden"></div>
+            <div id="closureInfo" class="closure-info hidden">
+              <div><span>폐업관리번호</span><strong id="detailClosureMgmt">-</strong></div>
+              <div><span>구분</span><strong id="detailClosureType">-</strong></div>
+              <div><span>폐업/처리일</span><strong id="detailClosureDate">-</strong></div>
+              <div><span>접수일</span><strong id="detailClosureReceipt">-</strong></div>
+              <div><span>양수인</span><strong id="detailTransferee">-</strong></div>
+              <div><span>이관/양도지역</span><strong id="detailTransferRegion">-</strong></div>
+              <div class="wide"><span>사유</span><strong id="detailClosureReason">-</strong></div>
             </div>
 
-            <div class="section-head compact"><div><h3>2026 월별 장부</h3><p>원본 엑셀 이력 + 프로그램 추가 수납</p></div><div class="year-chip">2026</div></div>
+            <div id="memberWorkBar" class="member-work-bar">
+              <div><strong>회원업무</strong><span id="memberWorkHint">현재 회원 상태와 동일하게 처리됩니다.</span></div>
+              <div class="member-work-actions">
+                <button id="openMemberWorkBtn" class="work-btn danger" type="button">폐업·양도·이관 처리</button>
+                <a class="work-btn ghost" href="/">전체회원관리 열기</a>
+              </div>
+            </div>
+
+            <div class="section-head compact"><div><h3>2026 월별 장부</h3><p>8월까지 기준원장 + 이후 프로그램 수납·부과 <span id="ledgerCarryover"></span></p></div><div class="year-chip">2026</div></div>
             <div class="monthly-wrap">
               <table class="monthly-table">
-                <thead><tr><th>월</th><th class="num">원본 부과금</th><th class="num">원본 입금</th><th>원본 입금일</th><th class="num">자동부과</th><th class="num">추가입금</th><th class="num">현재 미수금</th></tr></thead>
+                <thead><tr><th>월</th><th class="num">월 부과액</th><th class="num">입금액</th><th>입금일</th><th class="num">월말 잔액</th><th class="num">자동부과</th><th class="num">추가입금</th><th class="num">반영 잔액</th></tr></thead>
                 <tbody id="monthlyRows"></tbody>
               </table>
             </div>
@@ -114,15 +144,61 @@
     </main>
   </div>
 
+  <div id="bulkImportModal" class="bulk-modal hidden" aria-hidden="true">
+    <div class="bulk-modal-card">
+      <div class="bulk-modal-head">
+        <div><strong>통장 · 결제내역 일괄수납</strong><span>엑셀/CSV 업로드 → 자동매칭 → 확인필요만 수동연결 → 일괄반영</span></div>
+        <button id="closeBulkImportBtn" type="button">×</button>
+      </div>
+      <div class="bulk-upload-bar">
+        <select id="bulkSourceType"><option value="통장">통장 입금내역</option><option value="사이다페이 결제리스트">사이다페이/결제리스트</option><option value="기타">기타 수납자료</option></select>
+        <input id="bulkFileInput" type="file" accept=".xlsx,.xls,.xlsm,.csv" />
+        <button id="bulkPreviewBtn" class="primary-btn" type="button">파일 분석</button>
+      </div>
+      <div id="bulkSummary" class="bulk-summary hidden">
+        <div><span>전체</span><strong id="bulkTotalRows">0</strong></div>
+        <div class="ok"><span>자동매칭</span><strong id="bulkMatchedRows">0</strong></div>
+        <div class="warn"><span>확인필요</span><strong id="bulkReviewRows">0</strong></div>
+        <div class="dup"><span>중복제외</span><strong id="bulkDuplicateRows">0</strong></div>
+        <div><span>반영완료</span><strong id="bulkPostedRows">0</strong></div>
+        <div><span>반영예정액</span><strong id="bulkTotalAmount">0원</strong></div>
+      </div>
+      <div id="bulkTableWrap" class="bulk-table-wrap hidden">
+        <table class="bulk-table">
+          <thead><tr><th>일자</th><th>입금자/내용</th><th class="num">금액</th><th>자동/수동 매칭</th><th>상태</th><th>관리</th></tr></thead>
+          <tbody id="bulkImportRows"></tbody>
+        </table>
+      </div>
+      <div id="manualMatchPanel" class="manual-match-panel hidden">
+        <div class="manual-match-title"><strong id="manualMatchRowInfo">회원 연결</strong><button id="closeManualMatchBtn" type="button">닫기</button></div>
+        <div class="manual-search"><input id="manualMatchSearch" placeholder="성명 · 차량번호 · 관리번호 · 핸드폰" /><button id="manualMatchSearchBtn" type="button">검색</button></div>
+        <div id="manualMatchResults" class="manual-match-results"></div>
+      </div>
+      <div class="bulk-modal-foot">
+        <span>중복거래는 자동 제외됩니다. 확인필요 건은 반영되지 않습니다.</span>
+        <button id="bulkPostBtn" class="primary-btn" type="button" disabled>매칭된 건 일괄 반영</button>
+      </div>
+    </div>
+  </div>
 
-  <div id="smsOverlay" class="sms-overlay hidden">
-    <div class="sms-card">
-      <div class="sms-card-head"><div><strong>문자 보내기</strong><span id="smsRecipient">-</span></div><button id="smsCloseBtn" type="button">×</button></div>
-      <label>내용<textarea id="smsText" rows="7" placeholder="문자 내용을 입력하세요."></textarea></label>
-      <div id="uplusBridgeStatus" class="uplus-bridge-status">U+ CRM Pro PC 연동상태 확인 중...</div>
-      <div class="sms-help">이 PC의 LG U+ CRM Pro(통화매니저)와 로컬 브리지를 통해 번호와 내용을 전달합니다. 자동 전송이 확인되지 않으면 CRM Pro 작성창까지만 열고 전송은 직접 확인하게 합니다.</div>
-      <div class="sms-actions uplus-actions"><button id="uplusCopyBtn" class="ghost-btn" type="button">번호·내용 복사</button><button id="uplusCheckBtn" class="ghost-btn" type="button">연결확인</button><button id="smsCancelBtn" class="ghost-btn" type="button">취소</button><button id="smsSendBtn" class="primary-btn" type="button">U+로 전송</button></div>
-      <div id="uplusSetupBox" class="uplus-setup hidden"><b>PC 연동 프로그램이 실행되지 않았습니다.</b><span>아래 파일을 내려받아 같은 폴더에서 ‘U+_CRMPro_연동설치.bat’를 한 번 실행하세요.</span><div><a href="/static/uplus/U+_CRMPro_연동설치.bat" download>설치 BAT</a><a href="/static/uplus/CRMProBridge.ps1" download>Bridge PS1</a><a href="/static/uplus/U+_CRMPro_연동제거.bat" download>제거 BAT</a></div></div>
+  <div id="memberActionModal" class="action-modal hidden" aria-hidden="true">
+    <div class="action-modal-card">
+      <div class="action-modal-head"><div><strong id="actionMemberName">회원 업무처리</strong><span id="actionMemberVehicle"></span></div><button id="closeActionModalBtn" type="button">×</button></div>
+      <div class="action-modal-body">
+        <label>처리구분<select id="memberActionType"><option value="폐업">폐업</option><option value="양도">양도</option><option value="이관">이관</option></select></label>
+        <div class="form-grid three">
+          <label>접수일<input id="memberActionReceipt" type="date" /></label>
+          <label>처리일<input id="memberActionDate" type="date" /></label>
+          <label>관리번호<input id="memberActionMgmt" /></label>
+        </div>
+        <div id="transferExtra" class="form-grid two hidden">
+          <label id="transfereeWrap">양수인<input id="memberActionTransferee" placeholder="양수인 성명" /></label>
+          <label>이관/양도지역<input id="memberActionRegion" placeholder="지역" /></label>
+        </div>
+        <label>사유/비고<input id="memberActionReason" placeholder="선택 입력" /></label>
+        <div class="action-modal-note">기존 전체회원관리의 폐업 처리 API를 그대로 사용합니다. 처리 후 미수·선납·입금·연락 이력은 삭제되지 않습니다.</div>
+      </div>
+      <div class="action-modal-foot"><button id="cancelActionBtn" class="work-btn ghost" type="button">취소</button><button id="saveMemberActionBtn" class="work-btn danger" type="button">처리 저장</button></div>
     </div>
   </div>
 
@@ -135,6 +211,6 @@
       <button class="primary-btn" type="submit">로그인</button><div id="loginError" class="login-error"></div>
     </form>
   </div>
-  <script src="/static/receivables.js?v=20260828-uplus-crmpro" defer></script>
+  <script src="/static/receivables.js?v=20260828-finalops1" defer></script>
 </body>
 </html>
