@@ -1,19 +1,23 @@
 from __future__ import annotations
 
+import csv
+import hashlib
 import io
 import json
 import re
 import threading
+import time
 from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from openpyxl import Workbook
+import pandas as pd
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from sqlalchemy import and_, case, func, or_, inspect, text
@@ -22,7 +26,7 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app.auth import get_current_user
-from app.database import get_db, engine
+from app.database import SessionLocal, get_db, engine
 from app.excel_utils import is_association_member
 from app.receivables_models import (
     ReceivableCharge,
@@ -30,6 +34,8 @@ from app.receivables_models import (
     ReceivablePayment,
     ReceivableProfile,
     ReceivableSystemState,
+    ReceivableImportBatch,
+    ReceivableImportRow,
 )
 
 router = APIRouter()
@@ -53,7 +59,7 @@ LEDGER_MODE = "database"
 # receivables 전용 lazy schema guard.
 # Railway healthcheck를 빠르게 통과시키기 위해 main.py의 전체 DB 유지보수는
 # 백그라운드에서 돌지만, 사용자가 /receivables를 먼저 열어도 이 모듈의
-# 5개 테이블만 즉시 준비되도록 한다. 전체회원관리 테이블/로직은 건드리지 않는다.
+# 수납/미수금 전용 테이블만 즉시 준비되도록 한다. 전체회원관리 테이블/로직은 건드리지 않는다.
 _receivables_schema_ready = False
 _receivables_schema_lock = threading.Lock()
 
@@ -72,6 +78,8 @@ def _ensure_receivables_schema_ready() -> None:
             ReceivablePayment.__table__,
             ReceivableContactLog.__table__,
             ReceivableSystemState.__table__,
+            ReceivableImportBatch.__table__,
+            ReceivableImportRow.__table__,
         ]
         # 이 모듈 테이블만 checkfirst=True로 생성한다. 기존 회원/인허가 테이블은 대상 아님.
         ReceivableProfile.metadata.create_all(bind=engine, tables=tables, checkfirst=True)
@@ -199,25 +207,34 @@ _seed_by_combo = None
 _seed_by_vehicle = None
 _seed_by_name_region = None
 _seed_by_name_plate_tail = None
+_seed_by_source_row = None
 _legacy_baseline_ready = False
 _legacy_baseline_lock = threading.Lock()
 _billing_ready_month = None
 _billing_month_lock = threading.Lock()
+_monthly_scheduler_started = False
+_monthly_scheduler_lock = threading.Lock()
 
 
 def _load_seed():
-    global _seed_cache, _seed_by_combo, _seed_by_vehicle, _seed_by_name_region, _seed_by_name_plate_tail
+    global _seed_cache, _seed_by_combo, _seed_by_vehicle, _seed_by_name_region, _seed_by_name_plate_tail, _seed_by_source_row
     if _seed_cache is not None:
         return _seed_cache
     if not DATA_FILE.exists():
         _seed_cache = []
-        _seed_by_combo, _seed_by_vehicle, _seed_by_name_region, _seed_by_name_plate_tail = {}, {}, {}, {}
+        _seed_by_combo, _seed_by_vehicle, _seed_by_name_region, _seed_by_name_plate_tail, _seed_by_source_row = {}, {}, {}, {}, {}
         return _seed_cache
 
     payload = json.loads(DATA_FILE.read_text(encoding="utf-8"))
     rows = payload.get("rows", [])
-    by_combo, by_vehicle, by_nr, by_name_tail = {}, {}, {}, {}
+    by_combo, by_vehicle, by_nr, by_name_tail, by_source = {}, {}, {}, {}, {}
     for r in rows:
+        sr = r.get("source_row")
+        if sr is not None:
+            try:
+                by_source[int(sr)] = r
+            except Exception:
+                pass
         nv, nn, nr = _norm(r.get("vehicle_number")), _norm(r.get("name")), _norm(r.get("region"))
         by_combo[(nv, nn)] = r
         if nv:
@@ -227,7 +244,7 @@ def _load_seed():
             digits = re.sub(r"\D", "", str(r.get("vehicle_number") or ""))
             if len(digits) >= 4:
                 by_name_tail.setdefault((nn, digits[-4:]), []).append(r)
-    _seed_cache, _seed_by_combo, _seed_by_vehicle, _seed_by_name_region, _seed_by_name_plate_tail = rows, by_combo, by_vehicle, by_nr, by_name_tail
+    _seed_cache, _seed_by_combo, _seed_by_vehicle, _seed_by_name_region, _seed_by_name_plate_tail, _seed_by_source_row = rows, by_combo, by_vehicle, by_nr, by_name_tail, by_source
     return rows
 
 
@@ -259,6 +276,46 @@ def _match_seed(member):
     if len(blank_vehicle_candidates) == 1:
         return blank_vehicle_candidates[0]
     return None
+
+
+def _seed_for_profile(profile):
+    """프로필이 최초 이관된 정확한 Excel 행을 source_row로 다시 찾는다.
+    회원명/차량번호가 이후 변경돼도 월별 원장/이월금 계산이 흔들리지 않게 한다.
+    """
+    _load_seed()
+    sr = getattr(profile, "legacy_source_row", None)
+    if sr is None:
+        return None
+    try:
+        return (_seed_by_source_row or {}).get(int(sr))
+    except Exception:
+        return None
+
+
+def _legacy_balance_as_of(profile, as_of_date: Optional[date]) -> int:
+    """폐업자의 기준원장 잔액을 폐업월 시점으로 고정한다.
+    2026 최신 Excel이 폐업 이후 월까지 누적부과돼 있더라도 이후 월은 폐업 잔액에 포함하지 않는다.
+    """
+    fallback = int(getattr(profile, "legacy_balance", 0) or 0)
+    if as_of_date is None or as_of_date.year != 2026:
+        return fallback
+    last = None
+    for row in (getattr(profile, "legacy_months", None) or []):
+        try:
+            mm = int(row.get("month") or 0)
+        except Exception:
+            continue
+        if mm <= as_of_date.month and row.get("arrears") is not None:
+            last = int(row.get("arrears") or 0)
+    if last is not None:
+        return last
+    seed = _seed_for_profile(profile)
+    if seed is not None:
+        try:
+            return int(seed.get("carryover") or 0)
+        except Exception:
+            pass
+    return fallback
 
 
 def _infer_account(member) -> str:
@@ -449,6 +506,70 @@ def _apply_legacy_baseline_once(db: Session) -> int:
         return imported
 
 
+def _refresh_legacy_baseline_if_seed_changed(db: Session, marker) -> int:
+    """번들된 최신 기준원장이 기존 DB baseline과 다를 때 **한 번만** 갱신한다.
+
+    수납/선납/연락은 별도 테이블이므로 절대 삭제하지 않는다. 이 함수가 바꾸는 것은
+    2026-08 기준 snapshot(legacy_balance/legacy_months/계정/대수)뿐이다.
+    marker에 최신 source_sha256을 기록하므로 같은 파일로 재배포해도 다시 덮어쓰지 않는다.
+    """
+    if marker is None or not DATA_FILE.exists():
+        return 0
+    try:
+        payload = json.loads(DATA_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return 0
+    current_sha = str(payload.get("source_sha256") or "").strip()
+    if not current_sha:
+        return 0
+    try:
+        info = json.loads(marker.value or "{}") if marker.value else {}
+    except Exception:
+        info = {}
+    applied_sha = str(info.get("source_sha256") or "").strip()
+    if applied_sha == current_sha:
+        return 0
+
+    _load_seed()
+    rows = (
+        db.query(ReceivableProfile, models.LicenseHolder)
+        .join(models.LicenseHolder, models.LicenseHolder.id == ReceivableProfile.member_id)
+        .all()
+    )
+    refreshed = 0
+    for profile, member in rows:
+        seed = _match_seed(member) or _seed_for_profile(profile)
+        if not seed:
+            continue
+        profile.legacy_source_row = int(seed.get("source_row")) if seed.get("source_row") is not None else None
+        profile.legacy_balance = int(seed.get("current_arrears") or 0)
+        profile.legacy_months = seed.get("months") or []
+        profile.legacy_note = seed.get("legacy_note") or None
+        profile.vehicle_count = max(1, int(seed.get("vehicle_count") or 1))
+        if int(getattr(profile, "account_manual_override", 0) or 0) != 1:
+            account = seed.get("account_type") or _infer_account(member)
+            profile.account_type = account
+            profile.unit_fee = ACCOUNT_FEES.get(account, 5000)
+        profile.first_charge_date = LEGACY_NEXT_BILL_DATE.isoformat()
+        refreshed += 1
+
+    info.update({
+        "source_filename": payload.get("source_filename", ""),
+        "source_sha256": current_sha,
+        "source_rows": len(payload.get("rows", []) or []),
+        "matched_profiles": refreshed,
+        "cutover_through": LEGACY_DATA_THROUGH_KEY,
+        "next_bill_date": LEGACY_NEXT_BILL_DATE.isoformat(),
+        "ledger_mode": LEDGER_MODE,
+        "excel_reupload_required": False,
+        "baseline_refreshed_at": datetime.now(KST).isoformat(),
+        "baseline_refresh_reason": "bundled_final_snapshot_changed",
+    })
+    marker.value = json.dumps(info, ensure_ascii=False)
+    db.commit()
+    return refreshed
+
+
 def _ensure_db_ledger_ready(db: Session) -> int:
     """DB 공식원장 준비.
 
@@ -461,6 +582,9 @@ def _ensure_db_ledger_ready(db: Session) -> int:
 
     marker = _baseline_marker(db)
     if marker is not None:
+        # 최종 기준원장 파일이 바뀐 경우에만 baseline snapshot을 1회 갱신한다.
+        # 프로그램에서 입력한 payments/contact_logs는 그대로 보존된다.
+        _refresh_legacy_baseline_if_seed_changed(db, marker)
         profile_count = db.query(func.count(ReceivableProfile.id)).scalar() or 0
         legacy_count = (
             db.query(func.count(ReceivableProfile.id))
@@ -754,8 +878,9 @@ def _ensure_current_month_billing(db: Session) -> int:
     """현재 월 자동부과를 월 1회 보장한다.
 
     2026-08까지는 최신 원장 snapshot에 포함되어 있어 자동부과하지 않는다.
-    2026-09부터는 해당 월 첫 수납화면 접근 시 DB에서 자동 생성하며,
-    완료 marker를 영구 저장해 재기동 후에도 매 요청마다 전수부과를 반복하지 않는다.
+    2026-09부터는 Railway 백그라운드 스케줄러가 월 변경을 감지해 자동 생성하며,
+    화면 최초 접근/수동 동기화도 안전망으로 동일 함수를 호출한다. 완료 marker를 영구 저장해
+    재기동이나 중복 호출에도 같은 월을 두 번 부과하지 않는다.
     """
     global _billing_ready_month
     today = datetime.now(KST).date()
@@ -828,6 +953,45 @@ def _schedule_background_sync(background_tasks: BackgroundTasks):
     수납화면 최초 접근 시 필요한 범위에서 보장한다.
     """
     return None
+
+def _monthly_billing_worker():
+    """Railway 서비스가 살아 있는 동안 월 변경을 자동 감지해 월 부과를 생성한다.
+
+    직원이 화면을 열지 않아도 동작한다. 동일 회원/동일 월은 DB UNIQUE 제약과
+    ReceivableSystemState marker가 이중부과를 차단한다.
+    """
+    while True:
+        db = SessionLocal()
+        try:
+            _ensure_receivables_schema_ready()
+            _ensure_db_ledger_ready(db)
+            # 15분마다 전체 회원을 훑지 않는다. 프로필이 없는 신규회원만 빠르게 연결한다.
+            _sync_missing_profiles_fast(db, limit=500, allow_legacy_seed=False)
+            _ensure_current_month_billing(db)
+        except Exception as exc:
+            print(f"[receivables monthly scheduler] {type(exc).__name__}: {exc}")
+            try:
+                db.rollback()
+            except Exception:
+                pass
+        finally:
+            db.close()
+        # 월 경계 누락 방지를 위해 15분 간격 확인. 실제 전수 부과는 월 1회만 실행된다.
+        time.sleep(900)
+
+
+@router.on_event("startup")
+def _start_monthly_billing_scheduler():
+    global _monthly_scheduler_started
+    with _monthly_scheduler_lock:
+        if _monthly_scheduler_started:
+            return
+        _monthly_scheduler_started = True
+        threading.Thread(
+            target=_monthly_billing_worker,
+            name="receivables-monthly-billing",
+            daemon=True,
+        ).start()
 
 
 def _charge_payment_subqueries(db: Session):
@@ -1233,13 +1397,57 @@ def _hydrate_closure_records(db: Session, closure_rows):
         return []
 
     # 기존 폐업현황 화면과 동일한 안전 매칭 규칙을 재사용한다.
-    from app.routers.closures import _build_member_lookup, _find_linked_member
+    from app.routers.closures import _build_member_lookup, _norm_vn
 
     by_id, by_vehicle, by_resident = _build_member_lookup(db, closure_rows)
+
+    # 현재 폐업건은 LicenseHolder.closure_id가 가리키는 관계가 가장 신뢰할 수 있는 연결이다.
+    # 성명/차량번호 매칭보다 먼저 사용해서 과거 동명이인/차량 재사용 오연결을 막는다.
+    closure_ids = [int(c.id) for c in closure_rows if getattr(c, "id", None) is not None]
+    current_member_by_closure = {}
+    if closure_ids:
+        for m in (
+            db.query(models.LicenseHolder)
+            .filter(models.LicenseHolder.closure_id.in_(closure_ids))
+            .all()
+        ):
+            if getattr(m, "closure_id", None) is not None:
+                current_member_by_closure[int(m.closure_id)] = m
+
+    def _strict_closure_member(c):
+        # 1) Closure.member_id 직접연결
+        mid = getattr(c, "member_id", None)
+        if mid and mid in by_id:
+            return by_id[mid]
+
+        # 2) 주민번호 완전일치. 중복이면 성명까지 완전일치해야 한다.
+        rn = (getattr(c, "resident_number", "") or "").strip()
+        if rn and rn in by_resident:
+            candidates = by_resident[rn]
+            if len(candidates) == 1:
+                return candidates[0]
+            name = (getattr(c, "name", "") or "").strip()
+            exact = [m for m in candidates if name and (m.name or "").strip() == name]
+            if len(exact) == 1:
+                return exact[0]
+
+        # 3) 차량번호는 반드시 성명까지 동시에 완전일치해야 한다.
+        #    차량번호만 유일하다는 이유로 연결하지 않는다.
+        #    예: 폐업 이종환 85바5040 ↔ 현역 이종한 85배5040 같은 오연결 차단.
+        vn = _norm_vn(getattr(c, "vehicle_number", "") or "")
+        name = (getattr(c, "name", "") or "").strip()
+        if vn and name and vn in by_vehicle:
+            exact = [m for m in by_vehicle[vn] if (m.name or "").strip() == name]
+            if len(exact) == 1:
+                return exact[0]
+        return None
+
     linked = {}
     member_ids = set()
     for c in closure_rows:
-        m = _find_linked_member(c, by_id, by_vehicle, by_resident)
+        m = current_member_by_closure.get(int(c.id)) if getattr(c, "id", None) is not None else None
+        if m is None:
+            m = _strict_closure_member(c)
         linked[c.id] = m
         if m is not None:
             member_ids.add(m.id)
@@ -1284,8 +1492,12 @@ def _hydrate_closure_records(db: Session, closure_rows):
             profile = profile_map.get(m.id)
             contact_status, last_contact_date = contact_map.get(m.id, ("미연락", ""))
             if profile is not None:
+                display_balance = int(balance_map.get(m.id, 0) or 0)
+                close_d = _parse_date(getattr(c, "closure_date", None))
+                if close_d is not None:
+                    display_balance += _legacy_balance_as_of(profile, close_d) - int(profile.legacy_balance or 0)
                 item = _serialize_member(
-                    m, profile, balance_map.get(m.id, 0),
+                    m, profile, display_balance,
                     contact_status, last_contact_date,
                     c.id, c.management_number or "", c.closure_date or "", ct,
                     c.reason or "", c.transferee or "", c.transfer_region or "",
@@ -1349,12 +1561,28 @@ def _hydrate_closure_records(db: Session, closure_rows):
 def _list_closure_records(
     db: Session, *, q: str = "", region: str = "", account_type: str = "",
     contact_status: str = "", billing_status: str = "", arrears_only: bool = False,
-    page: int = 1, limit: int = 50,
+    closure_mode: str = "current", page: int = 1, limit: int = 50,
 ):
-    """수납/미수금의 '폐업관리'는 회원상태 추정 목록이 아니라
-    인허가/변경 > 폐업현황(closures) 원장을 그대로 기준으로 한다.
+    """폐업관리 조회.
+
+    current: 현재 회원마스터에서 실제 status='closed'이고 closure_id가 가리키는 현재 폐업건만.
+             과거 이력이 있어도 현재 active인 회원은 절대 포함하지 않는다.
+    history: 인허가/변경 > 폐업현황(closures) 전체 이력. 과거 7천여 건 원장을 보존 조회한다.
     """
-    base = db.query(models.Closure).filter(models.Closure.deleted_at.is_(None))
+    if closure_mode == "history":
+        base = db.query(models.Closure).filter(models.Closure.deleted_at.is_(None))
+    else:
+        # 현재 폐업관리의 권위 기준은 LicenseHolder.status + LicenseHolder.closure_id.
+        # Closure 과거 이력만 존재하는 현재활동 회원은 여기서 완전히 제외된다.
+        base = (
+            db.query(models.Closure)
+            .join(models.LicenseHolder, models.LicenseHolder.closure_id == models.Closure.id)
+            .filter(
+                models.Closure.deleted_at.is_(None),
+                models.LicenseHolder.status == "closed",
+                models.LicenseHolder.closure_id.isnot(None),
+            )
+        )
     base = base.filter(or_(
         and_(models.Closure.vehicle_number.isnot(None), models.Closure.vehicle_number != ""),
         and_(models.Closure.name.isnot(None), models.Closure.name != ""),
@@ -1419,6 +1647,7 @@ def _list_closure_records(
         "limit": limit,
         "pages": max(1, (int(total) + limit - 1) // limit),
         "source": "closures",
+        "closure_mode": closure_mode,
     }
 
 
@@ -1426,6 +1655,7 @@ def _list_closure_records(
 def list_members(
     background_tasks: BackgroundTasks,
     scope: str = Query("active", pattern="^(active|closed|all)$"),
+    closure_mode: str = Query("current", pattern="^(current|history)$"),
     arrears_only: bool = False,
     q: str = "",
     region: str = "",
@@ -1450,7 +1680,7 @@ def list_members(
         result = _list_closure_records(
             db, q=q, region=region, account_type=account_type,
             contact_status=contact_status, billing_status=billing_status,
-            arrears_only=arrears_only, page=page, limit=limit,
+            arrears_only=arrears_only, closure_mode=closure_mode, page=page, limit=limit,
         )
         _schedule_background_sync(background_tasks)
         return result
@@ -1584,6 +1814,545 @@ def list_members(
 
 
 
+# ─────────────────────────────────────────────────────────────
+# 통장 / 카드결제 일괄수납
+# ─────────────────────────────────────────────────────────────
+
+class ImportMatchIn(BaseModel):
+    member_id: int
+
+
+def _norm_col(v) -> str:
+    return re.sub(r"[^0-9A-Za-z가-힣]", "", str(v or "")).lower()
+
+
+def _digits(v) -> str:
+    return re.sub(r"\D", "", str(v or ""))
+
+
+def _amount_int(v) -> int:
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return 0
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        try:
+            return int(round(float(v)))
+        except Exception:
+            return 0
+    text_value = str(v).strip().replace(",", "").replace("원", "").replace("₩", "")
+    if not text_value:
+        return 0
+    neg = text_value.startswith("(") and text_value.endswith(")")
+    text_value = re.sub(r"[^0-9.\-]", "", text_value)
+    try:
+        n = int(round(float(text_value)))
+        return -abs(n) if neg else n
+    except Exception:
+        return 0
+
+
+def _string_value(v) -> str:
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return ""
+    if isinstance(v, (datetime, date)):
+        return v.isoformat()[:10]
+    return str(v).strip()
+
+
+_IMPORT_ALIASES = {
+    "date": ["입금일", "거래일", "거래일자", "거래일시", "결제일", "결제일자", "승인일", "승인일시", "날짜", "일자"],
+    "amount": ["입금액", "입금", "결제금액", "승인금액", "결제액", "거래금액", "금액"],
+    "payer": ["입금자명", "입금자", "예금주", "성명", "구매자명", "고객명", "회원명", "거래내용", "적요", "내용"],
+    "vehicle": ["차량번호", "차번", "차량", "자동차번호"],
+    "management": ["관리번호", "회원관리번호"],
+    "mobile": ["핸드폰", "핸드폰번호", "휴대폰", "휴대폰번호", "연락처", "전화번호"],
+    "external": ["거래번호", "거래id", "승인번호", "결제번호", "주문번호", "거래고유번호", "transactionid"],
+    "memo": ["메모", "비고", "적요", "거래내용", "내용", "상품명", "결제수단"],
+}
+
+
+def _find_import_header(raw: pd.DataFrame) -> int:
+    best_idx, best_score = 0, -1
+    max_rows = min(len(raw), 35)
+    all_aliases = {_norm_col(a) for vals in _IMPORT_ALIASES.values() for a in vals}
+    amount_aliases = {_norm_col(a) for a in _IMPORT_ALIASES["amount"]}
+    date_aliases = {_norm_col(a) for a in _IMPORT_ALIASES["date"]}
+    for idx in range(max_rows):
+        vals = {_norm_col(x) for x in raw.iloc[idx].tolist() if _string_value(x)}
+        score = sum(2 if v in amount_aliases or v in date_aliases else 1 for v in vals if v in all_aliases)
+        if score > best_score:
+            best_idx, best_score = idx, score
+    return best_idx
+
+
+def _read_import_frames(data: bytes, filename: str):
+    ext = Path(filename or "").suffix.lower()
+    frames = []
+    if ext == ".csv":
+        last_err = None
+        for enc in ("utf-8-sig", "cp949", "euc-kr"):
+            try:
+                raw = pd.read_csv(io.BytesIO(data), header=None, dtype=object, encoding=enc)
+                header = _find_import_header(raw)
+                df = raw.iloc[header + 1:].copy()
+                df.columns = [_string_value(x) or f"col_{i}" for i, x in enumerate(raw.iloc[header].tolist())]
+                frames.append(("CSV", df))
+                break
+            except Exception as exc:
+                last_err = exc
+        if not frames and last_err:
+            raise last_err
+        return frames
+
+    if ext not in {".xlsx", ".xls", ".xlsm"}:
+        raise HTTPException(400, "지원 파일은 xlsx/xls/xlsm/csv 입니다.")
+    try:
+        excel = pd.ExcelFile(io.BytesIO(data))
+        for sheet in excel.sheet_names:
+            raw = pd.read_excel(excel, sheet_name=sheet, header=None, dtype=object)
+            if raw.empty:
+                continue
+            header = _find_import_header(raw)
+            df = raw.iloc[header + 1:].copy()
+            df.columns = [_string_value(x) or f"col_{i}" for i, x in enumerate(raw.iloc[header].tolist())]
+            frames.append((sheet, df))
+    except ImportError as exc:
+        raise HTTPException(400, "구형 .xls 파일 처리를 위해 xlrd 설치가 필요합니다. requirements.txt의 xlrd 항목을 함께 반영해주세요.") from exc
+    except Exception as exc:
+        raise HTTPException(400, f"파일을 읽지 못했습니다: {exc}") from exc
+    return frames
+
+
+def _pick_column(columns, aliases, prefer_exact=True):
+    pairs = [(c, _norm_col(c)) for c in columns]
+    for alias in aliases:
+        na = _norm_col(alias)
+        for c, nc in pairs:
+            if nc == na:
+                return c
+    if not prefer_exact:
+        for alias in aliases:
+            na = _norm_col(alias)
+            for c, nc in pairs:
+                if na and na in nc:
+                    return c
+    return None
+
+
+def _extract_vehicle_from_text(text_value: str) -> str:
+    s = str(text_value or "")
+    patterns = [
+        r"(?:강원\s*)?\d{2,3}\s*[가-힣]\s*\d{4}\s*호?",
+        r"\b\d{2,3}[- ]\d{4}\b",
+    ]
+    for pat in patterns:
+        m = re.search(pat, s)
+        if m:
+            return m.group(0).strip()
+    return ""
+
+
+def _parse_import_rows(data: bytes, filename: str, source_type: str):
+    parsed = []
+    for sheet, df in _read_import_frames(data, filename):
+        if df.empty:
+            continue
+        cols = list(df.columns)
+        date_col = _pick_column(cols, _IMPORT_ALIASES["date"], prefer_exact=False)
+        amount_col = _pick_column(cols, _IMPORT_ALIASES["amount"], prefer_exact=False)
+        payer_col = _pick_column(cols, _IMPORT_ALIASES["payer"], prefer_exact=False)
+        vehicle_col = _pick_column(cols, _IMPORT_ALIASES["vehicle"], prefer_exact=False)
+        mgmt_col = _pick_column(cols, _IMPORT_ALIASES["management"], prefer_exact=False)
+        mobile_col = _pick_column(cols, _IMPORT_ALIASES["mobile"], prefer_exact=False)
+        ext_col = _pick_column(cols, _IMPORT_ALIASES["external"], prefer_exact=False)
+        memo_col = _pick_column(cols, _IMPORT_ALIASES["memo"], prefer_exact=False)
+        if amount_col is None:
+            continue
+        for local_idx, (_, row) in enumerate(df.iterrows(), start=1):
+            amount = _amount_int(row.get(amount_col))
+            if amount <= 0:
+                continue
+            raw_date = row.get(date_col) if date_col else None
+            d = _parse_date(raw_date)
+            if not d:
+                try:
+                    ts = pd.to_datetime(raw_date, errors="coerce")
+                    d = None if pd.isna(ts) else ts.date()
+                except Exception:
+                    d = None
+            payer = _string_value(row.get(payer_col)) if payer_col else ""
+            memo = _string_value(row.get(memo_col)) if memo_col else ""
+            vehicle = _string_value(row.get(vehicle_col)) if vehicle_col else ""
+            if not vehicle:
+                vehicle = _extract_vehicle_from_text(" ".join([payer, memo]))
+            management = _string_value(row.get(mgmt_col)) if mgmt_col else ""
+            mobile = _string_value(row.get(mobile_col)) if mobile_col else ""
+            external = _string_value(row.get(ext_col)) if ext_col else ""
+            raw_dict = {str(k): _string_value(v) for k, v in row.to_dict().items() if _string_value(v)}
+            fingerprint_base = (
+                f"{source_type}|id|{_norm_col(external)}" if external else
+                "|".join([source_type, d.isoformat() if d else "", str(amount), _norm_col(payer), _norm_col(vehicle), _norm_col(memo)])
+            )
+            parsed.append({
+                "sheet": sheet,
+                "source_row": local_idx,
+                "transaction_date": d.isoformat() if d else datetime.now(KST).date().isoformat(),
+                "payer_name": payer,
+                "amount": amount,
+                "vehicle_number": vehicle,
+                "management_number": management,
+                "mobile": mobile,
+                "external_id": external,
+                "memo": memo,
+                "fingerprint": hashlib.sha256(fingerprint_base.encode("utf-8")).hexdigest(),
+                "raw_data": raw_dict,
+            })
+    if not parsed:
+        raise HTTPException(400, "입금액/결제금액이 있는 거래를 찾지 못했습니다. 파일의 열 이름을 확인해주세요.")
+    return parsed
+
+
+def _member_match_maps(db: Session):
+    members = (
+        db.query(models.LicenseHolder)
+        .filter(or_(models.LicenseHolder.status.is_(None), models.LicenseHolder.status != "pending"))
+        .all()
+    )
+
+    def add(mp, key, member):
+        if key:
+            mp.setdefault(key, []).append(member)
+
+    vehicles, names, mgmts, mobiles = {}, {}, {}, {}
+    for m in members:
+        add(vehicles, _norm(getattr(m, "vehicle_number", "")), m)
+        add(names, _norm(getattr(m, "name", "")), m)
+        add(mgmts, _norm(getattr(m, "management_number", "")), m)
+        add(mobiles, _digits(getattr(m, "mobile", "")), m)
+
+    aliases = {}
+    hist = (
+        db.query(ReceivableImportRow.payer_name, ReceivableImportRow.matched_member_id)
+        .filter(ReceivableImportRow.status == "posted", ReceivableImportRow.matched_member_id.isnot(None))
+        .all()
+    )
+    temp = {}
+    for payer, mid in hist:
+        key = _norm(payer)
+        if key:
+            temp.setdefault(key, set()).add(int(mid))
+    for key, mids in temp.items():
+        if len(mids) == 1:
+            aliases[key] = next(iter(mids))
+    by_id = {m.id: m for m in members}
+    return by_id, vehicles, names, mgmts, mobiles, aliases
+
+
+def _unique_member(candidates):
+    if not candidates:
+        return None
+    uniq = {m.id: m for m in candidates}
+    if len(uniq) == 1:
+        return next(iter(uniq.values()))
+    active = [m for m in uniq.values() if _is_active(m)]
+    return active[0] if len(active) == 1 else None
+
+
+def _auto_match_import(row, maps):
+    by_id, vehicles, names, mgmts, mobiles, aliases = maps
+    payer_key = _norm(row.get("payer_name"))
+    if payer_key and payer_key in aliases and aliases[payer_key] in by_id:
+        return by_id[aliases[payer_key]], "기존 입금자 매칭이력"
+    mgmt_key = _norm(row.get("management_number"))
+    m = _unique_member(mgmts.get(mgmt_key)) if mgmt_key else None
+    if m:
+        return m, "관리번호 정확일치"
+    vehicle_key = _norm(row.get("vehicle_number"))
+    m = _unique_member(vehicles.get(vehicle_key)) if vehicle_key else None
+    if m:
+        return m, "차량번호 정확일치"
+    mobile_key = _digits(row.get("mobile"))
+    m = _unique_member(mobiles.get(mobile_key)) if len(mobile_key) >= 8 else None
+    if m:
+        return m, "핸드폰 정확일치"
+    m = _unique_member(names.get(payer_key)) if payer_key else None
+    if m:
+        return m, "성명 유일일치"
+    if payer_key and len(payer_key) >= 2:
+        candidate_members = []
+        for name_key, rows in names.items():
+            if len(name_key) >= 2 and (payer_key.startswith(name_key) or payer_key.endswith(name_key)):
+                candidate_members.extend(rows)
+        m = _unique_member(candidate_members)
+        if m:
+            return m, "입금자명 포함 유일일치"
+    return None, "확인 필요"
+
+
+def _import_row_json(row: ReceivableImportRow, member_map=None):
+    member = (member_map or {}).get(row.matched_member_id) if row.matched_member_id else None
+    return {
+        "id": row.id,
+        "batch_id": row.batch_id,
+        "source_row": row.source_row,
+        "transaction_date": row.transaction_date or "",
+        "payer_name": row.payer_name or "",
+        "amount": int(row.amount or 0),
+        "vehicle_number": row.vehicle_number or "",
+        "management_number": row.management_number or "",
+        "mobile": row.mobile or "",
+        "external_id": row.external_id or "",
+        "memo": row.memo or "",
+        "matched_member_id": row.matched_member_id,
+        "match_reason": row.match_reason or "",
+        "status": row.status,
+        "payment_id": row.payment_id,
+        "matched_name": getattr(member, "name", "") if member else "",
+        "matched_vehicle": getattr(member, "vehicle_number", "") if member else "",
+        "matched_region": getattr(member, "region", "") if member else "",
+    }
+
+
+def _refresh_import_batch(db: Session, batch: ReceivableImportBatch):
+    rows = db.query(ReceivableImportRow).filter(ReceivableImportRow.batch_id == batch.id).all()
+    batch.total_rows = len(rows)
+    batch.matched_rows = sum(1 for r in rows if r.status == "matched")
+    batch.review_rows = sum(1 for r in rows if r.status == "review")
+    batch.duplicate_rows = sum(1 for r in rows if r.status == "duplicate")
+    batch.posted_rows = sum(1 for r in rows if r.status == "posted")
+    batch.total_amount = sum(int(r.amount or 0) for r in rows if r.status != "duplicate")
+    batch.posted_amount = sum(int(r.amount or 0) for r in rows if r.status == "posted")
+    return rows
+
+
+@router.post("/api/receivables/imports/preview")
+async def preview_payment_import(
+    source_type: str = Form("통장"),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    _ensure_receivables_schema_ready()
+    _ensure_db_ledger_ready(db)
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "빈 파일입니다.")
+    if len(raw) > 25 * 1024 * 1024:
+        raise HTTPException(400, "파일은 25MB 이하만 업로드할 수 있습니다.")
+    source_type = (source_type or "통장").strip()[:30]
+    parsed = _parse_import_rows(raw, file.filename or "upload.xlsx", source_type)
+    batch = ReceivableImportBatch(
+        source_type=source_type,
+        source_name=file.filename or "",
+        status="preview",
+        created_by=_user_name(current_user),
+    )
+    db.add(batch)
+    db.flush()
+
+    maps = _member_match_maps(db)
+    fingerprints = [r["fingerprint"] for r in parsed]
+    posted = set()
+    for i in range(0, len(fingerprints), 800):
+        chunk = fingerprints[i:i + 800]
+        posted.update(
+            fp for (fp,) in db.query(ReceivableImportRow.fingerprint)
+            .filter(ReceivableImportRow.fingerprint.in_(chunk), ReceivableImportRow.status == "posted")
+            .all()
+        )
+
+    seen = set()
+    for item in parsed:
+        duplicate = item["fingerprint"] in posted or item["fingerprint"] in seen
+        seen.add(item["fingerprint"])
+        member, reason = (None, "기존/파일내 중복") if duplicate else _auto_match_import(item, maps)
+        status = "duplicate" if duplicate else ("matched" if member else "review")
+        db.add(ReceivableImportRow(
+            batch_id=batch.id,
+            source_row=item["source_row"],
+            transaction_date=item["transaction_date"],
+            payer_name=item["payer_name"],
+            amount=item["amount"],
+            vehicle_number=item["vehicle_number"],
+            management_number=item["management_number"],
+            mobile=item["mobile"],
+            external_id=item["external_id"],
+            memo=item["memo"],
+            fingerprint=item["fingerprint"],
+            matched_member_id=getattr(member, "id", None),
+            match_reason=reason,
+            status=status,
+            raw_data={"sheet": item["sheet"], **item["raw_data"]},
+        ))
+    db.flush()
+    _refresh_import_batch(db, batch)
+    db.commit()
+    return get_payment_import(batch.id, db=db, current_user=current_user)
+
+
+@router.get("/api/receivables/imports/{batch_id}")
+def get_payment_import(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    _ensure_receivables_schema_ready()
+    batch = db.query(ReceivableImportBatch).filter(ReceivableImportBatch.id == batch_id).first()
+    if not batch:
+        raise HTTPException(404, "업로드 내역을 찾을 수 없습니다.")
+    rows = (
+        db.query(ReceivableImportRow)
+        .filter(ReceivableImportRow.batch_id == batch_id)
+        .order_by(ReceivableImportRow.id)
+        .all()
+    )
+    mids = {r.matched_member_id for r in rows if r.matched_member_id}
+    member_map = {
+        m.id: m for m in db.query(models.LicenseHolder).filter(models.LicenseHolder.id.in_(mids)).all()
+    } if mids else {}
+    return {
+        "batch": {
+            "id": batch.id,
+            "source_type": batch.source_type,
+            "source_name": batch.source_name or "",
+            "status": batch.status,
+            "total_rows": batch.total_rows,
+            "matched_rows": batch.matched_rows,
+            "review_rows": batch.review_rows,
+            "duplicate_rows": batch.duplicate_rows,
+            "posted_rows": batch.posted_rows,
+            "total_amount": batch.total_amount,
+            "posted_amount": batch.posted_amount,
+        },
+        "rows": [_import_row_json(r, member_map) for r in rows],
+    }
+
+
+@router.get("/api/receivables/import-member-search")
+def import_member_search(
+    q: str = Query(..., min_length=1),
+    limit: int = Query(12, ge=1, le=30),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    term = f"%{q.strip()}%"
+    rows = (
+        db.query(models.LicenseHolder)
+        .filter(or_(
+            models.LicenseHolder.name.ilike(term),
+            models.LicenseHolder.vehicle_number.ilike(term),
+            models.LicenseHolder.management_number.ilike(term),
+            models.LicenseHolder.mobile.ilike(term),
+        ))
+        .order_by(case((models.LicenseHolder.status == "active", 0), else_=1), models.LicenseHolder.name)
+        .limit(limit)
+        .all()
+    )
+    return {
+        "items": [{
+            "member_id": m.id,
+            "name": m.name or "",
+            "vehicle_number": m.vehicle_number or "",
+            "region": m.region or "",
+            "management_number": m.management_number or "",
+            "active": _is_active(m),
+        } for m in rows]
+    }
+
+
+@router.patch("/api/receivables/imports/rows/{row_id}/match")
+def match_import_row(
+    row_id: int,
+    payload: ImportMatchIn,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    row = db.query(ReceivableImportRow).filter(ReceivableImportRow.id == row_id).first()
+    if not row:
+        raise HTTPException(404, "거래행을 찾을 수 없습니다.")
+    member = db.query(models.LicenseHolder).filter(models.LicenseHolder.id == payload.member_id).first()
+    if not member:
+        raise HTTPException(404, "회원을 찾을 수 없습니다.")
+    if row.status == "posted":
+        raise HTTPException(400, "이미 수납 반영된 거래입니다.")
+    row.matched_member_id = member.id
+    row.match_reason = "수동연결"
+    if row.status != "duplicate":
+        row.status = "matched"
+    batch = db.query(ReceivableImportBatch).filter(ReceivableImportBatch.id == row.batch_id).first()
+    if batch:
+        _refresh_import_batch(db, batch)
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/api/receivables/imports/{batch_id}/post")
+def post_payment_import(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    _ensure_receivables_schema_ready()
+    batch = db.query(ReceivableImportBatch).filter(ReceivableImportBatch.id == batch_id).first()
+    if not batch:
+        raise HTTPException(404, "업로드 내역을 찾을 수 없습니다.")
+    rows = (
+        db.query(ReceivableImportRow)
+        .filter(ReceivableImportRow.batch_id == batch_id)
+        .order_by(ReceivableImportRow.id)
+        .all()
+    )
+    posted_fingerprints = {
+        fp for (fp,) in db.query(ReceivableImportRow.fingerprint)
+        .filter(ReceivableImportRow.status == "posted", ReceivableImportRow.batch_id != batch_id)
+        .all()
+    }
+    posted_count = 0
+    posted_amount = 0
+    method = "카드" if "결제" in (batch.source_type or "") or "사이다" in (batch.source_type or "") else "계좌이체"
+    for row in rows:
+        if row.status in {"posted", "duplicate"}:
+            continue
+        if not row.matched_member_id:
+            row.status = "review"
+            continue
+        if row.fingerprint in posted_fingerprints:
+            row.status = "duplicate"
+            row.match_reason = "기존 반영 거래와 중복"
+            continue
+        if not db.query(models.LicenseHolder.id).filter(models.LicenseHolder.id == row.matched_member_id).first():
+            row.status = "review"
+            row.match_reason = "회원 확인 필요"
+            continue
+        payment = ReceivablePayment(
+            member_id=row.matched_member_id,
+            payment_date=row.transaction_date or datetime.now(KST).date().isoformat(),
+            amount=int(row.amount or 0),
+            method=method,
+            memo=(f"[일괄수납 #{batch.id}] {row.payer_name or ''} {row.memo or ''}").strip(),
+            created_by=_user_name(current_user),
+        )
+        db.add(payment)
+        db.flush()
+        row.payment_id = payment.id
+        row.status = "posted"
+        row.match_reason = row.match_reason or "일괄반영"
+        posted_fingerprints.add(row.fingerprint)
+        posted_count += 1
+        posted_amount += int(row.amount or 0)
+    _refresh_import_batch(db, batch)
+    batch.status = "posted" if batch.review_rows == 0 else "partial"
+    batch.posted_at = datetime.now(KST)
+    db.commit()
+    return {
+        "ok": True,
+        "posted_rows": posted_count,
+        "posted_amount": posted_amount,
+        "review_rows": batch.review_rows,
+        "duplicate_rows": batch.duplicate_rows,
+    }
+
+
+
 def _excel_safe_text(value) -> str:
     """Excel 수식 주입을 막으면서 화면에 보이는 문자열은 그대로 보존한다."""
     if value is None:
@@ -1607,6 +2376,7 @@ def _export_view_label(view: str) -> str:
 def export_receivables_excel(
     view: str = Query("payment", pattern="^(payment|arrears|closed|contacts)$"),
     scope: str = Query("active", pattern="^(active|closed|all)$"),
+    closure_mode: str = Query("current", pattern="^(current|history)$"),
     arrears_only: bool = False,
     q: str = "",
     region: str = "",
@@ -1628,6 +2398,7 @@ def export_receivables_excel(
     result = list_members(
         background_tasks=BackgroundTasks(),
         scope=scope,
+        closure_mode=closure_mode,
         arrears_only=arrears_only,
         q=q,
         region=region,
@@ -1690,6 +2461,7 @@ def export_receivables_excel(
         "prepaid": "선납",
     }.get(billing_status, "전체")
     filter_parts = [
+        *(([f"폐업조회: {'현재 폐업자' if closure_mode == 'current' else '전체 폐업이력'}"] if view == "closed" else [])),
         f"검색: {(q or '').strip() or '전체'}",
         f"지역: {region or '전체'}",
         f"계정: {account_type or '전체'}",
@@ -1744,7 +2516,10 @@ def export_receivables_excel(
             prepaid_amount = None
 
         if view == "closed":
-            current_state = "과거기록" if mid is None else ("현재활동" if item.get("active") else "폐업")
+            if closure_mode == "current":
+                current_state = "폐업"
+            else:
+                current_state = "과거기록" if mid is None else ("현재활동" if item.get("active") else "폐업")
         else:
             current_state = "활성" if item.get("active") else "폐업"
 
@@ -1898,7 +2673,8 @@ def member_detail(
         .scalar()
         or 0
     )
-    balance = int(profile.legacy_balance or 0) + int(charge_total) - int(payment_total)
+    baseline_balance = _legacy_balance_as_of(profile, _parse_date(getattr(closure, "closure_date", None)) if closure else None)
+    balance = int(baseline_balance) + int(charge_total) - int(payment_total)
 
     latest = (
         db.query(ReceivableContactLog)
@@ -1932,6 +2708,8 @@ def member_detail(
         pay_dates.setdefault(mm, []).append(p.payment_date)
 
     legacy_by_month = {}
+    legacy_seed = _seed_for_profile(profile) if year == 2026 else None
+    legacy_carryover = int((legacy_seed or {}).get("carryover") or 0) if year == 2026 else 0
     if year == 2026:
         for row in profile.legacy_months or []:
             legacy_by_month[int(row.get("month") or 0)] = row
@@ -1961,15 +2739,23 @@ def member_detail(
     current_month_key = _month_key(today)
     close_d = _parse_date(getattr(closure, "closure_date", None)) if closure else None
     close_month_key = _month_key(close_d) if close_d else None
+    previous_legacy_arrears = legacy_carryover
 
     for m in range(1, 13):
         legacy = legacy_by_month.get(m) or {}
         month_key = f"{year}-{m:02d}"
         has_legacy_row = any(legacy.get(k) is not None for k in ("billed_total", "payment", "arrears")) or bool(legacy.get("payment_date"))
 
+        # Excel의 '월 부과금' 열은 실제 월회비가 아니라 전월 잔액이 포함된 누적 청구액이다.
+        # 화면에는 사용자가 이해하는 실제 월 부과액만 표시한다.
+        legacy_monthly_charge = None
+        if legacy.get("billed_total") is not None:
+            legacy_monthly_charge = int(legacy.get("billed_total") or 0) - int(previous_legacy_arrears or 0)
+
         # 원본 장부의 월말 미수금을 그 달의 기준값으로 그대로 사용한다.
         if legacy.get("arrears") is not None:
             running = int(legacy.get("arrears") or 0)
+            previous_legacy_arrears = int(legacy.get("arrears") or 0)
 
         auto_charge = int(ch_by_month.get(m, 0) or 0)
         extra_paid = int(pay_by_month.get(m, 0) or 0)
@@ -1986,6 +2772,7 @@ def member_detail(
             {
                 "month": m,
                 "legacy_billed_total": legacy.get("billed_total"),
+                "legacy_monthly_charge": legacy_monthly_charge,
                 "legacy_payment": legacy.get("payment"),
                 "legacy_payment_date": legacy.get("payment_date") or "",
                 "legacy_arrears": legacy.get("arrears"),
@@ -2047,6 +2834,7 @@ def member_detail(
             "vehicle_count": int(profile.vehicle_count or 1),
             "first_charge_date": profile.first_charge_date or "",
             "legacy_balance": int(profile.legacy_balance or 0),
+            "legacy_carryover": int(legacy_carryover or 0),
             "legacy_note": profile.legacy_note or "",
         },
         "monthly": monthly,

@@ -15,7 +15,7 @@ class ReceivableProfile(Base):
     legacy_months = Column(JSON, nullable=False, default=list)
     legacy_source_row = Column(Integer, nullable=True)
     legacy_note = Column(Text, nullable=True)
-    account_manual_override = Column(Integer, nullable=False, default=0)  # 0/1 (PATCH /account 로 수동 지정된 경우 1 — 자동 재판정 대상에서 제외)
+    account_manual_override = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -59,13 +59,52 @@ class ReceivableContactLog(Base):
 
 
 class ReceivableSystemState(Base):
-    """수납/미수금 시스템의 영구 상태값.
-
-    최신 Excel/MUSTARD 스냅샷은 최초 1회만 DB 기준원장으로 이관하고,
-    이후에는 이 테이블의 marker를 기준으로 재이관하지 않는다.
-    """
+    """수납/미수금 시스템의 영구 상태값."""
     __tablename__ = "receivable_system_state"
     key = Column(String(120), primary_key=True)
     value = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class ReceivableImportBatch(Base):
+    """통장/결제리스트 일괄수납 업로드 1회 단위."""
+    __tablename__ = "receivable_import_batches"
+    id = Column(Integer, primary_key=True, index=True)
+    source_type = Column(String(30), nullable=False, default="통장")
+    source_name = Column(String(255), nullable=True)
+    status = Column(String(30), nullable=False, default="preview")
+    total_rows = Column(Integer, nullable=False, default=0)
+    matched_rows = Column(Integer, nullable=False, default=0)
+    review_rows = Column(Integer, nullable=False, default=0)
+    duplicate_rows = Column(Integer, nullable=False, default=0)
+    posted_rows = Column(Integer, nullable=False, default=0)
+    total_amount = Column(Integer, nullable=False, default=0)
+    posted_amount = Column(Integer, nullable=False, default=0)
+    created_by = Column(String(100), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    posted_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class ReceivableImportRow(Base):
+    """업로드된 거래 1건. 원본을 보존하고 매칭/중복/반영 상태를 추적한다."""
+    __tablename__ = "receivable_import_rows"
+    id = Column(Integer, primary_key=True, index=True)
+    batch_id = Column(Integer, index=True, nullable=False)
+    source_row = Column(Integer, nullable=True)
+    transaction_date = Column(String(10), index=True, nullable=True)
+    payer_name = Column(String(200), index=True, nullable=True)
+    amount = Column(Integer, nullable=False, default=0)
+    vehicle_number = Column(String(80), nullable=True)
+    management_number = Column(String(80), nullable=True)
+    mobile = Column(String(80), nullable=True)
+    external_id = Column(String(160), nullable=True)
+    memo = Column(Text, nullable=True)
+    fingerprint = Column(String(64), nullable=False, index=True)
+    matched_member_id = Column(Integer, index=True, nullable=True)
+    match_reason = Column(String(120), nullable=True)
+    status = Column(String(30), nullable=False, default="review", index=True)  # matched/review/duplicate/posted/ignored
+    payment_id = Column(Integer, nullable=True)
+    raw_data = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

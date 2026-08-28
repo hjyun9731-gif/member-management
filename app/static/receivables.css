@@ -119,3 +119,86 @@
   .workspace,.workspace.closure-mode{grid-template-columns:minmax(520px,.82fr) minmax(700px,1.18fr)}
   .filters{grid-template-columns:minmax(160px,1.35fr) repeat(4,minmax(80px,.65fr))}
 }
+
+/* 폐업관리: 현재 폐업자 / 전체 폐업이력 분리 */
+.panel-title-block{min-width:0}
+.panel-title-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.closure-mode-switch{display:inline-flex;align-items:center;gap:4px;padding:3px;border:1px solid #e5e7eb;border-radius:10px;background:#f8fafc}
+.closure-mode-switch.hidden{display:none}
+.closure-mode-btn{height:30px;padding:0 11px;border:0;border-radius:8px;background:transparent;color:#667085;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap}
+.closure-mode-btn:hover{background:#fff;color:#344054}
+.closure-mode-btn.active{background:#fff;color:#5b4fd8;box-shadow:0 1px 4px rgba(15,23,42,.08)}
+@media (max-width:1200px){.panel-title-row{gap:8px}.closure-mode-btn{padding:0 8px}}
+
+/* 2026-08-28 desktop continuous workspace fix
+   목표: 좌/우 패널 상단 정렬, 페이지 중간에서 상세가 잘려 보이는 현상 제거,
+   가로 스크롤 제거, 한 화면에서 목록+상세를 안정적으로 유지. */
+@media (min-width:1360px) and (min-height:760px){
+  html,body{height:100%;overflow:hidden}
+  .app-shell{height:100vh;overflow:hidden;display:flex;flex-direction:column}
+  .topbar,.tabs{flex:0 0 auto}
+  .page{
+    flex:1 1 auto;
+    min-height:0;
+    height:auto;
+    padding:12px 0 12px;
+    overflow:hidden;
+    display:flex;
+    flex-direction:column;
+  }
+  .kpi-grid{flex:0 0 auto}
+  .workspace,.workspace.closure-mode{
+    flex:1 1 auto;
+    min-height:0;
+    height:auto;
+    align-items:stretch;
+  }
+  .member-panel,.workspace.closure-mode .member-panel,
+  .detail-panel{
+    position:relative!important;
+    top:auto!important;
+    height:100%;
+    min-height:0!important;
+    max-height:none;
+    overflow:hidden;
+  }
+  .member-panel{display:flex;flex-direction:column}
+  .member-panel .panel-head,.member-panel .filters,.member-panel .pager{flex:0 0 auto}
+  .member-table-wrap,.workspace.closure-mode .member-table-wrap{
+    flex:1 1 auto;
+    min-height:0;
+    max-height:none!important;
+    overflow-y:auto;
+    overflow-x:hidden;
+    scrollbar-gutter:stable;
+  }
+  .member-table,.workspace.closure-mode .member-table{width:100%;min-width:0!important;table-layout:fixed}
+  .member-table th,.member-table td{overflow:hidden;text-overflow:ellipsis}
+  .detail-panel{display:block}
+  .detail-content{
+    height:100%;
+    min-height:0;
+    overflow-y:auto;
+    overflow-x:hidden;
+    overscroll-behavior:contain;
+    scrollbar-gutter:stable;
+  }
+  .empty-state{height:100%;min-height:0!important}
+  .monthly-wrap{overflow-x:hidden;overflow-y:visible}
+  .monthly-table{width:100%;min-width:0!important;table-layout:fixed}
+  .monthly-table th,.monthly-table td{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .action-grid{align-items:start}
+  .closure-info{overflow:visible}
+}
+
+/* 1500px 전후에서도 패널이 겹치거나 끊기지 않도록 비율 보정 */
+@media (min-width:1360px) and (max-width:1540px) and (min-height:760px){
+  .workspace,.workspace.closure-mode{grid-template-columns:minmax(500px,.8fr) minmax(720px,1.2fr)}
+  .member-table th,.member-table td{padding-left:6px;padding-right:6px}
+  .monthly-table th,.monthly-table td{font-size:10.5px;padding-left:5px;padding-right:5px}
+}
+
+/* 최종 운영: 통장/결제 일괄수납 */
+.bulk-import-btn{height:34px;border:1px solid #cfc8ff;background:#f4f1ff;color:#5b4fd8;border-radius:10px;padding:0 13px;font-weight:900;font-size:12px;white-space:nowrap;cursor:pointer}.bulk-import-btn:hover{background:#ece7ff}
+.bulk-modal{position:fixed;inset:0;z-index:1300;background:rgba(25,31,45,.28);display:flex;align-items:center;justify-content:center;padding:22px}.bulk-modal.hidden{display:none}.bulk-modal-card{width:min(1180px,96vw);height:min(820px,92vh);background:#fff;border:1px solid #e7e9ef;border-radius:18px;box-shadow:0 24px 80px rgba(31,41,55,.18);display:flex;flex-direction:column;overflow:hidden}.bulk-modal-head{display:flex;align-items:center;justify-content:space-between;padding:15px 18px 12px;border-bottom:1px solid #edf0f4}.bulk-modal-head>div{display:flex;flex-direction:column;gap:3px}.bulk-modal-head strong{font-size:17px;color:#202635}.bulk-modal-head span{font-size:11px;color:#8a93a2}.bulk-modal-head button,.manual-match-title button{width:32px;height:32px;border:0;border-radius:9px;background:#f4f6f8;color:#667085;font-size:19px;cursor:pointer}.bulk-upload-bar{display:grid;grid-template-columns:190px minmax(260px,1fr) 110px;gap:8px;padding:12px 18px}.bulk-upload-bar select,.bulk-upload-bar input{height:38px}.bulk-upload-bar .primary-btn{height:38px;margin:0}.bulk-summary{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:7px;padding:0 18px 12px}.bulk-summary.hidden{display:none}.bulk-summary>div{background:#f8fafc;border:1px solid #edf0f4;border-radius:11px;padding:9px 11px;display:flex;flex-direction:column;gap:2px}.bulk-summary span{font-size:10px;color:#8a93a2;font-weight:800}.bulk-summary strong{font-size:16px;color:#303746}.bulk-summary .ok{background:#effaf6}.bulk-summary .warn{background:#fff9e9}.bulk-summary .dup{background:#f4f5f7}.bulk-table-wrap{flex:1;min-height:0;margin:0 18px;border:1px solid #e8ebf0;border-radius:12px;overflow:auto}.bulk-table-wrap.hidden{display:none}.bulk-table{width:100%;border-collapse:collapse;table-layout:fixed}.bulk-table thead{position:sticky;top:0;z-index:2;background:#f8fafc}.bulk-table th,.bulk-table td{padding:7px 8px;border-bottom:1px solid #edf0f4;font-size:11px;vertical-align:middle}.bulk-table th{font-size:10px;color:#697386;text-align:left}.bulk-table th:nth-child(1){width:10%}.bulk-table th:nth-child(2){width:22%}.bulk-table th:nth-child(3){width:12%}.bulk-table th:nth-child(4){width:32%}.bulk-table th:nth-child(5){width:12%}.bulk-table th:nth-child(6){width:12%}.bulk-table td small,.bulk-match-cell small{display:block;color:#98a2b3;font-size:9px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.bulk-match-cell{min-width:0}.bulk-match-cell em{display:block;color:#8a93a2;font-size:9px;font-style:normal;margin-top:2px}.bulk-row.review{background:#fffdf6}.bulk-row.duplicate{opacity:.58;background:#f7f7f8}.bulk-status{display:inline-flex;padding:4px 7px;border-radius:999px;font-size:9px;font-weight:900;white-space:nowrap}.bulk-status.matched{background:#eaf8f2;color:#34775e}.bulk-status.review{background:#fff1c9;color:#8b681c}.bulk-status.duplicate{background:#eceef1;color:#697386}.bulk-status.posted{background:#eaf2ff;color:#4267a8}.bulk-match-btn{height:28px;padding:0 9px;border:1px solid #d9d7ff;border-radius:8px;background:#f6f4ff;color:#5b4fd8;font-size:10px;font-weight:800;cursor:pointer}.bulk-done,.bulk-muted{font-size:10px;color:#7a8492}.manual-match-panel{position:absolute;z-index:1310;width:min(520px,90vw);max-height:560px;background:#fff;border:1px solid #dedff0;border-radius:14px;box-shadow:0 18px 55px rgba(31,41,55,.2);padding:12px;left:50%;top:50%;transform:translate(-50%,-50%)}.manual-match-panel.hidden{display:none}.manual-match-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}.manual-match-title strong{font-size:14px}.manual-match-title button{width:auto;padding:0 9px;font-size:10px}.manual-search{display:grid;grid-template-columns:1fr 64px;gap:6px}.manual-search input{height:36px}.manual-search button{border:1px solid #d8dbe2;background:#f7f8fa;border-radius:9px;font-weight:800;font-size:11px}.manual-match-results{margin-top:8px;max-height:390px;overflow:auto;display:flex;flex-direction:column;gap:5px}.manual-result{border:1px solid #e5e8ee;background:#fff;border-radius:9px;padding:8px 10px;text-align:left;cursor:pointer}.manual-result:hover{border-color:#bcb6ff;background:#faf9ff}.manual-result b{display:block;font-size:12px;color:#293142}.manual-result span{font-size:10px;color:#8993a3}.bulk-no-result{padding:25px;text-align:center;color:#8a93a2;font-size:11px}.bulk-modal-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 18px 14px;border-top:1px solid #edf0f4}.bulk-modal-foot span{font-size:10px;color:#8993a3}.bulk-modal-foot .primary-btn{height:38px;margin:0;padding:0 18px;width:auto}.bulk-modal-foot .primary-btn:disabled{opacity:.45;cursor:not-allowed}
+@media(max-width:900px){.bulk-upload-bar{grid-template-columns:1fr}.bulk-summary{grid-template-columns:repeat(3,1fr)}.bulk-modal{padding:8px}.bulk-modal-card{width:100%;height:96vh}.bulk-table{min-width:850px}}
