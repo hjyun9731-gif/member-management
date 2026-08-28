@@ -202,3 +202,56 @@
 .bulk-import-btn{height:34px;border:1px solid #cfc8ff;background:#f4f1ff;color:#5b4fd8;border-radius:10px;padding:0 13px;font-weight:900;font-size:12px;white-space:nowrap;cursor:pointer}.bulk-import-btn:hover{background:#ece7ff}
 .bulk-modal{position:fixed;inset:0;z-index:1300;background:rgba(25,31,45,.28);display:flex;align-items:center;justify-content:center;padding:22px}.bulk-modal.hidden{display:none}.bulk-modal-card{width:min(1180px,96vw);height:min(820px,92vh);background:#fff;border:1px solid #e7e9ef;border-radius:18px;box-shadow:0 24px 80px rgba(31,41,55,.18);display:flex;flex-direction:column;overflow:hidden}.bulk-modal-head{display:flex;align-items:center;justify-content:space-between;padding:15px 18px 12px;border-bottom:1px solid #edf0f4}.bulk-modal-head>div{display:flex;flex-direction:column;gap:3px}.bulk-modal-head strong{font-size:17px;color:#202635}.bulk-modal-head span{font-size:11px;color:#8a93a2}.bulk-modal-head button,.manual-match-title button{width:32px;height:32px;border:0;border-radius:9px;background:#f4f6f8;color:#667085;font-size:19px;cursor:pointer}.bulk-upload-bar{display:grid;grid-template-columns:190px minmax(260px,1fr) 110px;gap:8px;padding:12px 18px}.bulk-upload-bar select,.bulk-upload-bar input{height:38px}.bulk-upload-bar .primary-btn{height:38px;margin:0}.bulk-summary{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:7px;padding:0 18px 12px}.bulk-summary.hidden{display:none}.bulk-summary>div{background:#f8fafc;border:1px solid #edf0f4;border-radius:11px;padding:9px 11px;display:flex;flex-direction:column;gap:2px}.bulk-summary span{font-size:10px;color:#8a93a2;font-weight:800}.bulk-summary strong{font-size:16px;color:#303746}.bulk-summary .ok{background:#effaf6}.bulk-summary .warn{background:#fff9e9}.bulk-summary .dup{background:#f4f5f7}.bulk-table-wrap{flex:1;min-height:0;margin:0 18px;border:1px solid #e8ebf0;border-radius:12px;overflow:auto}.bulk-table-wrap.hidden{display:none}.bulk-table{width:100%;border-collapse:collapse;table-layout:fixed}.bulk-table thead{position:sticky;top:0;z-index:2;background:#f8fafc}.bulk-table th,.bulk-table td{padding:7px 8px;border-bottom:1px solid #edf0f4;font-size:11px;vertical-align:middle}.bulk-table th{font-size:10px;color:#697386;text-align:left}.bulk-table th:nth-child(1){width:10%}.bulk-table th:nth-child(2){width:22%}.bulk-table th:nth-child(3){width:12%}.bulk-table th:nth-child(4){width:32%}.bulk-table th:nth-child(5){width:12%}.bulk-table th:nth-child(6){width:12%}.bulk-table td small,.bulk-match-cell small{display:block;color:#98a2b3;font-size:9px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.bulk-match-cell{min-width:0}.bulk-match-cell em{display:block;color:#8a93a2;font-size:9px;font-style:normal;margin-top:2px}.bulk-row.review{background:#fffdf6}.bulk-row.duplicate{opacity:.58;background:#f7f7f8}.bulk-status{display:inline-flex;padding:4px 7px;border-radius:999px;font-size:9px;font-weight:900;white-space:nowrap}.bulk-status.matched{background:#eaf8f2;color:#34775e}.bulk-status.review{background:#fff1c9;color:#8b681c}.bulk-status.duplicate{background:#eceef1;color:#697386}.bulk-status.posted{background:#eaf2ff;color:#4267a8}.bulk-match-btn{height:28px;padding:0 9px;border:1px solid #d9d7ff;border-radius:8px;background:#f6f4ff;color:#5b4fd8;font-size:10px;font-weight:800;cursor:pointer}.bulk-done,.bulk-muted{font-size:10px;color:#7a8492}.manual-match-panel{position:absolute;z-index:1310;width:min(520px,90vw);max-height:560px;background:#fff;border:1px solid #dedff0;border-radius:14px;box-shadow:0 18px 55px rgba(31,41,55,.2);padding:12px;left:50%;top:50%;transform:translate(-50%,-50%)}.manual-match-panel.hidden{display:none}.manual-match-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}.manual-match-title strong{font-size:14px}.manual-match-title button{width:auto;padding:0 9px;font-size:10px}.manual-search{display:grid;grid-template-columns:1fr 64px;gap:6px}.manual-search input{height:36px}.manual-search button{border:1px solid #d8dbe2;background:#f7f8fa;border-radius:9px;font-weight:800;font-size:11px}.manual-match-results{margin-top:8px;max-height:390px;overflow:auto;display:flex;flex-direction:column;gap:5px}.manual-result{border:1px solid #e5e8ee;background:#fff;border-radius:9px;padding:8px 10px;text-align:left;cursor:pointer}.manual-result:hover{border-color:#bcb6ff;background:#faf9ff}.manual-result b{display:block;font-size:12px;color:#293142}.manual-result span{font-size:10px;color:#8993a3}.bulk-no-result{padding:25px;text-align:center;color:#8a93a2;font-size:11px}.bulk-modal-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 18px 14px;border-top:1px solid #edf0f4}.bulk-modal-foot span{font-size:10px;color:#8993a3}.bulk-modal-foot .primary-btn{height:38px;margin:0;padding:0 18px;width:auto}.bulk-modal-foot .primary-btn:disabled{opacity:.45;cursor:not-allowed}
 @media(max-width:900px){.bulk-upload-bar{grid-template-columns:1fr}.bulk-summary{grid-template-columns:repeat(3,1fr)}.bulk-modal{padding:8px}.bulk-modal-card{width:100%;height:96vh}.bulk-table{min-width:850px}}
+
+/* 2026-08-28 최종 가독성 보정: 잔액/처리정보/관리 버튼이 잘리지 않도록 */
+@media (min-width:1360px){
+  .workspace,.workspace.closure-mode{grid-template-columns:minmax(590px,.92fr) minmax(720px,1.08fr)}
+
+  /* 일반 회원목록: 잔액과 처리 버튼 폭을 확보 */
+  .workspace:not(.closure-mode) .member-table{table-layout:fixed}
+  .workspace:not(.closure-mode) .member-table th:nth-child(1){width:15%}
+  .workspace:not(.closure-mode) .member-table th:nth-child(2){width:11%}
+  .workspace:not(.closure-mode) .member-table th:nth-child(3){width:20%}
+  .workspace:not(.closure-mode) .member-table th:nth-child(4){width:12%}
+  .workspace:not(.closure-mode) .member-table th:nth-child(5){width:22%}
+  .workspace:not(.closure-mode) .member-table th:nth-child(6){width:11%}
+  .workspace:not(.closure-mode) .member-table th:nth-child(7){width:9%}
+  .workspace:not(.closure-mode) .member-table td:nth-child(5){overflow:visible!important;text-overflow:clip!important;white-space:nowrap!important;padding-left:5px;padding-right:7px;font-variant-numeric:tabular-nums}
+  .workspace:not(.closure-mode) .member-table .manage-cell{overflow:visible!important;text-overflow:clip!important;padding-left:3px;padding-right:3px}
+  .workspace:not(.closure-mode) .mini-action{min-width:46px;padding:0 7px}
+
+  /* 폐업관리 기본(현재 폐업자): 처리정보와 잔액을 넉넉하게 */
+  .workspace.closure-mode:not(.closure-history) .member-table th:nth-child(1){width:12%}
+  .workspace.closure-mode:not(.closure-history) .member-table th:nth-child(2){width:8%}
+  .workspace.closure-mode:not(.closure-history) .member-table th:nth-child(3){width:16%}
+  .workspace.closure-mode:not(.closure-history) .member-table th:nth-child(4){width:18%}
+  .workspace.closure-mode:not(.closure-history) .member-table th:nth-child(5){width:30%}
+  .workspace.closure-mode:not(.closure-history) .member-table th:nth-child(6){width:16%}
+
+  /* 전체 폐업이력은 현재상태 열까지 포함 */
+  .workspace.closure-mode.closure-history .member-table th:nth-child(1){width:11%}
+  .workspace.closure-mode.closure-history .member-table th:nth-child(2){width:7%}
+  .workspace.closure-mode.closure-history .member-table th:nth-child(3){width:15%}
+  .workspace.closure-mode.closure-history .member-table th:nth-child(4){width:17%}
+  .workspace.closure-mode.closure-history .member-table th:nth-child(5){width:25%}
+  .workspace.closure-mode.closure-history .member-table th:nth-child(6){width:10%}
+  .workspace.closure-mode.closure-history .member-table th:nth-child(7){width:15%}
+
+  .workspace.closure-mode .member-table td:last-child{overflow:visible!important;text-overflow:clip!important;white-space:nowrap!important;padding-left:5px;padding-right:7px;font-variant-numeric:tabular-nums;font-weight:900;text-align:right}
+  .workspace.closure-mode .closure-process{white-space:normal;line-height:1.25;gap:3px}
+  .workspace.closure-mode .closure-process span,
+  .workspace.closure-mode .closure-process small{white-space:normal!important;overflow:visible!important;text-overflow:clip!important;word-break:keep-all}
+  .workspace.closure-mode .closure-process span{font-weight:700;color:#4b5563}
+  .workspace.closure-mode .closure-process small{font-size:9.5px;line-height:1.3}
+  .workspace.closure-mode .member-table td{height:52px}
+
+  /* 우측 상세의 큰 금액도 잘리지 않도록 */
+  .balance-box{min-width:0;padding-left:12px;padding-right:14px}
+  .balance-box strong{font-size:26px;max-width:100%;white-space:nowrap;overflow:visible;font-variant-numeric:tabular-nums}
+}
+
+@media (min-width:1360px) and (max-width:1500px){
+  .workspace,.workspace.closure-mode{grid-template-columns:minmax(570px,.9fr) minmax(690px,1.1fr)}
+  .workspace:not(.closure-mode) .member-table th:nth-child(5){width:23%}
+  .workspace:not(.closure-mode) .member-table th:nth-child(7){width:9%}
+}
