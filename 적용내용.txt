@@ -1,37 +1,13 @@
-2026-08-28 수정내용
+Railway Healthcheck 실패 수정 패치
 
-1) 현재회원 활성/폐업 판정 수정
-- 현재 전체회원관리 license_holders.status를 기준으로 활성/폐업 판정
-- 과거 폐업/양도/이관 Closure 이력이 있어도 현재 status=active이면 활성회원
-- active 회원의 과거 Closure는 자동부과 중단/폐업미수 판정에 사용하지 않음
-- status=closed + closure_id가 현재 폐업건을 가리킬 때 현재 폐업으로 처리
-- 구자료 중 status=closed인데 closure_id가 없는 경우에만 최신 member_id 폐업건을 보조 매칭
+변경 파일:
+- app/main.py
+- railway.json
 
-2) 안경모 유형 오류 방지
-- 현재 현역(active) 회원 + 과거 폐업기록 존재 -> 활성 / 미수(또는 선납/완납)
-- 절대 '폐업 미수'로 표시하지 않음
+핵심 변경:
+1) 서버 import/startup 전에 실행되던 DB 유지보수 작업을 제거하지 않고 서버 기동 후 백그라운드로 이동
+2) /health는 DB 작업과 무관하게 즉시 응답 가능
+3) 기본 관리자 생성도 백그라운드 처리
+4) Railway healthcheck timeout 300초로 완충
 
-3) 폐업관리 7,812건 이력은 유지
-- 폐업현황 자체는 과거 기록 포함 그대로 조회
-- 폐업관리 목록에 '현재상태' 추가: 현재활동 / 폐업 / 과거기록
-- 과거 폐업기록과 현재 회원상태를 분리해서 표시
-
-4) 수납처리 목록 개선
-- 수납처리 목록의 '연락' 컬럼 제거
-- '관리' 컬럼 추가
-- 처리 버튼으로 기존 전체회원관리 /api/members/{id}/close API를 그대로 호출
-- 폐업/양도/이관, 접수일/처리일/관리번호/양수인/지역/사유 입력 가능
-- 처리 후 미수/선납/입금/연락 이력 보존
-
-5) 회원 상세
-- 회원업무 바 추가
-- 활성회원은 폐업·양도·이관 처리 가능
-- 폐업현황에서 과거 기록을 선택한 경우 과거 폐업정보는 보여주되 현재 회원상태는 active로 유지
-
-변경 파일 4개
-- app/routers/receivables.py
-- app/static/receivables.html
-- app/static/receivables.js
-- app/static/receivables.css
-
-.env / .git / __pycache__ / *.pyc / DB 파일 없음
+기존 회원/수납/미수금/폐업/양도/이관 기능 로직은 변경하지 않음.

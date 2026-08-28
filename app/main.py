@@ -23,14 +23,7 @@ import app.models as _models
 from app.routers import receivables
 import app.receivables_models as _receivables_models
 
-# 테이블 생성 (없는 경우만 - checkfirst=True로 기존 테이블 충돌 방지)
-try:
-    _models.Base.metadata.create_all(bind=engine, checkfirst=True)
-    db_type = "SQLite" if "sqlite" in DATABASE_URL else "PostgreSQL"
-    logger.info(f"DB 연결 완료 ({db_type})")
-except Exception as e:
-    # create_all 실패해도 서버는 계속 기동 (테이블이 이미 존재하는 경우)
-    logger.warning(f"DB create_all 경고 (무시, 테이블 이미 존재): {e}")
+# DB 테이블 생성/마이그레이션은 Railway healthcheck를 막지 않도록 startup 이후 백그라운드에서 실행한다.
 
 # 컬럼 마이그레이션: 새 컬럼이 없으면 추가
 def _run_migrations():
@@ -126,10 +119,24 @@ def _run_migrations():
         except Exception as e:
             logger.warning(f"마이그레이션 스킵 ({table_name}.{col_name}): {e}")
 
-try:
-    _run_migrations()
-except Exception as e:
-    logger.warning(f"마이그레이션 경고 (무시): {e}")
+
+# 수납/미수금 조회 성능용 인덱스. 기존 데이터/기능은 변경하지 않고 인덱스만 추가한다.
+def _ensure_receivables_indexes():
+    from sqlalchemy import text
+    statements = [
+        "CREATE INDEX IF NOT EXISTS ix_receivable_profiles_account_type ON receivable_profiles (account_type)",
+        "CREATE INDEX IF NOT EXISTS ix_receivable_profiles_first_charge_date ON receivable_profiles (first_charge_date)",
+        "CREATE INDEX IF NOT EXISTS ix_receivable_payments_member_date ON receivable_payments (member_id, payment_date)",
+        "CREATE INDEX IF NOT EXISTS ix_receivable_contacts_member_date ON receivable_contact_logs (member_id, contact_date)",
+        "CREATE INDEX IF NOT EXISTS ix_closures_member_id ON closures (member_id)",
+    ]
+    try:
+        with engine.begin() as conn:
+            for stmt in statements:
+                conn.execute(text(stmt))
+        logger.info("수납/미수금 성능 인덱스 확인 완료")
+    except Exception as e:
+        logger.warning(f"수납/미수금 인덱스 생성 경고 (무시): {e}")
 
 # 변경이력 change_type 자동 재정규화 (기존 '기타' 데이터 수정)
 def _renormalize_change_types():
@@ -169,11 +176,6 @@ def _renormalize_change_types():
     finally:
         db.close()
 
-try:
-    _renormalize_change_types()
-except Exception as e:
-    logger.warning(f"변경이력 재정규화 경고: {e}")
-
 # 양도양수대장: 양도자/양수자 회원ID가 동일하게 잘못 연결된 기존 레코드 복구
 # (도내 양도양수 중복확인이 양도자 본인을 양수자 후보로 잘못 제시하던 버그의 산물).
 # 조건에 해당하는 소수 레코드만 대상으로 하는 가벼운 쿼리라 startup에 포함해도 안전함.
@@ -189,11 +191,6 @@ def _fix_self_referencing_transfer_ledger():
         logger.warning(f"양도양수대장 자기참조 복구 오류 (무시): {e}")
     finally:
         db.close()
-
-try:
-    _fix_self_referencing_transfer_ledger()
-except Exception as e:
-    logger.warning(f"양도양수대장 자기참조 복구 경고: {e}")
 
 
 # 관리번호(양YY-N 등) 중복 방지: 기존 중복 데이터가 없을 때만 UNIQUE 인덱스 생성.
@@ -235,11 +232,6 @@ def _add_management_number_unique_index():
     except Exception as e:
         logger.warning(f"관리번호 UNIQUE 인덱스 처리 경고 (무시): {e}")
 
-try:
-    _add_management_number_unique_index()
-except Exception as e:
-    logger.warning(f"관리번호 UNIQUE 인덱스 경고: {e}")
-
 
 def _backfill_certificate_logs():
     """이미 발급되어 있지만(카운터가 앞서 있음) 로그가 없는 자격증명발급번호를
@@ -255,10 +247,42 @@ def _backfill_certificate_logs():
     finally:
         db.close()
 
-try:
-    _backfill_certificate_logs()
-except Exception as e:
-    logger.warning(f"자격증명발급번호 백필 경고: {e}")
+_maintenance_lock = None
+
+
+def _run_deferred_db_maintenance():
+    """
+    Railway healthcheck가 먼저 통과하도록 DB 유지보수 작업을 서버 기동 후 백그라운드에서 실행한다.
+    기존 작업 자체는 삭제하지 않고 실행 시점만 뒤로 옮긴다.
+    """
+    import threading as _threading
+    global _maintenance_lock
+    if _maintenance_lock is None:
+        _maintenance_lock = _threading.Lock()
+    if not _maintenance_lock.acquire(blocking=False):
+        logger.info("DB 유지보수 작업이 이미 실행 중이므로 중복 실행을 건너뜁니다.")
+        return
+    try:
+        jobs = [
+            ("DB 테이블 생성", lambda: _models.Base.metadata.create_all(bind=engine, checkfirst=True)),
+            ("컬럼 마이그레이션", _run_migrations),
+            ("수납/미수금 인덱스", _ensure_receivables_indexes),
+            ("변경이력 재정규화", _renormalize_change_types),
+            ("양도양수 자기참조 복구", _fix_self_referencing_transfer_ledger),
+            ("관리번호 UNIQUE 인덱스", _add_management_number_unique_index),
+            ("자격증명 발급이력 백필", _backfill_certificate_logs),
+        ]
+        for name, job in jobs:
+            try:
+                job()
+                logger.info(f"백그라운드 DB 유지보수 완료: {name}")
+            except Exception as e:
+                logger.warning(f"백그라운드 DB 유지보수 경고 ({name}): {e}")
+        db_type = "SQLite" if "sqlite" in DATABASE_URL else "PostgreSQL"
+        logger.info(f"백그라운드 DB 유지보수 전체 완료 ({db_type})")
+    finally:
+        _maintenance_lock.release()
+
 
 app = FastAPI(title="강원도 개인소형화물협회 업무관리 시스템", version="3.0.0")
 
@@ -322,17 +346,25 @@ def pwa_manifest():
 
 @app.on_event("startup")
 async def startup():
-    # startup에서는 최소 작업만 (Healthcheck 즉시 통과 필요)
-    db = SessionLocal()
-    try:
-        create_default_admin(db)
-        # ⚠️ backfill_transfer_names 제거: 4591건 UPDATE가 startup을 blocking해서
-        # Healthcheck 실패 → Railway 배포 실패 원인
-        # 필요 시 /api/admin/db-status 확인 후 수동 실행
-    except Exception as e:
-        logger.warning(f"startup 오류 (무시): {e}")
-    finally:
-        db.close()
+    # Railway healthcheck를 최우선으로 통과시키기 위해 startup은 즉시 반환한다.
+    # DB 초기화/마이그레이션/대량 백필은 아래 daemon thread에서 순차 실행한다.
+    import threading as _threading
+    _threading.Thread(
+        target=_run_deferred_db_maintenance,
+        name="db-maintenance",
+        daemon=True,
+    ).start()
+
+    # 기본 관리자 생성도 DB 응답 지연이 서버 기동을 막지 않도록 별도 thread로 처리한다.
+    def _ensure_admin():
+        db = SessionLocal()
+        try:
+            create_default_admin(db)
+        except Exception as e:
+            logger.warning(f"기본 관리자 확인 경고: {e}")
+        finally:
+            db.close()
+    _threading.Thread(target=_ensure_admin, name="default-admin", daemon=True).start()
 
     # 예약문자 스케줄러: 문자발송(발송닷컴 연동) 기능은 더 이상 사용하지 않으므로 비활성화.
     # 관련 코드/테이블은 삭제하지 않고 그대로 두되, 어떤 경로로도 발송닷컴 API가
