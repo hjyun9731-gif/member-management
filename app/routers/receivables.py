@@ -324,20 +324,24 @@ def _infer_account(member) -> str:
 
 
 def _billing_basis_date(member, account_type: str) -> Optional[date]:
-    """첫 부과 기준일.
+    """업무 기준 부과기준일.
 
-    사용자 업무규칙:
-    - 협회비: 가입일자(membership_date) 기준
-    - 관리비: 자격증명발급일자(certificate_issue_date) 기준
-    - 기준일자가 없으면 자동부과하지 않는다.
-    - created_at / 인가일자는 첫 부과일 대체값으로 사용하지 않는다.
+    - 협회비: 가입일자
+    - 관리비: 자격증명발급일자
+    - 70세/기타: 별도 자동 신규부과 기준을 만들지 않음
+
+    관련 일자가 없으면 None을 반환한다. 임의로 인가일자/created_at을 대신 쓰지 않는다.
     """
     if account_type == "협회비":
         return _parse_date(getattr(member, "membership_date", None))
     if account_type == "관리비":
         return _parse_date(getattr(member, "certificate_issue_date", None))
-    # 70세는 기존 원장/수동계정 보존용이므로 기존 profile의 첫 부과일을 유지한다.
     return None
+
+
+def _business_first_charge_date(member, account_type: str) -> Optional[date]:
+    basis = _billing_basis_date(member, account_type)
+    return _first_of_next_month(basis) if basis else None
 
 
 def _make_profile(member, seed=None) -> ReceivableProfile:
@@ -359,9 +363,10 @@ def _make_profile(member, seed=None) -> ReceivableProfile:
         )
 
     acct = _infer_account(member)
-    basis = _billing_basis_date(member, acct)
-    first_charge = _first_of_next_month(basis) if basis else None
-    # 원장 이관 이전 기존회원이 profile만 늦게 생성됐다고 과거 부과를 소급 생성하지 않는다.
+    first_charge = _business_first_charge_date(member, acct)
+    # 신규/비legacy 회원은 협회비=가입일자, 관리비=자격증명발급일자를 기준으로만 부과한다.
+    # 기준일이 없으면 first_charge_date=None으로 두어 자동부과하지 않는다.
+    # 과거 기존회원이 뒤늦게 profile만 생성된 경우에는 소급부과를 막기 위해 컷오버월까지만 보정한다.
     if first_charge and first_charge < LEGACY_NEXT_BILL_DATE:
         first_charge = LEGACY_NEXT_BILL_DATE
     return ReceivableProfile(
@@ -369,7 +374,7 @@ def _make_profile(member, seed=None) -> ReceivableProfile:
         account_type=acct,
         unit_fee=ACCOUNT_FEES.get(acct, 5000),
         vehicle_count=1,
-        first_charge_date=first_charge.isoformat() if first_charge else "",
+        first_charge_date=first_charge.isoformat() if first_charge else None,
         legacy_balance=0,
         legacy_months=[],
     )
@@ -663,14 +668,23 @@ def _repair_account_types(db: Session) -> int:
     fixed = 0
     for p, member in rows:
         correct = _infer_account(member)
+        changed = False
         if p.account_type != correct or int(p.unit_fee or 0) != ACCOUNT_FEES.get(correct, 5000):
             p.account_type = correct
             p.unit_fee = ACCOUNT_FEES.get(correct, 5000)
-            basis = _billing_basis_date(member, correct)
-            first_charge = _first_of_next_month(basis) if basis else None
-            if first_charge and first_charge < LEGACY_NEXT_BILL_DATE:
-                first_charge = LEGACY_NEXT_BILL_DATE
-            p.first_charge_date = first_charge.isoformat() if first_charge else ""
+            changed = True
+
+        # 비legacy 자동계정은 부과기준일도 현재 회원정보와 항상 맞춘다.
+        # 협회비=가입일자 다음달 1일, 관리비=자격증명발급일자 다음달 1일, 없으면 미부과(None).
+        first = _business_first_charge_date(member, correct)
+        if first and first < LEGACY_NEXT_BILL_DATE:
+            first = LEGACY_NEXT_BILL_DATE
+        target_first = first.isoformat() if first else None
+        if (p.first_charge_date or None) != target_first:
+            p.first_charge_date = target_first
+            changed = True
+
+        if changed:
             fixed += 1
     if fixed:
         db.commit()
@@ -774,13 +788,17 @@ def _has_legacy_evidence(member, profile) -> bool:
 
 
 def _true_registration_date(member, profile=None) -> Optional[date]:
-    """신규 부과대기 판정도 실제 첫 부과 기준일과 동일한 업무일자를 사용한다."""
+    """신규 부과 판정용 실제 업무 기준일.
+
+    협회비는 가입일자, 관리비는 자격증명발급일자만 사용한다.
+    created_at/인가일자는 부과 기준으로 사용하지 않는다.
+    """
     account_type = getattr(profile, "account_type", None) or _infer_account(member)
     return _billing_basis_date(member, account_type)
 
 
 def _is_true_new_member(member, profile) -> bool:
-    """'부과대기'는 원장에 없고 실제 기준일이 컷오버 이후인 신규회원에게만 붙인다."""
+    """'부과대기'는 원장에 없고 실제 업무 기준일이 컷오버 이후인 회원에게만 붙인다."""
     if _has_legacy_evidence(member, profile):
         return False
     reg = _true_registration_date(member, profile)
@@ -937,8 +955,8 @@ def _sync_all(db: Session):
     removed = _repair_invalid_auto_charges(db)
     r = _repair_account_types(db)
     c = _ensure_current_month_billing(db)
-    # 신규 profile이 이번 달부터 즉시 부과대상인 back-date 입력일 수 있으므로 마지막 보정 1회.
-    if p:
+    # 신규 profile 또는 가입일자/자격증명발급일자 변경으로 이번 달부터 부과대상이 된 경우 즉시 보정.
+    if p or r:
         c += _sync_charges(db)
     return {
         "profiles_created": p,
@@ -972,9 +990,12 @@ def _monthly_billing_worker():
         try:
             _ensure_receivables_schema_ready()
             _ensure_db_ledger_ready(db)
-            # 15분마다 전체 회원을 훑지 않는다. 프로필이 없는 신규회원만 빠르게 연결한다.
-            _sync_missing_profiles_fast(db, limit=500, allow_legacy_seed=False)
+            # 프로필이 없는 신규회원만 빠르게 연결하고, 비legacy 회원의 계정/첫부과 기준일만 정합성 보정한다.
+            created = _sync_missing_profiles_fast(db, limit=500, allow_legacy_seed=False)
+            repaired = _repair_account_types(db)
             _ensure_current_month_billing(db)
+            if created or repaired:
+                _sync_charges(db)
         except Exception as exc:
             print(f"[receivables monthly scheduler] {type(exc).__name__}: {exc}")
             try:
@@ -1107,6 +1128,8 @@ def _billing_state(member, profile, balance: int, is_closed: bool = False) -> st
         if balance < 0:
             return "폐업 선납"
         return "폐업 완납"
+    if not _has_legacy_evidence(member, profile) and not first:
+        return "부과기준일 없음"
     # 핵심: 기존 MUSTARD/엑셀 원장 회원은 first_charge_date가 9/1이어도 신규가 아니다.
     if _is_true_new_member(member, profile) and first and first > today:
         return "부과대기"
@@ -1135,28 +1158,26 @@ def _serialize_member(
     is_closed = (getattr(member, "status", None) or "active") == "closed"
     canonical_membership = "가입" if is_association_member(getattr(member, "membership_date", None)) else "미가입"
     billing_state = _billing_state(member, profile, int(balance), is_closed=is_closed)
-    # legacy 기존회원의 9/1은 내부 컷오버일일 뿐 화면에 노출하지 않는다.
-    # 신규/비legacy 회원은 기준일자가 없을 때 첫 부과일을 0으로 명확히 표시한다.
-    if not is_closed and not _has_legacy_evidence(member, profile):
-        display_first_charge = profile.first_charge_date or "0"
-    else:
-        display_first_charge = ""
+    # 화면의 첫 부과일은 내부 DB 컷오버일이 아니라 실제 업무 기준일로 표시한다.
+    # 협회비=가입일자 다음달 1일, 관리비=자격증명발급일자 다음달 1일, 기준일 없으면 0.
+    business_first = _business_first_charge_date(member, profile.account_type)
+    display_first_charge = business_first.isoformat() if business_first else "0"
     return {
         "member_id": member.id,
         "name": member.name or "",
-        "management_number": getattr(member, "management_number", "") or "",
+        "management_number": getattr(member, "management_number", None) or "",
         "vehicle_number": member.vehicle_number or "",
         "region": member.region or "",
-        "address": getattr(member, "address", "") or "",
-        "mobile": getattr(member, "mobile", "") or "",
-        "phone": getattr(member, "phone", "") or "",
-        "certificate_issue_date": getattr(member, "certificate_issue_date", "") or "",
+        "address": getattr(member, "address", None) or "",
+        "mobile": getattr(member, "mobile", None) or "",
+        "phone": getattr(member, "phone", None) or "",
         "category": member.category or "",
         "account_type": profile.account_type,
         "unit_fee": int(profile.unit_fee or 0),
         "vehicle_count": int(profile.vehicle_count or 1),
         "membership_status": canonical_membership,
         "membership_date": member.membership_date or "",
+        "certificate_issue_date": getattr(member, "certificate_issue_date", None) or "",
         "member_status": (closure_type or "폐업") if is_closed else "활성",
         "active": not is_closed,
         "balance": int(balance),
@@ -1525,6 +1546,9 @@ def _hydrate_closure_records(db: Session, closure_rows):
                     "name": m.name or c.name or "",
                     "vehicle_number": m.vehicle_number or c.vehicle_number or "",
                     "region": m.region or c.region or "",
+                    "mobile": getattr(c, "mobile", None) or getattr(m, "mobile", None) or "",
+                    "phone": getattr(c, "phone", None) or getattr(m, "phone", None) or "",
+                    "address": getattr(m, "address", None) or "",
                     "category": m.category or "",
                     "account_type": "협회비" if is_association_member(getattr(m, "membership_date", None)) else "관리비",
                     "unit_fee": 0, "vehicle_count": 1,
@@ -1541,6 +1565,8 @@ def _hydrate_closure_records(db: Session, closure_rows):
                 "name": c.name or item.get("name", ""),
                 "vehicle_number": c.vehicle_number or item.get("vehicle_number", ""),
                 "region": c.region or item.get("region", ""),
+                "mobile": getattr(c, "mobile", None) or item.get("mobile", ""),
+                "phone": getattr(c, "phone", None) or item.get("phone", ""),
             })
         else:
             # 과거 폐업현황은 회원마스터/미수원장과 연결되지 않아도 반드시 보여준다.
@@ -1549,6 +1575,9 @@ def _hydrate_closure_records(db: Session, closure_rows):
                 "name": c.name or "",
                 "vehicle_number": c.vehicle_number or "",
                 "region": c.region or "",
+                "mobile": getattr(c, "mobile", None) or "",
+                "phone": getattr(c, "phone", None) or "",
+                "address": "",
                 "category": "", "account_type": "", "unit_fee": 0, "vehicle_count": 1,
                 "membership_status": "", "membership_date": "",
                 "member_status": ct, "active": False,
@@ -1613,6 +1642,8 @@ def _list_closure_records(
             models.Closure.name.ilike(pat),
             models.Closure.vehicle_number.ilike(pat),
             models.Closure.region.ilike(pat),
+            models.Closure.mobile.ilike(pat),
+            models.Closure.phone.ilike(pat),
             models.Closure.transferee.ilike(pat),
             models.Closure.transfer_region.ilike(pat),
             models.Closure.closure_type.ilike(pat),
@@ -1686,8 +1717,9 @@ def list_members(
     # 최신 Excel은 최초 1회만 DB로 이관된다. 이후 신규회원만 빠르게 연결한다.
     _ensure_db_ledger_ready(db)
     created_profiles = _sync_missing_profiles_fast(db, limit=100, allow_legacy_seed=False)
+    repaired_profiles = _repair_account_types(db)
     _ensure_current_month_billing(db)
-    if created_profiles:
+    if created_profiles or repaired_profiles:
         _sync_charges(db)
 
     # 폐업관리는 반드시 인허가/변경 > 폐업현황(closures) 원장을 직접 기준으로 한다.
@@ -2969,12 +3001,5 @@ def update_account(
     profile.unit_fee = ACCOUNT_FEES[payload.account_type]
     profile.vehicle_count = payload.vehicle_count
     profile.account_manual_override = 1
-    member = db.query(models.LicenseHolder).filter(models.LicenseHolder.id == member_id).first()
-    if member and payload.account_type in ("협회비", "관리비"):
-        basis = _billing_basis_date(member, payload.account_type)
-        first_charge = _first_of_next_month(basis) if basis else None
-        if first_charge and first_charge < LEGACY_NEXT_BILL_DATE:
-            first_charge = LEGACY_NEXT_BILL_DATE
-        profile.first_charge_date = first_charge.isoformat() if first_charge else ""
     db.commit()
     return {"ok": True}
