@@ -1,6 +1,7 @@
 const state={view:'payment',scope:'active',closureMode:'current',arrearsOnly:false,members:[],selected:null,selectedClosure:null,detail:null,actionMember:null,page:1,pages:1,limit:50,total:0,bulkBatchId:null,bulkRows:[],manualRowId:null,smsMember:null};
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const fmt=n=>`${Number(n||0).toLocaleString('ko-KR')}원`;
+const esc=v=>String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[ch]));
 const today=()=>new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Seoul'});
 let membersAbort=null;
 function token(){return localStorage.getItem('access_token')||localStorage.getItem('token')||localStorage.getItem('authToken')||''}
