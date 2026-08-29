@@ -331,3 +331,37 @@
   .workspace:not(.closure-mode) .member-table{min-width:900px!important}
   .workspace.closure-mode .member-table{min-width:960px!important}
 }
+
+
+/* 2026-08-29 폐업관리 목록 단순화
+   - 처리정보 컬럼 제거
+   - 목록: 관리번호 / 구분 / 회원 / 지역 / 차량번호 / 핸드폰 / 처리일 / 잔액
+   - 양수인·이관지역·접수일·사유 등 상세는 행 클릭 후 우측 상세에서 확인
+*/
+.workspace.closure-mode .member-table td.col-processed-date{
+  font-weight:800!important;
+  color:#596579!important;
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap!important;
+  overflow:visible!important;
+  text-overflow:clip!important;
+}
+.workspace.closure-mode .processed-date-text{white-space:nowrap!important}
+.workspace.closure-mode:not(.closure-history) .member-table th.col-closure-no{width:11%!important}
+.workspace.closure-mode:not(.closure-history) .member-table th.col-type{width:8%!important}
+.workspace.closure-mode:not(.closure-history) .member-table th.col-member{width:12%!important}
+.workspace.closure-mode:not(.closure-history) .member-table th.col-region{width:10%!important}
+.workspace.closure-mode:not(.closure-history) .member-table th.col-vehicle{width:15%!important}
+.workspace.closure-mode:not(.closure-history) .member-table th.col-phone{width:21%!important}
+.workspace.closure-mode:not(.closure-history) .member-table th.col-processed-date{width:11%!important}
+.workspace.closure-mode:not(.closure-history) .member-table th.col-balance{width:12%!important}
+.workspace.closure-mode.closure-history .member-table th.col-closure-no{width:10%!important}
+.workspace.closure-mode.closure-history .member-table th.col-type{width:7%!important}
+.workspace.closure-mode.closure-history .member-table th.col-member{width:11%!important}
+.workspace.closure-mode.closure-history .member-table th.col-region{width:8%!important}
+.workspace.closure-mode.closure-history .member-table th.col-vehicle{width:13%!important}
+.workspace.closure-mode.closure-history .member-table th.col-phone{width:18%!important}
+.workspace.closure-mode.closure-history .member-table th.col-processed-date{width:11%!important}
+.workspace.closure-mode.closure-history .member-table th.col-current-state{width:8%!important}
+.workspace.closure-mode.closure-history .member-table th.col-balance{width:14%!important}
+.workspace.closure-mode .member-table td{height:50px!important}
