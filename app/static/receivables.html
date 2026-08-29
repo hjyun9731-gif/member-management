@@ -216,14 +216,44 @@
   </div>
 
   <div id="toast" class="toast"></div>
-  <div id="loginOverlay" class="login-overlay hidden">
-    <form id="loginForm" class="login-card">
-      <div class="login-mascot">🐸</div><h2>회원관리 로그인</h2><p>기존 회원관리시스템 계정으로 로그인하세요.</p>
-      <label>아이디<input id="loginUsername" autocomplete="username" /></label>
-      <label>비밀번호<input id="loginPassword" type="password" autocomplete="current-password" /></label>
-      <button class="primary-btn" type="submit">로그인</button><div id="loginError" class="login-error"></div>
-    </form>
+  <div id="loginOverlay" class="login-overlay hidden" data-login-theme="hangyodon">
+    <div class="login-shell">
+      <form id="loginForm" class="login-card" autocomplete="on">
+        <div class="login-mascot-stage" aria-hidden="true">
+          <img id="loginThemeMascot" src="/static/theme/hangyodon.png" alt="" />
+        </div>
+        <div class="login-brand">
+          <div class="login-association">강원특별자치도개인소형화물협회</div>
+          <h2>회원관리 시스템</h2>
+        </div>
+        <label class="login-field">
+          <span>아이디</span>
+          <span class="login-input-wrap">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 8a7 7 0 0 1 14 0"/></svg>
+            <input id="loginUsername" autocomplete="username" placeholder="아이디를 입력하세요" />
+          </span>
+        </label>
+        <label class="login-field">
+          <span>비밀번호</span>
+          <span class="login-input-wrap">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10V8a5 5 0 0 1 10 0v2M6 10h12v10H6z"/></svg>
+            <input id="loginPassword" type="password" autocomplete="current-password" placeholder="비밀번호를 입력하세요" />
+            <button id="loginPasswordToggle" class="login-eye" type="button" aria-label="비밀번호 표시">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-5 9.5-5 9.5 5 9.5 5-3.5 5-9.5 5-9.5-5-9.5-5Z"/><circle cx="12" cy="12" r="2.4"/></svg>
+            </button>
+          </span>
+        </label>
+        <button class="login-submit" type="submit">로그인</button>
+        <div class="login-status"><i></i><span>비밀번호 설정됨 · DB 정상</span></div>
+        <div id="loginError" class="login-error"></div>
+      </form>
+      <div class="login-theme-picker" aria-label="로그인 화면 테마 선택">
+        <button type="button" data-login-theme-option="hangyodon" class="active"><span class="theme-thumb hangyodon"><img src="/static/theme/hangyodon.png" alt="" /></span><b>한교동</b></button>
+        <button type="button" data-login-theme-option="kitty"><span class="theme-thumb kitty"><img src="/static/theme/hello_kitty.png" alt="" /></span><b>헬로키티</b></button>
+        <button type="button" data-login-theme-option="white"><span class="theme-thumb white"><i></i></span><b>화이트</b></button>
+      </div>
+    </div>
   </div>
-  <script src="/static/receivables.js?v=20260829-closure-list-v4" defer></script>
+  <script src="/static/receivables.js?v=20260829-login3-v1" defer></script>
 </body>
 </html>
