@@ -1,0 +1,293 @@
+/* ============================================================
+   DESIGN ONLY PATCH — 2026-08-29
+   강원 개인소형화물협회 업무관리
+   - 기능/JS/API/DB 변경 없음
+   - 흰 배경 + 저채도 파스텔 + 고가독성
+   ============================================================ */
+
+:root{
+  --ui-ink:#20242c;
+  --ui-ink-2:#505763;
+  --ui-muted:#8a919d;
+  --ui-line:#ececf0;
+  --ui-line-2:#f3f2f5;
+  --ui-white:#ffffff;
+  --ui-lav:#9b7bd8;
+  --ui-lav-deep:#7355b8;
+  --ui-lav-soft:#f5f0ff;
+  --ui-mint:#67ad94;
+  --ui-mint-soft:#edf8f4;
+  --ui-peach:#dd8f73;
+  --ui-peach-soft:#fff2ed;
+  --ui-butter:#b98735;
+  --ui-butter-soft:#fff8e9;
+  --ui-rose:#ca6d83;
+  --ui-rose-soft:#fff0f3;
+  --ui-shadow:0 8px 26px rgba(35,28,52,.055),0 1px 3px rgba(35,28,52,.035);
+}
+
+/* ---------- 전체 톤 ---------- */
+html,body{background:#fff!important;color:var(--ui-ink)!important}
+body{font-family:system-ui,-apple-system,"Segoe UI","Noto Sans KR",sans-serif!important}
+.content{background:#fff!important;padding:22px 28px 30px!important}
+
+/* ---------- 상단 ---------- */
+.hdr{
+  height:58px!important;padding:0 28px!important;background:#fff!important;
+  border-bottom:1px solid var(--ui-line)!important;box-shadow:none!important;
+}
+.hdr-brand{gap:10px!important}
+.hdr-icon{font-size:18px!important;opacity:.72}
+.hdr-title{color:var(--ui-ink)!important;font-size:14px!important;font-weight:800!important;letter-spacing:-.35px!important}
+.hdr-sub{color:#9da3ad!important;font-size:10px!important}
+.cat-nav{gap:12px!important}
+.cat-btn{
+  color:#505763!important;background:transparent!important;border-radius:0!important;
+  padding:18px 10px 16px!important;font-weight:650!important;position:relative!important;
+}
+.cat-btn:hover{color:var(--ui-lav-deep)!important;background:transparent!important}
+.cat-btn.active{color:var(--ui-lav-deep)!important;background:transparent!important}
+.cat-btn.active::after{
+  content:"";position:absolute;left:10px;right:10px;bottom:-1px;height:2px;
+  border-radius:2px;background:var(--ui-lav);
+}
+.receivables-top-link{
+  background:transparent!important;border:0!important;color:#505763!important;
+  padding:18px 10px 16px!important;border-radius:0!important;font-weight:650!important;
+}
+.receivables-top-link:hover{color:var(--ui-lav-deep)!important;background:transparent!important}
+.btn-logout{
+  height:32px!important;padding:0 12px!important;background:#fff!important;color:#5d6470!important;
+  border:1px solid var(--ui-line)!important;border-radius:9px!important;
+}
+.btn-logout:hover{background:#faf9fc!important;border-color:#ddd9e6!important;color:var(--ui-ink)!important}
+.hdr-user{color:#686f7b!important}
+
+.sub-bar{
+  background:#fff!important;border-bottom:1px solid var(--ui-line)!important;padding:0 28px!important;
+}
+.sub-tab{color:#686f7b!important;padding:10px 14px!important}
+.sub-tab:hover{background:transparent!important;color:var(--ui-lav-deep)!important}
+.sub-tab.active{color:var(--ui-lav-deep)!important;border-bottom-color:var(--ui-lav)!important;font-weight:700!important}
+
+/* ---------- 예정자/양도양수 탭 ---------- */
+.inner-tab-bar{gap:8px!important;margin:0 0 14px!important}
+.inner-tab{
+  height:34px!important;padding:0 16px!important;border:1px solid var(--ui-line)!important;
+  border-radius:10px!important;background:#fff!important;color:#666d78!important;font-weight:700!important;
+  box-shadow:none!important;
+}
+.inner-tab:hover:not(.active){background:#faf8fd!important;border-color:#ded7eb!important;color:var(--ui-lav-deep)!important}
+.inner-tab.active{
+  background:var(--ui-lav-soft)!important;color:var(--ui-lav-deep)!important;
+  border-color:#e6dcf7!important;box-shadow:inset 0 0 0 1px rgba(155,123,216,.06)!important;
+}
+
+/* ---------- 카드 ---------- */
+.card{
+  background:#fff!important;border:1px solid var(--ui-line)!important;border-radius:16px!important;
+  box-shadow:var(--ui-shadow)!important;overflow:hidden!important;
+}
+.card-hd{padding:14px 18px!important;border-bottom:1px solid var(--ui-line-2)!important;background:#fff!important}
+.card-hd-l{gap:8px!important}
+.card-ico{
+  width:29px;height:29px;display:inline-flex!important;align-items:center;justify-content:center;
+  border-radius:10px;background:var(--ui-lav-soft);font-size:13px!important;
+}
+.card-ttl{font-size:14px!important;font-weight:800!important;color:var(--ui-ink)!important;letter-spacing:-.2px}
+.card-bd{padding:17px 18px 16px!important}
+.cnt{background:var(--ui-lav-soft)!important;color:var(--ui-lav-deep)!important;border-radius:999px!important;padding:2px 8px!important}
+
+/* ---------- 예정자 화면 레이아웃 ---------- */
+#innerContent .split-55{
+  grid-template-columns:minmax(540px,44%) minmax(0,1fr)!important;
+  gap:18px!important;align-items:start!important;
+}
+#innerContent .split-55>.card:first-child{min-width:0}
+#innerContent .split-55>.card:last-child{min-width:0}
+
+/* 폼은 고정폭 flex 대신 12-column grid — DOM/필드명은 그대로 */
+#candForm .form-section{margin-bottom:18px!important}
+#candForm .form-section:last-of-type{margin-bottom:10px!important}
+#candForm .form-section-hd{
+  margin:0 0 12px!important;padding:0!important;background:transparent!important;border-radius:0!important;
+  font-size:11.5px!important;font-weight:800!important;letter-spacing:0!important;
+}
+#candForm .form-section-hd::before{
+  content:"";width:6px;height:6px;border-radius:50%;background:currentColor;opacity:.68;
+}
+#candForm .form-section-hd .fs-ico{display:none!important}
+#candForm .form-section-hd.fsh-sky{color:var(--ui-lav-deep)!important}
+#candForm .form-section-hd.fsh-pri{color:#9c5e91!important}
+#candForm .form-section-hd.fsh-yellow{color:var(--ui-butter)!important}
+#candForm .form-section-hd.fsh-teal{color:var(--ui-mint)!important}
+#candForm .form-section-hd.fsh-purple{color:var(--ui-lav-deep)!important}
+#candForm .form-section-hd.fsh-pink{color:var(--ui-rose)!important}
+
+#candForm .form-section .fg{
+  display:grid!important;grid-template-columns:repeat(12,minmax(0,1fr))!important;
+  gap:12px 14px!important;align-items:end!important;
+}
+#candForm .form-section .fg>.fi{
+  width:auto!important;max-width:none!important;min-width:0!important;grid-column:span 4!important;
+}
+#candForm .form-section .fg>.fi.cs2{width:auto!important;grid-column:span 8!important}
+#candForm .form-section .fg>.fi.cs3{width:auto!important;grid-column:span 12!important}
+#candForm .form-section .fg>.fi.cs4{width:auto!important;grid-column:1/-1!important}
+
+/* 기본정보: 지역/차량번호/성명은 균형, 주민번호는 짧게 */
+#candForm .fi:has([name="region"]){grid-column:span 3!important}
+#candForm .fi:has([name="vehicle_number"]){grid-column:span 3!important}
+#candForm .fi:has([name="name"]){grid-column:span 3!important}
+#candForm .fi:has([name="resident_number"]){grid-column:span 3!important;max-width:185px!important}
+
+/* 연락처는 2칸 + 주소는 전체폭 */
+#candForm .fi:has([name="phone"]),
+#candForm .fi:has([name="mobile"]){grid-column:span 4!important}
+#candForm .fi:has([name="address"]){grid-column:1/-1!important;max-width:none!important}
+#candForm .fi:has([name="address"]) .fc{width:100%!important}
+
+/* 자격/면허 */
+#candForm .fi:has([name="certificate_issue_date"]),
+#candForm .fi:has([name="certificate_number"]),
+#candForm .fi:has([name="driver_license_number"]){grid-column:span 4!important}
+#candForm .fi:has([name="vehicle_type"]){grid-column:span 8!important}
+#candForm .fi:has([name="fuel_type"]){grid-column:span 4!important}
+
+/* 사업정보 */
+#candForm .fi:has([name="business_number"]),
+#candForm .fi:has([name="affiliated_company"]),
+#candForm .fi:has([name="membership_date"]){grid-column:span 4!important}
+
+/* 입력 규격 */
+.fi{gap:6px!important}
+.fi label{font-size:11px!important;font-weight:700!important;color:#656d79!important;letter-spacing:0!important}
+.fc,.srch,.fsel{
+  border-color:#e3e4e8!important;background:#fff!important;color:var(--ui-ink)!important;
+  box-shadow:none!important;
+}
+.fc{height:38px!important;padding:0 11px!important;border-radius:9px!important;font-size:12.5px!important}
+.fc::placeholder,.srch::placeholder{color:#b1b5bd!important;font-size:11.5px!important}
+.fc:focus,.srch:focus,.fsel:focus{
+  border-color:#c8b7e8!important;box-shadow:0 0 0 3px rgba(155,123,216,.10)!important;
+}
+textarea.fc{height:74px!important;padding-top:10px!important;line-height:1.55!important}
+
+/* 예정자 입력 하단 버튼 */
+#candForm .flex.mt8{margin-top:14px!important;gap:8px!important}
+#candForm .btn{height:36px!important;border-radius:9px!important;padding:0 15px!important}
+#candForm #candSaveBtn{
+  background:var(--ui-lav)!important;border-color:var(--ui-lav)!important;color:#fff!important;
+  box-shadow:0 4px 12px rgba(155,123,216,.18)!important;
+}
+#candForm #candSaveBtn:hover{background:var(--ui-lav-deep)!important;border-color:var(--ui-lav-deep)!important}
+
+/* ---------- 필터 ---------- */
+.frow{padding:12px 16px!important;background:#fff!important;border-bottom:1px solid var(--ui-line-2)!important;gap:8px!important}
+.fsel{height:36px!important;border-radius:9px!important;padding:0 10px!important}
+.srch{height:36px!important;border-radius:9px!important;padding:0 12px!important;min-width:260px!important;flex:1 1 280px!important}
+#cSrchBtn{
+  height:36px!important;border-radius:9px!important;background:var(--ui-lav)!important;border-color:var(--ui-lav)!important;color:#fff!important;
+}
+#cSrchBtn:hover{background:var(--ui-lav-deep)!important;border-color:var(--ui-lav-deep)!important}
+#cRstBtn{height:36px!important;border-radius:9px!important}
+
+/* ---------- 예정자 목록 ---------- */
+#cTbl .tbl-wrap{overflow-x:auto!important}
+#cTbl table{table-layout:fixed!important;width:100%!important;font-size:12px!important}
+#cTbl thead tr{background:#fff!important}
+#cTbl thead th{
+  height:42px!important;padding:0 8px!important;background:#fff!important;color:#777f8a!important;
+  border-bottom:1px solid var(--ui-line)!important;font-size:10.8px!important;font-weight:750!important;
+}
+#cTbl thead th:hover{background:#faf9fc!important;color:var(--ui-lav-deep)!important}
+#cTbl tbody tr{height:53px!important;border-bottom:1px solid #f0f0f2!important}
+#cTbl tbody tr:hover{background:#fcfbfe!important}
+#cTbl tbody td{
+  padding:8px!important;color:#444b56!important;font-size:11.7px!important;max-width:none!important;
+  overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;
+}
+#cTbl a.click-link{color:var(--ui-ink)!important;font-weight:750!important;text-decoration:none!important}
+#cTbl a.click-link:hover{color:var(--ui-lav-deep)!important}
+
+/* 주민등록번호는 목록에서 숨김 — 데이터/API는 그대로 유지 */
+#cTbl th:nth-child(4),#cTbl td:nth-child(4){display:none!important}
+/* 8개 표시열 폭 */
+#cTbl th:nth-child(1),#cTbl td:nth-child(1){width:8%!important}
+#cTbl th:nth-child(2),#cTbl td:nth-child(2){width:14%!important}
+#cTbl th:nth-child(3),#cTbl td:nth-child(3){width:10%!important}
+#cTbl th:nth-child(5),#cTbl td:nth-child(5){width:15%!important}
+#cTbl th:nth-child(6),#cTbl td:nth-child(6){width:17%!important;white-space:normal!important;line-height:1.25!important}
+#cTbl th:nth-child(7),#cTbl td:nth-child(7){width:11%!important}
+#cTbl th:nth-child(8),#cTbl td:nth-child(8){width:11%!important}
+#cTbl th:nth-child(9),#cTbl td:nth-child(9){width:14%!important}
+#cTbl .td-act{overflow:visible!important;white-space:nowrap!important;min-width:150px!important}
+
+/* 수정/등록/삭제 — 모두 한눈에, 채도 낮춘 파스텔 */
+#cTbl .td-act .bp{
+  background:var(--ui-mint-soft)!important;color:#36836c!important;border:1px solid #d5eee5!important;
+}
+#cTbl .td-act .bp:hover{background:#dff3ec!important;color:#286a57!important}
+#cTbl .td-act .btn-check{
+  background:var(--ui-butter-soft)!important;color:#9a6c22!important;border:1px solid #f1e3bf!important;
+  border-radius:7px!important;font-size:11.5px!important;padding:4px 8px!important;
+}
+#cTbl .td-act .btn-check:hover{background:#fff1cd!important}
+#cTbl .td-act .br{
+  background:var(--ui-rose-soft)!important;color:#b85a70!important;border:1px solid #f3d8df!important;
+}
+#cTbl .td-act .br:hover{background:#fbe4e9!important;color:#a6455d!important}
+#cTbl .td-act .btn{border-radius:7px!important;margin-right:3px!important}
+
+/* ---------- 페이지네이션 ---------- */
+.pgn{padding:11px 14px!important;background:#fff!important;border-top:1px solid var(--ui-line-2)!important}
+.pgn-btn{border-radius:8px!important;border-color:var(--ui-line)!important;color:#666d78!important}
+.pgn-btn:hover:not(:disabled){background:var(--ui-lav-soft)!important;border-color:#ded3f1!important;color:var(--ui-lav-deep)!important}
+.pgn-btn.on{background:var(--ui-lav-soft)!important;border-color:#d8c9ef!important;color:var(--ui-lav-deep)!important;font-weight:800!important}
+
+/* ---------- 공통 버튼: 쨍한 파랑/빨강 제거 ---------- */
+.bp{background:var(--ui-lav)!important;border-color:var(--ui-lav)!important;color:#fff!important}
+.bp:hover{background:var(--ui-lav-deep)!important;border-color:var(--ui-lav-deep)!important}
+.bg{background:var(--ui-ink)!important;border-color:var(--ui-ink)!important;color:#fff!important}
+.br{background:var(--ui-rose-soft)!important;color:#b85a70!important;border-color:#f0d3db!important}
+.bo{background:#fff!important;color:#5f6671!important;border-color:var(--ui-line)!important}
+.bo:hover{background:#faf9fb!important;border-color:#dcd8e1!important}
+.bxl{background:var(--ui-mint-soft)!important;color:#39846e!important;border-color:#d6ece4!important}
+
+/* ---------- 기존 통계 화면도 같은 톤 ---------- */
+.stat-grid{gap:14px!important}
+.stat-card{
+  border:1px solid var(--ui-line)!important;border-radius:16px!important;background:#fff!important;
+  box-shadow:var(--ui-shadow)!important;padding:18px!important;
+}
+.stat-card:hover{transform:translateY(-1px)!important;box-shadow:0 10px 28px rgba(35,28,52,.075)!important}
+.stat-lbl{color:#7e8590!important;font-weight:700!important}
+.stat-val{color:var(--ui-ink)!important}
+.stat-card.sky .stat-val,.stat-card.purple .stat-val{color:var(--ui-lav-deep)!important}
+.stat-card.pink .stat-val,.stat-card.red .stat-val{color:var(--ui-rose)!important}
+.stat-card.yellow .stat-val{color:var(--ui-butter)!important}
+.stat-card.teal .stat-val{color:var(--ui-mint)!important}
+
+/* ---------- 반응형 ---------- */
+@media(max-width:1420px){
+  .content{padding-left:20px!important;padding-right:20px!important}
+  #innerContent .split-55{grid-template-columns:minmax(500px,45%) minmax(0,1fr)!important;gap:14px!important}
+  #candForm .form-section .fg{gap:10px 11px!important}
+  #cTbl tbody td{font-size:11.2px!important;padding:7px 6px!important}
+  #cTbl .td-act .btn,#cTbl .td-act .btn-check{padding-left:6px!important;padding-right:6px!important;font-size:10.8px!important}
+}
+@media(max-width:1180px){
+  #innerContent .split-55{grid-template-columns:1fr!important}
+  #candForm .fi:has([name="resident_number"]){max-width:none!important}
+}
+@media(max-width:760px){
+  .content{padding:14px!important}
+  #candForm .form-section .fg{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  #candForm .form-section .fg>.fi,
+  #candForm .fi:has([name="region"]),#candForm .fi:has([name="vehicle_number"]),#candForm .fi:has([name="name"]),
+  #candForm .fi:has([name="resident_number"]),#candForm .fi:has([name="phone"]),#candForm .fi:has([name="mobile"]),
+  #candForm .fi:has([name="certificate_issue_date"]),#candForm .fi:has([name="certificate_number"]),
+  #candForm .fi:has([name="driver_license_number"]),#candForm .fi:has([name="vehicle_type"]),#candForm .fi:has([name="fuel_type"]),
+  #candForm .fi:has([name="business_number"]),#candForm .fi:has([name="affiliated_company"]),#candForm .fi:has([name="membership_date"]){grid-column:span 1!important;max-width:none!important}
+  #candForm .fi:has([name="address"]),#candForm .form-section .fg>.fi.cs4{grid-column:1/-1!important}
+}
