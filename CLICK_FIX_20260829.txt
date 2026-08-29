@@ -1,0 +1,16 @@
+회원 행 클릭 불가 수정
+
+원인
+- receivables.js에서 renderMembers()는 selectMember()와 clearDetail()을 호출하고 있었지만, 두 함수 정의가 누락되어 있었습니다.
+- 따라서 이름/행을 클릭하면 브라우저 콘솔에서 ReferenceError가 발생하고 오른쪽 회원 상세가 열리지 않았습니다.
+
+수정
+- selectMember(id, closureId) 복원
+- clearDetail(resetSelection) 복원
+- 빠른 연속 클릭 시 이전 상세 응답이 새 선택을 덮어쓰지 않도록 선택값 검증 추가
+- receivables.js/css 캐시 버전 v3-clickfix로 변경
+
+배포 후 확인
+1. 수납처리/미수금현황/연락관리에서 회원 이름 또는 행 클릭
+2. 오른쪽 상세 패널에 해당 회원 정보가 표시되는지 확인
+3. 폐업관리에서 연결된 회원 행 클릭 시 해당 폐업 문맥 상세가 표시되는지 확인
