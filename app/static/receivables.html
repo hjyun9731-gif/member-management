@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>수납·미수금 | 회원관리시스템</title>
-  <link rel="stylesheet" href="/static/receivables.css?v=20260828-finalall2" />
+  <link rel="stylesheet" href="/static/receivables.css?v=20260829-pc-readable-uplus" />
 </head>
 <body>
   <div id="appShell" class="app-shell">
@@ -17,7 +17,6 @@
         </div>
       </div>
       <div class="top-actions">
-        <div class="live-pill"><i></i><span id="ledgerModeLabel">공용 DB 연결</span></div>
         <button id="bulkImportBtn" class="bulk-import-btn" type="button">통장/결제 일괄수납</button>
         <button id="syncBtn" class="ghost-btn" type="button" title="회원 신규연동·월 자동부과만 확인합니다. Excel 원장은 다시 덮어쓰지 않습니다.">회원/부과 동기화</button>
         <button id="logoutBtn" class="ghost-btn" type="button">로그아웃</button>
@@ -82,16 +81,15 @@
             <div class="member-summary">
               <div class="identity">
                 <div class="name-row"><h2 id="detailName">-</h2><span id="detailStatus" class="status-badge">-</span><button id="smsQuickBtn" class="sms-quick-btn" type="button">U+ 문자</button></div>
-                <div class="info-grid info-grid-extended">
-                  <div><span>기존 관리번호</span><strong id="detailManagement">-</strong></div>
+                <div class="info-grid">
                   <div><span>계정</span><strong id="detailAccount">-</strong></div>
                   <div><span>차량번호</span><strong id="detailVehicle">-</strong></div>
                   <div><span>지역</span><strong id="detailRegion">-</strong></div>
-                  <div><span>핸드폰</span><strong id="detailMobile">-</strong></div>
+                  <div><span>핸드폰</span><strong id="detailMobile" class="no-ellipsis">-</strong></div>
+                  <div class="info-wide"><span>주소</span><strong id="detailAddress" class="detail-address no-ellipsis">-</strong></div>
                   <div><span>부과상태</span><strong id="detailBilling">-</strong></div>
-                  <div><span>첫 부과일</span><strong id="detailFirstCharge">-</strong></div>
+                  <div><span>첫 부과일</span><strong id="detailFirstCharge" class="no-ellipsis">-</strong></div>
                   <div><span>연락상태</span><strong id="detailContact">-</strong></div>
-                  <div class="wide-info"><span>주소</span><strong id="detailAddress">-</strong></div>
                 </div>
               </div>
               <div class="balance-box"><span id="detailBalanceLabel">현재 미수금</span><strong id="detailBalance">-</strong><small id="detailClosure"></small></div>
@@ -133,9 +131,11 @@
               </section>
 
               <section class="action-card contact-card">
-                <div class="section-head"><div><h3>연락 기록</h3><p>언제, 누가, 어떻게 연락했는지 보존</p></div><span class="mascot-mini">🐸</span></div>
-                <div class="form-grid three"><label>연락일<input id="contactDate" type="date" /></label><label>방법<select id="contactMethod"><option>전화</option><option>문자</option><option>카카오톡</option><option>우편</option><option>기타</option></select></label><label>상태<select id="contactStatus"><option>연락완료</option><option>부재</option><option>재연락 필요</option><option>문자발송</option><option>미연락</option></select></label></div>
-                <label>메모<input id="contactMemo" placeholder="예: 9/2 다시 연락 요청" /></label>
+                <div class="section-head"><div><h3>U+ 문자 · 연락 기록</h3><p>전화 기능 없이 U+ 문자만 사용합니다.</p></div><span class="mascot-mini">🐸</span></div>
+                <div class="uplus-contact-row"><button id="detailSmsBtn" class="uplus-main-btn" type="button">U+ 문자</button><span id="detailSmsMobile" class="uplus-mobile-text">-</span></div>
+                <div class="form-grid two"><label>연락일<input id="contactDate" type="date" /></label><label>상태<select id="contactStatus"><option>문자발송</option><option>연락완료</option><option>재연락 필요</option><option>미연락</option></select></label></div>
+                <input id="contactMethod" type="hidden" value="문자" />
+                <label>메모<input id="contactMemo" placeholder="예: U+ 문자 발송 / 재연락 예정" /></label>
                 <button id="saveContactBtn" class="secondary-btn" type="button">연락 기록 저장</button>
               </section>
             </div>
@@ -145,6 +145,17 @@
         </article>
       </section>
     </main>
+  </div>
+
+  <div id="smsOverlay" class="sms-overlay hidden" aria-hidden="true">
+    <div class="sms-card">
+      <div class="sms-card-head"><div><strong>U+ 문자 보내기</strong><span id="smsRecipient">-</span></div><button id="smsCloseBtn" type="button">×</button></div>
+      <label>내용<textarea id="smsText" rows="7" placeholder="문자 내용을 입력하세요."></textarea></label>
+      <div id="uplusBridgeStatus" class="uplus-bridge-status">U+ CRM Pro PC 연동상태 확인 중...</div>
+      <div class="sms-help">이 PC의 LG U+ CRM Pro에 수신번호와 문자내용을 전달합니다.</div>
+      <div class="sms-actions uplus-actions"><button id="uplusCopyBtn" class="ghost-btn" type="button">번호·내용 복사</button><button id="uplusCheckBtn" class="ghost-btn" type="button">연결확인</button><button id="smsCancelBtn" class="ghost-btn" type="button">취소</button><button id="smsSendBtn" class="primary-btn" type="button">U+로 전송</button></div>
+      <div id="uplusSetupBox" class="uplus-setup hidden"><b>PC 연동 프로그램이 실행되지 않았습니다.</b><span>아래 파일을 같은 폴더에 받아 ‘U+_CRMPro_연동설치.bat’를 한 번 실행하세요.</span><div><a href="/static/uplus/U+_CRMPro_연동설치.bat" download>설치 BAT</a><a href="/static/uplus/CRMProBridge.ps1" download>Bridge PS1</a><a href="/static/uplus/U+_CRMPro_연동제거.bat" download>제거 BAT</a></div></div>
+    </div>
   </div>
 
   <div id="bulkImportModal" class="bulk-modal hidden" aria-hidden="true">
@@ -205,17 +216,6 @@
     </div>
   </div>
 
-  <div id="smsOverlay" class="sms-overlay hidden" aria-hidden="true">
-    <div class="sms-card">
-      <div class="sms-card-head"><div><strong>U+ CRM Pro 문자</strong><span id="smsRecipient">-</span></div><button id="smsCloseBtn" type="button">×</button></div>
-      <label>내용<textarea id="smsText" rows="7" placeholder="문자 내용을 입력하세요."></textarea></label>
-      <div id="uplusBridgeStatus" class="uplus-bridge-status">U+ CRM Pro PC 연동상태 확인 중...</div>
-      <div class="sms-help">회원 핸드폰번호와 미수금 안내문구를 이 PC의 LG U+ CRM Pro로 전달합니다. 자동 전송이 확인되지 않으면 작성창까지만 준비하고 전송은 직접 확인합니다.</div>
-      <div class="sms-actions uplus-actions"><button id="uplusCopyBtn" class="ghost-btn" type="button">번호·내용 복사</button><button id="uplusCheckBtn" class="ghost-btn" type="button">연결확인</button><button id="smsCancelBtn" class="ghost-btn" type="button">취소</button><button id="smsSendBtn" class="primary-btn" type="button">U+로 전송</button></div>
-      <div id="uplusSetupBox" class="uplus-setup hidden"><b>PC 연동 프로그램이 실행되지 않았습니다.</b><span>아래 설치 BAT를 한 번 실행하면 Windows 로그인 시 브리지가 자동 실행됩니다.</span><div><a href="/static/uplus/U+_CRMPro_연동설치.bat" download>설치 BAT</a><a href="/static/uplus/CRMProBridge.ps1" download>Bridge PS1</a><a href="/static/uplus/U+_CRMPro_연동제거.bat" download>제거 BAT</a></div></div>
-    </div>
-  </div>
-
   <div id="toast" class="toast"></div>
   <div id="loginOverlay" class="login-overlay hidden">
     <form id="loginForm" class="login-card">
@@ -225,6 +225,6 @@
       <button class="primary-btn" type="submit">로그인</button><div id="loginError" class="login-error"></div>
     </form>
   </div>
-  <script src="/static/receivables.js?v=20260828-finalall2" defer></script>
+  <script src="/static/receivables.js?v=20260829-pc-readable-uplus" defer></script>
 </body>
 </html>
