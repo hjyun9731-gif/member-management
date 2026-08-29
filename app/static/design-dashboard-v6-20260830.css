@@ -1,0 +1,472 @@
+/* ====================================================================
+   FINAL WHITE PASTEL UI — DESIGN ONLY
+   Existing business logic / API mutations / DB behavior are untouched.
+   ==================================================================== */
+:root{
+  --ux-ink:#1f2025;
+  --ux-text:#4f535d;
+  --ux-muted:#8c919b;
+  --ux-line:#eae9ed;
+  --ux-line-soft:#f3f2f5;
+  --ux-lav:#a27bd7;
+  --ux-lav-deep:#7552aa;
+  --ux-lav-soft:#f4effb;
+  --ux-rose:#da788d;
+  --ux-rose-soft:#fff0f3;
+  --ux-mint:#5da88b;
+  --ux-mint-soft:#eaf8f2;
+  --ux-peach:#c99153;
+  --ux-peach-soft:#fff5e8;
+  --ux-red:#c95769;
+  --ux-red-soft:#fff1f3;
+  --ux-shadow:0 10px 30px rgba(25,22,34,.045),0 1px 3px rgba(25,22,34,.035);
+}
+
+html,body{background:#fff!important;color:var(--ux-ink)!important}
+body{font-family:system-ui,-apple-system,"Segoe UI","Noto Sans KR",sans-serif!important}
+
+/* ---------- header / navigation ---------- */
+.hdr{height:62px!important;padding:0 30px!important;background:#fff!important;border-bottom:1px solid var(--ux-line)!important;box-shadow:none!important}
+.hdr-brand{gap:10px!important}
+.hdr-icon{font-size:19px!important;opacity:.62!important;filter:saturate(.65)!important}
+.hdr-title{color:var(--ux-ink)!important;font-size:15px!important;font-weight:800!important;letter-spacing:-.45px!important}
+.hdr-sub{color:var(--ux-muted)!important;font-size:10px!important}
+.cat-nav{gap:12px!important}
+.cat-btn,.receivables-top-link{position:relative!important;background:transparent!important;border:0!important;border-radius:0!important;color:#474b54!important;font-weight:650!important;padding:21px 9px 19px!important;margin:0!important}
+.cat-btn:hover,.receivables-top-link:hover{background:transparent!important;color:var(--ux-lav-deep)!important}
+.cat-btn.active{background:transparent!important;color:var(--ux-lav-deep)!important}
+.cat-btn.active::after{content:"";position:absolute;left:8px;right:8px;bottom:-1px;height:2px;background:var(--ux-lav);border-radius:999px}
+.btn-logout{height:34px!important;padding:0 12px!important;background:#fff!important;border:1px solid var(--ux-line)!important;border-radius:9px!important;color:#646973!important}
+.hdr-user{color:#666b75!important}
+.sub-bar{background:#fff!important;border-bottom:1px solid var(--ux-line)!important;padding:0 30px!important}
+.sub-tab{padding:11px 14px!important;color:#6d727c!important}
+.sub-tab:hover{background:transparent!important;color:var(--ux-lav-deep)!important}
+.sub-tab.active{color:var(--ux-lav-deep)!important;border-bottom-color:var(--ux-lav)!important;font-weight:750!important}
+
+.content{background:#fff!important;padding:24px 32px 34px!important;max-width:1920px!important;margin:0 auto!important}
+
+/* ---------- candidate dashboard ---------- */
+.ux-page-head{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;margin:4px 4px 18px}
+.ux-page-head h1{font-size:27px;line-height:1.2;letter-spacing:-1.2px;font-weight:850;color:#1d1e22}
+.ux-page-head p{font-size:12px;color:var(--ux-muted);margin-top:7px}
+.ux-date-chip{height:36px;display:flex;align-items:center;padding:0 13px;border:1px solid var(--ux-line);border-radius:9px;background:#fff;color:#656a73;font-size:11px;white-space:nowrap}
+
+.ux-overview{display:grid;grid-template-columns:.95fr .95fr 1.35fr 1.2fr;gap:14px;margin-bottom:17px}
+.ux-over-card{height:250px;display:flex;flex-direction:column;background:#fff;border:1px solid var(--ux-line);border-radius:16px;padding:16px 17px 0;box-shadow:var(--ux-shadow);overflow:hidden}
+.ux-over-title{height:42px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--ux-line-soft);padding-bottom:12px;margin-bottom:13px;font-size:14px}
+.ux-over-title strong{font-weight:850;color:#24252a}
+.ux-icon{width:35px;height:35px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:15px;font-weight:800}
+.ux-icon.lavender{background:var(--ux-lav-soft);color:var(--ux-lav-deep)}
+.ux-icon.rose{background:var(--ux-rose-soft);color:var(--ux-rose)}
+.ux-icon.mint{background:var(--ux-mint-soft);color:var(--ux-mint)}
+.ux-card-loading,.ux-empty-line{font-size:11px;color:#a1a5ad;text-align:center;padding:22px 0}
+
+.ux-primary-stat{display:flex;flex-direction:column;gap:4px;padding:2px 8px 10px}
+.ux-primary-stat span,.ux-pay-main span{font-size:10.8px;color:#90959e;font-weight:600}
+.ux-primary-stat b{font-size:23px;letter-spacing:-.6px;color:#202126}
+.ux-member-grid,.ux-pay-grid{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--ux-line-soft);border-radius:10px;overflow:hidden;margin:3px 0 0}
+.ux-member-grid>div,.ux-pay-grid>div{min-height:47px;padding:8px 10px;display:flex;flex-direction:column;gap:2px;background:#fefefe}
+.ux-member-grid>div:nth-child(odd),.ux-pay-grid>div:nth-child(odd){border-right:1px solid var(--ux-line-soft)}
+.ux-member-grid>div:nth-child(-n+2),.ux-pay-grid>div:nth-child(-n+2){border-bottom:1px solid var(--ux-line-soft)}
+.ux-member-grid span,.ux-pay-grid span{font-size:9.8px;color:#999da5}
+.ux-member-grid b,.ux-pay-grid b{font-size:12px;color:#33353b}
+.ux-pay-main{display:flex;flex-direction:column;gap:4px;padding:3px 8px 8px}
+.ux-pay-main b{font-size:22px;color:#222329;letter-spacing:-.5px}
+
+.ux-more{margin-top:auto;height:36px;margin-left:-17px;margin-right:-17px;border:0;border-top:1px solid var(--ux-line-soft);background:#fdfcfd;color:#8868b3;font-size:10.7px;cursor:pointer;font-family:inherit}
+.ux-more:hover{background:#faf7fd;color:#6f4ca2}
+.ux-more span{margin-left:6px}
+
+.ux-dead-summary{display:grid;grid-template-columns:repeat(4,1fr);margin:0 0 10px}
+.ux-dead-summary>div{text-align:center;border-right:1px solid var(--ux-line-soft);padding:1px 3px 5px}
+.ux-dead-summary>div:last-child{border-right:0}
+.ux-dead-summary span{display:block;font-size:9.5px;color:#969ba4;margin-bottom:3px}
+.ux-dead-summary b{font-size:14px;color:#35373d}
+.ux-dead-summary .soon-txt{color:#d88a29}.ux-dead-summary .over-txt{color:#cc596a}.ux-dead-summary .ok-txt{color:#4b9b7f}
+.ux-dead-list{border-top:1px solid var(--ux-line-soft);padding-top:6px}
+.ux-dead-row{display:grid;grid-template-columns:76px minmax(0,1fr) 72px 39px;gap:6px;align-items:center;min-height:26px;font-size:9.6px;color:#535861}
+.ux-dead-kind,.ux-dead-person{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ux-dead-date{color:#737882;text-align:right}
+.ux-dday{font-size:9px;font-weight:750;text-align:center;border-radius:999px;padding:2px 4px;background:#f4f4f5;color:#71747a}
+.ux-dday.soon,.ux-dday.today{background:#fff5e6;color:#bd7426}.ux-dday.over{background:#fff0f2;color:#c45064}.ux-dday.normal{background:#eef8f4;color:#4d9178}
+
+.ux-recent-list{display:flex;flex-direction:column;gap:2px}
+.ux-recent-row{display:grid;grid-template-columns:68px minmax(0,1fr) auto;gap:7px;align-items:center;min-height:28px;font-size:10px;color:#4f545d}
+.ux-recent-date{color:#959aa3;font-size:9.4px}.ux-recent-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ux-tag{font-size:9px;font-weight:700;padding:2px 7px;border-radius:999px;background:var(--ux-lav-soft);color:var(--ux-lav-deep);white-space:nowrap}
+.ux-tag.mint{background:var(--ux-mint-soft);color:#478b74}.ux-tag.peach{background:var(--ux-peach-soft);color:#a56d2e}.ux-tag.rose{background:var(--ux-rose-soft);color:#bd5e73}
+
+/* ---------- work tabs ---------- */
+.ux-candidate-page .inner-tab-bar{display:flex!important;gap:8px!important;margin:0 0 12px 2px!important}
+.ux-candidate-page .inner-tab{height:36px!important;padding:0 17px!important;border-radius:9px!important;border:1px solid var(--ux-line)!important;background:#fff!important;color:#666b74!important;box-shadow:none!important}
+.ux-candidate-page .inner-tab.active{background:var(--ux-lav-soft)!important;color:var(--ux-lav-deep)!important;border-color:#dfd1f0!important}
+
+/* ---------- cards / working area ---------- */
+.card{background:#fff!important;border:1px solid var(--ux-line)!important;border-radius:15px!important;box-shadow:var(--ux-shadow)!important}
+.card-hd{padding:14px 17px!important;background:#fff!important;border-bottom:1px solid var(--ux-line-soft)!important}
+.card-ttl{font-size:14px!important;font-weight:850!important;color:#24252a!important}
+.card-ico{width:30px;height:30px;display:inline-flex!important;align-items:center;justify-content:center;border-radius:10px;background:var(--ux-lav-soft)!important;font-size:13px!important}
+.cnt{background:var(--ux-lav-soft)!important;color:var(--ux-lav-deep)!important;border:0!important}
+
+.ux-candidate-page #innerContent .split-55{grid-template-columns:minmax(530px,40.5%) minmax(0,59.5%)!important;gap:15px!important;align-items:start!important}
+.ux-candidate-page #innerContent .card{margin-bottom:0!important}
+.ux-candidate-page .card-bd{padding:17px 18px 16px!important}
+
+/* ---------- candidate form: roomy but still one-screen friendly ---------- */
+#candForm .form-section{margin-bottom:17px!important}
+#candForm .form-section:last-of-type{margin-bottom:10px!important}
+#candForm .form-section-hd{margin:0 0 10px!important;padding:0!important;background:transparent!important;border-radius:0!important;display:flex!important;align-items:center!important;gap:6px!important;width:auto!important;font-size:11px!important;font-weight:800!important;color:#8769ad!important}
+#candForm .form-section-hd .fs-ico{display:none!important}
+#candForm .form-section-hd::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor;opacity:.65}
+#candForm .form-section-hd.fsh-pri{color:#ad6a88!important}
+#candForm .form-section-hd.fsh-yellow{color:#b47d37!important}
+#candForm .form-section-hd.fsh-teal{color:#5d9c87!important}
+
+#candForm .form-section .fg{display:grid!important;grid-template-columns:repeat(12,minmax(0,1fr))!important;gap:11px 12px!important;align-items:end!important}
+#candForm .form-section .fg>.fi{width:auto!important;max-width:none!important;min-width:0!important;grid-column:span 4!important}
+#candForm .form-section .fg>.fi.cs2{width:auto!important;grid-column:span 8!important}
+#candForm .form-section .fg>.fi.cs3{width:auto!important;grid-column:1/-1!important}
+#candForm .form-section .fg>.fi.cs4{width:auto!important;grid-column:1/-1!important}
+
+/* basic info: resident number deliberately compact */
+#candForm .fi:has([name="region"]){grid-column:span 3!important}
+#candForm .fi:has([name="vehicle_number"]){grid-column:span 3!important}
+#candForm .fi:has([name="name"]){grid-column:span 3!important}
+#candForm .fi:has([name="resident_number"]){grid-column:span 3!important;max-width:175px!important}
+/* contact: address intentionally wide */
+#candForm .fi:has([name="phone"]),#candForm .fi:has([name="mobile"]){grid-column:span 4!important}
+#candForm .fi:has([name="address"]){grid-column:1/-1!important;max-width:none!important}
+#candForm .fi:has([name="address"]) .fc{width:100%!important}
+/* qualification */
+#candForm .fi:has([name="certificate_issue_date"]),#candForm .fi:has([name="certificate_number"]),#candForm .fi:has([name="driver_license_number"]){grid-column:span 4!important}
+#candForm .fi:has([name="vehicle_type"]){grid-column:span 7!important}
+#candForm .fi:has([name="fuel_type"]){grid-column:span 5!important}
+/* business */
+#candForm .fi:has([name="business_number"]),#candForm .fi:has([name="affiliated_company"]),#candForm .fi:has([name="membership_date"]){grid-column:span 4!important}
+#candForm .form-section .fg>span[style]{font-size:10px!important;color:#969aa2!important;align-self:center!important;margin-left:-5px!important}
+
+.fi{gap:5px!important}.fi label{font-size:10.5px!important;font-weight:700!important;color:#676c75!important}
+.fc,.srch,.fsel{background:#fff!important;border:1px solid #e2e1e5!important;color:var(--ux-ink)!important;box-shadow:none!important}
+.fc{height:35px!important;padding:0 10px!important;border-radius:8px!important;font-size:12px!important}
+.fc::placeholder{color:#a0a4ac!important}
+.fc:focus,.srch:focus,.fsel:focus{border-color:#c8b3df!important;box-shadow:0 0 0 3px rgba(162,123,215,.09)!important}
+textarea.fc{height:60px!important;padding-top:9px!important;line-height:1.45!important}
+#candForm .flex.mt8{margin-top:11px!important;gap:8px!important}
+#candForm .btn{height:34px!important;border-radius:8px!important}
+#candForm #candSaveBtn{background:var(--ux-lav)!important;border-color:var(--ux-lav)!important;color:#fff!important}
+
+/* ---------- list / filters ---------- */
+.ux-candidate-page .frow{padding:11px 15px!important;background:#fff!important;border-bottom:1px solid var(--ux-line-soft)!important;gap:8px!important;flex-wrap:nowrap!important}
+.ux-candidate-page .fsel,.ux-candidate-page .srch{height:35px!important;border-radius:8px!important}
+.ux-candidate-page .srch{flex:1 1 auto!important;min-width:200px!important}
+#cSrchBtn{height:35px!important;border-radius:8px!important;background:var(--ux-lav)!important;border-color:var(--ux-lav)!important;color:#fff!important}
+#cRstBtn{height:35px!important;border-radius:8px!important;background:#fff!important;border-color:var(--ux-line)!important;color:#646973!important}
+
+#cTbl .tbl-wrap{overflow-x:hidden!important}
+#cTbl table{width:100%!important;table-layout:fixed!important;font-size:11.7px!important}
+#cTbl thead th{height:40px!important;padding:0 7px!important;background:#fff!important;border-bottom:1px solid var(--ux-line)!important;color:#747984!important;font-size:10.5px!important;font-weight:750!important}
+#cTbl tbody tr{height:53px!important;border-bottom:1px solid var(--ux-line-soft)!important}
+#cTbl tbody tr:hover{background:#fdfcfe!important}
+#cTbl tbody td{padding:7px!important;color:#454951!important;font-size:11.3px!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;max-width:none!important}
+#cTbl a.click-link{color:#27292e!important;font-weight:800!important}
+/* resident number stays in data/edit/search but is not a primary list column */
+#cTbl th:nth-child(4),#cTbl td:nth-child(4){display:none!important}
+#cTbl th:nth-child(1),#cTbl td:nth-child(1){width:7.5%!important}
+#cTbl th:nth-child(2),#cTbl td:nth-child(2){width:13%!important}
+#cTbl th:nth-child(3),#cTbl td:nth-child(3){width:9.5%!important}
+#cTbl th:nth-child(5),#cTbl td:nth-child(5){width:14.5%!important}
+#cTbl th:nth-child(6),#cTbl td:nth-child(6){width:17%!important;white-space:normal!important;line-height:1.25!important}
+#cTbl th:nth-child(7),#cTbl td:nth-child(7){width:10%!important}
+#cTbl th:nth-child(8),#cTbl td:nth-child(8){width:11%!important}
+#cTbl th:nth-child(9),#cTbl td:nth-child(9){width:17.5%!important}
+#cTbl .td-act{min-width:154px!important;overflow:visible!important;white-space:nowrap!important}
+#cTbl .td-act .btn,#cTbl .td-act .btn-check{height:27px!important;padding:0 8px!important;border-radius:7px!important;font-size:10.5px!important;margin-right:3px!important}
+#cTbl .td-act .bp{background:var(--ux-mint-soft)!important;color:#438a73!important;border:1px solid #d7eee5!important}
+#cTbl .td-act .btn-check{background:var(--ux-peach-soft)!important;color:#a27434!important;border:1px solid #f0e2c8!important}
+#cTbl .td-act .br{background:var(--ux-red-soft)!important;color:#bd5366!important;border:1px solid #f2d7dd!important}
+.pgn{background:#fff!important;border-top:1px solid var(--ux-line-soft)!important}
+.pgn-btn.on{background:var(--ux-lav-soft)!important;color:var(--ux-lav-deep)!important;border-color:#dbc9ef!important}
+
+/* global buttons get softer treatment without changing their behavior */
+.bp{background:var(--ux-lav)!important;border-color:var(--ux-lav)!important;color:#fff!important}
+.bg{background:var(--ux-lav)!important;border-color:var(--ux-lav)!important;color:#fff!important}
+.bo{background:#fff!important;color:#60656e!important;border-color:var(--ux-line)!important}
+.br{background:var(--ux-red-soft)!important;color:var(--ux-red)!important;border-color:#f2d7dd!important}
+.btn-check{background:var(--ux-peach-soft)!important;color:#9e7136!important;border-color:#efdfc3!important}
+
+@media(max-width:1380px){
+  .content{padding-left:22px!important;padding-right:22px!important}
+  .ux-overview{grid-template-columns:1fr 1fr 1.35fr 1.2fr;gap:10px}
+  .ux-over-card{padding-left:13px;padding-right:13px}
+  .ux-candidate-page #innerContent .split-55{grid-template-columns:minmax(485px,41%) minmax(0,59%)!important;gap:12px!important}
+  #cTbl .td-act .btn,#cTbl .td-act .btn-check{padding:0 6px!important;font-size:10px!important}
+}
+@media(max-width:1180px){
+  .ux-overview{grid-template-columns:1fr 1fr!important}
+  .ux-over-card{height:225px}
+  .ux-candidate-page #innerContent .split-55{grid-template-columns:1fr!important}
+}
+
+/* ====================================================================
+   V5 VIEWPORT FIT REFINEMENT — DESIGN ONLY
+   Goal: preserve the approved white/pastel dashboard while fitting the
+   full candidate work form in a normal 1920x1080 desktop browser viewport.
+   No business logic, handler, API mutation, DB, or app.js changes.
+   ==================================================================== */
+
+/* Slightly tighter chrome; keep the same visual language. */
+.hdr{height:56px!important;padding:0 30px!important}
+.cat-btn,.receivables-top-link{padding:18px 9px 16px!important}
+.sub-tab{padding:9px 14px!important}
+.content{max-width:1920px!important;padding:14px 30px 24px!important}
+
+.ux-page-head{margin:2px 3px 11px!important;align-items:center!important}
+.ux-page-head h1{font-size:25px!important;letter-spacing:-1.05px!important}
+.ux-page-head p{font-size:11px!important;margin-top:5px!important}
+.ux-date-chip{height:32px!important;padding:0 11px!important;font-size:10.5px!important}
+
+/* Overview is informative, not the main work area. */
+.ux-overview{grid-template-columns:.95fr .95fr 1.35fr 1.2fr!important;gap:12px!important;margin-bottom:11px!important}
+.ux-over-card{height:196px!important;border-radius:15px!important;padding:12px 15px 0!important}
+.ux-over-title{height:34px!important;gap:9px!important;padding-bottom:8px!important;margin-bottom:8px!important;font-size:13.5px!important}
+.ux-icon{width:31px!important;height:31px!important;font-size:13px!important}
+.ux-primary-stat{padding:1px 7px 6px!important;gap:2px!important}
+.ux-primary-stat span,.ux-pay-main span{font-size:10px!important}
+.ux-primary-stat b{font-size:22px!important}
+.ux-pay-main{padding:1px 7px 6px!important;gap:2px!important}
+.ux-pay-main b{font-size:21px!important}
+.ux-member-grid>div,.ux-pay-grid>div{min-height:38px!important;padding:5px 8px!important}
+.ux-member-grid span,.ux-pay-grid span{font-size:9.3px!important}
+.ux-member-grid b,.ux-pay-grid b{font-size:11.2px!important}
+.ux-more{height:29px!important;margin-left:-15px!important;margin-right:-15px!important;font-size:10px!important}
+
+.ux-dead-summary{margin:0 0 5px!important}
+.ux-dead-summary>div{padding:0 2px 3px!important}
+.ux-dead-summary span{font-size:8.9px!important;margin-bottom:1px!important}
+.ux-dead-summary b{font-size:13px!important}
+.ux-dead-list{padding-top:3px!important}
+.ux-dead-row{grid-template-columns:72px minmax(0,1fr) 68px 36px!important;gap:5px!important;min-height:21px!important;font-size:9px!important}
+.ux-dead-date{font-size:8.8px!important}
+.ux-dday{font-size:8.4px!important;padding:1px 4px!important}
+.ux-recent-list{gap:0!important}
+.ux-recent-row{grid-template-columns:62px minmax(0,1fr) auto!important;gap:6px!important;min-height:23px!important;font-size:9.4px!important}
+.ux-recent-date{font-size:8.8px!important}
+.ux-tag{font-size:8.4px!important;padding:2px 6px!important}
+
+/* Main task tabs */
+.ux-candidate-page .inner-tab-bar{margin:0 0 8px 1px!important;gap:7px!important}
+.ux-candidate-page .inner-tab{height:31px!important;padding:0 14px!important;border-radius:8px!important;font-size:10.8px!important}
+
+/* Work area gets priority. */
+.ux-candidate-page #innerContent .split-55{grid-template-columns:minmax(590px,40.5%) minmax(0,59.5%)!important;gap:14px!important;align-items:start!important}
+.card{border-radius:14px!important}
+.card-hd{padding:10px 14px!important;min-height:41px!important}
+.card-ttl{font-size:13.5px!important}
+.card-ico{width:27px!important;height:27px!important;border-radius:9px!important;font-size:12px!important}
+.ux-candidate-page .card-bd{padding:10px 14px 11px!important}
+
+/* Candidate form — wider where content needs it, denser only vertically. */
+#candForm .form-section{margin-bottom:8px!important}
+#candForm .form-section:last-of-type{margin-bottom:5px!important}
+#candForm .form-section-hd{margin:0 0 5px!important;font-size:10.2px!important;gap:5px!important}
+#candForm .form-section-hd::before{width:4px!important;height:4px!important}
+#candForm .form-section .fg{grid-template-columns:repeat(12,minmax(0,1fr))!important;gap:6px 10px!important;align-items:end!important}
+#candForm .form-section .fg > .fi{min-width:0!important;width:auto!important;max-width:none!important;grid-column:span 4!important}
+#candForm .form-section .fg > .fi.cs2{grid-column:span 8!important}
+#candForm .form-section .fg > .fi.cs3,
+#candForm .form-section .fg > .fi.cs4{grid-column:1/-1!important}
+
+/* Correct column proportions with specificity high enough to beat legacy grid rules. */
+#candForm .form-section .fg > .fi:has([name="region"]){grid-column:span 3!important}
+#candForm .form-section .fg > .fi:has([name="vehicle_number"]){grid-column:span 3!important}
+#candForm .form-section .fg > .fi:has([name="name"]){grid-column:span 3!important}
+#candForm .form-section .fg > .fi:has([name="resident_number"]){grid-column:span 3!important;max-width:172px!important}
+
+#candForm .form-section .fg > .fi:has([name="phone"]),
+#candForm .form-section .fg > .fi:has([name="mobile"]){grid-column:span 6!important}
+#candForm .form-section .fg > .fi:has([name="address"]){grid-column:1/-1!important;max-width:none!important}
+#candForm .form-section .fg > .fi:has([name="address"]) .fc{width:100%!important}
+
+#candForm .form-section .fg > .fi:has([name="certificate_issue_date"]),
+#candForm .form-section .fg > .fi:has([name="certificate_number"]),
+#candForm .form-section .fg > .fi:has([name="driver_license_number"]){grid-column:span 4!important}
+#candForm .form-section .fg > .fi:has([name="vehicle_type"]){grid-column:span 7!important}
+#candForm .form-section .fg > .fi:has([name="fuel_type"]){grid-column:span 5!important}
+
+#candForm .form-section .fg > .fi:has([name="business_number"]){grid-column:span 3!important}
+#candForm .form-section .fg > .fi:has([name="affiliated_company"]){grid-column:span 4!important}
+#candForm .form-section .fg > .fi:has([name="membership_date"]){grid-column:span 3!important}
+#candForm .form-section .fg > span[style]{grid-column:span 2!important;align-self:end!important;display:flex!important;align-items:center!important;min-height:32px!important;margin:0!important;padding:0 0 1px!important;font-size:9.2px!important;white-space:nowrap!important}
+
+.fi{gap:3px!important}
+.fi label{font-size:9.7px!important;line-height:1.15!important}
+.fc{height:32px!important;padding:0 9px!important;border-radius:7px!important;font-size:10.8px!important}
+textarea.fc{height:42px!important;padding-top:7px!important;line-height:1.3!important}
+#candForm .flex.mt8{margin-top:5px!important;gap:7px!important}
+#candForm .btn{height:30px!important;font-size:10.2px!important;border-radius:7px!important}
+
+/* Candidate list: full action set remains visible and 7 rows fit comfortably. */
+.ux-candidate-page .frow{padding:8px 12px!important;gap:7px!important}
+.ux-candidate-page .fsel,.ux-candidate-page .srch,#cSrchBtn,#cRstBtn{height:32px!important;border-radius:7px!important;font-size:10.5px!important}
+#cTbl table{font-size:10.8px!important}
+#cTbl thead th{height:34px!important;padding:0 6px!important;font-size:9.7px!important}
+#cTbl tbody tr{height:43px!important}
+#cTbl tbody td{padding:5px 6px!important;font-size:10.4px!important}
+#cTbl th:nth-child(1),#cTbl td:nth-child(1){width:7%!important}
+#cTbl th:nth-child(2),#cTbl td:nth-child(2){width:12.5%!important}
+#cTbl th:nth-child(3),#cTbl td:nth-child(3){width:9%!important}
+#cTbl th:nth-child(5),#cTbl td:nth-child(5){width:14%!important}
+#cTbl th:nth-child(6),#cTbl td:nth-child(6){width:17%!important}
+#cTbl th:nth-child(7),#cTbl td:nth-child(7){width:9.5%!important}
+#cTbl th:nth-child(8),#cTbl td:nth-child(8){width:10.5%!important}
+#cTbl th:nth-child(9),#cTbl td:nth-child(9){width:20.5%!important}
+#cTbl .td-act{min-width:164px!important;padding-right:7px!important;overflow:visible!important}
+#cTbl .td-act .btn,#cTbl .td-act .btn-check{height:26px!important;padding:0 7px!important;font-size:9.8px!important;margin-right:3px!important;border-radius:7px!important}
+.pgn{min-height:34px!important}
+
+/* Pure white canvas, always. */
+html,body,.content{background:#fff!important}
+
+/* The user's normal desktop browser has less vertical space than a raw 1080px image.
+   This height-aware rule is what keeps the entire input card visible without zooming. */
+@media (max-height:940px) and (min-width:1181px){
+  .content{padding-top:10px!important}
+  .ux-page-head{margin-bottom:8px!important}
+  .ux-page-head h1{font-size:23px!important}
+  .ux-page-head p{margin-top:3px!important}
+  .ux-over-card{height:178px!important;padding-top:10px!important}
+  .ux-over-title{height:31px!important;margin-bottom:6px!important;padding-bottom:6px!important}
+  .ux-member-grid>div,.ux-pay-grid>div{min-height:34px!important;padding:4px 7px!important}
+  .ux-primary-stat,.ux-pay-main{padding-bottom:4px!important}
+  .ux-more{height:25px!important}
+  .ux-dead-row{min-height:19px!important}
+  .ux-recent-row{min-height:20px!important}
+  .ux-candidate-page .inner-tab-bar{margin-bottom:6px!important}
+  .card-hd{padding-top:8px!important;padding-bottom:8px!important;min-height:37px!important}
+  .ux-candidate-page .card-bd{padding-top:8px!important;padding-bottom:8px!important}
+  #candForm .form-section{margin-bottom:6px!important}
+  #candForm .form-section-hd{margin-bottom:4px!important}
+  #candForm .form-section .fg{gap:5px 9px!important}
+  .fc{height:30px!important}
+  textarea.fc{height:38px!important}
+  #candForm .form-section .fg > span[style]{min-height:30px!important}
+  #candForm .flex.mt8{margin-top:4px!important}
+  #candForm .btn{height:28px!important}
+}
+
+@media(max-width:1380px){
+  .content{padding-left:20px!important;padding-right:20px!important}
+  .ux-overview{gap:9px!important}
+  .ux-candidate-page #innerContent .split-55{grid-template-columns:minmax(500px,41%) minmax(0,59%)!important;gap:11px!important}
+  #cTbl .td-act{min-width:154px!important}
+  #cTbl .td-act .btn,#cTbl .td-act .btn-check{padding:0 5px!important;margin-right:2px!important;font-size:9.3px!important}
+}
+
+@media(max-width:1180px){
+  .ux-overview{grid-template-columns:1fr 1fr!important}
+  .ux-over-card{height:180px!important}
+  .ux-candidate-page #innerContent .split-55{grid-template-columns:1fr!important}
+}
+
+/* ====================================================================
+   V6 DASHBOARD CARD FIT + DATA READABILITY
+   DESIGN ONLY: fixes card geometry and typography; no write handlers.
+   ==================================================================== */
+
+/* Dashboard cards are summary widgets, so keep them compact but NEVER clip content. */
+.ux-overview{
+  grid-template-columns:minmax(0,22fr) minmax(0,22fr) minmax(0,31fr) minmax(0,25fr)!important;
+  gap:12px!important;
+  margin-bottom:12px!important;
+  align-items:stretch!important;
+}
+.ux-over-card{
+  height:172px!important;
+  min-height:172px!important;
+  padding:10px 14px 0!important;
+  overflow:hidden!important;
+}
+.ux-over-title{
+  flex:0 0 31px!important;
+  height:31px!important;
+  min-height:31px!important;
+  padding-bottom:6px!important;
+  margin-bottom:6px!important;
+  gap:8px!important;
+  font-size:13px!important;
+}
+.ux-icon{width:29px!important;height:29px!important;font-size:12px!important}
+
+/* Member/payment cards: explicitly reserve enough room for every 2x2 cell. */
+.ux-member-body{display:flex!important;flex-direction:column!important;min-height:0!important;flex:1 1 auto!important}
+.ux-primary-stat,.ux-pay-main{flex:0 0 auto!important;padding:0 6px 5px!important;gap:1px!important}
+.ux-primary-stat span,.ux-pay-main span{font-size:9.5px!important;line-height:1.15!important}
+.ux-primary-stat b{font-size:20px!important;line-height:1.05!important}
+.ux-pay-main b{font-size:19px!important;line-height:1.05!important}
+.ux-member-grid,.ux-pay-grid{
+  flex:0 0 57px!important;
+  height:57px!important;
+  min-height:57px!important;
+  margin:1px 0 0!important;
+  grid-template-rows:repeat(2,minmax(0,1fr))!important;
+}
+.ux-member-grid>div,.ux-pay-grid>div{
+  min-height:0!important;
+  height:auto!important;
+  padding:3px 7px!important;
+  gap:0!important;
+  justify-content:center!important;
+}
+.ux-member-grid span,.ux-pay-grid span{font-size:8.6px!important;line-height:1.05!important;white-space:nowrap!important}
+.ux-member-grid b,.ux-pay-grid b{font-size:10.2px!important;line-height:1.1!important;white-space:nowrap!important}
+.ux-more{
+  flex:0 0 23px!important;
+  height:23px!important;
+  min-height:23px!important;
+  margin-left:-14px!important;
+  margin-right:-14px!important;
+  font-size:9px!important;
+  line-height:23px!important;
+}
+
+/* Deadline: show the actual task TITLE, person, due date, and D-day. */
+.ux-dead-summary{flex:0 0 31px!important;height:31px!important;margin:0 0 3px!important}
+.ux-dead-summary>div{padding:0 2px 2px!important}
+.ux-dead-summary span{font-size:8px!important;line-height:1!important;margin-bottom:1px!important;white-space:nowrap!important}
+.ux-dead-summary b{font-size:11.5px!important;line-height:1!important}
+.ux-dead-list{flex:1 1 auto!important;min-height:0!important;padding-top:2px!important;overflow:hidden!important}
+.ux-dead-row{
+  grid-template-columns:minmax(0,1fr) 68px 36px!important;
+  gap:5px!important;
+  min-height:19px!important;
+  height:19px!important;
+  font-size:8.6px!important;
+}
+.ux-dead-main{display:flex!important;align-items:center!important;gap:5px!important;min-width:0!important;overflow:hidden!important;white-space:nowrap!important}
+.ux-dead-main b{font-size:8.8px!important;color:#444851!important;font-weight:750!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;max-width:58%!important}
+.ux-dead-main em{font-size:8.1px!important;color:#9297a0!important;font-style:normal!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;min-width:0!important}
+.ux-dead-date{font-size:8.2px!important;text-align:right!important;white-space:nowrap!important;color:#777c84!important}
+.ux-dday{font-size:7.9px!important;line-height:1!important;padding:2px 3px!important;white-space:nowrap!important}
+
+/* Recent work: one date format everywhere (YYYY.MM.DD). */
+.ux-recent-list{flex:1 1 auto!important;min-height:0!important;overflow:hidden!important;gap:0!important}
+.ux-recent-row{
+  grid-template-columns:70px minmax(0,1fr) auto!important;
+  gap:5px!important;
+  min-height:20px!important;
+  height:20px!important;
+  font-size:8.8px!important;
+}
+.ux-recent-date{font-size:7.9px!important;white-space:nowrap!important;color:#8f949d!important}
+.ux-recent-text{overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
+.ux-tag{font-size:7.7px!important;padding:2px 5px!important;white-space:nowrap!important}
+
+/* At the user's 125% Windows scaling / typical browser viewport, keep exact same card spec. */
+@media (max-height:940px) and (min-width:1181px){
+  .ux-over-card{height:164px!important;min-height:164px!important;padding-top:9px!important}
+  .ux-over-title{height:29px!important;min-height:29px!important;flex-basis:29px!important;margin-bottom:5px!important}
+  .ux-member-grid,.ux-pay-grid{height:54px!important;min-height:54px!important;flex-basis:54px!important}
+  .ux-dead-row{height:18px!important;min-height:18px!important}
+  .ux-recent-row{height:19px!important;min-height:19px!important}
+  .ux-more{height:21px!important;min-height:21px!important;flex-basis:21px!important;line-height:21px!important}
+}
