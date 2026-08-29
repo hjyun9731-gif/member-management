@@ -1,176 +1,384 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="ko" data-theme="hangyodon">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>로그인 - 강원도 개인소형화물협회</title>
+  <title>로그인 - 강원특별자치도개인소형화물협회</title>
   <link rel="manifest" href="/manifest.json">
-  <meta name="theme-color" content="#5E6AD2">
+  <meta name="theme-color" content="#ffffff">
   <link rel="icon" href="/static/icons/favicon-32.png" sizes="32x32">
   <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="협회 업무관리">
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --accent:#73aef7;
+      --accent-strong:#4f93ed;
+      --accent-soft:#eef7ff;
+      --accent-line:#cfe4fb;
+      --title:#172033;
+      --text:#2d3748;
+      --muted:#8a94a6;
+      --line:#e7ebf0;
+      --field:#ffffff;
+      --shadow:0 18px 50px rgba(32, 47, 67, .10);
+    }
+    html[data-theme="kitty"] {
+      --accent:#ff8fb1;
+      --accent-strong:#f8759e;
+      --accent-soft:#fff3f7;
+      --accent-line:#ffd1df;
+      --title:#3a2d31;
+    }
+    html[data-theme="white"] {
+      --accent:#d9e7fb;
+      --accent-strong:#c5daf7;
+      --accent-soft:#f7f9fc;
+      --accent-line:#dfe5ec;
+      --title:#172033;
+      --shadow:0 18px 48px rgba(28, 39, 54, .08);
+    }
+    * { box-sizing:border-box; }
+    html, body { margin:0; min-height:100%; }
     body {
-      font-family: 'Malgun Gothic', '맑은 고딕', sans-serif;
-      background: #1565C0;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      min-height:100vh;
+      display:grid;
+      place-items:center;
+      padding:32px 18px;
+      background:#fff;
+      color:var(--text);
+      font-family: Pretendard, "Noto Sans KR", "Malgun Gothic", "맑은 고딕", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      -webkit-font-smoothing:antialiased;
     }
-    .login-wrap {
-      width: 100%;
-      max-width: 420px;
-      padding: 20px;
-    }
+    .login-wrap { width:min(100%, 410px); }
     .login-card {
-      background: #fff;
-      border-radius: 12px;
-      padding: 48px 40px 40px;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+      width:100%;
+      padding:34px 32px 24px;
+      background:#fff;
+      border:1px solid #edf0f4;
+      border-radius:24px;
+      box-shadow:var(--shadow);
+      transition:box-shadow .2s ease, border-color .2s ease;
     }
-    .login-logo {
-      text-align: center;
-      margin-bottom: 32px;
+    .brand { text-align:center; margin-bottom:26px; }
+    .mascot-box {
+      height:112px;
+      display:flex;
+      align-items:flex-end;
+      justify-content:center;
+      margin-bottom:11px;
     }
-    .login-logo .logo-icon {
-      font-size: 48px;
-      display: block;
-      margin-bottom: 12px;
+    .mascot {
+      display:block;
+      max-width:210px;
+      max-height:112px;
+      object-fit:contain;
+      user-select:none;
+      pointer-events:none;
+      filter:drop-shadow(0 7px 12px rgba(62, 95, 128, .07));
     }
-    .login-logo h1 {
-      font-size: 18px;
-      font-weight: 700;
-      color: #1565C0;
-      line-height: 1.5;
+    html[data-theme="kitty"] .mascot { max-width:184px; max-height:96px; }
+    html[data-theme="white"] .mascot-box { height:20px; margin-bottom:8px; }
+    html[data-theme="white"] .mascot { display:none; }
+    .org-name {
+      margin:0 0 7px;
+      font-size:14px;
+      font-weight:700;
+      color:var(--accent-strong);
+      letter-spacing:-.035em;
+      line-height:1.45;
     }
-    .login-logo p {
-      font-size: 13px;
-      color: #757575;
-      margin-top: 6px;
+    html[data-theme="white"] .org-name { color:#606b7b; }
+    .brand h1 {
+      margin:0;
+      font-size:28px;
+      line-height:1.2;
+      letter-spacing:-.045em;
+      color:var(--title);
+      font-weight:800;
     }
-    .form-group {
-      margin-bottom: 18px;
-    }
+    .form-group { margin-bottom:16px; }
     .form-group label {
-      display: block;
-      font-size: 13px;
-      font-weight: 600;
-      color: #424242;
-      margin-bottom: 6px;
+      display:block;
+      margin:0 0 7px 1px;
+      color:#2c3442;
+      font-size:13px;
+      font-weight:700;
+      letter-spacing:-.02em;
     }
+    .input-shell { position:relative; }
     .form-group input {
-      width: 100%;
-      padding: 11px 14px;
-      border: 1.5px solid #E0E0E0;
-      border-radius: 8px;
-      font-size: 15px;
-      font-family: inherit;
-      outline: none;
-      transition: border-color .2s;
+      width:100%;
+      height:48px;
+      padding:0 15px;
+      border:1px solid var(--line);
+      border-radius:11px;
+      background:var(--field);
+      color:#172033;
+      font:inherit;
+      font-size:14px;
+      outline:none;
+      transition:border-color .18s ease, box-shadow .18s ease, background .18s ease;
     }
+    .form-group input::placeholder { color:#a8b0bd; }
     .form-group input:focus {
-      border-color: #1565C0;
+      border-color:var(--accent);
+      box-shadow:0 0 0 4px color-mix(in srgb, var(--accent) 14%, transparent);
     }
+    .password-input { padding-right:48px !important; }
+    .pw-toggle {
+      position:absolute;
+      top:50%; right:8px;
+      transform:translateY(-50%);
+      width:36px; height:36px;
+      border:0; border-radius:9px;
+      background:transparent;
+      color:#98a2b2;
+      cursor:pointer;
+      display:grid;
+      place-items:center;
+      padding:0;
+    }
+    .pw-toggle:hover { background:var(--accent-soft); color:var(--accent-strong); }
+    .pw-toggle svg { width:19px; height:19px; }
     .btn-login {
-      width: 100%;
-      padding: 13px;
-      background: #1565C0;
-      color: #fff;
-      border: none;
-      border-radius: 8px;
-      font-size: 16px;
-      font-weight: 600;
-      cursor: pointer;
-      margin-top: 8px;
-      font-family: inherit;
-      transition: background .2s;
+      width:100%;
+      height:48px;
+      margin-top:4px;
+      border:0;
+      border-radius:11px;
+      background:var(--accent);
+      color:#fff;
+      font:inherit;
+      font-size:15px;
+      font-weight:800;
+      letter-spacing:-.02em;
+      cursor:pointer;
+      transition:transform .15s ease, background .18s ease, opacity .18s ease;
     }
-    .btn-login:hover { background: #0D47A1; }
+    html[data-theme="white"] .btn-login { color:#24528b; }
+    .btn-login:hover:not(:disabled) { background:var(--accent-strong); transform:translateY(-1px); }
+    html[data-theme="white"] .btn-login:hover:not(:disabled) { color:#183f70; }
+    .btn-login:disabled { opacity:.65; cursor:default; transform:none; }
     .error-msg {
-      color: #C62828;
-      font-size: 13px;
-      text-align: center;
-      margin-top: 12px;
-      min-height: 18px;
+      min-height:19px;
+      margin-top:10px;
+      color:#c84646;
+      font-size:12px;
+      font-weight:600;
+      text-align:center;
     }
-    .login-info {
-      margin-top: 24px;
-      padding: 12px;
-      background: #E3F2FD;
-      border-radius: 8px;
-      font-size: 12px;
-      color: #1565C0;
-      text-align: center;
+    .status {
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      gap:7px;
+      margin-top:4px;
+      color:#7b8697;
+      font-size:11px;
+    }
+    .status-dot {
+      width:7px; height:7px;
+      border-radius:50%;
+      background:#52c6a6;
+      box-shadow:0 0 0 3px #edf9f6;
+    }
+    .theme-area {
+      margin-top:20px;
+      padding-top:18px;
+      border-top:1px solid #f0f2f5;
+    }
+    .theme-label {
+      margin-bottom:9px;
+      color:#9aa3b1;
+      font-size:10px;
+      font-weight:700;
+      text-align:center;
+      letter-spacing:.01em;
+    }
+    .theme-picker {
+      display:grid;
+      grid-template-columns:repeat(3, 1fr);
+      gap:7px;
+    }
+    .theme-btn {
+      height:36px;
+      border:1px solid #e7ebf0;
+      border-radius:10px;
+      background:#fff;
+      color:#707b8b;
+      font:inherit;
+      font-size:11px;
+      font-weight:700;
+      cursor:pointer;
+      transition:.16s ease;
+    }
+    .theme-btn:hover { border-color:var(--accent-line); background:var(--accent-soft); }
+    .theme-btn.active {
+      border-color:var(--accent);
+      background:var(--accent-soft);
+      color:var(--accent-strong);
+      box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 8%, transparent);
+    }
+    @media (max-width:480px) {
+      body { padding:18px 14px; }
+      .login-card { padding:28px 22px 22px; border-radius:20px; }
+      .mascot-box { height:98px; }
+      .mascot { max-height:98px; max-width:190px; }
+      .brand h1 { font-size:25px; }
+      .org-name { font-size:13px; }
     }
   </style>
 </head>
 <body>
   <div class="login-wrap">
-    <div class="login-card">
-      <div class="login-logo">
-        <span class="logo-icon">🚛</span>
-        <h1>강원도 개인소형화물협회<br>회원관리 시스템</h1>
-        <p>Gangwon Province Individual Small Freight Association</p>
-      </div>
-      <form id="loginForm">
+    <main class="login-card" aria-label="회원관리 로그인">
+      <section class="brand">
+        <div class="mascot-box" aria-hidden="true">
+          <img id="mascot" class="mascot" src="/static/login-themes/hangyodon.png" alt="">
+        </div>
+        <p class="org-name">강원특별자치도개인소형화물협회</p>
+        <h1>회원관리 시스템</h1>
+      </section>
+
+      <form id="loginForm" novalidate>
         <div class="form-group">
           <label for="username">아이디</label>
-          <input type="text" id="username" placeholder="아이디를 입력하세요" autocomplete="username" autofocus>
+          <div class="input-shell">
+            <input type="text" id="username" placeholder="아이디를 입력하세요" autocomplete="username" autofocus>
+          </div>
         </div>
         <div class="form-group">
           <label for="password">비밀번호</label>
-          <input type="password" id="password" placeholder="비밀번호를 입력하세요" autocomplete="current-password">
+          <div class="input-shell">
+            <input class="password-input" type="password" id="password" placeholder="비밀번호를 입력하세요" autocomplete="current-password">
+            <button class="pw-toggle" id="pwToggle" type="button" aria-label="비밀번호 보기" title="비밀번호 보기">
+              <svg id="eyeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M2.8 12s3.2-5.2 9.2-5.2S21.2 12 21.2 12 18 17.2 12 17.2 2.8 12 2.8 12Z"/>
+                <circle cx="12" cy="12" r="2.4"/>
+              </svg>
+            </button>
+          </div>
         </div>
         <button type="submit" class="btn-login" id="loginBtn">로그인</button>
-        <div class="error-msg" id="errorMsg"></div>
+        <div class="error-msg" id="errorMsg" aria-live="polite"></div>
       </form>
-      <div class="login-info">
-        기본 관리자: admin / admin1234
-      </div>
-    </div>
+
+      <div class="status"><span class="status-dot"></span><span>로그인 시스템 연결됨</span></div>
+
+      <section class="theme-area" aria-label="로그인 테마 선택">
+        <div class="theme-label">로그인 화면 테마</div>
+        <div class="theme-picker">
+          <button type="button" class="theme-btn" data-theme-choice="hangyodon">한교동</button>
+          <button type="button" class="theme-btn" data-theme-choice="kitty">헬로키티</button>
+          <button type="button" class="theme-btn" data-theme-choice="white">화이트</button>
+        </div>
+      </section>
+    </main>
   </div>
+
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('/sw.js').catch(() => {});
       });
     }
-    // PWA: standalone 실행 여부 검증 (화면에는 영향 없음 - 콘솔/디버그용)
+
     (function () {
       const mqStandalone = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
       const iosStandalone = typeof navigator.standalone === 'boolean' ? navigator.standalone : null;
       const isStandalone = mqStandalone || iosStandalone === true;
       document.documentElement.setAttribute('data-pwa-standalone', isStandalone ? 'true' : 'false');
-      console.log('[PWA] standalone check →', { mqStandalone, iosStandalone, isStandalone });
     })();
+
     if (localStorage.getItem('authToken')) {
       window.location.replace('/');
     }
+
+    const THEMES = {
+      hangyodon: { image: '/static/login-themes/hangyodon.png' },
+      kitty: { image: '/static/login-themes/hello_kitty.png' },
+      white: { image: '' }
+    };
+    const html = document.documentElement;
+    const mascot = document.getElementById('mascot');
+    const usernameEl = document.getElementById('username');
+    const passwordEl = document.getElementById('password');
+    const themeButtons = [...document.querySelectorAll('[data-theme-choice]')];
+
+    function normalizeUser(v) {
+      return String(v || '').trim().toLowerCase();
+    }
+    function userThemeKey(user) {
+      return 'loginTheme:user:' + normalizeUser(user);
+    }
+    function applyTheme(theme, persistLast = true) {
+      if (!THEMES[theme]) theme = 'hangyodon';
+      html.dataset.theme = theme;
+      if (THEMES[theme].image) {
+        mascot.src = THEMES[theme].image;
+        mascot.style.display = '';
+      } else {
+        mascot.removeAttribute('src');
+        mascot.style.display = 'none';
+      }
+      themeButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.themeChoice === theme));
+      if (persistLast) localStorage.setItem('loginTheme:last', theme);
+      const user = normalizeUser(usernameEl.value);
+      if (persistLast && user) localStorage.setItem(userThemeKey(user), theme);
+    }
+    function loadThemeForCurrentUser() {
+      const user = normalizeUser(usernameEl.value);
+      const saved = user ? localStorage.getItem(userThemeKey(user)) : null;
+      applyTheme(saved || localStorage.getItem('loginTheme:last') || 'hangyodon', false);
+    }
+
+    themeButtons.forEach(btn => btn.addEventListener('click', () => applyTheme(btn.dataset.themeChoice, true)));
+    usernameEl.addEventListener('change', loadThemeForCurrentUser);
+    usernameEl.addEventListener('blur', loadThemeForCurrentUser);
+    loadThemeForCurrentUser();
+
+    document.getElementById('pwToggle').addEventListener('click', () => {
+      const show = passwordEl.type === 'password';
+      passwordEl.type = show ? 'text' : 'password';
+      const toggle = document.getElementById('pwToggle');
+      toggle.setAttribute('aria-label', show ? '비밀번호 숨기기' : '비밀번호 보기');
+      toggle.title = show ? '비밀번호 숨기기' : '비밀번호 보기';
+    });
+
     document.getElementById('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const btn = document.getElementById('loginBtn');
       const errEl = document.getElementById('errorMsg');
       errEl.textContent = '';
+
+      const username = usernameEl.value.trim();
+      if (!username || !passwordEl.value) {
+        errEl.textContent = '아이디와 비밀번호를 입력하세요.';
+        return;
+      }
+
       btn.disabled = true;
       btn.textContent = '로그인 중...';
       const fd = new FormData();
-      fd.append('username', document.getElementById('username').value.trim());
-      fd.append('password', document.getElementById('password').value);
+      fd.append('username', username);
+      fd.append('password', passwordEl.value);
+
       try {
         const res = await fetch('/api/auth/login', { method: 'POST', body: fd });
         if (res.ok) {
           const data = await res.json();
+          const selectedTheme = html.dataset.theme || 'hangyodon';
+          localStorage.setItem(userThemeKey(username), selectedTheme);
+          localStorage.setItem('loginTheme:last', selectedTheme);
           localStorage.setItem('authToken', data.access_token);
           localStorage.setItem('userRole', data.role);
           localStorage.setItem('userName', data.username);
           localStorage.setItem('userFullName', data.full_name || data.username);
           window.location.replace('/');
         } else {
-          const err = await res.json();
+          const err = await res.json().catch(() => ({}));
           errEl.textContent = err.detail || '로그인에 실패했습니다.';
           btn.disabled = false;
           btn.textContent = '로그인';
