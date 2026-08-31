@@ -155,6 +155,45 @@ function fvDate(d1,d2){
 }
 function catBadge(c){return c==='개인'?`<span class="badge b-pri">개인</span>`:c==='택배'?`<span class="badge b-yellow">택배</span>`:`<span class="badge b-gray">${e_(c)||'-'}</span>`;}
 function memBadge(s){return s==='가입'?`<span class="badge b-sky">가입</span>`:s==='미가입'?`<span class="badge b-pink">미가입</span>`:`<span class="badge b-gray">${fv(s)}</span>`;}
+function tlMembershipBadge(status,date){
+  const st=(status||'').trim();
+  const d=(date||'').trim();
+  if(st==='가입') return `<span class="badge tl-mem-joined">가입</span>${d?`<span class="tl-mem-date">${e_(d)}</span>`:''}`;
+  if(st==='미가입') return `<span class="badge tl-mem-notjoined">미가입</span>`;
+  return `<span class="badge tl-mem-unknown">미확인</span>`;
+}
+function ensureTransferLedgerPolishStyle(){
+  if(document.getElementById('tl-polish-v3')) return;
+  const st=document.createElement('style');
+  st.id='tl-polish-v3';
+  st.textContent=`
+    #tlLedgerCard .tl-ledger-table td{color:#596174}
+    #tlLedgerCard .tl-ledger-table tbody tr:hover{background:#fafaff}
+    #tlLedgerCard .tl-ledger-table a.tbl-link{color:#5f67c9!important;font-weight:700;text-decoration:none}
+    #tlLedgerCard .tl-ledger-table a.tbl-link:hover{color:#494fb1!important;text-decoration:underline}
+    #tlLedgerCard .tl-mgmt{color:#6257b8;font-weight:800}
+    #tlLedgerCard .tl-date{color:#42495d;font-weight:700}
+    #tlLedgerCard .tl-namecell{min-width:118px}
+    #tlLedgerCard .tl-subline{display:flex;align-items:center;gap:5px;margin-top:4px;min-height:18px}
+    #tlLedgerCard .tl-mem-date{font-size:9.5px;color:#8b91a3}
+    #tlLedgerCard .tl-mem-joined{background:#edf8ff;color:#3176b4;border-color:#bfe1f6}
+    #tlLedgerCard .tl-mem-notjoined{background:#fff0f7;color:#bd5b8a;border-color:#f4c5da}
+    #tlLedgerCard .tl-mem-unknown{background:#f5f6f8;color:#8a91a0;border-color:#e1e4e9}
+    #tlLedgerCard .tl-link-soft{background:#f1fbe9;color:#4b8150;border-color:#cae8c5}
+    #tlLedgerCard .tl-transferor-col{transition:opacity .15s ease}
+    #tlLedgerCard.tl-hide-transferor .tl-ledger-table th:nth-child(5),
+    #tlLedgerCard.tl-hide-transferor .tl-ledger-table td:nth-child(5){display:none}
+    #tlTransferorToggle{background:#fff;color:#626a7e;border-color:#dfe3eb}
+    #tlTransferorToggle:hover{background:#f7f8fb}
+    .btn.bdomestic,
+    .btn[onclick*="openDomesticTransfer"]{background:#effbe9!important;color:#4f814d!important;border-color:#c9e6c2!important}
+    .btn.bdomestic:hover,
+    .btn[onclick*="openDomesticTransfer"]:hover{background:#e4f7dc!important;color:#3f723d!important;border-color:#b6dcae!important}
+  `;
+  document.head.appendChild(st);
+}
+ensureTransferLedgerPolishStyle();
+
 function dtBadge(d){return d==='이전자료'?`<span class="badge b-purple">이전</span>`:`<span class="badge b-pri">신규</span>`;}
 function ctBadge(t){const m={'폐업':'b-danger','양도':'b-warn','이관':'b-purple','사망':'b-gray','말소':'b-gray'};return `<span class="badge ${m[t]||'b-gray'}">${t||'-'}</span>`;}
 function chBadge(t){const m={'주소지변경':'b-sky','상호변경':'b-pri','구조변경':'b-teal','전속계약 업체변경':'b-yellow','등록이관':'b-purple','이전전출':'b-pink','대표자변경':'b-warn','성명변경':'b-pri','번호변경':'b-teal'};return `<span class="badge ${m[t]||'b-gray'}" style="font-size:10px">${t||'-'}</span>`;}
@@ -525,7 +564,7 @@ window.viewMember=async(id)=>{
       ['비고',r.transfer_out_info.memo,true],
     ]}]:[]),
   ];
-  const transferOutBtn=(r.status!=='closed')?`<button class="btn bxl btn-sm" onclick="openDomesticTransfer(${id});closeModal()">도내양도</button>`:'';
+  const transferOutBtn=(r.status!=='closed')?`<button class="btn bdomestic btn-sm" onclick="openDomesticTransfer(${id});closeModal()">도내양도</button>`:'';
   const missingLedgerBox=r.transfer_ledger_missing?`
     <div class="warn-box" style="margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <span>⚠️ 관리번호 ${e_(r.management_number)} — 양도양수대장 기록이 없습니다.</span>
@@ -984,7 +1023,7 @@ async function renderMember(category){
         <td class="td-act">
           <button class="btn bp btn-xs" onclick="editMember(${r.id})">수정</button>
           <button class="btn br btn-xs" onclick="closeMember(${r.id},'${e_(r.name)}','${e_(r.vehicle_number)}')">폐업</button>
-          ${r.status!=='closed'?`<button class="btn bxl btn-xs" onclick="openDomesticTransfer(${r.id})">도내양도</button>`:''}
+          ${r.status!=='closed'?`<button class="btn bdomestic btn-xs" onclick="openDomesticTransfer(${r.id})">도내양도</button>`:''}
         </td></tr>`).join('')}</tbody>
     </table></div>${pgn(d,doSearch)}`;
     bindPgn(`${key}Tbl`,doSearch);
@@ -1398,14 +1437,17 @@ async function renderNewRegistrations(){
 
 // ===== TRANSFER LEDGER =====
 async function renderTransferLedger(){
+  ensureTransferLedgerPolishStyle();
   const f=ST.fl.tl||{};
+  const transferorHidden=localStorage.getItem('tl-transferor-hidden')==='1';
   document.getElementById('content').innerHTML=`
-    <div class="card">
+    <div class="card ${transferorHidden?'tl-hide-transferor':''}" id="tlLedgerCard">
       <div class="card-hd">
         <div class="card-hd-l"><span class="card-ico">📋</span><span class="card-ttl">양도양수대장</span><span class="cnt" id="tlCnt">0건</span>
           <span class="badge b-sky" style="font-size:10px;margin-left:6px">접수일자 기준</span></div>
         <div class="flex gap-8">
           <button class="btn bg btn-sm" id="tlAddBtn">+ 등록</button>
+          <button class="btn bo btn-sm" id="tlTransferorToggle">${transferorHidden?'양도자 펼치기':'양도자 접기'}</button>
           ${isAdmin()?`<button class="btn bo btn-sm" id="tlRelinkBtn" title="양도자/양수자 회원 ID 연결 자동 복구">🔗 연결복구</button>`:''}
           ${isAdmin()?`<button class="btn bo btn-sm" id="tlMissingBtn" title="관리번호 양YY-N 회원 중 대장 누락건 찾기/복구">🧩 누락대장 복구</button>`:''}
           ${isAdmin()?`<button class="btn bo btn-sm" id="tlCertSyncBtn" title="대장에 나중에 입력한 자격증명발급번호를 연결된 회원/예정자에 소급 반영">🪪 발급번호 동기화</button>`:''}
@@ -1425,7 +1467,7 @@ async function renderTransferLedger(){
   // 요구사항 컬럼 순서 고정
   const hdrs=[
     {label:'관리번호'},{label:'접수일자'},{label:'지역'},
-    {label:'차량번호'},{label:'양도자'},{label:'양수자'},{label:'연결관계'},{label:'핸드폰'},
+    {label:'차량번호'},{label:'양도자 / 가입'},{label:'양수자 / 가입'},{label:'연결관계'},{label:'핸드폰'},
     {label:'인가일자'},{label:'가입일자'},{label:'자격증명발급일자'},{label:'자격증명발급번호'},
     {label:'비고'},{label:'관리',noSort:true}
   ];
@@ -1440,18 +1482,18 @@ async function renderTransferLedger(){
     if(!d){return;}
     document.getElementById('tlCnt').textContent=`${d.total.toLocaleString()}건`;
     if(!d.items.length){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">📋</div><p class="empty-txt">데이터가 없습니다.</p></div>`;return;}
-    tw.innerHTML=`<div class="tbl-wrap"><table>
+    tw.innerHTML=`<div class="tbl-wrap"><table class="tl-ledger-table">
       <thead><tr>${plainHeaders(hdrs)}</tr></thead>
       <tbody>${d.items.map(r=>{
         const linked=r.transferor_member_id&&r.transferee_member_id;
         return `<tr>
-        <td><strong style="color:var(--c-primary)">${fv(r.management_number)}</strong></td>
-        <td><strong>${fv(r.receipt_date)}</strong></td>
+        <td><strong class="tl-mgmt">${fv(r.management_number)}</strong></td>
+        <td><strong class="tl-date">${fv(r.receipt_date)}</strong></td>
         <td>${fv(r.region)}</td>
         <td><a class="tbl-link" onclick="viewTransfer(${r.id});return false">${fv(r.vehicle_number)}</a></td>
-        <td>${r.transferor_member_id?`<a class="tbl-link" onclick="viewMember(${r.transferor_member_id});return false">${fv(r.transferor)}</a>`:`<a class="tbl-link" onclick="viewTransfer(${r.id});return false">${fv(r.transferor)}</a>`}</td>
-        <td>${r.transferee_member_id?`<a class="tbl-link" onclick="viewMember(${r.transferee_member_id});return false">${fv(r.transferee)}</a>`:`<a class="tbl-link" onclick="viewTransfer(${r.id});return false">${fv(r.transferee)}</a>`}</td>
-        <td>${linked?`<span class="badge b-teal" style="font-size:10px" title="양도자-양수자 연결됨">🔗 연결됨</span>`:`<span class="badge b-gray" style="font-size:10px">-</span>`}</td>
+        <td class="tl-transferor-col tl-namecell">${r.transferor_member_id?`<a class="tbl-link" onclick="viewMember(${r.transferor_member_id});return false">${fv(r.transferor)}</a>`:`<a class="tbl-link" onclick="viewTransfer(${r.id});return false">${fv(r.transferor)}</a>`}<div class="tl-subline">${tlMembershipBadge(r.transferor_membership_status,r.transferor_membership_date)}</div></td>
+        <td class="tl-namecell">${r.transferee_member_id?`<a class="tbl-link" onclick="viewMember(${r.transferee_member_id});return false">${fv(r.transferee)}</a>`:`<a class="tbl-link" onclick="viewTransfer(${r.id});return false">${fv(r.transferee)}</a>`}<div class="tl-subline">${tlMembershipBadge(r.transferee_membership_status,r.transferee_membership_date)}</div></td>
+        <td>${linked?`<span class="badge tl-link-soft" style="font-size:10px" title="양도자-양수자 연결됨">🔗 연결됨</span>`:`<span class="badge b-gray" style="font-size:10px">-</span>`}</td>
         <td>${fv(r.mobile)}</td>
         <td>${fv(r.approval_date)}</td>
         <td>${fv(r.membership_date)}</td>
@@ -1471,6 +1513,15 @@ async function renderTransferLedger(){
   // 초기화 시 mgmt_desc 유지
   document.getElementById('tlRstBtn').onclick=()=>{ST.fl.tl={member_sort:'mgmt_desc'};renderTransferLedger();};
   document.getElementById('tlAddBtn').onclick=()=>editTransfer(null);
+  const tlToggle=document.getElementById('tlTransferorToggle');
+  if(tlToggle) tlToggle.onclick=()=>{
+    const card=document.getElementById('tlLedgerCard');
+    if(!card)return;
+    const hide=!card.classList.contains('tl-hide-transferor');
+    card.classList.toggle('tl-hide-transferor',hide);
+    localStorage.setItem('tl-transferor-hidden',hide?'1':'0');
+    tlToggle.textContent=hide?'양도자 펼치기':'양도자 접기';
+  };
   const relinkBtn=document.getElementById('tlRelinkBtn');
   if(relinkBtn) relinkBtn.onclick=()=>bulkRelinkTransfers();
   const missingBtn=document.getElementById('tlMissingBtn');
