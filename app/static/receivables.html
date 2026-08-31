@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>수납·미수금 | 회원관리시스템</title>
-  <link rel="stylesheet" href="/static/receivables.css?v=20260831-v14-real-dashboard" />
+  <link rel="stylesheet" href="/static/receivables.css?v=20260831-v15-dashboard-redesign" />
 </head>
 <body>
   <div id="appShell" class="app-shell">
@@ -40,10 +40,8 @@
       </section>
 
       <section id="arrearsDashboard" class="arrears-dashboard hidden" aria-label="미수금 월별 성과 대시보드">
-        <div class="dashboard-head performance-head">
-          <div>
-            <h2>미수금 월별 성과</h2>
-          </div>
+        <div class="dashboard-head performance-head dashboard-title-row">
+          <div><h2>미수금 월별 성과</h2></div>
           <div class="month-compare-controls">
             <label>기준월<select id="compareMonthA"></select></label>
             <span>대비</span>
@@ -52,79 +50,62 @@
           </div>
         </div>
 
+        <section class="dashboard-kpi-grid">
+          <article class="dashboard-kpi"><span id="perfFromLabel">기준월 월말 미수</span><strong id="perfFromTotal">-</strong><small id="perfFromMembers">-</small></article>
+          <article class="dashboard-kpi"><span id="perfToLabel">비교월 월말 미수</span><strong id="perfToTotal">-</strong><small id="perfToMembers">-</small></article>
+          <article id="perfVerdictCard" class="dashboard-kpi dashboard-kpi-change"><span>미수 순증감</span><strong id="perfNetChange">-</strong><small id="perfNetPct">-</small></article>
+          <article class="dashboard-kpi dashboard-kpi-paid"><span>비교기간 실제 수납</span><strong id="perfPayments">-</strong><small id="perfPeriodText">-</small></article>
+          <article class="dashboard-kpi dashboard-kpi-charge"><span>비교기간 부과액</span><strong id="perfCharges">-</strong><small>선택 기간 부과 총액</small></article>
+          <article class="dashboard-kpi dashboard-kpi-rate"><span>수납 / 부과율</span><strong id="perfPayRate">-</strong><small>실제 수납 ÷ 부과액</small></article>
+        </section>
 
-        <div class="performance-view-shell">
-          <section class="performance-view-panel performance-scroll-section" data-perf-panel="summary">
-            <div class="performance-section-title"><div><h3>기간 비교</h3></div></div>
-            <article id="perfVerdictCard" class="performance-verdict">
-              <div><span>선택 기간 결과</span><strong id="perfHeadline">비교 데이터를 불러오는 중입니다.</strong><p id="perfHeadlineSub">-</p></div>
-              <div class="performance-verdict-number"><span>미수 순증감</span><b id="perfNetChange">-</b><small id="perfNetPct">-</small></div>
-            </article>
+        <section class="dashboard-summary-band">
+          <div class="dashboard-summary-main">
+            <span>선택 기간 결과</span>
+            <strong id="perfHeadline">비교 데이터를 불러오는 중입니다.</strong>
+            <p id="perfHeadlineSub">-</p>
+          </div>
+          <div class="dashboard-summary-metrics">
+            <div><span>미수 감소액</span><strong id="perfDecrease" class="good">-</strong><small id="perfDecreaseMembers">-</small></div>
+            <div><span>미수 증가액</span><strong id="perfIncrease" class="bad">-</strong><small id="perfIncreaseMembers">-</small></div>
+            <div><span>감소 실적</span><strong id="perfRecoveryRate">-</strong><small>기준월 미수 대비</small></div>
+            <div><span>미수회원 증감</span><strong id="perfMemberChange">-</strong><small>인원 기준</small></div>
+            <div><span>완납 전환</span><strong id="perfSettled" class="good">-</strong><small id="perfSettledRate">-</small></div>
+            <div><span>신규 미수</span><strong id="perfNewArrears" class="bad">-</strong><small>신규 발생 인원</small></div>
+            <div><span>금액수정 영향</span><strong id="perfAdjustment">-</strong><small>선택 기간</small></div>
+          </div>
+        </section>
 
-            <div class="performance-primary-grid">
-              <article><span id="perfFromLabel">기준월 월말 미수</span><strong id="perfFromTotal">-</strong><small id="perfFromMembers">-</small></article>
-              <article><span id="perfToLabel">비교월 월말 미수</span><strong id="perfToTotal">-</strong><small id="perfToMembers">-</small></article>
-              <article class="performance-paid"><span>비교기간 실제 수납</span><strong id="perfPayments">-</strong><small id="perfPeriodText">-</small></article>
-              <article class="performance-ratio"><span>수납 / 부과율</span><strong id="perfPayRate">-</strong><small>비교기간 부과액 <b id="perfCharges">-</b></small></article>
+        <section class="dashboard-chart-grid">
+          <article class="dash-card dashboard-chart-card">
+            <div class="dash-card-head"><div><b>월별 미수금 추이</b></div></div>
+            <div id="performanceTrend" class="performance-trend"></div>
+          </article>
+          <article class="dash-card dashboard-chart-card">
+            <div class="dash-card-head"><div><b>월별 부과액 vs 실제 수납액</b></div></div>
+            <div id="monthlyFlowChart" class="monthly-flow-chart"></div>
+          </article>
+          <article class="dash-card dashboard-chart-card">
+            <div class="dash-card-head"><div><b>월별 수납 / 부과율</b></div></div>
+            <div id="monthlyRatioChart" class="monthly-ratio-chart"></div>
+          </article>
+          <article class="dash-card dashboard-insight-card">
+            <div class="dash-card-head"><div><b>월별 성과 요약</b></div></div>
+            <div id="performanceInsights" class="performance-insights"></div>
+          </article>
+        </section>
+
+        <section class="dashboard-table-section">
+          <div class="dashboard-section-head"><h3>월별 성과표</h3><span>전체 원장 · 활성 + 폐업</span></div>
+          <article class="dash-card performance-table-card">
+            <div class="performance-table-wrap">
+              <table class="performance-table">
+                <thead><tr><th>월</th><th class="num">전월말 미수</th><th class="num">당월 부과</th><th class="num">당월 수납</th><th class="num">수납/부과율</th><th class="num">월말 미수</th><th class="num">전월 대비</th><th class="num">증감률</th><th class="num">미수회원</th><th class="num">완납전환</th><th class="num">신규미수</th></tr></thead>
+                <tbody id="performanceTableRows"></tbody>
+              </table>
             </div>
-
-            <div class="performance-detail-grid">
-              <article class="dash-card readable-detail-card">
-                <div class="dash-card-head"><div><b>미수금 회수 성과</b></div></div>
-                <div class="readable-metric-list">
-                  <div><span>회원별 미수 감소액</span><strong id="perfDecrease" class="good">-</strong><small id="perfDecreaseMembers">-</small></div>
-                  <div><span>회원별 미수 증가액</span><strong id="perfIncrease" class="bad">-</strong><small id="perfIncreaseMembers">-</small></div>
-                  <div><span>기준월 미수 대비 감소 실적</span><strong id="perfRecoveryRate">-</strong></div>
-                </div>
-              </article>
-              <article class="dash-card readable-detail-card">
-                <div class="dash-card-head"><div><b>미수회원 변화</b></div></div>
-                <div class="readable-metric-list four">
-                  <div><span>미수회원 증감</span><strong id="perfMemberChange">-</strong></div>
-                  <div><span>완납 전환</span><strong id="perfSettled" class="good">-</strong><small id="perfSettledRate">-</small></div>
-                  <div><span>신규 미수</span><strong id="perfNewArrears" class="bad">-</strong></div>
-                  <div><span>금액수정 영향</span><strong id="perfAdjustment">-</strong></div>
-                </div>
-              </article>
-            </div>
-          </section>
-
-          <section class="performance-view-panel performance-scroll-section" data-perf-panel="trend">
-            <div class="performance-section-title"><div><h3>월별 미수금 추이</h3></div></div>
-            <article class="dash-card performance-trend-card readable-chart-card">
-              <div class="dash-card-head"><div><b>월말 총 미수금</b></div></div>
-              <div id="performanceTrend" class="performance-trend"></div>
-            </article>
-            <div class="performance-subsection-title"><div><h3>월별 부과액 · 실제 수납액</h3></div></div>
-            <div class="readable-chart-grid vertical-charts">
-              <article class="dash-card performance-flow-card readable-chart-card">
-                <div class="dash-card-head"><div><b>월별 부과액 vs 실제 수납액</b></div></div>
-                <div id="monthlyFlowChart" class="monthly-flow-chart"></div>
-              </article>
-              <article class="dash-card ratio-card readable-chart-card">
-                <div class="dash-card-head"><div><b>월별 수납 / 부과율</b></div></div>
-                <div id="monthlyRatioChart" class="monthly-ratio-chart"></div>
-              </article>
-            </div>
-            <article class="dash-card insight-card readable-insight-card">
-              <div class="dash-card-head"><div><b>월별 성과</b></div></div>
-              <div id="performanceInsights" class="performance-insights"></div>
-            </article>
-          </section>
-
-          <section class="performance-view-panel performance-scroll-section" data-perf-panel="table">
-            <div class="performance-section-title"><div><h3>월별 미수금 성과표</h3></div></div>
-            <article class="dash-card performance-table-card readable-table-card">
-              <div class="dash-card-head"><div><b>월별 미수금 성과표</b></div><small>전체 원장 · 활성 + 폐업</small></div>
-              <div class="performance-table-wrap">
-                <table class="performance-table">
-                  <thead><tr><th>월</th><th class="num">전월말 미수</th><th class="num">당월 부과</th><th class="num">당월 수납</th><th class="num">수납/부과율</th><th class="num">월말 미수</th><th class="num">전월 대비</th><th class="num">증감률</th><th class="num">미수회원</th><th class="num">완납전환</th><th class="num">신규미수</th></tr></thead>
-                  <tbody id="performanceTableRows"></tbody>
-                </table>
-              </div>
-            </article>
-          </section>
-        </div>
+          </article>
+        </section>
       </section>
 
       <section id="contactOverview" class="contact-overview hidden" aria-label="연락관리 요약">
@@ -342,6 +323,6 @@
       <button class="primary-btn" type="submit">로그인</button><div id="loginError" class="login-error"></div>
     </form>
   </div>
-  <script src="/static/receivables.js?v=20260831-v14-real-dashboard" defer></script>
+  <script src="/static/receivables.js?v=20260831-v15-dashboard-redesign" defer></script>
 </body>
 </html>
