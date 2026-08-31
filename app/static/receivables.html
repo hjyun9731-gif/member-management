@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>수납·미수금 | 회원관리시스템</title>
-  <link rel="stylesheet" href="/static/receivables.css?v=20260901-v23-saas-kpi-spark" />
+  <link rel="stylesheet" href="/static/receivables.css?v=20260901-v23-consolidated-saas" />
 </head>
 <body>
   <div id="appShell" class="app-shell">
@@ -53,23 +53,19 @@
         <section class="dashboard-kpi-grid executive-kpi-grid">
           <article class="dashboard-kpi dashboard-kpi-from">
             <div class="dashboard-kpi-icon purple">₩</div>
-            <div class="dashboard-kpi-copy"><span id="perfFromLabel">기준월 월말 미수</span><strong id="perfFromTotal">-</strong><small id="perfFromMembers">-</small></div>
-            <div class="kpi-spark" id="sparkFrom" aria-hidden="true"></div>
+            <div class="dashboard-kpi-copy"><span id="perfFromLabel">기준월 월말 미수</span><strong id="perfFromTotal">-</strong><small id="perfFromMembers">-</small><div class="kpi-sparkline" data-sparkline="arrears" aria-hidden="true"></div></div>
           </article>
           <article class="dashboard-kpi dashboard-kpi-to">
             <div class="dashboard-kpi-icon blue">월</div>
-            <div class="dashboard-kpi-copy"><span id="perfToLabel">비교월 월말 미수</span><strong id="perfToTotal">-</strong><small id="perfToMembers">-</small></div>
-            <div class="kpi-spark" id="sparkTo" aria-hidden="true"></div>
+            <div class="dashboard-kpi-copy"><span id="perfToLabel">비교월 월말 미수</span><strong id="perfToTotal">-</strong><small id="perfToMembers">-</small><div class="kpi-sparkline" data-sparkline="arrears" aria-hidden="true"></div></div>
           </article>
           <article class="dashboard-kpi dashboard-kpi-paid">
             <div class="dashboard-kpi-icon green">✓</div>
-            <div class="dashboard-kpi-copy"><span>비교기간 실제 수납</span><strong id="perfPayments">-</strong><small id="perfPeriodText">-</small></div>
-            <div class="kpi-spark" id="sparkPaid" aria-hidden="true"></div>
+            <div class="dashboard-kpi-copy"><span>비교기간 실제 수납</span><strong id="perfPayments">-</strong><small id="perfPeriodText">-</small><div class="kpi-sparkline" data-sparkline="payments" aria-hidden="true"></div></div>
           </article>
           <article class="dashboard-kpi dashboard-kpi-rate">
             <div class="dashboard-kpi-icon amber">%</div>
-            <div class="dashboard-kpi-copy"><span>수납 / 부과율</span><strong id="perfPayRate">-</strong><small>비교기간 부과액 <b id="perfCharges">-</b></small></div>
-            <div class="kpi-spark" id="sparkRate" aria-hidden="true"></div>
+            <div class="dashboard-kpi-copy"><span>수납 / 부과율</span><strong id="perfPayRate">-</strong><small>비교기간 부과액 <b id="perfCharges">-</b></small><div class="kpi-sparkline" data-sparkline="ratio" aria-hidden="true"></div></div>
           </article>
         </section>
 
@@ -83,10 +79,7 @@
             <div id="perfVerdictCard" class="summary-metric summary-net"><span>미수 순증감</span><strong id="perfNetChange">-</strong><small id="perfNetPct">-</small></div>
             <div class="summary-metric"><span>미수 감소액</span><strong id="perfDecrease" class="good">-</strong><small><span id="perfDecreaseMembers">-</span> · 회수율 <b id="perfRecoveryRate">-</b></small></div>
             <div class="summary-metric"><span>미수 증가액</span><strong id="perfIncrease" class="bad">-</strong><small id="perfIncreaseMembers">-</small></div>
-            <div class="summary-metric summary-combo">
-              <div class="combo-item"><span>완납 전환</span><strong id="perfSettled" class="good">-</strong><small id="perfSettledRate">-</small></div>
-              <div class="combo-item"><span>신규 미수</span><strong id="perfNewArrears" class="bad">-</strong><small>신규 발생 인원</small></div>
-            </div>
+            <div class="summary-metric summary-transition"><span>완납 / 신규미수</span><div class="summary-transition-pair"><div><b id="perfSettled" class="good">-</b><em id="perfSettledRate">완납 전환</em></div><div><b id="perfNewArrears" class="bad">-</b><em>신규 미수</em></div></div></div>
           </div>
         </section>
 
@@ -337,6 +330,6 @@
       <button class="primary-btn" type="submit">로그인</button><div id="loginError" class="login-error"></div>
     </form>
   </div>
-  <script src="/static/receivables.js?v=20260901-v21-saas-kpi-spark" defer></script>
+  <script src="/static/receivables.js?v=20260901-v23-consolidated-saas" defer></script>
 </body>
 </html>

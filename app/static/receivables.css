@@ -843,2810 +843,638 @@ body.arrears-scroll-dashboard .workspace.arrears-mode .member-table-wrap {
 }
 
 /* =========================================================
-   V10 DESIGN-ONLY — 미수금 대시보드만 레퍼런스형으로 정돈
-   범위: body.arrears-scroll-dashboard 내부 #arrearsDashboard
-   기능/데이터/JS/API/다른 탭 레이아웃은 변경하지 않음
-   ========================================================= */
-body.arrears-scroll-dashboard #arrearsDashboard{
-  --dash-purple:#7b68d9;
-  --dash-purple-soft:#f2efff;
-  --dash-mint:#eaf8f3;
-  --dash-yellow:#fff7df;
-  --dash-coral:#fff0ed;
-  --dash-blue:#eef5ff;
-  --dash-border:#e7e9f0;
-  --dash-text:#232834;
-  --dash-sub:#858c99;
-  background:transparent!important;
-  margin:0!important;
-  padding:0 0 22px!important;
-}
-
-/* 상단: 제목 + 비교월 필터만 깔끔하게 */
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-head{
-  display:flex!important;
-  align-items:center!important;
-  justify-content:space-between!important;
-  gap:18px!important;
-  margin:0 0 14px!important;
-  padding:0!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-head h2{
-  margin:0!important;
-  font-size:23px!important;
-  line-height:1.2!important;
-  letter-spacing:-.55px!important;
-  color:var(--dash-text)!important;
-  font-weight:900!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls{
-  display:flex!important;
-  align-items:end!important;
-  gap:8px!important;
-  padding:10px 12px!important;
-  background:#fff!important;
-  border:1px solid var(--dash-border)!important;
-  border-radius:14px!important;
-  box-shadow:0 5px 18px rgba(33,40,55,.045)!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls label{
-  display:grid!important;
-  gap:5px!important;
-  font-size:10.5px!important;
-  font-weight:900!important;
-  color:#6e7480!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls select{
-  height:36px!important;
-  min-width:128px!important;
-  border-radius:9px!important;
-  background:#fff!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls>span{
-  padding-bottom:10px!important;
-  color:#979daa!important;
-  font-size:11px!important;
-  font-weight:800!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard #applyMonthCompare{
-  height:36px!important;
-  min-width:54px!important;
-  border:0!important;
-  border-radius:9px!important;
-  background:linear-gradient(135deg,#8d79e8,#735ed5)!important;
-  color:#fff!important;
-  font-weight:900!important;
-  box-shadow:0 5px 12px rgba(115,94,213,.18)!important;
-}
-
-/* 섹션 제목은 실제 업무 제목만 간결하게 */
-body.arrears-scroll-dashboard #arrearsDashboard .performance-section-title,
-body.arrears-scroll-dashboard #arrearsDashboard .performance-subsection-title{
-  margin:0 0 10px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-section-title h3,
-body.arrears-scroll-dashboard #arrearsDashboard .performance-subsection-title h3{
-  font-size:17px!important;
-  font-weight:900!important;
-  color:#303541!important;
-  letter-spacing:-.35px!important;
-}
-
-/* 각 대시보드 덩어리 간격 */
-body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel{
-  margin:0 0 24px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel > * + *{
-  margin-top:12px!important;
-}
-
-/* 첫 비교 결과는 큰 문장 대신 컴팩트한 요약 배너 */
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict{
-  min-height:96px!important;
-  display:grid!important;
-  grid-template-columns:minmax(0,1fr) 265px!important;
-  align-items:center!important;
-  gap:18px!important;
-  padding:18px 20px!important;
-  border:1px solid #eee3e3!important;
-  border-radius:16px!important;
-  background:linear-gradient(135deg,#fff,#fff8f7)!important;
-  box-shadow:0 6px 20px rgba(32,40,55,.035)!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict>div:first-child>span,
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number>span{
-  font-size:10.5px!important;
-  font-weight:900!important;
-  color:#858b96!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict>div:first-child>strong{
-  display:block!important;
-  margin-top:7px!important;
-  font-size:21px!important;
-  line-height:1.3!important;
-  color:#292f3a!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict>div:first-child>p{
-  margin:6px 0 0!important;
-  font-size:11px!important;
-  color:#7d8490!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number{
-  min-width:0!important;
-  padding:2px 0 2px 22px!important;
-  border-left:1px solid #e7e8ed!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number b{
-  display:block!important;
-  margin:6px 0 2px!important;
-  font-size:29px!important;
-  line-height:1.05!important;
-  white-space:nowrap!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number small{
-  font-size:10.5px!important;
-}
-
-/* KPI: 레퍼런스처럼 한 줄 카드 */
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid{
-  display:grid!important;
-  grid-template-columns:repeat(4,minmax(0,1fr))!important;
-  gap:12px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article{
-  min-height:112px!important;
-  padding:16px 17px!important;
-  border-radius:15px!important;
-  border:1px solid var(--dash-border)!important;
-  background:#fff!important;
-  box-shadow:0 5px 16px rgba(36,43,57,.035)!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article:nth-child(1){background:#fff!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article:nth-child(2){background:#fff!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid .performance-paid{background:var(--dash-mint)!important;border-color:#d9eee6!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid .performance-ratio{background:var(--dash-yellow)!important;border-color:#f1e5c4!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid span{
-  font-size:10.5px!important;
-  font-weight:900!important;
-  color:#777e8a!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid strong{
-  margin:8px 0 4px!important;
-  font-size:24px!important;
-  line-height:1.05!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid small{
-  font-size:10px!important;
-}
-
-/* 보조 성과 카드: 너무 크게 벌어지지 않게 */
-body.arrears-scroll-dashboard #arrearsDashboard .performance-detail-grid{
-  display:grid!important;
-  grid-template-columns:1fr 1fr!important;
-  gap:12px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-detail-card{
-  min-height:154px!important;
-  padding:16px!important;
-  border:1px solid var(--dash-border)!important;
-  border-radius:15px!important;
-  box-shadow:0 5px 16px rgba(36,43,57,.03)!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-detail-card .dash-card-head{
-  margin:0 0 10px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-detail-card .dash-card-head b{
-  font-size:14px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list{
-  gap:8px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list>div{
-  min-height:72px!important;
-  padding:11px 12px!important;
-  background:#fafbfc!important;
-  border:1px solid #eff1f5!important;
-  border-radius:10px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list strong{
-  font-size:18px!important;
-}
-
-/* 월별 추이: 레퍼런스처럼 큰 차트 2개를 좌우 배치 */
-body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="trend"]{
-  display:grid!important;
-  grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;
-  gap:12px!important;
-  align-items:start!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="trend"]>.performance-section-title{
-  grid-column:1/-1!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="trend"]>.performance-subsection-title{
-  display:none!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-chart-grid.vertical-charts{
-  display:contents!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-trend-card{
-  grid-column:1!important;
-  grid-row:2!important;
-  min-height:330px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-flow-card{
-  grid-column:2!important;
-  grid-row:2!important;
-  min-height:330px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .ratio-card{
-  grid-column:1!important;
-  grid-row:3!important;
-  min-height:250px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-insight-card{
-  grid-column:2!important;
-  grid-row:3!important;
-  min-height:250px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-chart-card,
-body.arrears-scroll-dashboard #arrearsDashboard .readable-insight-card{
-  padding:16px 17px!important;
-  border:1px solid var(--dash-border)!important;
-  border-radius:15px!important;
-  box-shadow:0 5px 16px rgba(36,43,57,.035)!important;
-  background:#fff!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dash-card-head{
-  margin-bottom:10px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dash-card-head b{
-  font-size:14px!important;
-  color:#313742!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-trend{
-  height:255px!important;
-  grid-auto-columns:minmax(82px,1fr)!important;
-  gap:9px!important;
-  padding:3px 4px 6px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .perf-trend-item{
-  height:245px!important;
-  grid-template-rows:25px 155px 24px 34px!important;
-  min-width:82px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .perf-trend-bar{
-  height:155px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .monthly-flow-chart{
-  gap:9px!important;
-  padding:2px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .flow-row{
-  grid-template-columns:56px 1fr!important;
-  gap:8px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .flow-bars span{
-  height:21px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .flow-bars em{
-  line-height:21px!important;
-  font-size:9.5px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .monthly-ratio-chart{
-  gap:10px!important;
-  padding:4px 2px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .ratio-row{
-  grid-template-columns:55px 1fr 60px!important;
-  gap:8px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .ratio-row>div{
-  height:12px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-insights{
-  display:grid!important;
-  grid-template-columns:repeat(3,minmax(0,1fr))!important;
-  gap:8px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row{
-  min-height:86px!important;
-  padding:11px 12px!important;
-  border-radius:10px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row b{
-  font-size:13px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row em{
-  font-size:12px!important;
-}
-
-/* 성과표: 레퍼런스의 연보라 헤더 + 가운데 정렬 */
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table-card{
-  padding:16px 17px!important;
-  background:#fff!important;
-  border:1px solid var(--dash-border)!important;
-  border-radius:15px!important;
-  box-shadow:0 5px 16px rgba(36,43,57,.035)!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table-wrap{
-  border:1px solid #e8e5f2!important;
-  border-radius:11px!important;
-  overflow-x:auto!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table{
-  min-width:1120px!important;
-  border-collapse:separate!important;
-  border-spacing:0!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table th{
-  position:static!important;
-  height:42px!important;
-  padding:0 9px!important;
-  background:#f4f1ff!important;
-  color:#5f5792!important;
-  border-bottom:1px solid #e5e0f3!important;
-  font-size:10.5px!important;
-  font-weight:900!important;
-  text-align:center!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table td{
-  height:43px!important;
-  padding:0 9px!important;
-  background:#fff!important;
-  border-bottom:1px solid #eff0f3!important;
-  font-size:11.5px!important;
-  text-align:center!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table th.num,
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table td.num{
-  text-align:center!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table tbody tr:hover td{
-  background:#fbfaff!important;
-}
-
-/* 대시보드 뒤의 회원조회는 기존 기능/레이아웃 그대로 — 시각적 연결만 최소화 */
-body.arrears-scroll-dashboard .arrears-member-section-title{
-  margin:8px 0 10px!important;
-  padding-top:16px!important;
-  border-top:1px solid #e7e9ee!important;
-}
-
-/* 이 스타일은 미수금 대시보드가 활성일 때만 적용 */
-@media(max-width:1350px){
-  body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="trend"]{
-    grid-template-columns:1fr!important;
-  }
-  body.arrears-scroll-dashboard #arrearsDashboard .performance-trend-card,
-  body.arrears-scroll-dashboard #arrearsDashboard .performance-flow-card,
-  body.arrears-scroll-dashboard #arrearsDashboard .ratio-card,
-  body.arrears-scroll-dashboard #arrearsDashboard .readable-insight-card{
-    grid-column:1!important;
-    grid-row:auto!important;
-  }
-}
-@media(max-width:1000px){
-  body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid,
-  body.arrears-scroll-dashboard #arrearsDashboard .performance-detail-grid{
-    grid-template-columns:1fr 1fr!important;
-  }
-}
-@media(max-width:700px){
-  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-head,
-  body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls{
-    align-items:stretch!important;
-  }
-  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-head{
-    flex-direction:column!important;
-  }
-  body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls{
-    flex-wrap:wrap!important;
-  }
-  body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict,
-  body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid,
-  body.arrears-scroll-dashboard #arrearsDashboard .performance-detail-grid{
-    grid-template-columns:1fr!important;
-  }
-  body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number{
-    border-left:0!important;
-    border-top:1px solid #e7e8ed!important;
-    padding:12px 0 0!important;
-  }
-}
-
-/* =========================================================
-   V11 PREMIUM DASHBOARD RESTYLE — 미수금 대시보드 시각 디자인만
-   기능/데이터/JS/API/다른 탭 구조 변경 없음
+   V23 — consolidated SaaS dashboard UI
+   Presentation only. API / DB / ledger / calculations unchanged.
+   Replaces accumulated V10–V22 dashboard overrides.
    ========================================================= */
 body.arrears-scroll-dashboard{
-  background:#f4f6f9!important;
+  background:#f4f7fb!important;
+  color:#172033!important;
+}
+body.arrears-scroll-dashboard .topbar,
+body.arrears-scroll-dashboard .tabs{
+  background:#fff!important;
+  border-color:#e8edf4!important;
+  box-shadow:none!important;
 }
 body.arrears-scroll-dashboard .page{
-  max-width:1480px!important;
-  width:calc(100vw - 64px)!important;
-  padding-top:22px!important;
+  width:min(1560px,calc(100vw - 36px))!important;
+  max-width:1560px!important;
+  margin:0 auto!important;
+  padding:24px 0 56px!important;
+  overflow:visible!important;
 }
 body.arrears-scroll-dashboard #arrearsDashboard{
-  --v11-accent:#5b55d6;
-  --v11-accent-soft:#f0efff;
-  --v11-text:#1f2937;
-  --v11-sub:#7a8493;
-  --v11-line:#e4e8ee;
-  --v11-card:#ffffff;
-  --v11-green:#15805f;
-  --v11-green-soft:#eff8f4;
-  --v11-red:#cf4b53;
-  --v11-red-soft:#fff5f5;
-  --v11-amber:#a96b16;
-  --v11-amber-soft:#fff8ec;
-  color:var(--v11-text)!important;
-}
-
-/* 제목/월 비교 — 상단 바처럼 작고 정돈되게 */
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-head{
-  margin:0 0 16px!important;
-  padding:0 2px!important;
-  min-height:54px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-head h2{
-  font-size:24px!important;
-  font-weight:900!important;
-  color:#202737!important;
-  letter-spacing:-.65px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls{
-  padding:7px 8px!important;
-  border-radius:11px!important;
-  border:1px solid #dde2e9!important;
-  box-shadow:0 1px 2px rgba(25,34,51,.04)!important;
-  background:#fff!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls label{
-  gap:3px!important;
-  font-size:9.5px!important;
-  color:#788190!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls select{
-  height:34px!important;
-  min-width:132px!important;
-  border-radius:8px!important;
-  border-color:#dce1e8!important;
-  font-size:11px!important;
-  font-weight:800!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls>span{
-  padding-bottom:9px!important;
-  font-size:10px!important;
-  color:#9098a4!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard #applyMonthCompare{
-  height:34px!important;
-  min-width:50px!important;
-  border-radius:8px!important;
-  background:var(--v11-accent)!important;
-  box-shadow:none!important;
-  font-size:11px!important;
-}
-
-/* 첫 화면: 불필요한 중간 제목 없이 KPI -> 결과 -> 세부성과 */
-body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="summary"]{
-  display:grid!important;
-  grid-template-columns:1fr!important;
-  gap:12px!important;
-  margin-bottom:28px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="summary"]>.performance-section-title{
-  display:none!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid{
-  order:1!important;
-  gap:10px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict{
-  order:2!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-detail-grid{
-  order:3!important;
-}
-
-/* KPI — 흰 카드 + 얇은 포인트선, 파스텔 박스 남발 제거 */
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article{
-  position:relative!important;
-  min-height:104px!important;
-  padding:17px 18px 15px!important;
-  background:#fff!important;
-  border:1px solid var(--v11-line)!important;
-  border-radius:12px!important;
-  box-shadow:0 1px 3px rgba(23,32,48,.045)!important;
-  overflow:hidden!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article:before{
-  content:""!important;
-  position:absolute!important;
-  left:0!important;top:0!important;bottom:0!important;
-  width:4px!important;
-  background:#c8c7ed!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article.performance-paid:before{background:#75bca6!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article.performance-ratio:before{background:#d7ae6d!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article.performance-paid,
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article.performance-ratio{
-  background:#fff!important;
-  border-color:var(--v11-line)!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid span{
-  font-size:10.5px!important;
-  color:#737d8b!important;
-  letter-spacing:-.1px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid strong{
-  margin:9px 0 5px!important;
-  font-size:25px!important;
-  font-weight:900!important;
-  color:#202737!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid .performance-paid strong{color:var(--v11-green)!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid .performance-ratio strong{color:#9b6519!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid small{
-  font-size:10px!important;
-  color:#98a0ac!important;
-}
-
-/* 순증감 결과 — 큰 분홍 박스 대신 얇은 업무 요약바 */
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict{
-  min-height:82px!important;
-  grid-template-columns:minmax(0,1fr) 230px!important;
-  padding:15px 18px!important;
-  background:#fff!important;
-  border:1px solid var(--v11-line)!important;
-  border-radius:12px!important;
-  box-shadow:0 1px 3px rgba(23,32,48,.04)!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict>div:first-child>span,
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number>span{
-  color:#818a97!important;
-  font-size:9.5px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict>div:first-child>strong{
-  margin-top:5px!important;
-  font-size:18px!important;
-  font-weight:900!important;
-  color:#252c38!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict>div:first-child>p{
-  margin-top:5px!important;
-  color:#929aa6!important;
-  font-size:10px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number{
-  padding-left:20px!important;
-  border-left:1px solid #edf0f3!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number b{
-  font-size:24px!important;
-  margin-top:5px!important;
-}
-
-/* 세부 성과 — 카드 안 작은 카드 제거, 숫자 중심 */
-body.arrears-scroll-dashboard #arrearsDashboard .performance-detail-grid{
-  gap:10px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-detail-card{
-  min-height:134px!important;
-  padding:15px 16px!important;
-  border:1px solid var(--v11-line)!important;
-  border-radius:12px!important;
-  box-shadow:0 1px 3px rgba(23,32,48,.035)!important;
-  background:#fff!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-detail-card .dash-card-head{
-  margin-bottom:9px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-detail-card .dash-card-head b{
-  font-size:13px!important;
-  color:#303746!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list{
-  display:grid!important;
-  grid-template-columns:repeat(3,minmax(0,1fr))!important;
-  gap:0!important;
-  border:1px solid #edf0f3!important;
-  border-radius:9px!important;
-  overflow:hidden!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list.four{
-  grid-template-columns:repeat(2,minmax(0,1fr))!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list>div{
-  min-height:62px!important;
-  padding:10px 12px!important;
-  background:#fff!important;
-  border:0!important;
-  border-right:1px solid #edf0f3!important;
-  border-bottom:1px solid #edf0f3!important;
-  border-radius:0!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list>div:last-child{border-right:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list span{
-  font-size:9.5px!important;
-  color:#8a929e!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list strong{
-  margin-top:4px!important;
-  font-size:18px!important;
-  color:#27303e!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list strong.good{color:#1d78b5!important}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list strong.bad{color:var(--v11-red)!important}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list small{
-  margin-top:2px!important;
-  font-size:9px!important;
-  color:#9ba3ae!important;
-}
-
-/* 월별 추이 — 섹션 제목과 차트 카드의 시각 계층 명확화 */
-body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="trend"]{
-  gap:12px!important;
-  margin-bottom:28px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="trend"]>.performance-section-title{
-  margin:0 0 2px!important;
-  padding:0 2px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="trend"]>.performance-section-title h3{
-  font-size:18px!important;
-  color:#252d39!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-chart-card,
-body.arrears-scroll-dashboard #arrearsDashboard .readable-insight-card{
-  border:1px solid var(--v11-line)!important;
-  border-radius:12px!important;
-  box-shadow:0 1px 3px rgba(23,32,48,.04)!important;
-  background:#fff!important;
-  padding:15px 16px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dash-card-head b{
-  font-size:12.5px!important;
-  color:#303746!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-trend-card,
-body.arrears-scroll-dashboard #arrearsDashboard .performance-flow-card{
-  min-height:305px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .ratio-card,
-body.arrears-scroll-dashboard #arrearsDashboard .readable-insight-card{
-  min-height:220px!important;
-}
-
-/* 차트 자체: 막대가 두껍고 촌스럽지 않게 */
-body.arrears-scroll-dashboard #arrearsDashboard .performance-trend{
-  height:236px!important;
-  gap:12px!important;
-  padding:7px 8px 2px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .perf-trend-item{
-  height:222px!important;
-  grid-template-rows:24px 140px 24px 30px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .perf-trend-bar{
-  height:140px!important;
-  max-width:48px!important;
-  margin:0 auto!important;
-  border-radius:6px 6px 2px 2px!important;
-  background:linear-gradient(180deg,#8e86df,#b7b2ec)!important;
-  box-shadow:none!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .flow-bars span{
-  height:18px!important;
-  border-radius:4px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .flow-bars span:first-child{background:#d8c39c!important}
-body.arrears-scroll-dashboard #arrearsDashboard .flow-bars span:last-child{background:#8fc8b6!important}
-body.arrears-scroll-dashboard #arrearsDashboard .flow-bars em{
-  line-height:18px!important;
-  font-size:9px!important;
-  color:#4b5563!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .ratio-row>div{
-  height:10px!important;
-  background:#eef1f4!important;
-  border-radius:999px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .ratio-row>div>i{
-  border-radius:999px!important;
-  background:linear-gradient(90deg,#8177da,#5b55d6)!important;
-}
-
-/* 월별 인사이트: 세 칸 짧은 요약 */
-body.arrears-scroll-dashboard #arrearsDashboard .performance-insights{
-  gap:0!important;
-  border:1px solid #edf0f3!important;
-  border-radius:9px!important;
-  overflow:hidden!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row{
-  min-height:72px!important;
-  border:0!important;
-  border-right:1px solid #edf0f3!important;
-  border-radius:0!important;
-  background:#fff!important;
-  padding:11px 12px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row:last-child{border-right:0!important}
-
-/* 성과표 — 보라색 헤더 제거, 엑셀/관리 화면 같은 깨끗한 표 */
-body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="table"]{
-  margin-bottom:28px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="table"]>.performance-section-title{
-  display:none!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table-card{
-  padding:0!important;
-  border:1px solid var(--v11-line)!important;
-  border-radius:12px!important;
-  box-shadow:0 1px 3px rgba(23,32,48,.04)!important;
-  overflow:hidden!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table-card>.dash-card-head{
-  min-height:48px!important;
-  margin:0!important;
-  padding:0 15px!important;
-  border-bottom:1px solid #e9edf1!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table-card>.dash-card-head b{
-  font-size:14px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table-card>.dash-card-head small{
-  display:block!important;
-  color:#9aa2ad!important;
-  font-size:9.5px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table-wrap{
-  border:0!important;
-  border-radius:0!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table th{
-  height:38px!important;
-  padding:0 8px!important;
-  background:#f7f8fa!important;
-  color:#697382!important;
-  border-bottom:1px solid #e4e8ed!important;
-  font-size:9.5px!important;
-  font-weight:900!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table td{
-  height:42px!important;
-  padding:0 8px!important;
-  font-size:10.5px!important;
-  color:#333b48!important;
-  border-bottom:1px solid #eef1f4!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table tbody tr:nth-child(even) td{background:#fbfcfd!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table tbody tr:hover td{background:#f4f6fb!important}
-
-/* 회원조회 — 대시보드 아래 하나의 큰 업무표처럼 */
-body.arrears-scroll-dashboard .arrears-member-section-title{
-  margin:0 0 9px!important;
-  padding:0 2px!important;
-  border:0!important;
-}
-body.arrears-scroll-dashboard .arrears-member-section-title h3{
-  font-size:18px!important;
-  color:#252d39!important;
-}
-body.arrears-scroll-dashboard .workspace.arrears-mode{
-  display:grid!important;
-  grid-template-columns:1fr!important;
-  gap:12px!important;
-  max-width:none!important;
-}
-body.arrears-scroll-dashboard .workspace.arrears-mode .member-panel{
-  border:1px solid #e2e6ec!important;
-  border-radius:12px!important;
-  box-shadow:0 1px 3px rgba(23,32,48,.04)!important;
-  background:#fff!important;
-  overflow:hidden!important;
-}
-body.arrears-scroll-dashboard .workspace.arrears-mode .panel-head{
-  min-height:58px!important;
-  padding:13px 16px 9px!important;
-  border-bottom:0!important;
-}
-body.arrears-scroll-dashboard .workspace.arrears-mode .panel-head h2{
-  font-size:14px!important;
-  color:#303746!important;
-}
-body.arrears-scroll-dashboard .workspace.arrears-mode .panel-head p{
-  font-size:9.5px!important;
-  color:#98a0ab!important;
-}
-body.arrears-scroll-dashboard .workspace.arrears-mode .filters{
-  padding:0 16px 12px!important;
-  grid-template-columns:minmax(260px,1.5fr) repeat(4,minmax(120px,.7fr))!important;
-  gap:7px!important;
-}
-body.arrears-scroll-dashboard .workspace.arrears-mode .filters input,
-body.arrears-scroll-dashboard .workspace.arrears-mode .filters select{
-  height:36px!important;
-  border-radius:8px!important;
-  font-size:10.5px!important;
-  border-color:#dfe4ea!important;
-}
-body.arrears-scroll-dashboard .workspace.arrears-mode .excel-export-btn{
-  background:#fff2c8!important;
-  border-color:#efd987!important;
-  color:#72591d!important;
-  box-shadow:none!important;
-}
-body.arrears-scroll-dashboard .workspace.arrears-mode .member-table-wrap{
-  border-top:1px solid #e8ecf1!important;
-}
-body.arrears-scroll-dashboard .workspace.arrears-mode .member-table th{
-  height:38px!important;
-  background:#f7f8fa!important;
-  color:#717b89!important;
-  font-size:9.5px!important;
-  font-weight:900!important;
-}
-body.arrears-scroll-dashboard .workspace.arrears-mode .member-table td{
-  height:43px!important;
-  font-size:10.5px!important;
-  border-bottom:1px solid #eef1f4!important;
-}
-body.arrears-scroll-dashboard .workspace.arrears-mode .member-table tbody tr:nth-child(even){background:#fbfcfd!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .member-table tbody tr:hover{background:#f3f6fb!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .detail-panel{
-  border-radius:12px!important;
-  box-shadow:0 1px 3px rgba(23,32,48,.04)!important;
-}
-
-@media(max-width:1100px){
-  body.arrears-scroll-dashboard .page{width:calc(100vw - 28px)!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .performance-detail-grid{grid-template-columns:1fr!important}
-  body.arrears-scroll-dashboard .workspace.arrears-mode .filters{grid-template-columns:1fr 1fr!important}
-}
-
-/* =========================================================
-   V12 EXECUTIVE DASHBOARD — layout/visual only
-   ========================================================= */
-body.arrears-scroll-dashboard{
-  background:#f5f7fa!important;
-  color:#1f2937!important;
-}
-body.arrears-scroll-dashboard .page{
-  width:min(1540px,calc(100vw - 56px))!important;
-  max-width:1540px!important;
-  margin:0 auto!important;
-  padding:26px 0 48px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard{
-  --v12-border:#e4e8ef;
-  --v12-text:#202838;
-  --v12-muted:#7d8797;
-  --v12-purple:#6658d3;
-  --v12-blue:#3467d6;
-  --v12-green:#16865d;
-  --v12-red:#d64848;
-  --v12-amber:#a96c15;
   display:block!important;
   width:100%!important;
   margin:0!important;
   padding:0!important;
+  overflow:visible!important;
   background:transparent!important;
 }
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-head{
-  min-height:56px!important;
-  margin:0 0 18px!important;
-  padding:0!important;
+body.arrears-scroll-dashboard #arrearsDashboard.hidden{display:none!important}
+
+/* title + compare toolbar */
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-title-row{
   display:flex!important;
   align-items:center!important;
   justify-content:space-between!important;
   gap:20px!important;
-  border:0!important;
-  background:transparent!important;
+  min-height:52px!important;
+  margin:0 0 18px!important;
 }
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-head h2{
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-title-row h2{
   margin:0!important;
-  font-size:24px!important;
+  font-size:27px!important;
   line-height:1.15!important;
+  letter-spacing:-.9px!important;
   font-weight:900!important;
-  letter-spacing:-.7px!important;
-  color:var(--v12-text)!important;
+  color:#172033!important;
 }
 body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls{
   display:flex!important;
   align-items:flex-end!important;
   gap:8px!important;
-  padding:8px!important;
-  border:1px solid var(--v12-border)!important;
-  border-radius:12px!important;
+  margin:0!important;
+  padding:8px 9px!important;
+  border:1px solid #e4e9f1!important;
+  border-radius:13px!important;
   background:#fff!important;
-  box-shadow:0 2px 8px rgba(22,34,58,.04)!important;
+  box-shadow:0 4px 16px rgba(31,48,76,.045)!important;
 }
 body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls label{
+  display:grid!important;
   gap:4px!important;
   font-size:10px!important;
   font-weight:800!important;
-  color:#7a8494!important;
+  color:#8a95a6!important;
 }
 body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls select{
-  min-width:132px!important;
   height:36px!important;
-  padding:0 32px 0 11px!important;
-  border:1px solid #dfe4eb!important;
-  border-radius:8px!important;
-  background:#fff!important;
-  font-size:11px!important;
+  min-width:132px!important;
+  padding:0 30px 0 10px!important;
+  border:1px solid #e2e7ef!important;
+  border-radius:9px!important;
+  background:#fbfcfe!important;
+  color:#344158!important;
+  font-size:12px!important;
   font-weight:800!important;
-  color:#30394a!important;
 }
 body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls>span{
   align-self:center!important;
-  margin-top:13px!important;
-  color:#9aa2af!important;
+  padding-top:14px!important;
   font-size:10px!important;
   font-weight:800!important;
+  color:#9aa4b4!important;
 }
-body.arrears-scroll-dashboard #arrearsDashboard #applyMonthCompare{
+body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls button{
   height:36px!important;
-  min-width:58px!important;
+  min-width:52px!important;
+  margin:0!important;
+  padding:0 14px!important;
   border:0!important;
-  border-radius:8px!important;
-  background:var(--v12-purple)!important;
+  border-radius:9px!important;
+  background:#5b62d9!important;
   color:#fff!important;
+  font-size:12px!important;
   font-weight:900!important;
+  box-shadow:0 5px 14px rgba(91,98,217,.18)!important;
+}
+
+/* KPI row */
+body.arrears-scroll-dashboard #arrearsDashboard .executive-kpi-grid{
+  display:grid!important;
+  grid-template-columns:repeat(4,minmax(0,1fr))!important;
+  gap:16px!important;
+  margin:0 0 16px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .executive-kpi-grid .dashboard-kpi{
+  position:relative!important;
+  min-width:0!important;
+  min-height:142px!important;
+  padding:18px 18px 14px!important;
+  border:1px solid #e3e8f0!important;
+  border-radius:16px!important;
+  background:#fff!important;
+  box-shadow:0 7px 22px rgba(37,52,82,.045)!important;
+  display:grid!important;
+  grid-template-columns:38px minmax(0,1fr)!important;
+  gap:12px!important;
+  align-items:start!important;
+  overflow:hidden!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .executive-kpi-grid .dashboard-kpi::before,
+body.arrears-scroll-dashboard #arrearsDashboard .executive-kpi-grid .dashboard-kpi::after{display:none!important;content:none!important}
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-icon{
+  width:36px!important;
+  height:36px!important;
+  border-radius:50%!important;
+  display:grid!important;
+  place-items:center!important;
+  font-size:11px!important;
+  font-weight:950!important;
   box-shadow:none!important;
 }
-body.arrears-scroll-dashboard #arrearsDashboard .performance-view-shell{
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-icon.purple{background:#e8efff!important;color:#5c73d9!important}
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-icon.blue{background:#edf2ff!important;color:#6671d9!important}
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-icon.green{background:#e2f7f0!important;color:#2d9e7a!important}
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-icon.amber{background:#fff1cf!important;color:#c99223!important}
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-copy{min-width:0!important}
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-copy>span{
   display:block!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-section-title,
-body.arrears-scroll-dashboard #arrearsDashboard .performance-subsection-title{
-  display:none!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel{
-  margin:0 0 22px!important;
-}
-
-/* summary: KPI first, then one comparison strip, then compact details */
-body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="summary"]{
-  display:grid!important;
-  grid-template-columns:1fr!important;
-  gap:14px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid{
-  order:1!important;
-  display:grid!important;
-  grid-template-columns:repeat(4,minmax(0,1fr))!important;
-  gap:14px!important;
-  margin:0!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article{
-  position:relative!important;
-  min-height:112px!important;
-  padding:18px 18px 16px!important;
-  border:1px solid var(--v12-border)!important;
-  border-radius:14px!important;
-  background:#fff!important;
-  box-shadow:0 4px 14px rgba(25,35,55,.035)!important;
-  overflow:hidden!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article:before{
-  content:""!important;
-  position:absolute!important;
-  left:0!important;
-  top:18px!important;
-  width:3px!important;
-  height:44px!important;
-  border-radius:0 3px 3px 0!important;
-  background:#c7cbd5!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article:nth-child(1):before{background:#7569da!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article:nth-child(2):before{background:#5b7fe0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article.performance-paid:before{background:#44a982!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article.performance-ratio:before{background:#d2a24f!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article.performance-paid,
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article.performance-ratio{
-  background:#fff!important;
-  border-color:var(--v12-border)!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid span{
-  display:block!important;
+  margin:0 0 7px!important;
+  color:#8792a4!important;
   font-size:11px!important;
-  line-height:1.3!important;
-  font-weight:800!important;
-  color:#7f8897!important;
+  font-weight:850!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+  white-space:nowrap!important;
 }
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid strong{
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-copy>strong{
   display:block!important;
-  margin:9px 0 6px!important;
-  font-size:27px!important;
-  line-height:1!important;
-  letter-spacing:-.8px!important;
-  color:#273143!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid .performance-paid strong{color:var(--v12-green)!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid .performance-ratio strong{color:var(--v12-amber)!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid small{
-  display:block!important;
-  font-size:10px!important;
-  line-height:1.4!important;
-  color:#9aa2ad!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict{
-  order:2!important;
-  min-height:84px!important;
-  padding:17px 20px!important;
-  display:grid!important;
-  grid-template-columns:minmax(0,1fr) 240px!important;
-  align-items:center!important;
-  gap:22px!important;
-  border:1px solid var(--v12-border)!important;
-  border-left:4px solid var(--v12-purple)!important;
-  border-radius:14px!important;
-  background:#fff!important;
-  box-shadow:0 4px 14px rgba(25,35,55,.03)!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict>div:first-child>span,
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number>span{
-  display:block!important;
-  margin:0 0 4px!important;
-  font-size:10px!important;
-  font-weight:900!important;
-  color:#8a93a1!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict>div:first-child>strong{
-  display:block!important;
-  font-size:18px!important;
-  line-height:1.25!important;
-  font-weight:900!important;
-  color:#263043!important;
-  letter-spacing:-.35px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict>div:first-child>p{
-  margin:5px 0 0!important;
-  font-size:10px!important;
-  color:#949cab!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number{
-  padding-left:20px!important;
-  border-left:1px solid #e7eaf0!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number b{
-  display:block!important;
-  margin:2px 0 3px!important;
-  font-size:26px!important;
-  line-height:1!important;
+  margin:0!important;
+  color:#26344d!important;
+  font-size:25px!important;
+  line-height:1.08!important;
   letter-spacing:-.7px!important;
+  font-weight:950!important;
+  white-space:nowrap!important;
 }
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number small{
-  font-size:10px!important;
-  color:#8f98a6!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-detail-grid{
-  order:3!important;
-  display:grid!important;
-  grid-template-columns:1fr 1fr!important;
-  gap:14px!important;
-  margin:0!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-detail-card{
-  min-height:122px!important;
-  padding:14px 16px!important;
-  border:1px solid var(--v12-border)!important;
-  border-radius:14px!important;
-  background:#fff!important;
-  box-shadow:0 4px 14px rgba(25,35,55,.025)!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-detail-card .dash-card-head{
-  margin:0 0 10px!important;
-  padding:0!important;
-  border:0!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-detail-card .dash-card-head b{
-  font-size:13px!important;
-  font-weight:900!important;
-  color:#30394a!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list,
-body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list.four{
-  display:grid!important;
-  grid-template-columns:repeat(3,minmax(0,1fr))!important;
-  gap:0!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list.four{
-  grid-template-columns:repeat(4,minmax(0,1fr))!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list>div{
-  min-height:68px!important;
-  padding:8px 13px!important;
-  border:0!important;
-  border-right:1px solid #edf0f4!important;
-  border-radius:0!important;
-  background:transparent!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list>div:last-child{border-right:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list span{
-  font-size:9.5px!important;
-  color:#8b94a2!important;
-  font-weight:800!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list strong{
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-paid .dashboard-kpi-copy>strong{color:#16896a!important}
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-rate .dashboard-kpi-copy>strong{color:#b67a16!important}
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-copy>small{
   display:block!important;
-  margin:6px 0 2px!important;
-  font-size:19px!important;
-  line-height:1!important;
-  color:#30394a!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list strong.good{color:var(--v12-blue)!important}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list strong.bad{color:var(--v12-red)!important}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list small{
-  font-size:9px!important;
-  color:#a0a7b2!important;
-}
-
-/* charts: one clear two-column dashboard block */
-body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="trend"]{
-  display:grid!important;
-  grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr)!important;
-  gap:14px!important;
-  align-items:stretch!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-chart-grid.vertical-charts{
-  display:grid!important;
-  grid-template-columns:1fr!important;
-  gap:14px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-trend-card{
-  grid-column:1!important;
-  grid-row:1 / span 2!important;
-  min-height:470px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-chart-grid.vertical-charts{
-  grid-column:2!important;
-  grid-row:1!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-insight-card{
-  grid-column:2!important;
-  grid-row:2!important;
-  min-height:150px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-flow-card,
-body.arrears-scroll-dashboard #arrearsDashboard .ratio-card{
-  min-height:221px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-chart-card,
-body.arrears-scroll-dashboard #arrearsDashboard .readable-insight-card{
-  padding:17px 18px!important;
-  border:1px solid var(--v12-border)!important;
-  border-radius:14px!important;
-  background:#fff!important;
-  box-shadow:0 4px 14px rgba(25,35,55,.03)!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dash-card-head{
-  min-height:28px!important;
-  margin:0 0 14px!important;
-  padding:0!important;
-  border:0!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dash-card-head b{
-  font-size:14px!important;
-  font-weight:900!important;
-  color:#30394a!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-trend{
-  height:390px!important;
-  grid-auto-columns:minmax(88px,1fr)!important;
-  gap:12px!important;
-  padding:8px 4px 0!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .perf-trend-item{
-  height:370px!important;
-  grid-template-rows:32px 245px 28px 40px!important;
-  min-width:88px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .perf-trend-bar{
-  height:245px!important;
-  width:62%!important;
-  max-width:54px!important;
-  margin:0 auto!important;
-  border-radius:7px 7px 2px 2px!important;
-  background:linear-gradient(180deg,#8074df 0%,#6658d3 100%)!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .monthly-flow-chart{
-  gap:8px!important;
-  padding:0!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .flow-row{
-  grid-template-columns:52px 1fr!important;
-  gap:9px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .flow-bars span{
-  height:17px!important;
-  border-radius:5px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .flow-bars span:first-child{background:#d6c49d!important}
-body.arrears-scroll-dashboard #arrearsDashboard .flow-bars span:last-child{background:#7fc3aa!important}
-body.arrears-scroll-dashboard #arrearsDashboard .flow-bars em{
-  line-height:17px!important;
-  font-size:9px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .monthly-ratio-chart{
-  gap:8px!important;
-  padding:1px 0!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .ratio-row{
-  grid-template-columns:52px 1fr 48px!important;
-  gap:8px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .ratio-row>div{
-  height:11px!important;
-  border-radius:20px!important;
-  background:#edf0f4!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .ratio-row>div>i{
-  border-radius:20px!important;
-  background:#6d61d5!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-insights{
-  display:grid!important;
-  grid-template-columns:repeat(3,minmax(0,1fr))!important;
-  gap:0!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row{
-  min-height:82px!important;
-  padding:8px 14px!important;
-  border:0!important;
-  border-right:1px solid #edf0f4!important;
-  border-radius:0!important;
-  background:transparent!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row:last-child{border-right:0!important}
-
-/* table: clean data-table, not a pastel card */
-body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="table"]{
-  margin-top:2px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table-card{
-  padding:0!important;
-  border:1px solid var(--v12-border)!important;
-  border-radius:14px!important;
-  background:#fff!important;
+  margin-top:6px!important;
+  color:#99a3b2!important;
+  font-size:10px!important;
+  line-height:1.35!important;
+  white-space:nowrap!important;
   overflow:hidden!important;
-  box-shadow:0 4px 14px rgba(25,35,55,.025)!important;
+  text-overflow:ellipsis!important;
 }
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table-card>.dash-card-head{
-  min-height:52px!important;
-  margin:0!important;
-  padding:0 17px!important;
-  display:flex!important;
-  align-items:center!important;
-  justify-content:space-between!important;
-  border-bottom:1px solid #e9edf2!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table-card>.dash-card-head b{
-  font-size:14px!important;
-  color:#30394a!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table-card>.dash-card-head small{
-  color:#9aa2ae!important;
-  font-size:9.5px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table-wrap{
-  border:0!important;
-  border-radius:0!important;
-  overflow-x:auto!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table th{
-  height:42px!important;
-  padding:0 10px!important;
-  background:#f6f7f9!important;
-  color:#687385!important;
-  border-bottom:1px solid #e4e8ee!important;
-  font-size:10px!important;
-  font-weight:900!important;
-  text-align:center!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table td{
-  height:46px!important;
-  padding:0 10px!important;
-  background:#fff!important;
-  border-bottom:1px solid #eef1f4!important;
-  font-size:11px!important;
-  text-align:center!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table tbody tr:nth-child(even) td{background:#fbfcfd!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table tbody tr:hover td{background:#f5f7fb!important}
-
-/* member lookup: visually separate from analytics */
-body.arrears-scroll-dashboard .arrears-member-section-title{
-  margin:32px 0 12px!important;
-  padding:0!important;
-  border:0!important;
-}
-body.arrears-scroll-dashboard .arrears-member-section-title h3{
-  font-size:20px!important;
-  font-weight:900!important;
-  color:#252e3f!important;
-  letter-spacing:-.45px!important;
-}
-body.arrears-scroll-dashboard .workspace.arrears-mode .member-panel{
-  border:1px solid #e2e7ed!important;
-  border-radius:14px!important;
-  box-shadow:0 4px 14px rgba(25,35,55,.025)!important;
-}
-body.arrears-scroll-dashboard .workspace.arrears-mode .panel-head{
-  min-height:64px!important;
-  padding:15px 17px 10px!important;
-}
-body.arrears-scroll-dashboard .workspace.arrears-mode .filters{
-  padding:0 17px 14px!important;
-  gap:9px!important;
-}
-body.arrears-scroll-dashboard .workspace.arrears-mode .member-table th{
-  height:40px!important;
-  background:#f6f7f9!important;
-  color:#6c7685!important;
-  font-size:10px!important;
-}
-body.arrears-scroll-dashboard .workspace.arrears-mode .member-table td{
-  height:46px!important;
-  font-size:11px!important;
-}
-body.arrears-scroll-dashboard .workspace.arrears-mode .excel-export-btn{
-  background:#fff0b8!important;
-  border-color:#ead170!important;
-  color:#6e5717!important;
-  font-weight:900!important;
-}
-
-@media(max-width:1250px){
-  body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="trend"]{grid-template-columns:1fr!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .performance-trend-card,
-  body.arrears-scroll-dashboard #arrearsDashboard .readable-chart-grid.vertical-charts,
-  body.arrears-scroll-dashboard #arrearsDashboard .readable-insight-card{grid-column:1!important;grid-row:auto!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .performance-trend-card{min-height:420px!important}
-}
-@media(max-width:820px){
-  body.arrears-scroll-dashboard .page{width:calc(100vw - 24px)!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-head{align-items:stretch!important;flex-direction:column!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls{flex-wrap:wrap!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid,
-  body.arrears-scroll-dashboard #arrearsDashboard .performance-detail-grid{grid-template-columns:1fr!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict{grid-template-columns:1fr!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number{padding:12px 0 0!important;border-left:0!important;border-top:1px solid #e7eaf0!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list,
-  body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list.four{grid-template-columns:1fr 1fr!important}
-}
-
-/* =========================================================
-   2026-08-31 V13 — approved dashboard mock visual treatment
-   STYLE ONLY. No JS/API/data/DB logic changes.
-   ========================================================= */
-body.arrears-scroll-dashboard{
-  --v13-ink:#162033;
-  --v13-muted:#6f7b8f;
-  --v13-line:#e3e8f0;
-  --v13-soft:#f6f8fc;
-  --v13-purple:#6657d9;
-  --v13-purple-2:#8174e6;
-  --v13-blue:#285ecb;
-  --v13-green:#168a66;
-  --v13-amber:#bd6a08;
-  --v13-red:#c83232;
-  --v13-yellow:#fff1b8;
-  background:#f7f8fb!important;
-}
-body.arrears-scroll-dashboard .page{
-  width:min(1500px,calc(100vw - 48px))!important;
-  max-width:1500px!important;
-  padding-top:26px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard{
+body.arrears-scroll-dashboard #arrearsDashboard .kpi-sparkline{
+  grid-column:1 / -1!important;
   width:100%!important;
-  max-width:none!important;
-  margin:0!important;
+  height:30px!important;
+  margin-top:4px!important;
+  overflow:hidden!important;
 }
+body.arrears-scroll-dashboard #arrearsDashboard .kpi-sparkline svg{
+  display:block!important;
+  width:100%!important;
+  height:30px!important;
+  overflow:visible!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .spark-line{fill:none;stroke:#7291e6;stroke-width:2;vector-effect:non-scaling-stroke}
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-paid .spark-line{stroke:#64bca1}
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-rate .spark-line{stroke:#dfbd67}
+body.arrears-scroll-dashboard #arrearsDashboard .spark-area{fill:#7291e6;opacity:.07}
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-paid .spark-area{fill:#64bca1}
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-rate .spark-area{fill:#dfbd67}
 
-/* header */
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-head{
-  min-height:64px!important;
+/* comparison strip */
+body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-band{
+  display:grid!important;
+  grid-template-columns:minmax(0,1.35fr) minmax(0,1fr)!important;
+  gap:0!important;
   margin:0 0 18px!important;
-  display:flex!important;
-  align-items:flex-start!important;
-  justify-content:space-between!important;
-  gap:24px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-head h2{
-  font-size:27px!important;
-  line-height:1.2!important;
-  font-weight:900!important;
-  letter-spacing:-.7px!important;
-  color:var(--v13-ink)!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls{
-  padding:10px 11px!important;
-  gap:8px!important;
-  border:1px solid var(--v13-line)!important;
-  border-radius:14px!important;
-  background:#fff!important;
-  box-shadow:0 4px 14px rgba(28,39,60,.045)!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls select{
-  min-width:144px!important;
-  height:39px!important;
-  border-radius:9px!important;
-  font-size:12px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard #applyMonthCompare{
-  height:39px!important;
-  min-width:58px!important;
-  border-radius:9px!important;
-  background:#edeaff!important;
-  color:#5644c7!important;
-  border:1px solid #d8d1ff!important;
-  font-weight:900!important;
-}
-
-/* remove design narration / duplicate headings */
-body.arrears-scroll-dashboard #arrearsDashboard .performance-section-title,
-body.arrears-scroll-dashboard #arrearsDashboard .performance-subsection-title{
-  display:none!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-view-shell{
-  display:block!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel{
-  margin:0 0 20px!important;
-  padding:0!important;
-  border:0!important;
-  background:transparent!important;
-}
-
-/* summary: KPI first, comparison banner second, compact details third */
-body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="summary"]{
-  display:grid!important;
-  grid-template-columns:1fr!important;
-  gap:14px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid{
-  order:1!important;
-  display:grid!important;
-  grid-template-columns:repeat(4,minmax(0,1fr))!important;
-  gap:14px!important;
-  margin:0!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article{
-  min-height:132px!important;
-  padding:20px 22px!important;
-  border:1px solid var(--v13-line)!important;
+  min-height:104px!important;
+  border:1px solid #e3e8f0!important;
   border-radius:16px!important;
   background:#fff!important;
-  box-shadow:0 5px 18px rgba(30,42,64,.045)!important;
-  position:relative!important;
+  box-shadow:0 7px 22px rgba(37,52,82,.04)!important;
   overflow:hidden!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article:before{
-  content:""!important;
-  position:absolute!important;
-  left:0!important;top:0!important;bottom:0!important;
-  width:4px!important;
-  border-radius:16px 0 0 16px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article:nth-child(1):before{background:#7969df!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article:nth-child(2):before{background:#4d79da!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article.performance-paid:before{background:#35a37c!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article.performance-ratio:before{background:#e0a34f!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid span{
-  font-size:12px!important;font-weight:800!important;color:#657185!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid strong{
-  margin:10px 0 7px!important;
-  font-size:27px!important;line-height:1!important;letter-spacing:-.5px!important;color:#1f2b42!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid .performance-paid strong{color:var(--v13-green)!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid .performance-ratio strong{color:var(--v13-amber)!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid small{
-  font-size:10.5px!important;color:#8792a3!important;line-height:1.45!important;
-}
-
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict{
-  order:2!important;
-  min-height:108px!important;
-  margin:0!important;
-  padding:18px 22px!important;
-  display:grid!important;
-  grid-template-columns:minmax(0,1fr) 260px!important;
-  align-items:center!important;
-  gap:22px!important;
-  border:1px solid var(--v13-line)!important;
-  border-radius:16px!important;
-  background:#fff!important;
-  box-shadow:0 5px 18px rgba(30,42,64,.04)!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict>div:first-child>span,
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number>span{
-  font-size:10.5px!important;font-weight:900!important;color:#818c9e!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict>div:first-child>strong{
-  display:block!important;margin:7px 0 5px!important;font-size:20px!important;line-height:1.35!important;color:#1b2538!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict>div:first-child>p{
-  margin:0!important;font-size:11px!important;color:#7a8597!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number{
-  padding-left:24px!important;border-left:1px solid #e6eaf0!important;text-align:left!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number b{
-  display:block!important;margin:7px 0 3px!important;font-size:27px!important;line-height:1!important;color:var(--v13-red)!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number small{font-size:10.5px!important;color:#8993a3!important}
-
-body.arrears-scroll-dashboard #arrearsDashboard .performance-detail-grid{
-  order:3!important;
-  display:grid!important;
-  grid-template-columns:1fr 1fr!important;
-  gap:14px!important;
-  margin:0!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-detail-card{
-  padding:17px 18px!important;
-  border:1px solid var(--v13-line)!important;
-  border-radius:16px!important;
-  background:#fff!important;
-  box-shadow:0 4px 14px rgba(30,42,64,.035)!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-detail-card .dash-card-head{margin-bottom:11px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-detail-card .dash-card-head b{font-size:13px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list,
-body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list.four{
-  display:grid!important;
-  grid-template-columns:repeat(3,minmax(0,1fr))!important;
-  gap:0!important;
-  border:1px solid #edf0f4!important;
-  border-radius:11px!important;
-  overflow:hidden!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list.four{grid-template-columns:repeat(4,minmax(0,1fr))!important}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list>div{
-  min-height:72px!important;
-  padding:11px 13px!important;
-  border:0!important;
-  border-right:1px solid #edf0f4!important;
-  background:#fff!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list>div:last-child{border-right:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list span{font-size:9.5px!important;color:#818c9d!important}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list strong{margin:5px 0 2px!important;font-size:19px!important}
-
-/* charts: true 2x2, equally readable */
-body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="trend"]{
-  display:grid!important;
-  grid-template-columns:repeat(2,minmax(0,1fr))!important;
-  gap:14px!important;
-  align-items:stretch!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-chart-grid.vertical-charts{display:contents!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-trend-card{grid-column:1!important;grid-row:1!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-flow-card{grid-column:2!important;grid-row:1!important}
-body.arrears-scroll-dashboard #arrearsDashboard .ratio-card{grid-column:1!important;grid-row:2!important}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-insight-card{grid-column:2!important;grid-row:2!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-trend-card,
-body.arrears-scroll-dashboard #arrearsDashboard .performance-flow-card,
-body.arrears-scroll-dashboard #arrearsDashboard .ratio-card,
-body.arrears-scroll-dashboard #arrearsDashboard .readable-insight-card{
-  min-height:340px!important;
-  padding:18px 20px!important;
-  border:1px solid var(--v13-line)!important;
-  border-radius:16px!important;
-  background:#fff!important;
-  box-shadow:0 5px 18px rgba(30,42,64,.04)!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dash-card-head{margin:0 0 14px!important;min-height:26px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dash-card-head b{font-size:14px!important;color:#283348!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-trend{
-  height:270px!important;
-  grid-auto-columns:minmax(70px,1fr)!important;
-  gap:11px!important;
-  padding:8px 2px 0!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .perf-trend-item{
-  height:255px!important;
-  grid-template-rows:28px 165px 25px 32px!important;
-  min-width:70px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .perf-trend-bar{
-  height:165px!important;
-  width:58%!important;
-  max-width:42px!important;
-  background:linear-gradient(180deg,#8d7ce8 0%,#725fdc 100%)!important;
-  border-radius:7px 7px 2px 2px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .monthly-flow-chart{
-  min-height:270px!important;
-  display:flex!important;
-  flex-direction:column!important;
-  justify-content:space-around!important;
-  gap:7px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .flow-row{grid-template-columns:54px 1fr!important;gap:9px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .flow-bars span{height:18px!important;border-radius:5px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .flow-bars span:first-child{background:#e4c996!important}
-body.arrears-scroll-dashboard #arrearsDashboard .flow-bars span:last-child{background:#70c5a7!important}
-body.arrears-scroll-dashboard #arrearsDashboard .monthly-ratio-chart{
-  min-height:270px!important;
-  display:flex!important;
-  flex-direction:column!important;
-  justify-content:space-around!important;
-  gap:7px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .ratio-row{grid-template-columns:54px 1fr 50px!important;gap:9px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .ratio-row>div{height:12px!important;background:#edf0f5!important}
-body.arrears-scroll-dashboard #arrearsDashboard .ratio-row>div>i{background:#7765df!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-insights{
-  min-height:270px!important;
-  display:grid!important;
-  grid-template-columns:repeat(2,minmax(0,1fr))!important;
-  gap:10px!important;
-  align-content:center!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row{
-  min-height:105px!important;
-  padding:15px!important;
-  border:1px solid #edf0f4!important;
-  border-radius:11px!important;
-  background:#fbfcfe!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row:last-child{border-right:1px solid #edf0f4!important}
-
-/* monthly performance table */
-body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="table"]{margin-top:2px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table-card{
-  border:1px solid var(--v13-line)!important;
-  border-radius:16px!important;
-  background:#fff!important;
-  box-shadow:0 5px 18px rgba(30,42,64,.04)!important;
-  overflow:hidden!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table-card>.dash-card-head{
-  min-height:54px!important;padding:0 18px!important;border-bottom:1px solid #e8ecf2!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table th{
-  height:44px!important;padding:0 11px!important;background:#f3f5f9!important;color:#687487!important;font-size:10.5px!important;font-weight:900!important;text-align:center!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table td{
-  height:46px!important;padding:0 11px!important;font-size:11.5px!important;text-align:center!important;background:#fff!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table tbody tr:nth-child(even) td{background:#fbfcfe!important}
-
-/* member lookup: same system, visually calmer */
-body.arrears-scroll-dashboard .arrears-member-section-title{margin:34px 0 12px!important}
-body.arrears-scroll-dashboard .arrears-member-section-title h3{font-size:21px!important;color:var(--v13-ink)!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .member-panel{
-  border:1px solid var(--v13-line)!important;
-  border-radius:16px!important;
-  background:#fff!important;
-  box-shadow:0 5px 18px rgba(30,42,64,.035)!important;
-}
-body.arrears-scroll-dashboard .workspace.arrears-mode .panel-head{padding:17px 19px 12px!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .filters{padding:0 19px 15px!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .member-table th{height:42px!important;background:#f3f5f9!important;color:#6c7788!important;font-size:10.5px!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .member-table td{height:47px!important;font-size:11.5px!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .excel-export-btn{
-  background:var(--v13-yellow)!important;border-color:#ecd887!important;color:#725714!important;font-weight:900!important;
-}
-
-@media(max-width:1180px){
-  body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="trend"]{grid-template-columns:1fr!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .performance-trend-card,
-  body.arrears-scroll-dashboard #arrearsDashboard .performance-flow-card,
-  body.arrears-scroll-dashboard #arrearsDashboard .ratio-card,
-  body.arrears-scroll-dashboard #arrearsDashboard .readable-insight-card{grid-column:1!important;grid-row:auto!important}
-}
-@media(max-width:760px){
-  body.arrears-scroll-dashboard .page{width:calc(100vw - 24px)!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-head{flex-direction:column!important;align-items:stretch!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls{flex-wrap:wrap!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid,
-  body.arrears-scroll-dashboard #arrearsDashboard .performance-detail-grid{grid-template-columns:1fr!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict{grid-template-columns:1fr!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number{padding:12px 0 0!important;border-left:0!important;border-top:1px solid #e6eaf0!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list,
-  body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list.four{grid-template-columns:repeat(2,minmax(0,1fr))!important}
-}
-
-/* =========================================================
-   V14 — REAL DASHBOARD RENDER FIX
-   Presentation only: full-width layout + real SVG charts.
-   ========================================================= */
-body.arrears-scroll-dashboard{background:#f5f7fb!important}
-body.arrears-scroll-dashboard .page{
-  width:calc(100vw - 56px)!important;
-  max-width:1680px!important;
-  margin:0 auto!important;
-  padding:28px 0 60px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-head{margin-bottom:20px!important;align-items:center!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-head h2{font-size:30px!important;letter-spacing:-1px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid{gap:16px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article{min-height:146px!important;padding:22px 24px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid span{font-size:13px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid strong{font-size:31px!important;margin:12px 0 8px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid small{font-size:12px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict{min-height:112px!important;padding:20px 24px!important;grid-template-columns:minmax(0,1fr) 280px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict>div:first-child>strong{font-size:24px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict>div:first-child>p{font-size:12px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number b{font-size:31px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-detail-grid{gap:16px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-detail-card{padding:20px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-detail-card .dash-card-head b{font-size:15px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list span{font-size:11px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list strong{font-size:21px!important}
-
-/* charts: two equal columns; SVG owns the visual */
-body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="trend"]{
-  display:grid!important;
-  grid-template-columns:repeat(2,minmax(0,1fr))!important;
-  gap:18px!important;
-  align-items:stretch!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-chart-grid.vertical-charts{display:contents!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-trend-card{grid-column:1!important;grid-row:1!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-flow-card{grid-column:2!important;grid-row:1!important}
-body.arrears-scroll-dashboard #arrearsDashboard .ratio-card{grid-column:1!important;grid-row:2!important}
-body.arrears-scroll-dashboard #arrearsDashboard .readable-insight-card{grid-column:2!important;grid-row:2!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-trend-card,
-body.arrears-scroll-dashboard #arrearsDashboard .performance-flow-card,
-body.arrears-scroll-dashboard #arrearsDashboard .ratio-card,
-body.arrears-scroll-dashboard #arrearsDashboard .readable-insight-card{
-  min-height:420px!important;
-  padding:22px 24px!important;
-  border-radius:16px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dash-card-head{min-height:34px!important;margin-bottom:10px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dash-card-head b{font-size:16px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-trend,
-body.arrears-scroll-dashboard #arrearsDashboard .monthly-flow-chart,
-body.arrears-scroll-dashboard #arrearsDashboard .monthly-ratio-chart{
-  height:340px!important;
-  min-height:340px!important;
-  width:100%!important;
-  display:block!important;
-  padding:0!important;
-  overflow:hidden!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dash-svg{display:block;width:100%;height:320px;overflow:visible}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-grid{stroke:#e8ecf3;stroke-width:1}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-axis{fill:#8b95a6;font-size:11px;font-weight:700}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-month{fill:#5e6879;font-size:12px;font-weight:800}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-value{fill:#273247;font-size:11px;font-weight:900}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-small-value{fill:#606b7c;font-size:9.5px;font-weight:800}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-change{font-size:8.5px;font-weight:800}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-change.good{fill:#226fd0}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-change.bad{fill:#d34949}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-change.flat{fill:#8791a2}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-bar-purple{fill:#806fe0}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-bar-charge{fill:#dfc38b}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-bar-paid{fill:#69bfa2}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-ratio-line{fill:none;stroke:#7060dd;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-ratio-dot{fill:#7060dd;stroke:#fff;stroke-width:2}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-legend{height:24px;display:flex;justify-content:flex-end;align-items:center;gap:16px;font-size:11px;font-weight:800;color:#6c7687}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-legend span{display:flex;align-items:center;gap:6px}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
-body.arrears-scroll-dashboard #arrearsDashboard .legend-charge{background:#dfc38b}
-body.arrears-scroll-dashboard #arrearsDashboard .legend-paid{background:#69bfa2}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-insights{min-height:340px!important;grid-template-columns:1fr!important;gap:0!important;align-content:center!important}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row{min-height:92px!important;padding:14px 16px!important;border-right:0!important;border-bottom:1px solid #edf0f4!important}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row:last-child{border-bottom:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row span{font-size:11px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row b{font-size:15px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row em{font-size:16px!important}
-
-/* performance table + member table: readable at normal browser zoom */
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table th{height:48px!important;font-size:11.5px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table td{height:50px!important;font-size:12.5px!important}
-body.arrears-scroll-dashboard .arrears-member-section-title h3{font-size:24px!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .panel-head{padding:20px 22px 13px!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .filters{padding:0 22px 18px!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .member-table th{height:46px!important;font-size:11.5px!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .member-table td{height:50px!important;font-size:12px!important}
-
-@media(max-width:1180px){
-  body.arrears-scroll-dashboard .page{width:calc(100vw - 32px)!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="trend"]{grid-template-columns:1fr!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .performance-trend-card,
-  body.arrears-scroll-dashboard #arrearsDashboard .performance-flow-card,
-  body.arrears-scroll-dashboard #arrearsDashboard .ratio-card,
-  body.arrears-scroll-dashboard #arrearsDashboard .readable-insight-card{grid-column:1!important;grid-row:auto!important}
-}
-
-/* =========================================================
-   V15 — dashboard redesign only
-   Data/API/business logic untouched. This section intentionally
-   overrides prior dashboard experiments.
-   ========================================================= */
-body.arrears-scroll-dashboard{background:#f4f6f9!important;color:#1d2533!important}
-body.arrears-scroll-dashboard .page{
-  width:min(1760px,calc(100vw - 56px))!important;
-  max-width:none!important;
-  margin:0 auto!important;
-  padding:22px 0 56px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard{display:block!important;width:100%!important;max-width:none!important;margin:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard.hidden{display:none!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-title-row{
-  display:flex!important;align-items:flex-end!important;justify-content:space-between!important;
-  margin:0 0 18px!important;padding:0!important;background:transparent!important;border:0!important;box-shadow:none!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-title-row h2{font-size:30px!important;line-height:1.15!important;font-weight:900!important;letter-spacing:-1px!important;margin:0!important;color:#1d2432!important}
-body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls{display:flex!important;align-items:flex-end!important;gap:8px!important;background:#fff!important;border:1px solid #e2e6ee!important;border-radius:14px!important;padding:10px 12px!important;box-shadow:0 4px 14px rgba(35,42,60,.05)!important}
-body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls label{font-size:11px!important;font-weight:800!important;color:#697386!important;gap:5px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls select{min-width:146px!important;height:38px!important;border:1px solid #dfe4ec!important;border-radius:8px!important;background:#fff!important;font-size:13px!important;font-weight:700!important;padding:0 34px 0 11px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls>span{height:38px!important;display:flex!important;align-items:center!important;font-size:11px!important;font-weight:800!important;color:#8d96a5!important}
-body.arrears-scroll-dashboard #arrearsDashboard #applyMonthCompare{height:38px!important;padding:0 17px!important;border:0!important;border-radius:8px!important;background:#7357df!important;color:#fff!important;font-size:13px!important;font-weight:900!important;box-shadow:0 4px 10px rgba(115,87,223,.20)!important}
-
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-grid{display:grid!important;grid-template-columns:repeat(6,minmax(0,1fr))!important;gap:12px!important;margin-bottom:14px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi{position:relative!important;min-width:0!important;min-height:132px!important;padding:19px 18px 17px!important;border-radius:14px!important;background:#fff!important;border:1px solid #e3e7ee!important;box-shadow:0 5px 16px rgba(38,46,63,.045)!important;overflow:hidden!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi:before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:#8a72e7}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-paid:before{background:#26a57f}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-charge:before{background:#d6a650}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-rate:before{background:#4f82dd}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-change.good:before{background:#2877d5}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-change.bad:before{background:#db5555}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi>span{display:block!important;font-size:12px!important;line-height:1.35!important;font-weight:800!important;color:#687385!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi>strong{display:block!important;margin:12px 0 7px!important;font-size:25px!important;line-height:1.05!important;font-weight:900!important;letter-spacing:-.7px!important;color:#1d2637!important;white-space:nowrap!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-paid>strong{color:#07815f!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-charge>strong{color:#a76b12!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-rate>strong{color:#245fc3!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-change.good>strong{color:#2469c3!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-change.bad>strong{color:#c73e3e!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi>small{display:block!important;font-size:10.5px!important;line-height:1.4!important;color:#8a94a4!important;white-space:normal!important}
-
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-band{display:grid!important;grid-template-columns:minmax(360px,1.2fr) minmax(0,2.3fr)!important;gap:0!important;background:#fff!important;border:1px solid #e1e6ed!important;border-radius:14px!important;box-shadow:0 5px 16px rgba(38,46,63,.04)!important;margin:0 0 18px!important;overflow:hidden!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-main{padding:20px 22px!important;border-right:1px solid #edf0f4!important;display:flex!important;flex-direction:column!important;justify-content:center!important;min-height:120px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-main>span{font-size:11px!important;font-weight:800!important;color:#8a93a1!important;margin-bottom:7px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-main>strong{font-size:19px!important;line-height:1.35!important;font-weight:900!important;letter-spacing:-.4px!important;color:#222b3a!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-main>p{margin:6px 0 0!important;font-size:11px!important;color:#8b94a3!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-metrics{display:grid!important;grid-template-columns:repeat(7,minmax(0,1fr))!important;min-width:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-metrics>div{padding:18px 14px!important;border-right:1px solid #edf0f4!important;display:flex!important;flex-direction:column!important;justify-content:center!important;min-width:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-metrics>div:last-child{border-right:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-metrics span{font-size:10.5px!important;font-weight:800!important;color:#7b8696!important;white-space:nowrap!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-metrics strong{font-size:18px!important;line-height:1.1!important;font-weight:900!important;margin:8px 0 5px!important;white-space:nowrap!important;color:#263044!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-metrics small{font-size:9.5px!important;color:#9aa2af!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
-body.arrears-scroll-dashboard #arrearsDashboard .good{color:#246bc1!important}
-body.arrears-scroll-dashboard #arrearsDashboard .bad{color:#cb4444!important}
-
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-chart-grid{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:14px!important;margin:0 0 22px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-chart-card,
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-insight-card{min-height:390px!important;padding:18px 20px 16px!important;background:#fff!important;border:1px solid #e2e6ed!important;border-radius:14px!important;box-shadow:0 5px 16px rgba(38,46,63,.04)!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-chart-card .dash-card-head,
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-insight-card .dash-card-head{min-height:auto!important;margin:0 0 12px!important;padding:0!important;border:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-chart-card .dash-card-head b,
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-insight-card .dash-card-head b{font-size:15px!important;font-weight:900!important;color:#263044!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-trend,
-body.arrears-scroll-dashboard #arrearsDashboard .monthly-flow-chart,
-body.arrears-scroll-dashboard #arrearsDashboard .monthly-ratio-chart{height:330px!important;min-height:330px!important;padding:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dash-svg{width:100%!important;height:330px!important;display:block!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-axis{font-size:12px!important;fill:#7d8798!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-month{font-size:12px!important;fill:#515d70!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-value{font-size:11px!important;fill:#273247!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-small-value{font-size:10px!important;fill:#667285!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-change{font-size:9px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-insights{display:grid!important;grid-template-columns:1fr!important;align-content:stretch!important;gap:0!important;height:330px!important;border:1px solid #edf0f4!important;border-radius:10px!important;overflow:hidden!important}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row{display:grid!important;grid-template-columns:145px minmax(0,1fr) auto!important;align-items:center!important;min-height:110px!important;padding:16px 18px!important;border-bottom:1px solid #edf0f4!important;border-right:0!important;background:#fff!important}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row:last-child{border-bottom:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row>span{font-size:11px!important;font-weight:800!important;color:#7d8797!important}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row b{font-size:16px!important;font-weight:900!important;color:#263044!important}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row small{font-size:10px!important;color:#929aa7!important}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row em{font-size:17px!important;font-style:normal!important;font-weight:900!important}
-
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-table-section{margin-top:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-section-head{display:flex!important;align-items:center!important;justify-content:space-between!important;margin:0 0 10px!important;padding:0 2px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-section-head h3{font-size:20px!important;line-height:1.2!important;font-weight:900!important;margin:0!important;color:#242d3d!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-section-head span{font-size:10.5px!important;color:#929ba9!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table-card{padding:0!important;overflow:hidden!important;border:1px solid #e1e6ed!important;border-radius:14px!important;background:#fff!important;box-shadow:0 5px 16px rgba(38,46,63,.04)!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table-wrap{overflow-x:auto!important;padding:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table{width:100%!important;min-width:1180px!important;border-collapse:separate!important;border-spacing:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table th{height:48px!important;padding:0 12px!important;background:#f6f7f9!important;color:#626e7f!important;font-size:11px!important;font-weight:900!important;border-bottom:1px solid #e5e9ef!important;text-align:center!important;white-space:nowrap!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table td{height:48px!important;padding:0 12px!important;font-size:11.5px!important;color:#374154!important;text-align:center!important;border-bottom:1px solid #edf0f4!important;white-space:nowrap!important;background:#fff!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table tbody tr:last-child td{border-bottom:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table tbody tr:hover td{background:#fafbfc!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table tbody tr.selected-month td{background:#fbfaff!important}
-
-/* keep the member workflow intact, but separate it visually from analytics */
-body.arrears-scroll-dashboard .arrears-member-section-title{margin:34px 0 10px!important;padding-top:24px!important;border-top:1px solid #dfe4eb!important}
-body.arrears-scroll-dashboard .arrears-member-section-title h3{font-size:22px!important;font-weight:900!important;color:#242d3d!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode{gap:14px!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .member-panel{border:1px solid #e1e6ed!important;border-radius:14px!important;box-shadow:0 5px 16px rgba(38,46,63,.04)!important;background:#fff!important;overflow:hidden!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .panel-head{padding:17px 20px 11px!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .panel-head h2{font-size:16px!important;font-weight:900!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .filters{padding:0 20px 14px!important;gap:8px!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .filters select,
-body.arrears-scroll-dashboard .workspace.arrears-mode .search-box{height:38px!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .member-table th{height:42px!important;background:#f6f7f9!important;font-size:11px!important;color:#677386!important;font-weight:900!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .member-table td{height:44px!important;font-size:11.5px!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .excel-export-btn{background:#fff1bf!important;border-color:#ecd98b!important;color:#765b0f!important;font-weight:900!important}
-
-@media (max-width:1450px){
- body.arrears-scroll-dashboard .page{width:calc(100vw - 28px)!important}
- body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-grid{grid-template-columns:repeat(3,minmax(0,1fr))!important}
- body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-band{grid-template-columns:1fr!important}
- body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-main{border-right:0!important;border-bottom:1px solid #edf0f4!important}
- body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-metrics{grid-template-columns:repeat(4,minmax(0,1fr))!important}
-}
-@media (max-width:920px){
- body.arrears-scroll-dashboard #arrearsDashboard .dashboard-title-row{align-items:stretch!important;flex-direction:column!important;gap:12px!important}
- body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
- body.arrears-scroll-dashboard #arrearsDashboard .dashboard-chart-grid{grid-template-columns:1fr!important}
- body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-metrics{grid-template-columns:repeat(2,minmax(0,1fr))!important}
-}
-
-
-/* =========================================================
-   V16 — final hierarchy tuning
-   Layout/presentation only; data/API/business rules unchanged.
-   ========================================================= */
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-title-row{
-  align-items:center!important;
-  margin-bottom:16px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls{
-  align-self:center!important;
-  margin-top:0!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-band{
-  grid-template-columns:minmax(480px,1.3fr) minmax(560px,1fr)!important;
-  min-height:100px!important;
 }
 body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-main{
+  display:flex!important;
+  flex-direction:column!important;
+  justify-content:center!important;
+  min-width:0!important;
   padding:18px 22px!important;
+  border-right:1px solid #edf0f5!important;
+  background:#fff!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-main>span{
+  color:#929cac!important;
+  font-size:10px!important;
+  font-weight:850!important;
 }
 body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-main>strong{
-  font-size:20px!important;
+  display:block!important;
+  margin:6px 0 4px!important;
+  color:#29364d!important;
+  font-size:16px!important;
+  line-height:1.35!important;
+  font-weight:900!important;
 }
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-metrics{
-  grid-template-columns:repeat(4,minmax(0,1fr))!important;
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-main>p{
+  margin:0!important;
+  color:#9ba4b3!important;
+  font-size:10px!important;
 }
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-metrics>div{
-  min-height:98px!important;
-  padding:16px 14px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-metrics span{font-size:11px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-metrics strong{font-size:20px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-metrics small{font-size:10px!important}
-
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-chart-card,
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-insight-card{
-  min-height:410px!important;
-  padding:20px 22px 18px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-trend,
-body.arrears-scroll-dashboard #arrearsDashboard .monthly-flow-chart,
-body.arrears-scroll-dashboard #arrearsDashboard .monthly-ratio-chart{
-  height:350px!important;
-  min-height:350px!important;
-  overflow:visible!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dash-svg{
-  height:340px!important;
-  overflow:visible!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .monthly-flow-chart .svg-legend{
-  margin-bottom:0!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-insights{
-  height:350px!important;
+body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics{
   display:grid!important;
   grid-template-columns:repeat(2,minmax(0,1fr))!important;
   grid-template-rows:repeat(2,minmax(0,1fr))!important;
-  gap:0!important;
-  align-content:stretch!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row{
-  grid-template-columns:1fr auto!important;
-  grid-template-rows:auto auto!important;
-  min-height:0!important;
-  padding:20px!important;
-  border-right:1px solid #edf0f4!important;
-  border-bottom:1px solid #edf0f4!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row:nth-child(2n){border-right:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row:nth-last-child(-n+2){border-bottom:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row>span{
-  grid-column:1 / -1!important;
-  font-size:11px!important;
-  margin-bottom:10px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row>div{min-width:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row b{font-size:18px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row small{display:block!important;margin-top:5px!important;white-space:normal!important;line-height:1.35!important}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row em{align-self:center!important;font-size:18px!important;margin-left:10px!important}
-
-@media (max-width:1450px){
-  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-band{grid-template-columns:1fr!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-main{border-right:0!important;border-bottom:1px solid #edf0f4!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-metrics{grid-template-columns:repeat(4,minmax(0,1fr))!important}
-}
-@media (max-width:920px){
-  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-metrics{grid-template-columns:repeat(2,minmax(0,1fr))!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .performance-insights{grid-template-columns:1fr!important;grid-template-rows:auto!important;height:auto!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .insight-row{border-right:0!important;border-bottom:1px solid #edf0f4!important;min-height:110px!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .insight-row:last-child{border-bottom:0!important}
-}
-
-/* V20 fresh package marker: 2026-08-31 cutover audit fix */
-
-/* =========================================================
-   V21 — executive clean dashboard
-   Presentation only. Receivables/API/calculation rules unchanged.
-   ========================================================= */
-body.arrears-scroll-dashboard{
-  background:#f5f7fb!important;
-}
-body.arrears-scroll-dashboard .page{
-  width:min(1600px,calc(100vw - 48px))!important;
-  padding:26px 0 52px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-title-row{
-  margin:0 0 18px!important;
-  min-height:54px!important;
-  align-items:center!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-title-row h2{
-  font-size:29px!important;
-  letter-spacing:-1.1px!important;
-  color:#172033!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls{
-  padding:9px 10px!important;
-  border-radius:13px!important;
-  border-color:#dde3ec!important;
-  box-shadow:0 6px 18px rgba(35,45,70,.06)!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls select{
-  min-width:138px!important;
-  height:38px!important;
-}
-
-/* Primary KPI row: four large cards instead of six cramped cards */
-body.arrears-scroll-dashboard #arrearsDashboard .executive-kpi-grid{
-  grid-template-columns:repeat(4,minmax(0,1fr))!important;
-  gap:14px!important;
-  margin-bottom:16px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .executive-kpi-grid .dashboard-kpi{
-  min-height:148px!important;
-  padding:20px 20px!important;
-  display:grid!important;
-  grid-template-columns:52px minmax(0,1fr)!important;
-  align-items:center!important;
-  gap:14px!important;
-  border-radius:16px!important;
-  border:1px solid #dde3ec!important;
-  box-shadow:0 7px 22px rgba(35,45,70,.055)!important;
-  background:#fff!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .executive-kpi-grid .dashboard-kpi:before{display:none!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-icon{
-  width:52px!important;height:52px!important;border-radius:16px!important;
-  display:grid!important;place-items:center!important;
-  font-size:18px!important;font-weight:950!important;
-  align-self:start!important;margin-top:2px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-icon.purple{background:#eee9ff!important;color:#6a4ee8!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-icon.blue{background:#e8f0ff!important;color:#356fe0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-icon.green{background:#e3f7ef!important;color:#148b67!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-icon.amber{background:#fff0d8!important;color:#c87609!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-copy{min-width:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-copy>span{
-  display:block!important;font-size:13px!important;font-weight:850!important;color:#4f5c70!important;
-  white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-copy>strong{
-  display:block!important;margin:10px 0 8px!important;
-  font-size:29px!important;line-height:1!important;font-weight:950!important;letter-spacing:-1px!important;
-  color:#183d9b!important;white-space:nowrap!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-paid .dashboard-kpi-copy>strong{color:#068663!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-rate .dashboard-kpi-copy>strong{color:#c36d08!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-copy>small{
-  display:block!important;font-size:11px!important;line-height:1.45!important;color:#758195!important;
-  white-space:normal!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-copy>small b{font-weight:900!important;color:#536072!important}
-
-/* Comparison statement + five concise business metrics */
-body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-band{
-  display:grid!important;
-  grid-template-columns:minmax(420px,1.35fr) minmax(760px,2.1fr)!important;
-  min-height:112px!important;
-  margin-bottom:16px!important;
-  border:1px solid #dde3ec!important;
-  border-radius:16px!important;
-  background:#fff!important;
-  box-shadow:0 7px 22px rgba(35,45,70,.045)!important;
-  overflow:hidden!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-band .dashboard-summary-main{
-  padding:20px 24px!important;border-right:1px solid #e5e9f0!important;border-bottom:0!important;
-  display:flex!important;flex-direction:column!important;justify-content:center!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-band .dashboard-summary-main>span{font-size:11px!important;font-weight:850!important;color:#7f8999!important;margin-bottom:7px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-band .dashboard-summary-main>strong{font-size:18px!important;line-height:1.4!important;color:#1e293b!important;margin:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-band .dashboard-summary-main>p{font-size:10.5px!important;margin:5px 0 0!important;color:#9098a6!important}
-body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics{
-  display:grid!important;grid-template-columns:repeat(5,minmax(0,1fr))!important;gap:0!important;
 }
 body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics>div{
-  min-height:110px!important;padding:18px 15px!important;
-  border-right:1px solid #e9edf3!important;
-  display:flex!important;flex-direction:column!important;justify-content:center!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics>div:last-child{border-right:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics span{font-size:11px!important;font-weight:800!important;color:#737f91!important}
-body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics strong{font-size:18px!important;line-height:1.15!important;margin:7px 0 5px!important;font-weight:950!important;color:#223049!important;white-space:nowrap!important}
-body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics small{font-size:9.5px!important;line-height:1.35!important;color:#929baa!important;white-space:normal!important}
-body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics .good strong,
-body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics strong.good{color:#1767c4!important}
-body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics .bad strong,
-body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics strong.bad{color:#d33f3f!important}
-body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics .summary-net.good strong{color:#1767c4!important}
-body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics .summary-net.bad strong{color:#d33f3f!important}
-
-/* Charts: stronger hierarchy, consistent proportions */
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-chart-grid{
-  grid-template-columns:repeat(2,minmax(0,1fr))!important;
-  gap:16px!important;margin-bottom:18px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-chart-card,
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-insight-card{
-  min-height:390px!important;padding:18px 20px 16px!important;
-  border:1px solid #dde3ec!important;border-radius:16px!important;
-  box-shadow:0 7px 22px rgba(35,45,70,.045)!important;background:#fff!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dash-card-head{min-height:30px!important;margin-bottom:4px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dash-card-head b{font-size:15px!important;font-weight:950!important;color:#263248!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-trend,
-body.arrears-scroll-dashboard #arrearsDashboard .monthly-flow-chart,
-body.arrears-scroll-dashboard #arrearsDashboard .monthly-ratio-chart{height:326px!important;min-height:326px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dash-svg{height:318px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-axis{font-size:10.5px!important;fill:#748096!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-month{font-size:11.5px!important;fill:#49566b!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-value{font-size:11.5px!important;fill:#23314a!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-small-value{font-size:10.5px!important;fill:#415068!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-change{font-size:8.6px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-grid{stroke:#e8ecf2!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-bar-purple{fill:#806ae3!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-bar-charge{fill:#e2c182!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-bar-paid{fill:#58b99a!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-ratio-line{stroke:#6d5ce4!important;stroke-width:3.2!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-ratio-dot{fill:#6d5ce4!important}
-
-body.arrears-scroll-dashboard #arrearsDashboard .performance-insights{
-  height:326px!important;display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;grid-template-rows:repeat(2,1fr)!important;
-  border:1px solid #e5e9f0!important;border-radius:12px!important;overflow:hidden!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row{
-  padding:18px 18px!important;background:#fff!important;min-height:0!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row>span{font-size:10.5px!important;color:#7a8596!important;margin-bottom:8px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row b{font-size:16px!important;color:#253149!important}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row small{font-size:9.5px!important;color:#929baa!important}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row em{font-size:17px!important;font-weight:950!important}
-
-/* Monthly table: stronger table treatment */
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-section-head{margin-bottom:9px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-section-head h3{font-size:18px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table-card{border-radius:16px!important;border-color:#dde3ec!important;box-shadow:0 7px 22px rgba(35,45,70,.04)!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table th{
-  height:43px!important;background:#f2f5f9!important;font-size:10.5px!important;color:#59667a!important;
-  border-right:1px solid #e4e8ef!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table td{
-  height:43px!important;font-size:11.5px!important;border-right:1px solid #edf0f4!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table th:last-child,
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table td:last-child{border-right:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table td:first-child{font-weight:900!important;color:#253149!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table tbody tr.selected-month td{background:#f7f5ff!important}
-
-/* Member lookup: one compact section, no giant empty white panel */
-body.arrears-scroll-dashboard .arrears-member-section-title{display:none!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode{margin-top:28px!important;display:grid!important;grid-template-columns:1fr!important;gap:12px!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode:not(.has-detail) .detail-panel{display:none!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode:not(.has-detail) .member-panel{width:100%!important;position:static!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .member-panel{
-  border:1px solid #dde3ec!important;border-radius:16px!important;box-shadow:0 7px 22px rgba(35,45,70,.04)!important;
-}
-body.arrears-scroll-dashboard .workspace.arrears-mode .panel-head{padding:16px 18px 10px!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .panel-head h2{font-size:17px!important;color:#253149!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .panel-head p{font-size:10.5px!important;margin-top:3px!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .filters{padding:0 18px 13px!important;gap:8px!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .filters select,
-body.arrears-scroll-dashboard .workspace.arrears-mode .search-box,
-body.arrears-scroll-dashboard .workspace.arrears-mode .search-box input{height:36px!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode:not(.has-detail) .member-table-wrap{
-  min-height:0!important;max-height:420px!important;height:auto!important;overflow:auto!important;
-}
-body.arrears-scroll-dashboard .workspace.arrears-mode .member-table th{height:38px!important;background:#f2f5f9!important;font-size:10.5px!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .member-table td{height:40px!important;font-size:11px!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .pager{height:42px!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .pager button{height:28px!important;min-width:54px!important;font-size:10.5px!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .excel-export-btn{background:#fff0b7!important;border-color:#e7cf70!important;color:#6b5409!important}
-
-@media(max-width:1320px){
-  body.arrears-scroll-dashboard .page{width:calc(100vw - 28px)!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .executive-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-band{grid-template-columns:1fr!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-band .dashboard-summary-main{border-right:0!important;border-bottom:1px solid #e5e9f0!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics{grid-template-columns:repeat(5,minmax(0,1fr))!important}
-}
-@media(max-width:900px){
-  body.arrears-scroll-dashboard #arrearsDashboard .executive-kpi-grid{grid-template-columns:1fr!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics{grid-template-columns:repeat(2,minmax(0,1fr))!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics>div{border-bottom:1px solid #e9edf3!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-chart-grid{grid-template-columns:1fr!important}
-}
-
-/* =========================================================
-   V22 — Clean SaaS dashboard visual refresh
-   UI ONLY. No API / DB / ledger / calculation changes.
-   ========================================================= */
-body.arrears-scroll-dashboard{
-  background:#f3f6fb!important;
-  color:#263248!important;
-}
-body.arrears-scroll-dashboard .topbar{
-  background:rgba(255,255,255,.96)!important;
-  border-bottom:1px solid #e8edf5!important;
-  box-shadow:0 1px 0 rgba(31,44,71,.02)!important;
-}
-body.arrears-scroll-dashboard .tabs{
+  min-width:0!important;
+  min-height:52px!important;
+  padding:12px 14px!important;
+  border-right:1px solid #edf0f5!important;
+  border-bottom:1px solid #edf0f5!important;
   background:#fff!important;
-  border-bottom:1px solid #e8edf5!important;
-  box-shadow:0 3px 12px rgba(40,58,90,.025)!important;
 }
-body.arrears-scroll-dashboard .page{
-  width:min(1580px,calc(100vw - 56px))!important;
-  max-width:1580px!important;
-  padding:28px 0 54px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard{
-  padding:0!important;
-  margin:0!important;
-}
-
-/* title + month control */
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-title-row{
-  margin:0 0 20px!important;
-  min-height:54px!important;
-  align-items:center!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-title-row h2{
-  font-size:25px!important;
-  line-height:1.15!important;
-  letter-spacing:-.7px!important;
-  font-weight:900!important;
-  color:#253149!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls{
-  background:#fff!important;
-  border:1px solid #e2e8f1!important;
-  border-radius:14px!important;
-  padding:8px!important;
-  gap:7px!important;
-  box-shadow:0 7px 24px rgba(44,61,92,.065)!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls label{
-  gap:3px!important;
-  font-size:9px!important;
-  font-weight:800!important;
-  color:#8490a3!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls select{
-  height:35px!important;
-  min-width:126px!important;
-  padding:0 30px 0 11px!important;
-  border:1px solid #e6eaf1!important;
-  border-radius:9px!important;
-  background:#fafbfe!important;
-  font-size:11px!important;
-  font-weight:800!important;
-  color:#334158!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls>span{
-  font-size:10px!important;
-  color:#9aa4b4!important;
-  padding-top:12px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls button{
-  height:35px!important;
-  min-width:53px!important;
-  border-radius:9px!important;
-  background:#5867d8!important;
-  box-shadow:0 6px 14px rgba(88,103,216,.22)!important;
-  font-size:11px!important;
-  font-weight:900!important;
-}
-
-/* KPI cards — compact SaaS style */
-body.arrears-scroll-dashboard #arrearsDashboard .executive-kpi-grid{
-  display:grid!important;
-  grid-template-columns:repeat(4,minmax(0,1fr))!important;
-  gap:14px!important;
-  margin:0 0 16px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .executive-kpi-grid .dashboard-kpi{
-  position:relative!important;
-  overflow:hidden!important;
-  min-height:122px!important;
-  padding:19px 18px!important;
-  border:1px solid #e5eaf2!important;
-  border-radius:15px!important;
-  background:#fff!important;
-  box-shadow:0 10px 28px rgba(44,61,92,.055)!important;
-  display:grid!important;
-  grid-template-columns:42px 1fr!important;
-  align-items:start!important;
-  gap:12px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .executive-kpi-grid .dashboard-kpi::after{
-  content:""!important;
-  position:absolute!important;
-  left:72px!important;
-  right:18px!important;
-  bottom:14px!important;
-  height:20px!important;
-  opacity:.5!important;
-  background:linear-gradient(150deg,transparent 0 10%,#91a4f3 11% 13%,transparent 14% 23%,#91a4f3 24% 26%,transparent 27% 37%,#91a4f3 38% 40%,transparent 41% 50%,#91a4f3 51% 53%,transparent 54% 65%,#91a4f3 66% 68%,transparent 69% 78%,#91a4f3 79% 81%,transparent 82%)!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .executive-kpi-grid .dashboard-kpi-paid::after{filter:hue-rotate(95deg)!important}
-body.arrears-scroll-dashboard #arrearsDashboard .executive-kpi-grid .dashboard-kpi-rate::after{filter:hue-rotate(205deg)!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-icon{
-  width:38px!important;height:38px!important;border-radius:50%!important;
-  display:flex!important;align-items:center!important;justify-content:center!important;
-  font-size:11px!important;font-weight:950!important;
-  box-shadow:none!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-icon.purple{background:#e8efff!important;color:#5c74df!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-icon.blue{background:#e6f0ff!important;color:#5685db!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-icon.green{background:#e0f7f0!important;color:#38a982!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-icon.amber{background:#fff2cf!important;color:#d39b28!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-copy{min-width:0!important;padding-top:1px!important;position:relative!important;z-index:1!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-copy>span{
+body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics>div:nth-child(2n){border-right:0!important}
+body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics>div:nth-last-child(-n+2){border-bottom:0!important}
+body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics span{
   display:block!important;
-  font-size:10px!important;font-weight:850!important;color:#8994a6!important;
-  margin-bottom:8px!important;
+  color:#929cac!important;
+  font-size:9.5px!important;
+  font-weight:800!important;
 }
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-copy>strong{
+body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics strong{
   display:block!important;
-  font-size:23px!important;line-height:1.05!important;font-weight:950!important;
-  color:#28364e!important;letter-spacing:-.55px!important;
+  margin:4px 0 2px!important;
+  color:#344158!important;
+  font-size:15px!important;
+  line-height:1.1!important;
+  font-weight:950!important;
   white-space:nowrap!important;
 }
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-copy>small{
+body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics small{
   display:block!important;
-  margin-top:7px!important;
-  font-size:9.5px!important;color:#9ca6b6!important;white-space:nowrap!important;
+  color:#9ba4b3!important;
+  font-size:8.8px!important;
+  line-height:1.3!important;
 }
-
-/* summary strip */
-body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-band{
+body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics .good{color:#286fbd!important}
+body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics .bad{color:#d34848!important}
+body.arrears-scroll-dashboard #arrearsDashboard .summary-transition-pair{
   display:grid!important;
-  grid-template-columns:minmax(320px,1.25fr) minmax(0,2.75fr)!important;
-  gap:0!important;
-  margin:0 0 16px!important;
-  overflow:hidden!important;
-  border:1px solid #e5eaf2!important;
-  border-radius:15px!important;
-  background:#fff!important;
-  box-shadow:0 10px 28px rgba(44,61,92,.05)!important;
+  grid-template-columns:1fr 1fr!important;
+  gap:10px!important;
+  margin-top:4px!important;
 }
-body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-band .dashboard-summary-main{
-  min-height:104px!important;
-  padding:19px 22px!important;
-  border-right:1px solid #edf0f5!important;
-  background:linear-gradient(135deg,#fbfcff 0%,#f7f9fe 100%)!important;
+body.arrears-scroll-dashboard #arrearsDashboard .summary-transition-pair b{
+  display:block!important;
+  font-size:14px!important;
+  line-height:1.1!important;
 }
-body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-band .dashboard-summary-main>span{font-size:9.5px!important;color:#9aa4b4!important}
-body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-band .dashboard-summary-main>strong{font-size:15px!important;line-height:1.35!important;color:#2a3850!important}
-body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-band .dashboard-summary-main>p{font-size:9.3px!important;color:#9aa4b4!important}
-body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics{grid-template-columns:repeat(5,minmax(0,1fr))!important}
-body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics>div{
-  min-height:104px!important;
-  padding:18px 15px!important;
-  background:#fff!important;
-  border-right:1px solid #edf0f5!important;
+body.arrears-scroll-dashboard #arrearsDashboard .summary-transition-pair em{
+  display:block!important;
+  margin-top:2px!important;
+  color:#9ba4b3!important;
+  font-size:8.5px!important;
+  font-style:normal!important;
 }
-body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics>div:last-child{border-right:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics span{font-size:9.5px!important;color:#929cad!important}
-body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics strong{font-size:17px!important;margin:7px 0 4px!important;color:#2f3d55!important}
-body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics small{font-size:8.8px!important;color:#a0a9b8!important}
 
-/* dashboard grid modeled after modern SaaS card layouts */
+/* true 2 x 2 chart grid */
 body.arrears-scroll-dashboard #arrearsDashboard .dashboard-chart-grid{
   display:grid!important;
-  grid-template-columns:repeat(12,minmax(0,1fr))!important;
-  gap:14px!important;
-  margin:0 0 17px!important;
+  grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  gap:18px!important;
+  margin:0 0 20px!important;
 }
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-chart-grid>article:nth-child(1){grid-column:span 7!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-chart-grid>article:nth-child(2){grid-column:span 5!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-chart-grid>article:nth-child(3){grid-column:span 5!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-chart-grid>article:nth-child(4){grid-column:span 7!important}
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-chart-grid>article{
+  grid-column:auto!important;
+  min-width:0!important;
+}
 body.arrears-scroll-dashboard #arrearsDashboard .dashboard-chart-card,
 body.arrears-scroll-dashboard #arrearsDashboard .dashboard-insight-card{
-  min-height:330px!important;
-  padding:16px 17px 13px!important;
-  border:1px solid #e5eaf2!important;
-  border-radius:15px!important;
+  min-height:0!important;
+  height:auto!important;
+  padding:16px 18px 14px!important;
+  border:1px solid #e3e8f0!important;
+  border-radius:16px!important;
   background:#fff!important;
-  box-shadow:0 10px 28px rgba(44,61,92,.05)!important;
+  box-shadow:0 7px 22px rgba(37,52,82,.04)!important;
+  overflow:hidden!important;
 }
 body.arrears-scroll-dashboard #arrearsDashboard .dash-card-head{
+  display:flex!important;
+  align-items:center!important;
+  justify-content:space-between!important;
   min-height:28px!important;
-  margin-bottom:3px!important;
+  margin:0 0 7px!important;
   position:relative!important;
 }
 body.arrears-scroll-dashboard #arrearsDashboard .dash-card-head::after{
   content:"•••"!important;
-  position:absolute!important;
-  right:2px!important;
-  top:-3px!important;
-  font-size:11px!important;
+  color:#c2c9d3!important;
+  font-size:10px!important;
   letter-spacing:2px!important;
-  color:#c4cad4!important;
 }
-body.arrears-scroll-dashboard #arrearsDashboard .dash-card-head b{font-size:12px!important;font-weight:900!important;color:#435069!important}
+body.arrears-scroll-dashboard #arrearsDashboard .dash-card-head b{
+  color:#354158!important;
+  font-size:14px!important;
+  font-weight:900!important;
+}
 body.arrears-scroll-dashboard #arrearsDashboard .performance-trend,
 body.arrears-scroll-dashboard #arrearsDashboard .monthly-flow-chart,
-body.arrears-scroll-dashboard #arrearsDashboard .monthly-ratio-chart{height:270px!important;min-height:270px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dash-svg{height:264px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-grid{stroke:#edf1f6!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-axis{font-size:9.3px!important;fill:#929cae!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-month{font-size:9.8px!important;fill:#67758b!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-value{font-size:9.8px!important;fill:#3e4d65!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-small-value{font-size:9px!important;fill:#66758c!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-change{font-size:7.8px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-bar-purple{fill:#6f8fe8!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-bar-charge{fill:#f0ca72!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-bar-paid{fill:#6bd0b5!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-ratio-line{stroke:#6f83e8!important;stroke-width:2.6!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-ratio-dot{fill:#6f83e8!important}
+body.arrears-scroll-dashboard #arrearsDashboard .monthly-ratio-chart{
+  width:100%!important;
+  height:clamp(230px,18vw,280px)!important;
+  min-height:230px!important;
+  padding:0!important;
+  overflow:hidden!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .monthly-flow-chart{
+  position:relative!important;
+  padding-top:20px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-legend{
+  position:absolute!important;
+  right:4px!important;
+  top:0!important;
+  display:flex!important;
+  gap:12px!important;
+  z-index:2!important;
+  color:#7f8a9c!important;
+  font-size:9px!important;
+  font-weight:800!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-legend span{display:flex!important;align-items:center!important;gap:5px!important}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-legend i{width:8px!important;height:8px!important;border-radius:2px!important}
+body.arrears-scroll-dashboard #arrearsDashboard .legend-charge{background:#e3bf71!important}
+body.arrears-scroll-dashboard #arrearsDashboard .legend-paid{background:#67bca2!important}
+body.arrears-scroll-dashboard #arrearsDashboard .dash-svg{
+  display:block!important;
+  width:100%!important;
+  height:clamp(220px,17vw,270px)!important;
+  overflow:visible!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-grid{stroke:#edf1f5!important;stroke-width:1!important}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-axis{font-size:10px!important;fill:#8c97a8!important}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-month{font-size:10.5px!important;fill:#59667b!important;font-weight:700!important}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-value{font-size:10.5px!important;fill:#344158!important;font-weight:800!important}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-small-value{font-size:9.5px!important;fill:#536176!important;font-weight:700!important}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-change{font-size:7.6px!important;font-weight:800!important}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-change.good{fill:#3573bd!important}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-change.bad{fill:#d25050!important}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-change.flat{fill:#929cab!important}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-bar-purple{fill:#718be1!important}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-bar-charge{fill:#e4bf72!important}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-bar-paid{fill:#66bca2!important}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-ratio-line{fill:none!important;stroke:#6576df!important;stroke-width:2.5!important;stroke-linejoin:round!important;stroke-linecap:round!important}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-ratio-dot{fill:#6576df!important;stroke:#fff!important;stroke-width:2!important}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-ratio-baseline{stroke:#b8c1cf!important;stroke-width:1!important;stroke-dasharray:5 5!important}
 
-/* performance insight as neat list, not four huge boxes */
+/* insight card */
 body.arrears-scroll-dashboard #arrearsDashboard .performance-insights{
-  height:270px!important;
+  height:clamp(230px,18vw,280px)!important;
+  min-height:230px!important;
   display:grid!important;
   grid-template-columns:repeat(2,minmax(0,1fr))!important;
   grid-template-rows:repeat(2,minmax(0,1fr))!important;
-  gap:9px!important;
+  gap:10px!important;
+  padding:0!important;
+  background:transparent!important;
   border:0!important;
-  border-radius:0!important;
-  overflow:visible!important;
-  background:#fff!important;
 }
 body.arrears-scroll-dashboard #arrearsDashboard .insight-row{
+  min-width:0!important;
   min-height:0!important;
-  padding:14px 15px!important;
+  padding:13px 14px!important;
   border:1px solid #edf0f5!important;
   border-radius:12px!important;
-  background:#fafbfe!important;
+  background:#fafbfd!important;
+  display:grid!important;
+  grid-template-columns:1fr auto!important;
+  grid-template-rows:auto 1fr!important;
+  gap:4px 8px!important;
+  align-items:end!important;
 }
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row>span{font-size:9.3px!important;color:#98a2b2!important;margin-bottom:6px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row b{font-size:14px!important;color:#344158!important}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row small{font-size:8.8px!important;color:#a0a8b5!important}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-row em{font-size:15px!important}
+body.arrears-scroll-dashboard #arrearsDashboard .insight-row>span{
+  grid-column:1 / -1!important;
+  color:#8e99aa!important;
+  font-size:9.5px!important;
+  font-weight:800!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .insight-row>div{min-width:0!important;align-self:end!important}
+body.arrears-scroll-dashboard #arrearsDashboard .insight-row b{
+  display:block!important;
+  color:#344158!important;
+  font-size:15px!important;
+  line-height:1.15!important;
+  font-weight:950!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .insight-row small{
+  display:block!important;
+  margin-top:3px!important;
+  color:#9aa4b3!important;
+  font-size:8.5px!important;
+  line-height:1.25!important;
+  white-space:normal!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .insight-row em{
+  align-self:end!important;
+  color:#526076!important;
+  font-size:14px!important;
+  line-height:1.1!important;
+  font-style:normal!important;
+  font-weight:950!important;
+  white-space:nowrap!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .insight-row em.good{color:#286fbd!important}
+body.arrears-scroll-dashboard #arrearsDashboard .insight-row em.bad{color:#d34848!important}
 
-/* table */
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-table-section{margin-top:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-section-head{margin:0 2px 9px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-section-head h3{font-size:14px!important;color:#3c4961!important;font-weight:900!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-section-head span{font-size:9px!important;color:#a1aaba!important}
+/* monthly table */
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-table-section{margin:0!important}
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-section-head{
+  display:flex!important;
+  align-items:center!important;
+  justify-content:space-between!important;
+  margin:0 2px 9px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-section-head h3{
+  margin:0!important;
+  color:#354158!important;
+  font-size:15px!important;
+  font-weight:900!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-section-head span{color:#9aa4b3!important;font-size:9px!important}
 body.arrears-scroll-dashboard #arrearsDashboard .performance-table-card{
-  border:1px solid #e5eaf2!important;
-  border-radius:15px!important;
+  border:1px solid #e3e8f0!important;
+  border-radius:16px!important;
   background:#fff!important;
-  box-shadow:0 10px 28px rgba(44,61,92,.045)!important;
+  box-shadow:0 7px 22px rgba(37,52,82,.035)!important;
   overflow:hidden!important;
 }
+body.arrears-scroll-dashboard #arrearsDashboard .performance-table-wrap{
+  width:100%!important;
+  max-height:none!important;
+  overflow-x:auto!important;
+  overflow-y:visible!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-table{min-width:1100px!important;table-layout:fixed!important}
 body.arrears-scroll-dashboard #arrearsDashboard .performance-table th{
-  height:38px!important;
-  background:#f8f9fc!important;
-  color:#7e899b!important;
-  font-size:9px!important;
-  border-color:#edf0f5!important;
+  position:static!important;
+  height:42px!important;
+  padding:0 10px!important;
+  border-bottom:1px solid #e8edf3!important;
+  border-right:0!important;
+  background:#f7f9fc!important;
+  color:#758094!important;
+  font-size:11px!important;
+  font-weight:850!important;
 }
 body.arrears-scroll-dashboard #arrearsDashboard .performance-table td{
-  height:39px!important;
-  font-size:9.7px!important;
-  color:#4c596e!important;
-  border-color:#f0f2f6!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table tbody tr:hover td{background:#fafbfe!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table tbody tr.selected-month td{background:#f3f6ff!important}
-
-/* member lookup becomes a distinct compact card below analytics */
-body.arrears-scroll-dashboard .workspace.arrears-mode{
-  margin-top:26px!important;
-  padding-top:18px!important;
-  border-top:1px solid #e1e6ef!important;
-}
-body.arrears-scroll-dashboard .workspace.arrears-mode .member-panel{
-  border:1px solid #e5eaf2!important;
-  border-radius:15px!important;
+  height:44px!important;
+  padding:0 10px!important;
+  border-bottom:1px solid #eef2f6!important;
+  border-right:0!important;
   background:#fff!important;
-  box-shadow:0 10px 28px rgba(44,61,92,.045)!important;
+  color:#46536a!important;
+  font-size:12px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-table td:first-child{text-align:center!important;font-weight:900!important;color:#2e3a50!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-table tbody tr:hover td{background:#fafbfd!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-table tbody tr.selected-month td{background:#f2f5ff!important}
+
+/* member lookup: content height follows result rows */
+body.arrears-scroll-dashboard .arrears-member-section-title{display:none!important}
+body.arrears-scroll-dashboard .workspace.arrears-mode{
+  display:grid!important;
+  grid-template-columns:1fr!important;
+  gap:0!important;
+  width:100%!important;
+  margin:28px 0 0!important;
+  padding:20px 0 0!important;
+  border-top:1px solid #e2e7ef!important;
+  overflow:visible!important;
+}
+body.arrears-scroll-dashboard .workspace.arrears-mode:not(.has-detail) .detail-panel{display:none!important}
+body.arrears-scroll-dashboard .workspace.arrears-mode:not(.has-detail) .member-panel{width:100%!important;position:static!important}
+body.arrears-scroll-dashboard .workspace.arrears-mode .member-panel{
+  position:static!important;
+  top:auto!important;
+  height:auto!important;
+  min-height:0!important;
+  max-height:none!important;
+  overflow:hidden!important;
+  border:1px solid #e3e8f0!important;
+  border-radius:16px!important;
+  background:#fff!important;
+  box-shadow:0 7px 22px rgba(37,52,82,.035)!important;
+}
+body.arrears-scroll-dashboard .workspace.arrears-mode .panel-head{
+  padding:16px 18px 9px!important;
+}
+body.arrears-scroll-dashboard .workspace.arrears-mode .panel-head h2{font-size:16px!important;color:#354158!important}
+body.arrears-scroll-dashboard .workspace.arrears-mode .panel-head p{margin-top:3px!important;color:#98a2b2!important;font-size:10px!important}
+body.arrears-scroll-dashboard .workspace.arrears-mode .panel-head-actions{gap:8px!important}
+body.arrears-scroll-dashboard .workspace.arrears-mode .count-badge{
+  padding:6px 9px!important;
+  background:#f1efff!important;
+  color:#6b5dc7!important;
+  font-size:10px!important;
+}
+body.arrears-scroll-dashboard .workspace.arrears-mode .excel-export-btn{
+  height:34px!important;
+  padding:0 12px!important;
+  border:1px solid #e7d477!important;
+  border-radius:9px!important;
+  background:#fff3bf!important;
+  color:#65500b!important;
+  font-size:10px!important;
+  font-weight:900!important;
+}
+body.arrears-scroll-dashboard .workspace.arrears-mode .filters{
+  display:grid!important;
+  grid-template-columns:minmax(230px,1.35fr) repeat(3,minmax(130px,.75fr))!important;
+  gap:8px!important;
+  padding:0 18px 12px!important;
+}
+body.arrears-scroll-dashboard .workspace.arrears-mode .filters .search-box,
+body.arrears-scroll-dashboard .workspace.arrears-mode .filters input,
+body.arrears-scroll-dashboard .workspace.arrears-mode .filters select{
+  height:36px!important;
+  min-width:0!important;
+  border-radius:9px!important;
+  font-size:11px!important;
+}
+body.arrears-scroll-dashboard .workspace.arrears-mode .member-table-wrap{
+  flex:none!important;
+  width:100%!important;
+  height:auto!important;
+  min-height:0!important;
+  max-height:none!important;
+  overflow-x:auto!important;
+  overflow-y:visible!important;
+  border-top:1px solid #edf1f5!important;
+}
+body.arrears-scroll-dashboard .workspace.arrears-mode .member-table{
+  width:100%!important;
+  min-width:1040px!important;
+  table-layout:fixed!important;
+}
+body.arrears-scroll-dashboard .workspace.arrears-mode .member-table th{
+  position:static!important;
+  height:40px!important;
+  padding:0 9px!important;
+  background:#f7f9fc!important;
+  color:#758094!important;
+  font-size:10.5px!important;
+  font-weight:850!important;
+}
+body.arrears-scroll-dashboard .workspace.arrears-mode .member-table td{
+  height:44px!important;
+  padding:0 9px!important;
+  color:#455269!important;
+  font-size:11.5px!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+}
+body.arrears-scroll-dashboard .workspace.arrears-mode .pager{
+  height:42px!important;
+  min-height:42px!important;
+  border-top:1px solid #eef2f6!important;
+  background:#fff!important;
+}
+body.arrears-scroll-dashboard .workspace.arrears-mode.has-detail{
+  grid-template-columns:minmax(0,.95fr) minmax(560px,1.05fr)!important;
+  gap:18px!important;
+}
+body.arrears-scroll-dashboard .workspace.arrears-mode.has-detail .member-panel{
+  position:sticky!important;
+  top:130px!important;
+  max-height:calc(100vh - 150px)!important;
   overflow:hidden!important;
 }
-body.arrears-scroll-dashboard .workspace.arrears-mode .panel-head{padding:15px 17px 9px!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .panel-head h2{font-size:14px!important;color:#3c4961!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .panel-head p{font-size:9px!important;color:#a0a8b7!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .filters{padding:0 17px 11px!important;gap:7px!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .filters select,
-body.arrears-scroll-dashboard .workspace.arrears-mode .search-box,
-body.arrears-scroll-dashboard .workspace.arrears-mode .search-box input{height:34px!important;font-size:9.6px!important;border-radius:9px!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode:not(.has-detail) .member-table-wrap{max-height:320px!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .member-table th{height:35px!important;background:#f8f9fc!important;font-size:9px!important;color:#7d8899!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .member-table td{height:37px!important;font-size:9.7px!important;color:#4c596e!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .excel-export-btn{background:#fff4c8!important;border-color:#ead782!important;color:#6d590d!important;border-radius:9px!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .count-badge{background:#f2efff!important;color:#6e5fc7!important}
+body.arrears-scroll-dashboard .workspace.arrears-mode.has-detail .member-table-wrap{
+  max-height:calc(100vh - 330px)!important;
+  overflow-y:auto!important;
+}
 
-@media(max-width:1280px){
-  body.arrears-scroll-dashboard .page{width:calc(100vw - 30px)!important}
+/* responsive: desktop reference keeps 4 KPI + 2x2 charts around 1024px */
+@media(max-width:900px){
+  body.arrears-scroll-dashboard .page{width:calc(100vw - 24px)!important;padding-top:18px!important}
+  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-title-row{align-items:flex-start!important;flex-direction:column!important;gap:10px!important}
+  body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls{width:100%!important;justify-content:flex-end!important}
   body.arrears-scroll-dashboard #arrearsDashboard .executive-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
   body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-band{grid-template-columns:1fr!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-band .dashboard-summary-main{border-right:0!important;border-bottom:1px solid #edf0f5!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-chart-grid>article{grid-column:span 6!important}
+  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-main{border-right:0!important;border-bottom:1px solid #edf0f5!important}
+  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-chart-grid{grid-template-columns:1fr!important}
+  body.arrears-scroll-dashboard #arrearsDashboard .performance-trend,
+  body.arrears-scroll-dashboard #arrearsDashboard .monthly-flow-chart,
+  body.arrears-scroll-dashboard #arrearsDashboard .monthly-ratio-chart,
+  body.arrears-scroll-dashboard #arrearsDashboard .performance-insights{height:270px!important;min-height:270px!important}
+  body.arrears-scroll-dashboard #arrearsDashboard .dash-svg{height:260px!important}
+  body.arrears-scroll-dashboard .workspace.arrears-mode .filters{grid-template-columns:1fr 1fr!important}
+  body.arrears-scroll-dashboard .workspace.arrears-mode.has-detail{grid-template-columns:1fr!important}
+  body.arrears-scroll-dashboard .workspace.arrears-mode.has-detail .member-panel{position:static!important;max-height:none!important}
 }
-@media(max-width:850px){
-  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-title-row{align-items:flex-start!important;gap:12px!important}
+@media(max-width:560px){
+  body.arrears-scroll-dashboard .page{width:calc(100vw - 16px)!important}
+  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-title-row h2{font-size:23px!important}
+  body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls{display:grid!important;grid-template-columns:1fr auto 1fr auto!important;align-items:end!important}
+  body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls select{width:100%!important;min-width:0!important}
   body.arrears-scroll-dashboard #arrearsDashboard .executive-kpi-grid{grid-template-columns:1fr!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics{grid-template-columns:repeat(2,minmax(0,1fr))!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-chart-grid{grid-template-columns:1fr!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-chart-grid>article{grid-column:1!important}
-}
-
-/* =========================================================
-   V16 — 미수금 대시보드 SaaS 카드형 최종 디자인
-   범위: body.arrears-scroll-dashboard 내부 #arrearsDashboard
-         + 같은 화면의 미수회원 조회(workspace.arrears-mode) 영역
-   이 블록은 파일 내 다른 모든 대시보드 스타일 실험보다 뒤에 위치하여
-   최종적으로 적용됩니다. 기능/데이터/JS 계산/다른 탭 레이아웃은
-   변경하지 않고 시각 스타일만 재정의합니다.
-   ========================================================= */
-
-/* ---------- 전체 배경 / 폭 ---------- */
-body.arrears-scroll-dashboard{background:#f5f7fb!important}
-body.arrears-scroll-dashboard .page{
-  width:min(1600px,calc(100vw - 64px))!important;
-  max-width:none!important;
-  margin:0 auto!important;
-  padding:24px 0 64px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard{background:transparent!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel > * + *{margin-top:22px!important}
-
-/* ---------- 상단 타이틀 / 비교 툴바 ---------- */
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-title-row{
-  margin:0 0 20px!important;padding:0!important;background:transparent!important;border:0!important;box-shadow:none!important;
-  display:flex!important;align-items:center!important;justify-content:space-between!important;gap:16px!important;flex-wrap:wrap!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-title-row h2{
-  font-size:26px!important;font-weight:800!important;letter-spacing:-.5px!important;margin:0!important;color:#1c2433!important;line-height:1.2!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls{
-  display:flex!important;align-items:flex-end!important;gap:8px!important;
-  background:#fff!important;border:1px solid #e7e9f0!important;border-radius:12px!important;
-  padding:8px 10px!important;box-shadow:0 1px 2px rgba(20,24,38,.04)!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls label{font-size:10.5px!important;font-weight:700!important;color:#7b8394!important;gap:4px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls select{
-  min-width:132px!important;height:34px!important;border:1px solid #e7e9f0!important;border-radius:8px!important;
-  background:#fbfbfd!important;font-size:12.5px!important;font-weight:600!important;padding:0 10px!important;color:#242b3a!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls>span{
-  height:34px!important;display:flex!important;align-items:center!important;font-size:11px!important;font-weight:600!important;color:#9aa1b0!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard #applyMonthCompare{
-  height:34px!important;padding:0 16px!important;border:0!important;border-radius:8px!important;
-  background:#3b5bfd!important;color:#fff!important;font-size:12.5px!important;font-weight:700!important;box-shadow:none!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard #applyMonthCompare:hover{background:#2f4be0!important}
-
-/* ---------- KPI 카드 4개 ---------- */
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-grid.executive-kpi-grid{
-  display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:18px!important;margin:0 0 20px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi{
-  position:relative!important;min-width:0!important;min-height:0!important;
-  padding:20px 22px 18px!important;border-radius:16px!important;background:#fff!important;
-  border:1px solid #e8ebf1!important;box-shadow:0 1px 2px rgba(20,24,38,.04)!important;overflow:hidden!important;
-  display:flex!important;flex-direction:column!important;gap:0!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi:before{content:none!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-icon{
-  width:38px!important;height:38px!important;border-radius:50%!important;
-  display:grid!important;place-items:center!important;font-size:14px!important;font-weight:800!important;
-  margin:0 0 14px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-icon.purple{background:#efeaff!important;color:#7c5cf0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-icon.blue{background:#e7f0ff!important;color:#3b6de8!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-icon.green{background:#e2f7ee!important;color:#1fa876!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-icon.amber{background:#fff2da!important;color:#d18b1f!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-copy{display:block!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi>span,
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-copy>span{
-  display:block!important;font-size:12.5px!important;font-weight:600!important;color:#828a9a!important;
-  white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;margin:0 0 6px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-copy>strong{
-  display:block!important;font-size:28px!important;font-weight:800!important;letter-spacing:-.6px!important;
-  color:#1a2130!important;line-height:1.1!important;margin:0 0 8px!important;white-space:nowrap!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-copy>small{
-  display:block!important;font-size:11.5px!important;color:#9399a7!important;line-height:1.45!important;white-space:normal!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .kpi-spark{width:100%!important;height:34px!important;margin-top:14px!important;line-height:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .kpi-spark .spark-svg{width:100%!important;height:100%!important;display:block!important}
-body.arrears-scroll-dashboard #arrearsDashboard .kpi-spark .spark-area{fill-opacity:.12!important;stroke:none!important}
-body.arrears-scroll-dashboard #arrearsDashboard .kpi-spark .spark-line{fill:none!important;stroke-width:1.6!important}
-body.arrears-scroll-dashboard #arrearsDashboard .kpi-spark .spark-dot{stroke:#fff!important;stroke-width:1.2!important}
-body.arrears-scroll-dashboard #arrearsDashboard .kpi-spark .spark-purple .spark-line,
-body.arrears-scroll-dashboard #arrearsDashboard .kpi-spark .spark-purple.spark-line{stroke:#7c5cf0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .spark-purple.spark-area{fill:#7c5cf0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .spark-purple.spark-dot{fill:#7c5cf0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .spark-blue.spark-line{stroke:#3b6de8!important}
-body.arrears-scroll-dashboard #arrearsDashboard .spark-blue.spark-area{fill:#3b6de8!important}
-body.arrears-scroll-dashboard #arrearsDashboard .spark-blue.spark-dot{fill:#3b6de8!important}
-body.arrears-scroll-dashboard #arrearsDashboard .spark-green.spark-line{stroke:#1fa876!important}
-body.arrears-scroll-dashboard #arrearsDashboard .spark-green.spark-area{fill:#1fa876!important}
-body.arrears-scroll-dashboard #arrearsDashboard .spark-green.spark-dot{fill:#1fa876!important}
-body.arrears-scroll-dashboard #arrearsDashboard .spark-amber.spark-line{stroke:#d18b1f!important}
-body.arrears-scroll-dashboard #arrearsDashboard .spark-amber.spark-area{fill:#d18b1f!important}
-body.arrears-scroll-dashboard #arrearsDashboard .spark-amber.spark-dot{fill:#d18b1f!important}
-
-/* ---------- 기간 비교 요약 배너 ---------- */
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-band.executive-summary-band{
-  display:grid!important;grid-template-columns:minmax(320px,1.15fr) minmax(0,2.1fr)!important;gap:0!important;
-  background:#fff!important;border:1px solid #e8ebf1!important;border-radius:16px!important;
-  box-shadow:0 1px 2px rgba(20,24,38,.04)!important;margin:0 0 20px!important;overflow:hidden!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-main{
-  padding:22px 24px!important;border-right:1px solid #eef0f4!important;
-  display:flex!important;flex-direction:column!important;justify-content:center!important;min-height:112px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-main>span{font-size:11.5px!important;font-weight:700!important;color:#8a91a1!important;margin:0 0 8px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-main>strong{font-size:18px!important;font-weight:700!important;line-height:1.4!important;letter-spacing:-.2px!important;color:#20293b!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-main>p{margin:8px 0 0!important;font-size:11.5px!important;color:#8d94a3!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-metrics.executive-summary-metrics{
-  display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;min-width:0!important;background:#fbfbfd!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-metrics>div{
-  padding:20px 18px!important;border-right:1px solid #eef0f4!important;
-  display:flex!important;flex-direction:column!important;justify-content:center!important;min-width:0!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-metrics>div:last-child{border-right:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-metrics span{font-size:11px!important;font-weight:600!important;color:#8a91a1!important;white-space:nowrap!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-metrics strong{font-size:19px!important;font-weight:800!important;line-height:1.1!important;margin:8px 0 4px!important;white-space:nowrap!important;color:#20293b!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-metrics small{font-size:10px!important;color:#9aa1b0!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
-body.arrears-scroll-dashboard #arrearsDashboard .good{color:#2f6fe0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .bad{color:#e0454f!important}
-body.arrears-scroll-dashboard #arrearsDashboard .summary-combo{display:flex!important;flex-direction:row!important;gap:14px!important;padding:20px 18px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .summary-combo .combo-item{flex:1 1 0!important;min-width:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .summary-combo .combo-item span{font-size:11px!important;font-weight:600!important;color:#8a91a1!important;white-space:nowrap!important;display:block!important}
-body.arrears-scroll-dashboard #arrearsDashboard .summary-combo .combo-item strong{display:block!important;font-size:19px!important;font-weight:800!important;margin:8px 0 4px!important;color:#20293b!important}
-body.arrears-scroll-dashboard #arrearsDashboard .summary-combo .combo-item small{font-size:10px!important;color:#9aa1b0!important;display:block!important}
-
-/* ---------- 차트 영역 2x2 ---------- */
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-chart-grid{
-  display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:18px!important;margin:0 0 20px!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-chart-card,
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-insight-card{
-  min-height:360px!important;padding:22px 24px 20px!important;background:#fff!important;
-  border:1px solid #e8ebf1!important;border-radius:16px!important;box-shadow:0 1px 2px rgba(20,24,38,.04)!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .dash-card-head{min-height:auto!important;margin:0 0 16px!important;padding:0!important;border:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dash-card-head b{font-size:15px!important;font-weight:700!important;color:#242b3a!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-trend,
-body.arrears-scroll-dashboard #arrearsDashboard .monthly-flow-chart,
-body.arrears-scroll-dashboard #arrearsDashboard .monthly-ratio-chart{height:290px!important;min-height:290px!important;padding:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dash-svg{width:100%!important;height:290px!important;display:block!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-grid{stroke:#eef0f4!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-axis{font-size:11.5px!important;fill:#9aa1b0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-month{font-size:11.5px!important;fill:#6b7385!important;font-weight:600!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-value{font-size:11px!important;fill:#242b3a!important;font-weight:700!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-small-value{font-size:10px!important;fill:#6b7385!important;font-weight:600!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-change{font-size:10px!important;font-weight:700!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-change.good{fill:#2f6fe0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-change.bad{fill:#e0454f!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-bar-purple{fill:#7c5cf0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-bar-charge{fill:#f0b429!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-bar-paid{fill:#2bb673!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-ratio-line{stroke:#3b6de8!important;stroke-width:2!important;fill:none!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-ratio-dot{fill:#3b6de8!important;stroke:#fff!important;stroke-width:1.4!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-legend{display:flex!important;gap:16px!important;margin:0 0 10px!important;font-size:11.5px!important;color:#6b7385!important;font-weight:600!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-legend i{display:inline-block!important;width:9px!important;height:9px!important;border-radius:2px!important;margin-right:5px!important;vertical-align:middle!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-legend .legend-charge{background:#f0b429!important}
-body.arrears-scroll-dashboard #arrearsDashboard .svg-legend .legend-paid{background:#2bb673!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dash-empty{color:#9aa1b0!important;font-size:12.5px!important;padding:40px 8px!important}
-
-/* 월별 성과 요약: 2x2 summary tile */
-body.arrears-scroll-dashboard #arrearsDashboard .performance-insights{
-  display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;grid-template-rows:repeat(2,minmax(0,1fr))!important;
-  gap:12px!important;height:290px!important;border:0!important;border-radius:0!important;overflow:visible!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-tile{
-  display:flex!important;flex-direction:column!important;justify-content:center!important;
-  padding:16px 18px!important;background:#fafbfd!important;border:1px solid #eef0f4!important;border-radius:12px!important;min-width:0!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-tile>span{font-size:11px!important;font-weight:600!important;color:#8a91a1!important;white-space:normal!important;line-height:1.35!important}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-tile>b{display:block!important;font-size:20px!important;font-weight:800!important;color:#1a2130!important;margin:8px 0 4px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-tile>em{display:block!important;font-style:normal!important;font-size:13px!important;font-weight:700!important;color:#6b7385!important}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-tile>em.good{color:#2f6fe0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .insight-tile>em.bad{color:#e0454f!important}
-
-/* ---------- 월별 성과표 ---------- */
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-table-section{margin-top:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-section-head{display:flex!important;align-items:center!important;justify-content:space-between!important;margin:0 0 12px!important;padding:0 2px!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-section-head h3{font-size:18px!important;font-weight:700!important;margin:0!important;color:#20293b!important}
-body.arrears-scroll-dashboard #arrearsDashboard .dashboard-section-head span{font-size:11px!important;color:#9aa1b0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table-card{
-  padding:0!important;overflow:hidden!important;border:1px solid #e8ebf1!important;border-radius:16px!important;
-  background:#fff!important;box-shadow:0 1px 2px rgba(20,24,38,.04)!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table-wrap{overflow-x:auto!important;padding:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table{width:100%!important;min-width:1160px!important;border-collapse:separate!important;border-spacing:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table th{
-  height:44px!important;padding:0 12px!important;background:#fafbfd!important;color:#7b8394!important;
-  font-size:12px!important;font-weight:700!important;border-bottom:1px solid #eef0f4!important;text-align:center!important;white-space:nowrap!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table td{
-  height:44px!important;padding:0 12px!important;font-size:13px!important;color:#242b3a!important;
-  text-align:center!important;border-bottom:1px solid #f2f3f7!important;white-space:nowrap!important;background:#fff!important;
-}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table tbody tr:last-child td{border-bottom:0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table tbody tr:hover td{background:#fafbfd!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table tbody tr.selected-month td{background:#f4f7ff!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table .paid-cell{color:#1fa876!important;font-weight:700!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table .end-balance{font-weight:800!important;color:#1a2130!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table td.good{color:#2f6fe0!important}
-body.arrears-scroll-dashboard #arrearsDashboard .performance-table td.bad{color:#e0454f!important}
-
-/* ---------- 미수회원 조회 ---------- */
-body.arrears-scroll-dashboard .arrears-member-section-title{margin:32px 0 12px!important;padding-top:20px!important;border-top:1px solid #e8ebf1!important}
-body.arrears-scroll-dashboard .arrears-member-section-title h3{font-size:20px!important;font-weight:700!important;color:#20293b!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode{gap:16px!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .member-panel{
-  border:1px solid #e8ebf1!important;border-radius:16px!important;box-shadow:0 1px 2px rgba(20,24,38,.04)!important;background:#fff!important;
-}
-body.arrears-scroll-dashboard .workspace.arrears-mode .panel-head{padding:18px 22px 12px!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .panel-head h2{font-size:16px!important;font-weight:700!important;color:#20293b!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .filters{padding:0 22px 16px!important;gap:8px!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .filters select,
-body.arrears-scroll-dashboard .workspace.arrears-mode .search-box input{height:38px!important;border-radius:9px!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .member-table th{height:42px!important;background:#fafbfd!important;font-size:12px!important;color:#7b8394!important;font-weight:700!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .member-table td{height:44px!important;font-size:13px!important;color:#242b3a!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .excel-export-btn{background:#fdf3c6!important;border-color:#ecdd97!important;color:#7a5b0d!important;border-radius:9px!important;font-weight:700!important}
-body.arrears-scroll-dashboard .workspace.arrears-mode .count-badge{background:#eef0ff!important;color:#5c62d6!important}
-
-/* ---------- 반응형 ---------- */
-@media(max-width:1360px){
-  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-grid.executive-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-band.executive-summary-band{grid-template-columns:1fr!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-main{border-right:0!important;border-bottom:1px solid #eef0f4!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-metrics.executive-summary-metrics{grid-template-columns:repeat(2,minmax(0,1fr))!important;background:#fff!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-metrics>div{border-bottom:1px solid #eef0f4!important}
-}
-@media(max-width:900px){
-  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-title-row{align-items:flex-start!important;flex-direction:column!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-kpi-grid.executive-kpi-grid{grid-template-columns:1fr!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-chart-grid{grid-template-columns:1fr!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .performance-insights{height:auto!important}
-  body.arrears-scroll-dashboard #arrearsDashboard .summary-combo{flex-direction:column!important;gap:12px!important}
+  body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics{grid-template-columns:1fr!important;grid-template-rows:auto!important}
+  body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics>div{border-right:0!important;border-bottom:1px solid #edf0f5!important}
+  body.arrears-scroll-dashboard #arrearsDashboard .executive-summary-metrics>div:last-child{border-bottom:0!important}
+  body.arrears-scroll-dashboard #arrearsDashboard .performance-insights{height:auto!important;min-height:0!important;grid-template-columns:1fr!important;grid-template-rows:auto!important}
+  body.arrears-scroll-dashboard #arrearsDashboard .insight-row{min-height:96px!important}
+  body.arrears-scroll-dashboard .workspace.arrears-mode .filters{grid-template-columns:1fr!important}
 }

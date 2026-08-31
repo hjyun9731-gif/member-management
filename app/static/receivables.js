@@ -64,30 +64,22 @@ function compactWon(n){
   return v.toLocaleString('ko-KR');
 }
 function svgEsc(v){return esc(v)}
-function miniSparkline(values,colorClass){
-  const vals=(values||[]).map(v=>Number(v||0));
-  if(vals.length<2)return '';
-  const W=140,H=34,pad=3;
-  const min=Math.min(...vals),max=Math.max(...vals);
-  const span=(max-min)||1;
-  const step=(W-pad*2)/(vals.length-1);
-  const pts=vals.map((v,i)=>{const x=pad+i*step,y=pad+(H-pad*2)*(1-(v-min)/span);return [x,y]});
-  const line=pts.map(p=>p.join(',')).join(' ');
-  const areaPath=`M${pts[0][0]},${H-pad} L${pts.map(p=>p.join(',')).join(' L')} L${pts[pts.length-1][0]},${H-pad} Z`;
-  const last=pts[pts.length-1];
-  return `<svg class="spark-svg ${colorClass||''}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-hidden="true">`+
-    `<path d="${areaPath}" class="spark-area"/>`+
-    `<polyline points="${line}" class="spark-line"/>`+
-    `<circle cx="${last[0]}" cy="${last[1]}" r="2.6" class="spark-dot"/>`+
-    `</svg>`;
+function sparkSvg(values){
+  const nums=(values||[]).map(Number).filter(Number.isFinite);
+  if(nums.length<2)return '';
+  const W=220,H=30,P=2,min=Math.min(...nums),max=Math.max(...nums),range=Math.max(1,max-min);
+  const pts=nums.map((v,i)=>{const x=P+i*(W-P*2)/(nums.length-1),y=P+(H-P*2)*(1-(v-min)/range);return [x,y]});
+  const line=pts.map(p=>p.join(',')).join(' '), area=`${P},${H-P} ${line} ${W-P},${H-P}`;
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><polygon points="${area}" class="spark-area"/><polyline points="${line}" class="spark-line"/></svg>`;
 }
 function renderKpiSparklines(history){
-  const h=history||[];
-  const set=(id,vals,cls)=>{const el=$('#'+id);if(el)el.innerHTML=miniSparkline(vals,cls)};
-  set('sparkFrom',h.map(r=>r.end_arrears),'spark-purple');
-  set('sparkTo',h.map(r=>r.end_arrears),'spark-blue');
-  set('sparkPaid',h.map(r=>r.payments),'spark-green');
-  set('sparkRate',h.map(r=>r.collection_ratio),'spark-amber');
+  const rows=history||[];
+  const series={
+    arrears:rows.map(r=>Number(r.end_arrears||0)),
+    payments:rows.map(r=>Number(r.payments||0)),
+    ratio:rows.map(r=>Number(r.collection_ratio||0))
+  };
+  $$('.kpi-sparkline').forEach(el=>{el.innerHTML=sparkSvg(series[el.dataset.sparkline]||[])});
 }
 function svgTrendChart(history){
   if(!history.length)return '<div class="dash-empty">월별 데이터 없음</div>';
@@ -130,6 +122,7 @@ function svgRatioChart(history){
   const tickCount=4;
   let out=`<svg class="dash-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="월별 수납 부과율">`;
   for(let k=0;k<=tickCount;k++){const v=ymax*k/tickCount,y=T+ph*(1-v/ymax);out+=`<line x1="${L}" y1="${y}" x2="${W-R}" y2="${y}" class="svg-grid"/><text x="${L-10}" y="${y+4}" text-anchor="end" class="svg-axis">${Math.round(v)}%</text>`}
+  if(ymax>=100){const by=T+ph*(1-100/ymax);out+=`<line x1="${L}" y1="${by}" x2="${W-R}" y2="${by}" class="svg-ratio-baseline"/>`;}
   const pts=[];history.forEach((r,i)=>{const v=values[i],x=L+(history.length===1?pw/2:i*pw/(history.length-1)),y=T+ph*(1-v/ymax);pts.push(`${x},${y}`)});
   out+=`<polyline points="${pts.join(' ')}" class="svg-ratio-line"/>`;
   history.forEach((r,i)=>{const v=values[i],x=L+(history.length===1?pw/2:i*pw/(history.length-1)),y=T+ph*(1-v/ymax);out+=`<circle cx="${x}" cy="${y}" r="5" class="svg-ratio-dot"/><text x="${x}" y="${Math.max(18,y-11)}" text-anchor="middle" class="svg-value">${ratioText(r.collection_ratio)}</text><text x="${x}" y="${H-16}" text-anchor="middle" class="svg-month">${svgEsc(String(r.month).slice(5))}월</text>`});
@@ -196,12 +189,12 @@ function renderMonthlyAnalysis(a){
     const br=ins.best_reduction,wi=ins.worst_increase,bc=ins.best_collection;
     const validRates=history.filter(r=>r.collection_ratio!==null&&r.collection_ratio!==undefined&&Number.isFinite(Number(r.collection_ratio)));
     const wc=validRates.length?validRates.reduce((a,b)=>Number(a.collection_ratio)<=Number(b.collection_ratio)?a:b):null;
-    const tile=(label,r,value,cls,tail)=>`<div class="insight-tile"><span>${label}</span><b>${r?esc(r.label):'-'}</b><em class="${cls||''}">${r?(tail?tail(r):(r.net_change!==undefined?signedWon(r.net_change):'')):'데이터 없음'}</em></div>`;
+    const row=(label,r,value,cls,tail)=>`<div class="insight-row"><span>${label}</span><div><b>${r?esc(r.label):'-'}</b><small>${r?value(r):'데이터 없음'}</small></div><em class="${cls||''}">${r?(tail?tail(r):(r.net_change!==undefined?signedWon(r.net_change):'')):''}</em></div>`;
     insights.innerHTML=
-      tile('미수 가장 많이 감소한 달',br,r=>`월말 ${fmt(r.end_arrears||0)}`,'good')+
-      tile('미수 가장 많이 증가한 달',wi,r=>`월말 ${fmt(r.end_arrears||0)}`,'bad')+
-      tile('수납/부과율 최고',bc,r=>`수납 ${fmt(r.payments||0)} / 부과 ${fmt(r.charges||0)}`,'good',r=>ratioText(r.collection_ratio))+
-      tile('수납/부과율 최저',wc,r=>`수납 ${fmt(r.payments||0)} / 부과 ${fmt(r.charges||0)}`,'bad',r=>ratioText(r.collection_ratio));
+      row('미수 가장 많이 감소',br,r=>`월말 ${fmt(r.end_arrears||0)}`,'good')+
+      row('미수 가장 많이 증가',wi,r=>`월말 ${fmt(r.end_arrears||0)}`,'bad')+
+      row('수납/부과율 최고',bc,r=>`수납 ${fmt(r.payments||0)} / 부과 ${fmt(r.charges||0)}`,'good',r=>ratioText(r.collection_ratio))+
+      row('수납/부과율 최저',wc,r=>`수납 ${fmt(r.payments||0)} / 부과 ${fmt(r.charges||0)}`,'bad',r=>ratioText(r.collection_ratio));
   }
 
   const tbody=$('#performanceTableRows');
