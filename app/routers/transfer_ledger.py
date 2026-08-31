@@ -10,7 +10,7 @@ import logging
 from app.database import get_db
 from app.auth import get_current_user, require_admin
 from app import models, crud
-from app.excel_utils import records_to_excel, parse_date_sort
+from app.excel_utils import records_to_excel, parse_date_sort, is_association_member
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -274,8 +274,56 @@ async def list_transfers(
     else:
         items = []
 
+    # 목록 표시용 가입여부는 연결된 회원 원장을 조회해서 읽기 전용으로 보강한다.
+    # 기존 양도양수 저장/수정/연결 로직은 건드리지 않는다.
+    member_ids = set()
+    for t in items:
+        if getattr(t, "transferor_member_id", None):
+            member_ids.add(t.transferor_member_id)
+        if getattr(t, "transferee_member_id", None):
+            member_ids.add(t.transferee_member_id)
+        elif getattr(t, "member_id", None):
+            member_ids.add(t.member_id)
+
+    member_map = {}
+    if member_ids:
+        linked_members = db.query(models.LicenseHolder).filter(
+            models.LicenseHolder.id.in_(member_ids),
+            models.LicenseHolder.deleted_at.is_(None),
+        ).all()
+        member_map = {m.id: m for m in linked_members}
+
+    def _member_status(mid, fallback_date="", allow_fallback=False):
+        """목록 표시용 가입 판정.
+
+        중요: membership_date에 뭔가 적혀있다는 이유만으로 가입으로 보지 않는다.
+        과거 원장에는 'x', '개별에 등록', '개별에서 대폐차', '대폐차&등록' 같은
+        업무메모가 가입일자 칸에 들어간 행이 있으므로, 공통 판정 함수로
+        실제 날짜(또는 O/ㅇ/○)만 가입으로 인정한다. 저장 데이터는 변경하지 않는다.
+        """
+        m = member_map.get(mid) if mid else None
+        if m:
+            md = (m.membership_date or "").strip()
+            return ("가입" if is_association_member(md) else "미가입"), md
+        if allow_fallback:
+            md = (fallback_date or "").strip()
+            return ("가입" if is_association_member(md) else "미가입"), md
+        return "", ""
+
+    formatted = []
+    for t in items:
+        d = _fmt(t)
+        tor_status, tor_date = _member_status(getattr(t, "transferor_member_id", None))
+        tee_id = getattr(t, "transferee_member_id", None) or getattr(t, "member_id", None)
+        tee_status, tee_date = _member_status(tee_id, t.membership_date or "", allow_fallback=True)
+        d["transferor_membership_status"] = tor_status
+        d["transferor_membership_date"] = tor_date
+        d["transferee_membership_status"] = tee_status
+        d["transferee_membership_date"] = tee_date
+        formatted.append(d)
+
     pages = max(1, (total + limit - 1) // limit)
-    return {"items": [_fmt(i) for i in items], "total": total,
+    return {"items": formatted, "total": total,
             "page": page, "pages": pages, "limit": limit}
 
 

@@ -7,7 +7,7 @@ import io
 from app.database import get_db
 from app.auth import get_current_user, require_admin
 from app import models, crud
-from app.excel_utils import records_to_excel, parse_date_sort, normalize_closure_type
+from app.excel_utils import records_to_excel, parse_date_sort, normalize_closure_type, is_association_member
 
 router = APIRouter()
 
@@ -145,14 +145,12 @@ def _fmt(c, member=None):
     # 기존 회원 관리번호는 폐업관리번호와 별개이므로 연결된 회원마스터에서만 가져온다.
     result["previous_management_number"] = (getattr(member, "management_number", "") or "") if member else ""
 
-    # 과거 자료의 가입여부가 비어 있거나 오래된 값이어도 가입일자가 있으면 '가입'으로 본다.
-    # 저장 데이터는 변경하지 않고 응답 표시값만 정규화한다.
+    # 가입여부는 "가입일자 칸이 비어있지 않다"로 판정하면 안 된다.
+    # 원본에는 x / 개별에 등록 / 개별에서 대폐차 / 대폐차&등록 같은
+    # 업무메모가 membership_date 칸에 들어간 과거 데이터가 실제로 존재한다.
+    # 공통 판정 함수는 실제 날짜(또는 O/ㅇ/○)만 가입으로 인정하고, 그 외 텍스트는 미가입으로 본다.
     mem_date = (result.get("membership_date") or "").strip()
-    mem_status = (result.get("membership_status") or "").strip()
-    if mem_date or mem_status == "가입":
-        result["membership_status"] = "가입"
-    elif mem_status not in ("가입", "미가입"):
-        result["membership_status"] = "미가입"
+    result["membership_status"] = "가입" if is_association_member(mem_date) else "미가입"
     return result
 
 
