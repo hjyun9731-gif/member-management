@@ -198,6 +198,46 @@ function ensureTransferLedgerPolishStyle(){
 }
 ensureTransferLedgerPolishStyle();
 
+function ensurePermitLedgerLikeNewStyle(){
+  if(document.getElementById('permit-ledger-like-new-v1')) return;
+  const st=document.createElement('style');
+  st.id='permit-ledger-like-new-v1';
+  st.textContent=`
+    .permit-ledger-like-new .tbl-wrap table{font-size:12px}
+    .permit-ledger-like-new .tbl-wrap th{color:#6a7181;font-weight:700;background:#fbfcfe}
+    .permit-ledger-like-new .tbl-wrap td{color:#41495a;vertical-align:middle}
+    .permit-ledger-like-new .tbl-wrap tbody tr:hover{background:#fafbff}
+    .permit-ledger-like-new .tbl-link{color:#5e69cf!important;font-weight:700;text-decoration:none}
+    .permit-ledger-like-new .tbl-link:hover{color:#4853b4!important;text-decoration:underline}
+    .permit-ledger-like-new .ledger-mgmt{color:#5f58bd;font-weight:800}
+    .permit-ledger-like-new .ledger-date{font-weight:700;color:#343b4c}
+    .permit-ledger-like-new .ledger-muted{color:#949baa;font-size:10.5px}
+    .permit-ledger-like-new .ledger-member-name{font-weight:800;color:#5964c8!important}
+    .permit-ledger-like-new .ledger-joined-date{font-size:10px;color:#8b92a2;margin-left:5px;white-space:nowrap}
+    .permit-ledger-like-new .ledger-expand-btn{min-width:25px;padding:2px 6px!important;border-radius:7px!important;color:#72798a!important;background:#f7f8fb!important;border-color:#e1e4eb!important}
+    .permit-ledger-like-new .ledger-expand-btn:hover{background:#eef0f6!important;color:#555d70!important}
+    .permit-ledger-like-new .tl-transferor-detail td{background:#fbfcfe;border-top:0!important;padding:0!important}
+    .permit-ledger-like-new .tl-transferor-detail-box{display:flex;align-items:center;gap:18px;min-height:42px;padding:7px 18px 8px 55px;border-top:1px dashed #e4e7ed;color:#687083}
+    .permit-ledger-like-new .tl-transferor-detail-box strong{color:#50586a}
+    .permit-ledger-like-new .tl-transferor-detail-box .detail-label{font-size:10px;color:#9aa1ae;margin-right:5px}
+    .permit-ledger-like-new .tl-transferor-detail-box .detail-person{display:flex;align-items:center;gap:6px}
+    .permit-ledger-like-new .tl-transferor-detail-box .detail-note{font-size:10.5px;color:#8d94a3}
+    .permit-ledger-like-new .member-focus-cell{background:#fdfcff}
+    .permit-ledger-like-new .member-focus-head{background:#faf8ff!important;color:#5b52a5!important}
+    #tlLedgerCard .tl-ledger-table th:nth-child(6){background:#fbfcfe!important;color:#6a7181!important}
+    #tlLedgerCard .tl-ledger-table td:nth-child(6){background:transparent!important}
+    #tlLedgerCard .tl-ledger-table th:nth-child(5){background:#faf8ff!important;color:#5b52a5!important}
+    #tlLedgerCard .tl-ledger-table td:nth-child(5){background:#fdfcff!important}
+    .permit-ledger-like-new .td-act{white-space:nowrap}
+    .permit-ledger-like-new .badge.bdomestic,
+    .permit-ledger-like-new .bdomestic{background:#f3fbe9!important;color:#5e7d43!important;border-color:#d7e9bd!important}
+    #tlExpandAllBtn{background:#fff;color:#676f81;border-color:#dfe3eb}
+    #tlExpandAllBtn:hover{background:#f7f8fb}
+  `;
+  document.head.appendChild(st);
+}
+ensurePermitLedgerLikeNewStyle();
+
 function dtBadge(d){return d==='이전자료'?`<span class="badge b-purple">이전</span>`:`<span class="badge b-pri">신규</span>`;}
 function ctBadge(t){const m={'폐업':'b-danger','양도':'b-warn','이관':'b-purple','사망':'b-gray','말소':'b-gray'};return `<span class="badge ${m[t]||'b-gray'}">${t||'-'}</span>`;}
 function chBadge(t){const m={'주소지변경':'b-sky','상호변경':'b-pri','구조변경':'b-teal','전속계약 업체변경':'b-yellow','등록이관':'b-purple','이전전출':'b-pink','대표자변경':'b-warn','성명변경':'b-pri','번호변경':'b-teal'};return `<span class="badge ${m[t]||'b-gray'}" style="font-size:10px">${t||'-'}</span>`;}
@@ -1442,17 +1482,16 @@ async function renderNewRegistrations(){
 // ===== TRANSFER LEDGER =====
 async function renderTransferLedger(){
   ensureTransferLedgerPolishStyle();
+  ensurePermitLedgerLikeNewStyle();
   const f=ST.fl.tl||{};
-  const transferorStored=localStorage.getItem('tl-transferor-hidden');
-  const transferorHidden=transferorStored===null?true:transferorStored==='1';
   document.getElementById('content').innerHTML=`
-    <div class="card ${transferorHidden?'tl-hide-transferor':''}" id="tlLedgerCard">
+    <div class="card permit-ledger-like-new" id="tlLedgerCard">
       <div class="card-hd">
         <div class="card-hd-l"><span class="card-ico">📋</span><span class="card-ttl">양도양수대장</span><span class="cnt" id="tlCnt">0건</span>
           <span class="badge b-sky" style="font-size:10px;margin-left:6px">접수일자 기준</span></div>
         <div class="flex gap-8">
           <button class="btn bg btn-sm" id="tlAddBtn">+ 등록</button>
-          <button class="btn bo btn-sm" id="tlTransferorToggle">${transferorHidden?'양도자 보기':'양도자 숨기기'}</button>
+          <button class="btn bo btn-sm" id="tlExpandAllBtn">양도자 전체보기</button>
           ${isAdmin()?`<button class="btn bo btn-sm" id="tlRelinkBtn" title="양도자/양수자 회원 ID 연결 자동 복구">🔗 연결복구</button>`:''}
           ${isAdmin()?`<button class="btn bo btn-sm" id="tlMissingBtn" title="관리번호 양YY-N 회원 중 대장 누락건 찾기/복구">🧩 누락대장 복구</button>`:''}
           ${isAdmin()?`<button class="btn bo btn-sm" id="tlCertSyncBtn" title="대장에 나중에 입력한 자격증명발급번호를 연결된 회원/예정자에 소급 반영">🪪 발급번호 동기화</button>`:''}
@@ -1461,72 +1500,120 @@ async function renderTransferLedger(){
       </div>
       <div class="frow">
         ${rselflt('tlRegF',f.region||'')}
-        ${dateOrderSel('tlDateF',f.date_order||'mgmt_desc')}
-        <input class="srch" id="tlSrch" placeholder="양도자, 양수자, 차량번호" value="${e_(f.search||'')}">
+        ${dateOrderSel('tlDateF',f.date_order||f.member_sort||'mgmt_desc')}
+        <input class="srch" id="tlSrch" placeholder="양수자, 양도자, 차량번호" value="${e_(f.search||'')}">
         <button class="btn bp btn-sm" id="tlSrchBtn">조회</button>
         <button class="btn bo btn-sm" id="tlRstBtn">초기화</button>
       </div>
       <div id="tlTbl"><div class="loading-box"><div class="spin"></div></div></div>
     </div>`;
 
-  // 요구사항 컬럼 순서 고정
+  // 신규등록대장과 같은 정보 흐름: 양수자(현재 등록 대상)를 본문 중심으로 두고,
+  // 양도자는 필요할 때만 아래 보조행을 펼쳐 확인한다.
   const hdrs=[
-    {label:'관리번호'},{label:'접수일자'},{label:'지역'},
-    {label:'차량번호'},{label:'양도자 / 가입'},{label:'양수자 / 가입'},{label:'연결관계'},{label:'핸드폰'},
-    {label:'인가일자'},{label:'가입일자'},{label:'자격증명발급일자'},{label:'자격증명발급번호'},
-    {label:'비고'},{label:'관리',noSort:true}
+    {label:''},{label:'관리번호'},{label:'지역'},{label:'차량번호'},
+    {label:'양수자'},{label:'가입'},{label:'핸드폰'},{label:'접수일자'},{label:'인가일자'},
+    {label:'가입일자'},{label:'자격증명발급일자'},{label:'자격증명발급번호'},
+    {label:'차종'},{label:'유종'},{label:'주소'},{label:'비고'},{label:'관리',noSort:true}
   ];
 
   const doSearch=async(pg=1)=>{
-    const tlSort=document.getElementById('tlDateF')?.value||'mgmt_desc';const tlIsDate=(tlSort==='desc'||tlSort==='asc');ST.fl.tl={region:document.getElementById('tlRegF').value,member_sort:tlIsDate?undefined:tlSort,date_order:tlIsDate?tlSort:undefined,search:document.getElementById('tlSrch').value.trim()};
+    const tlSort=document.getElementById('tlDateF')?.value||'mgmt_desc';
+    const tlIsDate=(tlSort==='desc'||tlSort==='asc');
+    ST.fl.tl={
+      region:document.getElementById('tlRegF').value,
+      member_sort:tlIsDate?undefined:tlSort,
+      date_order:tlIsDate?tlSort:undefined,
+      search:document.getElementById('tlSrch').value.trim()
+    };
     const q=new URLSearchParams({page:pg,limit:50,...Object.fromEntries(Object.entries(ST.fl.tl).filter(([,v])=>v))});
     const tw=document.getElementById('tlTbl');if(!tw)return;
     let d=null;
     try{d=await Promise.race([api('GET',`/api/transfer-ledger?${q}`),new Promise((_,r)=>setTimeout(()=>r(new Error('timeout')),8000))]);}
     catch(e){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">⚠️</div><p class="empty-txt">데이터 조회 실패. 새로고침 해주세요.</p></div>`;return;}
-    if(!d){return;}
+    if(!d)return;
     document.getElementById('tlCnt').textContent=`${d.total.toLocaleString()}건`;
     if(!d.items.length){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">📋</div><p class="empty-txt">데이터가 없습니다.</p></div>`;return;}
+
     tw.innerHTML=`<div class="tbl-wrap"><table class="tl-ledger-table">
-      <thead><tr>${plainHeaders(hdrs)}</tr></thead>
+      <thead><tr>${plainHeaders(hdrs).replace('<th>양수자</th>','<th class="member-focus-head">양수자</th>')}</tr></thead>
       <tbody>${d.items.map(r=>{
-        const linked=r.transferor_member_id&&r.transferee_member_id;
-        return `<tr>
-        <td><strong class="tl-mgmt">${fv(r.management_number)}</strong></td>
-        <td><strong class="tl-date">${fv(r.receipt_date)}</strong></td>
-        <td>${fv(r.region)}</td>
-        <td><a class="tbl-link" onclick="viewTransfer(${r.id});return false">${fv(r.vehicle_number)}</a></td>
-        <td class="tl-transferor-col tl-namecell">${r.transferor_member_id?`<a class="tbl-link" onclick="viewMember(${r.transferor_member_id});return false">${fv(r.transferor)}</a>`:`<a class="tbl-link" onclick="viewTransfer(${r.id});return false">${fv(r.transferor)}</a>`}<div class="tl-subline">${tlMembershipBadge(r.transferor_membership_status,r.transferor_membership_date)}</div></td>
-        <td class="tl-namecell">${r.transferee_member_id?`<a class="tbl-link" onclick="viewMember(${r.transferee_member_id});return false">${fv(r.transferee)}</a>`:`<a class="tbl-link" onclick="viewTransfer(${r.id});return false">${fv(r.transferee)}</a>`}<div class="tl-subline">${tlMembershipBadge(r.transferee_membership_status,r.transferee_membership_date)}</div></td>
-        <td>${linked?`<span class="badge tl-link-soft" style="font-size:10px" title="양도자-양수자 연결됨">🔗 연결됨</span>`:`<span class="badge b-gray" style="font-size:10px">-</span>`}</td>
-        <td>${fv(r.mobile)}</td>
-        <td>${fv(r.approval_date)}</td>
-        <td>${fv(r.membership_date)}</td>
-        <td>${fv(r.certificate_issue_date)}</td>
-        <td>${fv(r.certificate_number)}</td>
-        <td title="${e_(r.memo)}">${fv(r.memo)}</td>
-        <td class="td-act" style="white-space:nowrap;min-width:120px">
-          <button class="btn bp btn-xs" onclick="editTransfer(${r.id})" title="수정">수정</button>
-          ${!r.member_id?`<button class="btn bo btn-xs" onclick="registerTransferMember(${r.id})" title="회원 상세 등록">회원상세</button>`:`<span class="badge b-teal" style="font-size:10px">등록완료</span>`}
-          ${isAdmin()?`<button class="btn br btn-xs" onclick="deleteTransfer(${r.id})" title="삭제">삭제</button>`:''}
-        </td></tr>`;}).join('')}</tbody>
+        const linked=!!(r.transferor_member_id&&r.transferee_member_id);
+        const teeStatus=(r.transferee_membership_status||'').trim();
+        const teeJoin=teeStatus==='가입'?(r.transferee_membership_date||r.membership_date||''):'';
+        const torStatus=(r.transferor_membership_status||'').trim();
+        const torJoin=torStatus==='가입'?(r.transferor_membership_date||''):'';
+        const teeName=r.transferee_member_id
+          ?`<a class="tbl-link ledger-member-name" onclick="viewMember(${r.transferee_member_id});return false">${fv(r.transferee)}</a>`
+          :`<a class="tbl-link ledger-member-name" onclick="viewTransfer(${r.id});return false">${fv(r.transferee)}</a>`;
+        const torName=r.transferor_member_id
+          ?`<a class="tbl-link" onclick="viewMember(${r.transferor_member_id});return false">${fv(r.transferor)}</a>`
+          :`<a class="tbl-link" onclick="viewTransfer(${r.id});return false">${fv(r.transferor)}</a>`;
+        return `<tr class="tl-main-row" data-id="${r.id}">
+          <td style="width:34px;text-align:center"><button type="button" class="btn bo btn-xs ledger-expand-btn tl-row-expander" data-id="${r.id}" title="양도자 보기" aria-expanded="false">▸</button></td>
+          <td><a class="tbl-link ledger-mgmt" onclick="viewTransfer(${r.id});return false">${fv(r.management_number)}</a></td>
+          <td>${fv(r.region)}</td>
+          <td><a class="tbl-link" onclick="viewTransfer(${r.id});return false">${fv(r.vehicle_number)}</a></td>
+          <td class="member-focus-cell">${teeName}</td>
+          <td>${memBadge(teeStatus||'미확인')}</td>
+          <td>${fv(r.mobile)}</td>
+          <td><span class="ledger-date">${fv(r.receipt_date)}</span></td>
+          <td>${fv(r.approval_date)}</td>
+          <td>${fv(teeJoin)}</td>
+          <td>${fv(r.certificate_issue_date)}</td>
+          <td>${fv(r.certificate_number)}</td>
+          <td title="${e_(r.vehicle_type||'')}">${fv(r.vehicle_type)}</td>
+          <td>${fv(r.fuel_type)}</td>
+          <td title="${e_(r.address||'')}">${fv(r.address)}</td>
+          <td title="${e_(r.memo||'')}">${fv(r.memo)}</td>
+          <td class="td-act">
+            <button class="btn bp btn-xs" onclick="editTransfer(${r.id})">수정</button>
+            ${!r.member_id?`<button class="btn bo btn-xs" onclick="registerTransferMember(${r.id})">회원상세</button>`:`<span class="badge b-teal" style="font-size:10px">등록완료</span>`}
+            ${isAdmin()?`<button class="btn br btn-xs" onclick="deleteTransfer(${r.id})">삭제</button>`:''}
+          </td>
+        </tr>
+        <tr class="tl-transferor-detail" id="tl-extra-${r.id}" hidden>
+          <td colspan="17"><div class="tl-transferor-detail-box">
+            <span class="detail-person"><span class="detail-label">양도자</span><strong>${torName}</strong></span>
+            <span class="detail-person"><span class="detail-label">가입여부</span>${memBadge(torStatus||'미확인')}${torJoin?`<span class="ledger-joined-date">${e_(fv(torJoin))}</span>`:''}</span>
+            <span class="detail-person"><span class="detail-label">연결</span>${linked?`<span class="badge tl-link-soft" style="font-size:10px">🔗 연결됨</span>`:`<span class="badge b-gray" style="font-size:10px">미연결</span>`}</span>
+            <span class="detail-note">양도자는 참고정보이며 양수자 등록정보가 본문 기준입니다.</span>
+          </div></td>
+        </tr>`;
+      }).join('')}</tbody>
     </table></div>${pgn(d,doSearch)}`;
     bindPgn('tlTbl',doSearch);
+
+    tw.querySelectorAll('.tl-row-expander').forEach(btn=>{
+      btn.onclick=()=>{
+        const row=document.getElementById(`tl-extra-${btn.dataset.id}`);if(!row)return;
+        const open=row.hidden;
+        row.hidden=!open;
+        btn.textContent=open?'▾':'▸';
+        btn.title=open?'양도자 닫기':'양도자 보기';
+        btn.setAttribute('aria-expanded',open?'true':'false');
+      };
+    });
   };
+
   document.getElementById('tlSrchBtn').onclick=()=>doSearch(1);
   document.getElementById('tlSrch').onkeydown=e=>{if(e.key==='Enter')doSearch(1);};
-  // 초기화 시 mgmt_desc 유지
   document.getElementById('tlRstBtn').onclick=()=>{ST.fl.tl={member_sort:'mgmt_desc'};renderTransferLedger();};
   document.getElementById('tlAddBtn').onclick=()=>editTransfer(null);
-  const tlToggle=document.getElementById('tlTransferorToggle');
-  if(tlToggle) tlToggle.onclick=()=>{
-    const card=document.getElementById('tlLedgerCard');
-    if(!card)return;
-    const hide=!card.classList.contains('tl-hide-transferor');
-    card.classList.toggle('tl-hide-transferor',hide);
-    localStorage.setItem('tl-transferor-hidden',hide?'1':'0');
-    tlToggle.textContent=hide?'양도자 보기':'양도자 숨기기';
+
+  const expandAll=document.getElementById('tlExpandAllBtn');
+  if(expandAll) expandAll.onclick=()=>{
+    const rows=[...document.querySelectorAll('#tlTbl .tl-transferor-detail')];
+    const shouldOpen=rows.some(r=>r.hidden);
+    rows.forEach(r=>r.hidden=!shouldOpen);
+    document.querySelectorAll('#tlTbl .tl-row-expander').forEach(b=>{
+      b.textContent=shouldOpen?'▾':'▸';
+      b.title=shouldOpen?'양도자 닫기':'양도자 보기';
+      b.setAttribute('aria-expanded',shouldOpen?'true':'false');
+    });
+    expandAll.textContent=shouldOpen?'양도자 전체닫기':'양도자 전체보기';
   };
+
   const relinkBtn=document.getElementById('tlRelinkBtn');
   if(relinkBtn) relinkBtn.onclick=()=>bulkRelinkTransfers();
   const missingBtn=document.getElementById('tlMissingBtn');
@@ -1534,10 +1621,10 @@ async function renderTransferLedger(){
   const certSyncBtn=document.getElementById('tlCertSyncBtn');
   if(certSyncBtn) certSyncBtn.onclick=async()=>{
     if(!confirm('양도양수대장에 입력된 자격증명발급번호를 연결된 회원/예정자 정보에 소급 반영합니다. 계속할까요?'))return;
-    certSyncBtn.disabled=true; certSyncBtn.textContent='처리 중...';
+    certSyncBtn.disabled=true;certSyncBtn.textContent='처리 중...';
     const res=await api('POST','/api/transfer-ledger/backfill-certificate-sync',{}).catch(e=>{toast('처리 실패: '+((e&&e.message)||'서버 오류'),'err');return null;});
     if(res){toast(`대상 ${res.scanned}건 중 회원 ${res.updated_members}건 / 예정자 ${res.updated_candidates}건 동기화, 발급이력 ${res.log_reconcile?res.log_reconcile.updated+res.log_reconcile.created:0}건 갱신`);await doSearch(1);}
-    certSyncBtn.disabled=false; certSyncBtn.textContent='🪪 발급번호 동기화';
+    certSyncBtn.disabled=false;certSyncBtn.textContent='🪪 발급번호 동기화';
   };
   document.getElementById('tlXlBtn').onclick=()=>{
     const q=new URLSearchParams(Object.fromEntries(Object.entries(ST.fl.tl||{}).filter(([,v])=>v)));
@@ -1651,11 +1738,13 @@ window.deleteTransfer=async(id)=>{if(!await cfm('삭제?'))return;try{await api(
 
 // ===== CLOSURES =====
 async function renderClosures(){
+  ensurePermitLedgerLikeNewStyle();
   const f=ST.fl.cl||{};
   document.getElementById('content').innerHTML=`
-    <div class="card">
+    <div class="card permit-ledger-like-new" id="closureLedgerCard">
       <div class="card-hd">
-        <div class="card-hd-l"><span class="card-ico">🚫</span><span class="card-ttl">폐업현황</span><span class="cnt" id="clCnt">0건</span></div>
+        <div class="card-hd-l"><span class="card-ico">🚫</span><span class="card-ttl">폐업현황</span><span class="cnt" id="clCnt">0건</span>
+          <span class="badge b-sky" style="font-size:10px;margin-left:6px">처리일자 기준</span></div>
         <div class="flex gap-8">
           <button class="btn bg btn-sm" id="clAddBtn">+ 등록</button>
           <button class="btn bxl btn-sm" id="clXlBtn">엑셀 다운로드</button>
@@ -1663,8 +1752,8 @@ async function renderClosures(){
       </div>
       <div class="frow">
         ${rselflt('clRegF',f.region||'')}
-        <select id="clTypF" class="fsel"><option value="">전체 구분</option>${CLOSURE_TYPES.map(t=>`<option value="${t}">${t}</option>`).join('')}</select>
-        <select id="clDtF" class="fsel"><option value="">신규+이전</option><option value="신규자료">신규자료</option><option value="이전자료">이전자료</option></select>
+        <select id="clTypF" class="fsel"><option value="">전체 구분</option>${CLOSURE_TYPES.map(t=>`<option value="${t}" ${f.closure_type===t?'selected':''}>${t}</option>`).join('')}</select>
+        <select id="clDtF" class="fsel"><option value="">신규+이전</option><option value="신규자료" ${f.data_type==='신규자료'?'selected':''}>신규자료</option><option value="이전자료" ${f.data_type==='이전자료'?'selected':''}>이전자료</option></select>
         ${dateOrderSel('clSortF',f.date_order||'desc')}
         <input class="srch" id="clSrch" placeholder="관리번호, 성명, 차량번호" value="${e_(f.search||'')}">
         <button class="btn bp btn-sm" id="clSrchBtn">조회</button>
@@ -1673,38 +1762,56 @@ async function renderClosures(){
       <div id="clTbl"><div class="loading-box"><div class="spin"></div></div></div>
     </div>`;
 
-  const sk='cl';
-  const hdrs=[{label:'기존관리번호'},{label:'폐업관리번호'},{label:'구분'},{label:'지역'},{label:'차량번호'},{label:'성명'},{label:'가입'},{label:'가입일자'},{label:'양수인'},{label:'이관지역'},{label:'접수일자'},{label:'처리일자'},{label:'관리',noSort:true}];
+  // 신규등록대장과 같은 흐름을 유지하되 폐업업무에 필요한 기존관리번호/처리정보를 보존한다.
+  const hdrs=[
+    {label:'기존관리번호'},{label:'폐업관리번호'},{label:'지역'},{label:'차량번호'},{label:'성명'},
+    {label:'구분'},{label:'가입'},{label:'핸드폰'},{label:'접수일자'},{label:'처리일자'},{label:'가입일자'},
+    {label:'양수인'},{label:'이관지역'},{label:'차종'},{label:'유종'},{label:'주소'},{label:'비고'},{label:'관리',noSort:true}
+  ];
 
   const doSearch=async(pg=1)=>{
-    ST.fl.cl={region:document.getElementById('clRegF').value,closure_type:document.getElementById('clTypF').value,data_type:document.getElementById('clDtF').value,date_order:document.getElementById('clSortF').value,search:document.getElementById('clSrch').value.trim()};
-    const q=new URLSearchParams({page:pg,limit:50,...getSortParams(sk),...Object.fromEntries(Object.entries(ST.fl.cl).filter(([,v])=>v))});
+    ST.fl.cl={
+      region:document.getElementById('clRegF').value,
+      closure_type:document.getElementById('clTypF').value,
+      data_type:document.getElementById('clDtF').value,
+      date_order:document.getElementById('clSortF').value,
+      search:document.getElementById('clSrch').value.trim()
+    };
+    const q=new URLSearchParams({page:pg,limit:50,...Object.fromEntries(Object.entries(ST.fl.cl).filter(([,v])=>v))});
     const d=await api('GET',`/api/closures?${q}`).catch(()=>null);if(!d)return;
     document.getElementById('clCnt').textContent=`${d.total.toLocaleString()}건`;
     const tw=document.getElementById('clTbl');if(!tw)return;
     if(!d.items.length){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">🚫</div><p class="empty-txt">데이터가 없습니다.</p></div>`;return;}
     tw.innerHTML=`<div class="tbl-wrap"><table>
       <thead><tr>${plainHeaders(hdrs)}</tr></thead>
-      <tbody>${d.items.map(r=>`<tr>
-        <td><strong>${fv(r.previous_management_number)}</strong></td>
-        <td><a class="click-link" onclick="viewClosure(${r.id});return false"><strong>${fv(r.management_number)}</strong></a></td>
-        <td>${ctBadge(r.closure_type)}</td>
-        <td>${fv(r.region)}</td>
-        <td><a class="click-link" onclick="viewClosure(${r.id});return false">${fv(r.vehicle_number)}</a></td>
-        <td><a class="click-link" onclick="viewClosure(${r.id});return false">${fv(r.name)}</a></td>
-        <td>${memBadge(r.membership_status||((r.membership_date||'').trim()?'가입':'미가입'))}</td>
-        <td style="font-size:11px">${fv(r.membership_date)}</td>
-        <td>${fv(r.transferee)}</td>
-        <td>${fv(r.transfer_region)}</td>
-        <td style="font-size:11px">${fv(r.receipt_date)}</td>
-        <td style="font-size:11px"><strong>${fv(r.closure_date)}</strong></td>
-        <td class="td-act">
-          <button class="btn bp btn-xs" onclick="editClosure(${r.id})">수정</button>
-          ${isAdmin()?`<button class="btn br btn-xs" onclick="deleteClosure(${r.id})">삭제</button>`:''}
-        </td></tr>`).join('')}</tbody>
+      <tbody>${d.items.map(r=>{
+        const memStatus=(r.membership_status||'').trim()||'미가입';
+        const joinDate=memStatus==='가입'?(r.membership_date||''):'';
+        return `<tr>
+          <td><span class="ledger-mgmt">${fv(r.previous_management_number)}</span></td>
+          <td><a class="tbl-link ledger-mgmt" onclick="viewClosure(${r.id});return false">${fv(r.management_number)}</a></td>
+          <td>${fv(r.region)}</td>
+          <td><a class="tbl-link" onclick="viewClosure(${r.id});return false">${fv(r.vehicle_number)}</a></td>
+          <td><a class="tbl-link ledger-member-name" onclick="viewClosure(${r.id});return false">${fv(r.name)}</a></td>
+          <td>${ctBadge(r.closure_type)}</td>
+          <td>${memBadge(memStatus)}</td>
+          <td>${fv(r.mobile||r.phone)}</td>
+          <td>${fv(r.receipt_date)}</td>
+          <td><span class="ledger-date">${fv(r.closure_date)}</span></td>
+          <td>${fv(joinDate)}</td>
+          <td>${fv(r.transferee)}</td>
+          <td>${fv(r.transfer_region)}</td>
+          <td title="${e_(r.vehicle_type||'')}">${fv(r.vehicle_type)}</td>
+          <td>${fv(r.fuel_type)}</td>
+          <td title="${e_(r.address||'')}">${fv(r.address)}</td>
+          <td title="${e_(r.memo||'')}">${fv(r.memo)}</td>
+          <td class="td-act"><button class="btn bp btn-xs" onclick="editClosure(${r.id})">수정</button>${isAdmin()?`<button class="btn br btn-xs" onclick="deleteClosure(${r.id})">삭제</button>`:''}</td>
+        </tr>`;
+      }).join('')}</tbody>
     </table></div>${pgn(d,doSearch)}`;
     bindPgn('clTbl',doSearch);
   };
+
   document.getElementById('clSrchBtn').onclick=()=>doSearch(1);
   document.getElementById('clSrch').onkeydown=e=>{if(e.key==='Enter')doSearch(1);};
   document.getElementById('clRstBtn').onclick=()=>{ST.fl.cl={};renderClosures();};
