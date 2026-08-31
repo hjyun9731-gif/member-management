@@ -2877,3 +2877,5 @@ body.arrears-scroll-dashboard #arrearsDashboard .insight-row em{align-self:cente
   body.arrears-scroll-dashboard #arrearsDashboard .insight-row{border-right:0!important;border-bottom:1px solid #edf0f4!important;min-height:110px!important}
   body.arrears-scroll-dashboard #arrearsDashboard .insight-row:last-child{border-bottom:0!important}
 }
+
+/* V20 fresh package marker: 2026-08-31 cutover audit fix */

@@ -1,3 +1,4 @@
+# V20 fresh package marker: 2026-08-31 cutover audit fix
 from __future__ import annotations
 
 import csv
