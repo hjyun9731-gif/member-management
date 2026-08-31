@@ -1,0 +1,26 @@
+RECEIVABLES_FINAL_AUDIT_CLOSURE_20260831
+
+덮어쓰기:
+- app/routers/receivables.py
+- app/routers/closures.py
+- app/data/legacy_receivables_2026.json
+- app/static/receivables.html
+- app/static/receivables.css
+- app/static/receivables.js
+- app/static/index.html
+- app/static/closure-membership-v1.js
+
+검증용:
+- rebuild_legacy_snapshot_20260831.py
+- RECEIVABLES_FINAL_FIX_20260831.md
+
+핵심:
+1) 협회비 10,000 / 관리비 5,000 / 70세 5,000 고정
+2) 잘못된 auto charge 제거/재생성
+3) legacy 월부과 표시 고정요율화
+4) 이건우/박종훈/박재구 통장 재검증 반영
+5) 자격증명·대폐차·가입비 자동 수납 차단
+6) 안전한 차량+성명 legacy 매칭 보강
+7) 금액 직접 수정 + 이력
+8) 폐업현황 가입/미가입 즉시 표시
+9) 신규 폐업/양도/이관 안전매칭 성공 시 미수금 즉시 폐업분류 및 이후 부과 중단

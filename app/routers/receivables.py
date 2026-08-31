@@ -64,7 +64,8 @@ NON_RECEIVABLE_IMPORT_KEYWORDS = (
     "대폐차수수료", "대폐차 수수료", "대폐차비", "대폐차",
     "가입비",
 )
-NON_RECEIVABLE_REPAIR_KEY = "receivables_nonreceivable_import_repair_20260831_v1"
+NON_RECEIVABLE_REPAIR_KEY = "receivables_nonreceivable_import_repair_20260831_v2"
+FEE_REPAIR_KEY = "receivables_fixed_monthly_fee_repair_20260831_v1"
 
 # receivables 전용 lazy schema guard.
 # Railway healthcheck를 빠르게 통과시키기 위해 main.py의 전체 DB 유지보수는
@@ -127,11 +128,94 @@ class ContactIn(BaseModel):
 
 class AccountIn(BaseModel):
     account_type: str
-    vehicle_count: int = Field(default=1, ge=1, le=100)
+    vehicle_count: int = Field(default=1, ge=1, le=1)
+
+
+class BalanceEditIn(BaseModel):
+    balance_type: str
+    amount: int = Field(default=0, ge=0, le=1_000_000_000)
+    effective_date: Optional[str] = None
+    reason: str = Field(min_length=2, max_length=500)
 
 
 def _norm(v) -> str:
     return re.sub(r"[^0-9A-Za-z가-힣]", "", str(v or "")).lower()
+
+
+def _norm_vehicle_key(v) -> str:
+    """차량번호 표기 차이(강원/호/공백/하이픈)를 제거한 비교키."""
+    s = _norm(v)
+    s = re.sub(r"^(강원특별자치도|강원도|강원)", "", s)
+    s = re.sub(r"호$", "", s)
+    return s
+
+
+def _vehicle_tail4(v) -> str:
+    digits = re.sub(r"\D", "", str(v or ""))
+    return digits[-4:] if len(digits) >= 4 else ""
+
+
+def _korean_only_name(v) -> str:
+    return re.sub(r"[^가-힣]", "", str(v or ""))
+
+
+def _company_name_key(v) -> str:
+    s = _norm(v)
+    for token in ("주식회사", "유한회사", "합자회사", "합명회사", "협동조합", "대표이사", "대표자", "대표", "법인", "주"):
+        s = s.replace(token, "")
+    return s
+
+
+def _edit_distance_one(a: str, b: str) -> bool:
+    if a == b:
+        return True
+    if abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) == len(b):
+        return sum(x != y for x, y in zip(a, b)) <= 1
+    if len(a) > len(b):
+        a, b = b, a
+    i = j = diff = 0
+    while i < len(a) and j < len(b):
+        if a[i] == b[j]:
+            i += 1; j += 1
+        else:
+            diff += 1; j += 1
+            if diff > 1:
+                return False
+    return True
+
+
+def _names_safely_equivalent(a, b) -> bool:
+    """지역+차량번호가 이미 맞는 후보에서만 사용하는 보수적 성명 정규화."""
+    na, nb = _norm(a), _norm(b)
+    if not na or not nb:
+        return False
+    if na == nb:
+        return True
+
+    ka, kb = _korean_only_name(a), _korean_only_name(b)
+    if ka and kb and ka == kb:
+        return True
+
+    ca, cb = _company_name_key(a), _company_name_key(b)
+    if len(ca) >= 3 and len(cb) >= 3 and (ca.startswith(cb) or cb.startswith(ca)):
+        return True
+
+    # 외국인/영문 병기 중 실제 한글 이름이 포함된 경우.
+    if ka and kb and len(ka) >= 2 and (ka in kb or kb in ka):
+        return True
+
+    aliases = {
+        "ojimamieko": "오지마미에꼬",
+    }
+    if aliases.get(na) == kb or aliases.get(nb) == ka:
+        return True
+
+    # 오탈자 1글자는 지역+차량 끝4자리 후보가 유일할 때만 호출되므로 제한 허용.
+    if ka and kb and len(ka) >= 3 and len(kb) >= 3 and _edit_distance_one(ka, kb):
+        return True
+    return False
 
 
 def _parse_date(v) -> Optional[date]:
@@ -217,6 +301,9 @@ _seed_by_combo = None
 _seed_by_vehicle = None
 _seed_by_name_region = None
 _seed_by_name_plate_tail = None
+_seed_by_region_plate_tail = None
+_seed_by_region_vehicle_key = None
+_seed_by_region_nonplate = None
 _seed_by_source_row = None
 _legacy_baseline_ready = False
 _legacy_baseline_lock = threading.Lock()
@@ -227,17 +314,17 @@ _monthly_scheduler_lock = threading.Lock()
 
 
 def _load_seed():
-    global _seed_cache, _seed_by_combo, _seed_by_vehicle, _seed_by_name_region, _seed_by_name_plate_tail, _seed_by_source_row
+    global _seed_cache, _seed_by_combo, _seed_by_vehicle, _seed_by_name_region, _seed_by_name_plate_tail, _seed_by_region_plate_tail, _seed_by_region_vehicle_key, _seed_by_region_nonplate, _seed_by_source_row
     if _seed_cache is not None:
         return _seed_cache
     if not DATA_FILE.exists():
         _seed_cache = []
-        _seed_by_combo, _seed_by_vehicle, _seed_by_name_region, _seed_by_name_plate_tail, _seed_by_source_row = {}, {}, {}, {}, {}
+        _seed_by_combo, _seed_by_vehicle, _seed_by_name_region, _seed_by_name_plate_tail, _seed_by_region_plate_tail, _seed_by_region_vehicle_key, _seed_by_region_nonplate, _seed_by_source_row = {}, {}, {}, {}, {}, {}, {}, {}
         return _seed_cache
 
     payload = json.loads(DATA_FILE.read_text(encoding="utf-8"))
     rows = payload.get("rows", [])
-    by_combo, by_vehicle, by_nr, by_name_tail, by_source = {}, {}, {}, {}, {}
+    by_combo, by_vehicle, by_nr, by_name_tail, by_region_tail, by_region_vehicle, by_region_nonplate, by_source = {}, {}, {}, {}, {}, {}, {}, {}
     for r in rows:
         sr = r.get("source_row")
         if sr is not None:
@@ -251,36 +338,68 @@ def _load_seed():
             by_vehicle.setdefault(nv, []).append(r)
         if nn:
             by_nr.setdefault((nn, nr), []).append(r)
-            digits = re.sub(r"\D", "", str(r.get("vehicle_number") or ""))
-            if len(digits) >= 4:
-                by_name_tail.setdefault((nn, digits[-4:]), []).append(r)
-    _seed_cache, _seed_by_combo, _seed_by_vehicle, _seed_by_name_region, _seed_by_name_plate_tail, _seed_by_source_row = rows, by_combo, by_vehicle, by_nr, by_name_tail, by_source
+            tail = _vehicle_tail4(r.get("vehicle_number"))
+            if tail:
+                by_name_tail.setdefault((nn, tail), []).append(r)
+        tail = _vehicle_tail4(r.get("vehicle_number"))
+        if nr and tail:
+            by_region_tail.setdefault((nr, tail), []).append(r)
+        vk = _norm_vehicle_key(r.get("vehicle_number"))
+        if nr and vk:
+            by_region_vehicle.setdefault((nr, vk), []).append(r)
+        if nr and not tail:
+            by_region_nonplate.setdefault(nr, []).append(r)
+    _seed_cache, _seed_by_combo, _seed_by_vehicle, _seed_by_name_region, _seed_by_name_plate_tail, _seed_by_region_plate_tail, _seed_by_region_vehicle_key, _seed_by_region_nonplate, _seed_by_source_row = rows, by_combo, by_vehicle, by_nr, by_name_tail, by_region_tail, by_region_vehicle, by_region_nonplate, by_source
     return rows
 
 
 def _match_seed(member):
     _load_seed()
-    # Legacy 자동매칭은 반드시 차량정보+성명을 함께 사용한다.
-    # 1차: 전체 차량번호+성명 정확일치
-    # 2차: 과거 엑셀에 앞자리(강원81자 등)가 빠진 행을 위해 성명+차량번호 끝 4자리
-    #      후보가 정확히 1건일 때만 허용한다. 성명만/성명+지역만 매칭하지 않는다.
+    # Legacy 자동매칭 우선순위:
+    # 1) 기존의 차량번호+성명 정확일치
+    # 2) 성명+차량번호 끝4자리 유일
+    # 3) 지역+차량번호(강원/호 제거) 후보 중 성명 표기만 달라진 유일 후보
+    # 4) 지역+끝4자리 후보 중 성명 표기만 달라진 유일 후보
+    # 5) 원장 차량번호 공란인 경우에만 성명+지역 유일
+    #
+    # 차량번호만 같고 성명이 전혀 다른 경우(양도/소유자 변경)는 절대 자동연결하지 않는다.
     nv, nn = _norm(member.vehicle_number), _norm(member.name)
+    nr = _norm(getattr(member, "region", ""))
     if not nn:
         return None
+
     if nv:
         exact = _seed_by_combo.get((nv, nn))
         if exact:
             return exact
 
-    digits = re.sub(r"\D", "", str(getattr(member, "vehicle_number", "") or ""))
-    if len(digits) >= 4:
-        candidates = _seed_by_name_plate_tail.get((nn, digits[-4:]), [])
+    tail = _vehicle_tail4(getattr(member, "vehicle_number", ""))
+    if tail:
+        candidates = _seed_by_name_plate_tail.get((nn, tail), [])
         if len(candidates) == 1:
             return candidates[0]
 
-    # 최신 원장에 차량번호가 공란인 행은 성명+지역이 유일하고, 원장쪽 차량번호도
-    # 실제로 공란인 경우에만 제한적으로 매칭한다. 일반 행에는 성명 단독 매칭 금지.
-    nr = _norm(getattr(member, "region", ""))
+    # 사람 눈에는 같은 차량/이름인데 영문병기·대표자명·(주) 표기 때문에 기존 _norm이
+    # 달라지던 케이스를 안전하게 복구한다. 반드시 지역+차량 후보를 먼저 좁힌다.
+    vehicle_key = _norm_vehicle_key(getattr(member, "vehicle_number", ""))
+    if nr and vehicle_key:
+        candidates = _seed_by_region_vehicle_key.get((nr, vehicle_key), [])
+        name_matches = [r for r in candidates if _names_safely_equivalent(member.name, r.get("name"))]
+        if len(name_matches) == 1:
+            return name_matches[0]
+
+    if nr and tail:
+        candidates = _seed_by_region_plate_tail.get((nr, tail), [])
+        name_matches = [r for r in candidates if _names_safely_equivalent(member.name, r.get("name"))]
+        if len(name_matches) == 1:
+            return name_matches[0]
+
+    if nr:
+        nonplate_candidates = _seed_by_region_nonplate.get(nr, [])
+        name_matches = [r for r in nonplate_candidates if _names_safely_equivalent(member.name, r.get("name"))]
+        if len(name_matches) == 1:
+            return name_matches[0]
+
     nr_candidates = _seed_by_name_region.get((nn, nr), [])
     blank_vehicle_candidates = [r for r in nr_candidates if not _norm(r.get("vehicle_number"))]
     if len(blank_vehicle_candidates) == 1:
@@ -364,7 +483,7 @@ def _make_profile(member, seed=None) -> ReceivableProfile:
             member_id=member.id,
             account_type=acct,
             unit_fee=ACCOUNT_FEES.get(acct, 5000),
-            vehicle_count=max(1, int(seed.get("vehicle_count") or 1)),
+            vehicle_count=1,
             first_charge_date=LEGACY_NEXT_BILL_DATE.isoformat(),
             legacy_balance=int(seed.get("current_arrears") or 0),
             legacy_months=seed.get("months") or [],
@@ -490,7 +609,7 @@ def _apply_legacy_baseline_once(db: Session) -> int:
             profile.legacy_balance = int(seed.get("current_arrears") or 0)
             profile.legacy_months = seed.get("months") or []
             profile.legacy_note = seed.get("legacy_note") or None
-            profile.vehicle_count = max(1, int(seed.get("vehicle_count") or 1))
+            profile.vehicle_count = 1
 
             # 기존 원장 계정은 원장 기준. 수동지정 계정만 보존한다.
             if int(getattr(profile, "account_manual_override", 0) or 0) != 1:
@@ -561,14 +680,14 @@ def _refresh_legacy_baseline_if_seed_changed(db: Session, marker) -> int:
     )
     refreshed = 0
     for profile, member in rows:
-        seed = _match_seed(member) or _seed_for_profile(profile)
+        seed = _seed_for_profile(profile) or _match_seed(member)
         if not seed:
             continue
         profile.legacy_source_row = int(seed.get("source_row")) if seed.get("source_row") is not None else None
         profile.legacy_balance = int(seed.get("current_arrears") or 0)
         profile.legacy_months = seed.get("months") or []
         profile.legacy_note = seed.get("legacy_note") or None
-        profile.vehicle_count = max(1, int(seed.get("vehicle_count") or 1))
+        profile.vehicle_count = 1
         if int(getattr(profile, "account_manual_override", 0) or 0) != 1:
             account = seed.get("account_type") or _infer_account(member)
             profile.account_type = account
@@ -652,6 +771,29 @@ def _repair_non_receivable_import_payments_once(db: Session) -> int:
     return repaired
 
 
+def _repair_fixed_monthly_fees_once(db: Session) -> dict:
+    """기존 DB에 남아 있는 대수배수/오금액 자동부과를 배포 후 1회 정리한다."""
+    marker = db.query(ReceivableSystemState).filter(ReceivableSystemState.key == FEE_REPAIR_KEY).first()
+    if marker is not None:
+        return {"profiles_fixed": 0, "charges_removed": 0, "charges_created": 0}
+    profiles_fixed = _repair_profile_fee_rules(db)
+    charges_removed = _repair_invalid_auto_charges(db)
+    charges_created = _sync_charges(db) if charges_removed else 0
+    db.add(ReceivableSystemState(
+        key=FEE_REPAIR_KEY,
+        value=json.dumps({
+            "rules": ACCOUNT_FEES,
+            "vehicle_multiplier": False,
+            "profiles_fixed": profiles_fixed,
+            "charges_removed": charges_removed,
+            "charges_created": charges_created,
+            "applied_at": datetime.now(KST).isoformat(),
+        }, ensure_ascii=False),
+    ))
+    db.commit()
+    return {"profiles_fixed": profiles_fixed, "charges_removed": charges_removed, "charges_created": charges_created}
+
+
 def _ensure_db_ledger_ready(db: Session) -> int:
     """DB 공식원장 준비.
 
@@ -663,6 +805,8 @@ def _ensure_db_ledger_ready(db: Session) -> int:
     _ensure_receivables_schema_ready()
     # 기존 DB에 잘못 반영된 자격증명/발급비 일괄수납은 증거가 확실한 건만 1회 취소한다.
     _repair_non_receivable_import_payments_once(db)
+    # 협회비 10,000 / 관리비·70세 5,000 외의 잘못된 자동부과도 1회 정리한다.
+    _repair_fixed_monthly_fees_once(db)
 
     marker = _baseline_marker(db)
     if marker is not None:
@@ -696,7 +840,7 @@ def _ensure_db_ledger_ready(db: Session) -> int:
                 profile.legacy_balance = int(seed.get('current_arrears') or 0)
                 profile.legacy_months = seed.get('months') or []
                 profile.legacy_note = seed.get('legacy_note') or None
-                profile.vehicle_count = max(1, int(seed.get('vehicle_count') or 1))
+                profile.vehicle_count = 1
                 if int(getattr(profile, 'account_manual_override', 0) or 0) != 1:
                     account = seed.get('account_type') or _infer_account(member)
                     profile.account_type = account
@@ -743,6 +887,9 @@ def _repair_account_types(db: Session) -> int:
         if p.account_type != correct or int(p.unit_fee or 0) != ACCOUNT_FEES.get(correct, 5000):
             p.account_type = correct
             p.unit_fee = ACCOUNT_FEES.get(correct, 5000)
+            changed = True
+        if int(p.vehicle_count or 1) != 1:
+            p.vehicle_count = 1
             changed = True
 
         # 비legacy 자동계정은 부과기준일도 현재 회원정보와 항상 맞춘다.
@@ -876,6 +1023,31 @@ def _is_true_new_member(member, profile) -> bool:
     return bool(reg and reg >= LEGACY_NEW_MEMBER_CUTOFF)
 
 
+def _repair_profile_fee_rules(db: Session) -> int:
+    """모든 미수금 프로필의 월회비를 계정별 고정액으로 강제한다.
+
+    협회비 10,000 / 관리비 5,000 / 70세 5,000. 차량 대수로 곱하지 않는다.
+    과거 UI에서 20,000/40,000원처럼 보이거나 잘못 생성된 자동부과의 재발을 막는다.
+    """
+    fixed = 0
+    for p in db.query(ReceivableProfile).all():
+        expected = ACCOUNT_FEES.get(p.account_type)
+        if expected is None:
+            continue
+        changed = False
+        if int(p.unit_fee or 0) != expected:
+            p.unit_fee = expected
+            changed = True
+        if int(p.vehicle_count or 1) != 1:
+            p.vehicle_count = 1
+            changed = True
+        if changed:
+            fixed += 1
+    if fixed:
+        db.commit()
+    return fixed
+
+
 def _valid_auto_charge(profile, member, closure, charge, today: Optional[date] = None) -> bool:
     """현재 미수금에 포함해도 되는 자동부과만 판정한다.
 
@@ -893,6 +1065,13 @@ def _valid_auto_charge(profile, member, closure, charge, today: Optional[date] =
         close_d = _parse_date(getattr(closure, "closure_date", None))
         if close_d and month > _month_key(close_d):
             return False
+    expected = ACCOUNT_FEES.get(profile.account_type)
+    if expected is None:
+        return False
+    if str(charge.account_type or "") != str(profile.account_type or ""):
+        return False
+    if int(charge.amount or 0) != int(expected):
+        return False
     return True
 
 
@@ -954,7 +1133,7 @@ def _sync_charges(db: Session) -> int:
                 ReceivableCharge(
                     member_id=p.member_id,
                     billing_month=key[1],
-                    amount=int(p.unit_fee or 0) * int(p.vehicle_count or 1),
+                    amount=int(ACCOUNT_FEES.get(p.account_type, 0)),
                     account_type=p.account_type,
                     source="auto",
                 )
@@ -995,8 +1174,9 @@ def _ensure_current_month_billing(db: Session) -> int:
             _billing_ready_month = month_key
             return 0
 
-        # 부과 직전 계정/폐업 상태를 다시 확인한다.
+        # 부과 직전 계정/폐업 상태와 고정월회비를 다시 확인한다.
         _repair_account_types(db)
+        _repair_profile_fee_rules(db)
         _repair_invalid_auto_charges(db)
         added = _sync_charges(db)
         db.add(
@@ -1023,17 +1203,19 @@ def _sync_all(db: Session):
     """운영 DB 동기화. Excel/JSON 재반영은 절대 하지 않는다."""
     baseline_imported = _ensure_db_ledger_ready(db)
     p = _sync_profiles_full(db, allow_legacy_seed=False)
-    removed = _repair_invalid_auto_charges(db)
     r = _repair_account_types(db)
+    fee_fixed = _repair_profile_fee_rules(db)
+    removed = _repair_invalid_auto_charges(db)
     c = _ensure_current_month_billing(db)
     # 신규 profile 또는 가입일자/자격증명발급일자 변경으로 이번 달부터 부과대상이 된 경우 즉시 보정.
-    if p or r:
+    if p or r or fee_fixed or removed:
         c += _sync_charges(db)
     return {
         "profiles_created": p,
         "charges_created": c,
         "charges_removed": removed,
         "accounts_repaired": r,
+        "fee_profiles_repaired": fee_fixed,
         "legacy_baseline_imported_once": baseline_imported,
         "ledger_mode": LEDGER_MODE,
         "excel_reupload_required": False,
@@ -1456,6 +1638,7 @@ def summary(
         .filter(
             ReceivablePayment.payment_date == today_iso,
             ReceivablePayment.cancelled_at.is_(None),
+            or_(ReceivablePayment.method.is_(None), ReceivablePayment.method != "잔액수정"),
         )
         .scalar()
         or 0
@@ -1992,8 +2175,8 @@ _IMPORT_ALIASES = {
 def _non_receivable_import_reason(item) -> str:
     """자격증명/대폐차/가입비 등 월 미수금과 무관한 수입을 식별한다.
 
-    자동으로 돈을 버리지 않고 `확인필요`로 분리한다. 사용자가 정말 관리비/협회비 입금이라고
-    확인한 경우에만 수동연결 후 반영할 수 있다.
+    자동으로 돈을 버리지 않고 `확인필요`로 분리한다. 복합입금(예: 자격증명+관리비)은
+    전체 금액 자동반영을 금지하고 실제 회비 부분만 별도 수동입금하도록 한다.
     """
     if item is None:
         return ""
@@ -2440,9 +2623,22 @@ def match_import_row(
     if row.status == "posted":
         raise HTTPException(400, "이미 수납 반영된 거래입니다.")
     row.matched_member_id = member.id
-    row.match_reason = "수동연결"
-    if row.status != "duplicate":
-        row.status = "matched"
+    reason = _non_receivable_import_reason({
+        "payer_name": row.payer_name or "",
+        "memo": row.memo or "",
+        "external_id": row.external_id or "",
+        "raw_data": row.raw_data or {},
+    })
+    if reason:
+        # 자격증명+관리비 같은 복합입금은 전체 금액을 관리비로 올리면 안 된다.
+        # 회원만 연결해 두고 확인필요 상태를 유지하며, 실제 회비 부분은 별도 수동입금한다.
+        row.match_reason = f"수동연결 · {reason} · 금액분리 필요"
+        if row.status != "duplicate":
+            row.status = "review"
+    else:
+        row.match_reason = "수동연결"
+        if row.status != "duplicate":
+            row.status = "matched"
     batch = db.query(ReceivableImportBatch).filter(ReceivableImportBatch.id == row.batch_id).first()
     if batch:
         _refresh_import_batch(db, batch)
@@ -2478,6 +2674,16 @@ def post_payment_import(
         # 안전장치: 일괄반영은 status == matched 인 거래만 허용한다.
         # review(자격증명/발급비 의심 포함)는 matched_member_id가 있더라도 절대 자동반영하지 않는다.
         if row.status != "matched":
+            continue
+        nonreceivable_reason = _non_receivable_import_reason({
+            "payer_name": row.payer_name or "",
+            "memo": row.memo or "",
+            "external_id": row.external_id or "",
+            "raw_data": row.raw_data or {},
+        })
+        if nonreceivable_reason:
+            row.status = "review"
+            row.match_reason = f"{nonreceivable_reason} · 자동반영 차단 · 금액분리 필요"
             continue
         if not row.matched_member_id:
             row.status = "review"
@@ -2866,13 +3072,21 @@ def member_detail(
     ch_by_month = {int(c.billing_month[-2:]): int(c.amount) for c in program_charges}
     pay_by_month = {}
     pay_dates = {}
+    adjustment_by_month = {}
+    adjustment_dates = {}
     for p in program_payments:
         try:
             mm = int(p.payment_date[5:7])
         except Exception:
             continue
-        pay_by_month[mm] = pay_by_month.get(mm, 0) + int(p.amount)
-        pay_dates.setdefault(mm, []).append(p.payment_date)
+        if (p.method or "").strip() == "잔액수정":
+            # ReceivablePayment는 잔액에서 빼는 구조이므로, 저장된 signed amount의 반대값이 실제 잔액 조정효과다.
+            effect = -int(p.amount or 0)
+            adjustment_by_month[mm] = adjustment_by_month.get(mm, 0) + effect
+            adjustment_dates.setdefault(mm, []).append(p.payment_date)
+        else:
+            pay_by_month[mm] = pay_by_month.get(mm, 0) + int(p.amount)
+            pay_dates.setdefault(mm, []).append(p.payment_date)
 
     legacy_by_month = {}
     legacy_seed = _seed_for_profile(profile) if year == 2026 else None
@@ -2915,9 +3129,11 @@ def member_detail(
 
         # Excel의 '월 부과금' 열은 실제 월회비가 아니라 전월 잔액이 포함된 누적 청구액이다.
         # 화면에는 사용자가 이해하는 실제 월 부과액만 표시한다.
-        legacy_monthly_charge = None
-        if legacy.get("billed_total") is not None:
-            legacy_monthly_charge = int(legacy.get("billed_total") or 0) - int(previous_legacy_arrears or 0)
+        legacy_monthly_charge = legacy.get("monthly_charge")
+        if legacy_monthly_charge is None and legacy.get("billed_total") is not None:
+            # 구버전 snapshot 호환. 월부과액은 누적청구액 차이가 아니라 계정별 고정요율로 표시한다.
+            expected_fee = ACCOUNT_FEES.get(profile.account_type)
+            legacy_monthly_charge = int(expected_fee) if expected_fee is not None else None
 
         # 원본 장부의 월말 미수금을 그 달의 기준값으로 그대로 사용한다.
         if legacy.get("arrears") is not None:
@@ -2926,13 +3142,15 @@ def member_detail(
 
         auto_charge = int(ch_by_month.get(m, 0) or 0)
         extra_paid = int(pay_by_month.get(m, 0) or 0)
+        balance_adjustment = int(adjustment_by_month.get(m, 0) or 0)
         running += auto_charge
         running -= extra_paid
+        running += balance_adjustment
 
         # 미래월/폐업 이후 월에 아무 원본·프로그램 활동이 없으면 '현재 미수금'을 만들어내지 않는다.
         inactive_future = month_key > current_month_key
         after_closure = bool(close_month_key and month_key > close_month_key)
-        no_program_activity = auto_charge == 0 and extra_paid == 0
+        no_program_activity = auto_charge == 0 and extra_paid == 0 and balance_adjustment == 0
         display_current = None if (not has_legacy_row and no_program_activity and (inactive_future or after_closure)) else running
 
         monthly.append(
@@ -2943,9 +3161,12 @@ def member_detail(
                 "legacy_payment": legacy.get("payment"),
                 "legacy_payment_date": legacy.get("payment_date") or "",
                 "legacy_arrears": legacy.get("arrears"),
+                "legacy_adjustment": legacy.get("legacy_adjustment"),
                 "auto_charge": auto_charge,
                 "additional_payment": extra_paid,
                 "additional_payment_dates": pay_dates.get(m, []),
+                "balance_adjustment": balance_adjustment,
+                "balance_adjustment_dates": adjustment_dates.get(m, []),
                 "current_arrears": display_current,
             }
         )
@@ -3013,6 +3234,8 @@ def member_detail(
                 "method": p.method or "",
                 "memo": p.memo or "",
                 "created_by": p.created_by or "",
+                "is_balance_edit": (p.method or "").strip() == "잔액수정",
+                "balance_effect": -int(p.amount or 0) if (p.method or "").strip() == "잔액수정" else None,
             }
             for p in payments
         ],
@@ -3077,6 +3300,96 @@ def cancel_payment(
     return {"ok": True}
 
 
+@router.patch("/api/receivables/members/{member_id}/balance")
+def edit_current_balance(
+    member_id: int,
+    payload: BalanceEditIn,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """현재 미수/선납 금액을 감사이력이 남는 방식으로 정정한다.
+
+    실제 입금과 섞이지 않도록 별도 `잔액수정` 레코드로 남긴다.
+    기존 잔액 산식(기준원장 + 부과 - 수납)을 그대로 이용하기 위해
+    ReceivablePayment에 signed correction을 기록하되, 오늘 수납 KPI에서는 제외한다.
+    """
+    _ensure_db_ledger_ready(db)
+    _ensure_current_month_billing(db)
+    member = db.query(models.LicenseHolder).filter(models.LicenseHolder.id == member_id).first()
+    if not member:
+        raise HTTPException(404, "회원을 찾을 수 없습니다.")
+    profile = _ensure_profile_for_member(db, member_id)
+    if not profile:
+        raise HTTPException(404, "미수금 프로필을 찾을 수 없습니다.")
+
+    kind = (payload.balance_type or "").strip()
+    if kind not in {"미수금", "완납", "선납"}:
+        raise HTTPException(400, "금액 구분은 미수금/완납/선납 중 하나여야 합니다.")
+    if kind == "완납":
+        target_balance = 0
+    elif kind == "선납":
+        target_balance = -int(payload.amount or 0)
+    else:
+        target_balance = int(payload.amount or 0)
+
+    d = _parse_date(payload.effective_date) if payload.effective_date else datetime.now(KST).date()
+    if not d:
+        raise HTTPException(400, "수정 기준일 형식이 올바르지 않습니다.")
+    reason = (payload.reason or "").strip()
+    if len(reason) < 2:
+        raise HTTPException(400, "수정 사유를 입력해주세요.")
+
+    current_closure = None
+    if (member.status or "active") == "closed":
+        if getattr(member, "closure_id", None):
+            current_closure = db.query(models.Closure).filter(
+                models.Closure.id == member.closure_id, models.Closure.deleted_at.is_(None)
+            ).first()
+        if current_closure is None:
+            current_closure = db.query(models.Closure).filter(
+                models.Closure.member_id == member_id, models.Closure.deleted_at.is_(None)
+            ).order_by(models.Closure.id.desc()).first()
+
+    all_member_charges = db.query(ReceivableCharge).filter(ReceivableCharge.member_id == member_id).all()
+    valid_member_charges = [
+        ch for ch in all_member_charges
+        if ch.source != "auto" or _valid_auto_charge(profile, member, current_closure, ch)
+    ]
+    charge_total = sum(int(ch.amount or 0) for ch in valid_member_charges)
+    payment_total = db.query(func.coalesce(func.sum(ReceivablePayment.amount), 0)).filter(
+        ReceivablePayment.member_id == member_id, ReceivablePayment.cancelled_at.is_(None)
+    ).scalar() or 0
+    baseline_balance = _legacy_balance_as_of(
+        profile, _parse_date(getattr(current_closure, "closure_date", None)) if current_closure else None
+    )
+    current_balance = int(baseline_balance) + int(charge_total) - int(payment_total)
+    if current_balance == target_balance:
+        return {"ok": True, "changed": False, "old_balance": current_balance, "new_balance": target_balance}
+
+    # balance = baseline + charges - payments
+    # 따라서 목표잔액으로 이동하려면 payment signed amount = 현재잔액 - 목표잔액.
+    signed_payment_amount = int(current_balance) - int(target_balance)
+    row = ReceivablePayment(
+        member_id=member_id,
+        payment_date=d.isoformat(),
+        amount=signed_payment_amount,
+        method="잔액수정",
+        memo=f"[금액수정] {current_balance:,}원 → {target_balance:,}원 | 사유: {reason}",
+        created_by=_user_name(current_user),
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return {
+        "ok": True,
+        "changed": True,
+        "adjustment_id": row.id,
+        "old_balance": current_balance,
+        "new_balance": target_balance,
+        "balance_effect": target_balance - current_balance,
+    }
+
+
 @router.post("/api/receivables/members/{member_id}/contacts")
 def add_contact(
     member_id: int,
@@ -3121,7 +3434,7 @@ def update_account(
         raise HTTPException(404, "미수금 프로필을 찾을 수 없습니다.")
     profile.account_type = payload.account_type
     profile.unit_fee = ACCOUNT_FEES[payload.account_type]
-    profile.vehicle_count = payload.vehicle_count
+    profile.vehicle_count = 1
     profile.account_manual_override = 1
     db.commit()
     return {"ok": True}

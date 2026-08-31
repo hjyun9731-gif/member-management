@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>수납·미수금 | 회원관리시스템</title>
-  <link rel="stylesheet" href="/static/receivables.css?v=20260829-ui-readable-v2" />
+  <link rel="stylesheet" href="/static/receivables.css?v=20260831-balance-edit-v1" />
 </head>
 <body>
   <div id="appShell" class="app-shell">
@@ -92,7 +92,7 @@
                   <div><span>연락상태</span><strong id="detailContact">-</strong></div>
                 </div>
               </div>
-              <div class="balance-box"><span id="detailBalanceLabel">현재 미수금</span><strong id="detailBalance">-</strong><small id="detailClosure"></small></div>
+              <div class="balance-box"><span id="detailBalanceLabel">현재 미수금</span><strong id="detailBalance">-</strong><small id="detailClosure"></small><button id="editBalanceBtn" class="balance-edit-btn" type="button">금액 수정</button></div>
             </div>
             <div id="pendingNotice" class="pending-notice hidden"></div>
             <div id="closureInfo" class="closure-info hidden">
@@ -117,7 +117,7 @@
             <div class="section-head compact"><div><h3>2026 월별 장부</h3><p>8월까지 기준원장 + 이후 프로그램 수납·부과 <span id="ledgerCarryover"></span></p></div><div class="year-chip">2026</div></div>
             <div class="monthly-wrap">
               <table class="monthly-table">
-                <thead><tr><th>월</th><th class="num">월 부과액</th><th class="num">입금액</th><th>입금일</th><th class="num">월말 잔액</th><th class="num">자동부과</th><th class="num">추가입금</th><th class="num">반영 잔액</th></tr></thead>
+                <thead><tr><th>월</th><th class="num">월 부과액</th><th class="num">입금액</th><th>입금일</th><th class="num">월말 잔액</th><th class="num">자동부과</th><th class="num">추가입금</th><th class="num">금액수정</th><th class="num">반영 잔액</th></tr></thead>
                 <tbody id="monthlyRows"></tbody>
               </table>
             </div>
@@ -184,6 +184,23 @@
     </div>
   </div>
 
+  <div id="balanceEditModal" class="action-modal hidden" aria-hidden="true">
+    <div class="action-modal-card balance-edit-modal-card">
+      <div class="action-modal-head"><div><strong>현재 금액 수정</strong><span id="balanceEditMember">-</span></div><button id="closeBalanceEditBtn" type="button">×</button></div>
+      <div class="action-modal-body">
+        <div class="balance-edit-current"><span>현재 잔액</span><strong id="balanceEditCurrent">0원</strong></div>
+        <div class="form-grid three balance-edit-grid">
+          <label>구분<select id="balanceEditType"><option value="미수금">미수금</option><option value="완납">완납 0원</option><option value="선납">선납</option></select></label>
+          <label>금액<input id="balanceEditAmount" type="number" min="0" step="1000" placeholder="0" /></label>
+          <label>수정 기준일<input id="balanceEditDate" type="date" /></label>
+        </div>
+        <label>수정 사유<input id="balanceEditReason" placeholder="예: 실입금 누락 정정 / 자격증명 발급비 오분류 정정" /></label>
+        <div class="action-modal-note balance-edit-note"><b>실제 입금은 위의 ‘입금 등록’을 사용하세요.</b> 이 기능은 잘못된 미수·선납 금액을 바로잡는 정정 기능이며, 수정 전·후 금액과 사유가 이력에 남습니다. 오늘 수납액에는 포함되지 않습니다.</div>
+      </div>
+      <div class="action-modal-foot"><button id="cancelBalanceEditBtn" class="work-btn ghost" type="button">취소</button><button id="saveBalanceEditBtn" class="work-btn balance-save" type="button">금액 수정 저장</button></div>
+    </div>
+  </div>
+
   <div id="memberActionModal" class="action-modal hidden" aria-hidden="true">
     <div class="action-modal-card">
       <div class="action-modal-head"><div><strong id="actionMemberName">회원 업무처리</strong><span id="actionMemberVehicle"></span></div><button id="closeActionModalBtn" type="button">×</button></div>
@@ -225,6 +242,6 @@
       <button class="primary-btn" type="submit">로그인</button><div id="loginError" class="login-error"></div>
     </form>
   </div>
-  <script src="/static/receivables.js?v=20260829-ui-readable-v2" defer></script>
+  <script src="/static/receivables.js?v=20260831-balance-edit-v1" defer></script>
 </body>
 </html>

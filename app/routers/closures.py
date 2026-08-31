@@ -91,20 +91,93 @@ def _find_linked_member(c, by_id, by_vehicle, by_resident):
     return None
 
 
+
+
+def _norm_name_for_link(v) -> str:
+    """신규 폐업현황을 현재 회원과 연결할 때 쓰는 보수적 성명키.
+    공백/기호만 제거하고 차량번호와 함께 일치할 때만 자동연결한다.
+    """
+    import re as _re
+    return _re.sub(r"[^0-9A-Za-z가-힣]", "", str(v or "")).lower()
+
+
+def _safe_find_active_member_for_new_closure(db, data):
+    """신규 폐업/양도/이관 입력을 현재 활성회원과 안전하게 연결한다.
+
+    우선순위:
+    1) payload member_id
+    2) 주민등록번호 정확일치(활성회원 유일)
+    3) 차량번호 정규화 + 성명 정규화 정확일치(활성회원 유일)
+
+    차량번호만 같은 경우에는 양도/차주변경 오연결 위험 때문에 자동연결하지 않는다.
+    """
+    active_q = db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.deleted_at.is_(None),
+        ((models.LicenseHolder.status.is_(None)) | (models.LicenseHolder.status == "active")),
+    )
+
+    raw_mid = data.get("member_id")
+    if raw_mid not in (None, ""):
+        try:
+            mid = int(raw_mid)
+        except Exception:
+            mid = None
+        if mid is not None:
+            m = active_q.filter(models.LicenseHolder.id == mid).first()
+            if m is not None:
+                return m, "member_id 정확일치"
+
+    rn = str(data.get("resident_number") or "").strip()
+    if rn:
+        candidates = active_q.filter(models.LicenseHolder.resident_number == rn).all()
+        if len(candidates) == 1:
+            return candidates[0], "주민등록번호 정확일치"
+
+    vn = _norm_vn(data.get("vehicle_number"))
+    nn = _norm_name_for_link(data.get("name"))
+    region = str(data.get("region") or "").strip()
+    if vn and nn:
+        # DB 표현이 '강원80배 1234호' / '80배1234'처럼 달라질 수 있어
+        # 전체 활성회원 중 정규화된 차량번호+성명이 동시에 맞는 경우만 연결한다.
+        candidates = []
+        for m in active_q.all():
+            if _norm_vn(m.vehicle_number) != vn:
+                continue
+            if _norm_name_for_link(m.name) != nn:
+                continue
+            if region and (m.region or "").strip() and (m.region or "").strip() != region:
+                continue
+            candidates.append(m)
+        if len(candidates) == 1:
+            return candidates[0], "차량번호+성명 정확일치"
+
+    return None, "회원 안전매칭 실패"
+
+
+def _copy_new_closure_payload_fields(closure, data):
+    """close_member_no_commit로 생성된 현재회원 스냅샷에 사용자가 입력한 추가값을 보존."""
+    preserve = (
+        "data_type", "company_name", "vehicle_type", "fuel_type", "structure_change",
+        "phone", "mobile", "address", "official_address", "membership_status",
+        "membership_date", "certificate_issue_date", "certificate_number",
+        "driver_license_number", "resident_number", "affiliated_company",
+        "agent_name", "agent_mobile", "approval_date", "memo",
+    )
+    for field in preserve:
+        if not hasattr(closure, field):
+            continue
+        value = data.get(field)
+        if value not in (None, ""):
+            setattr(closure, field, value)
+
+
 def _fmt(c, member=None):
     ct = c.closure_type or ""
     if ct == '폐지':
         ct = '폐업'
     result = {
         "id": c.id,
-        "management_number": c.management_number or "",  # 폐업/양도/이관 관리번호
-        # 기존 회원의 원래 관리번호. 안전을 위해 closure.member_id가 직접 연결된 경우에만 표시한다.
-        # 과거 자료를 차량번호/이름만으로 억지 매칭해 잘못된 번호를 붙이지 않는다.
-        "member_management_number": (
-            getattr(member, "management_number", "") or ""
-            if member is not None and getattr(c, "member_id", None) == getattr(member, "id", None)
-            else ""
-        ),
+        "management_number": c.management_number or "",
         "closure_type": ct,
         "data_type": c.data_type or "신규자료",
         "region": c.region or "",
@@ -258,7 +331,44 @@ async def create_closure(data: dict, db: Session = Depends(get_db),
     mgmt = data.get("management_number")
     if mgmt and crud.check_mgmt_dup(db, models.Closure, mgmt):
         raise HTTPException(400, f"관리번호 {mgmt}가 이미 존재합니다.")
-    return _fmt(crud.create_item(db, models.Closure, data))
+
+    # 업무관리시스템 > 인허가/변경 > 폐업현황에서 '신규자료'를 등록한 경우,
+    # 차량번호+성명(또는 주민번호/member_id)이 현재 활성회원과 안전하게 일치하면
+    # 별도의 이중입력 없이 같은 트랜잭션에서 회원을 폐업/양도/이관 처리한다.
+    # 이렇게 연결되면 수납·미수금은 기존 잔액/입금이력을 보존한 채 즉시 폐업미수로 이동하고
+    # 처리월 이후 자동부과도 중단된다. 이전자료와 애매한 매칭은 절대 자동처리하지 않는다.
+    ct = data.get("closure_type") or "폐업"
+    data_type = data.get("data_type") or "신규자료"
+    close_types = {"폐업", "양도", "이관", "사망", "말소"}
+    if data_type != "이전자료" and ct in close_types:
+        member, match_reason = _safe_find_active_member_for_new_closure(db, data)
+        if member is not None:
+            try:
+                closure = crud.close_member_no_commit(
+                    db, member.id, ct, data.get("closure_date") or "", mgmt or "",
+                    data.get("reason") or "",
+                    transferee=data.get("transferee") or "",
+                    transfer_region=data.get("transfer_region") or "",
+                    receipt_date=data.get("receipt_date") or "",
+                )
+                _copy_new_closure_payload_fields(closure, data)
+                db.commit()
+                db.refresh(closure)
+                result = _fmt(closure, member)
+                result["receivables_synced"] = True
+                result["member_link_reason"] = match_reason
+                return result
+            except Exception:
+                db.rollback()
+                raise
+
+    # 안전하게 현재 회원을 특정할 수 없는 경우 폐업현황 기록 자체는 보존하되,
+    # 현재회원/미수금에 억지로 연결하지 않는다.
+    created = crud.create_item(db, models.Closure, data)
+    result = _fmt(created)
+    result["receivables_synced"] = False
+    result["member_link_reason"] = "회원 안전매칭 실패 또는 이전자료"
+    return result
 
 
 @router.put("/{cid}")
