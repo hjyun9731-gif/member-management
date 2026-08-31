@@ -56,6 +56,16 @@ LEGACY_NEW_MEMBER_CUTOFF = date(2026, 8, 1)
 LEGACY_BASELINE_KEY = "legacy_baseline_2026_08_28_v1"
 LEDGER_MODE = "database"
 
+# 미수금(협회비/관리비/70세)과 무관한 수입은 자동수납 금지.
+# 특히 자격증명 발급비를 관리비 선납으로 잡는 사고를 막기 위해 업로드/수동입력 양쪽에서 방어한다.
+NON_RECEIVABLE_IMPORT_KEYWORDS = (
+    "자격증명발급비", "자격증명 발급비", "자격증명발급", "자격증명 발급", "자격증명",
+    "자격증발급비", "자격증 발급비", "발급수수료",
+    "대폐차수수료", "대폐차 수수료", "대폐차비", "대폐차",
+    "가입비",
+)
+NON_RECEIVABLE_REPAIR_KEY = "receivables_nonreceivable_import_repair_20260831_v1"
+
 # receivables 전용 lazy schema guard.
 # Railway healthcheck를 빠르게 통과시키기 위해 main.py의 전체 DB 유지보수는
 # 백그라운드에서 돌지만, 사용자가 /receivables를 먼저 열어도 이 모듈의
@@ -324,20 +334,24 @@ def _infer_account(member) -> str:
 
 
 def _billing_basis_date(member, account_type: str) -> Optional[date]:
-    """첫 부과 기준일.
+    """업무 기준 부과기준일.
 
-    사용자 업무규칙:
-    - 협회비: 가입일자(membership_date) 기준
-    - 관리비: 자격증명발급일자(certificate_issue_date) 기준
-    - 기준일자가 없으면 자동부과하지 않는다.
-    - created_at / 인가일자는 첫 부과일 대체값으로 사용하지 않는다.
+    - 협회비: 가입일자
+    - 관리비: 자격증명발급일자
+    - 70세/기타: 별도 자동 신규부과 기준을 만들지 않음
+
+    관련 일자가 없으면 None을 반환한다. 임의로 인가일자/created_at을 대신 쓰지 않는다.
     """
     if account_type == "협회비":
         return _parse_date(getattr(member, "membership_date", None))
     if account_type == "관리비":
         return _parse_date(getattr(member, "certificate_issue_date", None))
-    # 70세는 기존 원장/수동계정 보존용이므로 기존 profile의 첫 부과일을 유지한다.
     return None
+
+
+def _business_first_charge_date(member, account_type: str) -> Optional[date]:
+    basis = _billing_basis_date(member, account_type)
+    return _first_of_next_month(basis) if basis else None
 
 
 def _make_profile(member, seed=None) -> ReceivableProfile:
@@ -359,9 +373,10 @@ def _make_profile(member, seed=None) -> ReceivableProfile:
         )
 
     acct = _infer_account(member)
-    basis = _billing_basis_date(member, acct)
-    first_charge = _first_of_next_month(basis) if basis else None
-    # 원장 이관 이전 기존회원이 profile만 늦게 생성됐다고 과거 부과를 소급 생성하지 않는다.
+    first_charge = _business_first_charge_date(member, acct)
+    # 신규/비legacy 회원은 협회비=가입일자, 관리비=자격증명발급일자를 기준으로만 부과한다.
+    # 기준일이 없으면 first_charge_date=None으로 두어 자동부과하지 않는다.
+    # 과거 기존회원이 뒤늦게 profile만 생성된 경우에는 소급부과를 막기 위해 컷오버월까지만 보정한다.
     if first_charge and first_charge < LEGACY_NEXT_BILL_DATE:
         first_charge = LEGACY_NEXT_BILL_DATE
     return ReceivableProfile(
@@ -369,7 +384,7 @@ def _make_profile(member, seed=None) -> ReceivableProfile:
         account_type=acct,
         unit_fee=ACCOUNT_FEES.get(acct, 5000),
         vehicle_count=1,
-        first_charge_date=first_charge.isoformat() if first_charge else "",
+        first_charge_date=first_charge.isoformat() if first_charge else None,
         legacy_balance=0,
         legacy_months=[],
     )
@@ -578,6 +593,65 @@ def _refresh_legacy_baseline_if_seed_changed(db: Session, marker) -> int:
     return refreshed
 
 
+def _repair_non_receivable_import_payments_once(db: Session) -> int:
+    """과거 버그로 일괄수납된 자격증명/발급비 등 비미수금 거래를 1회 안전 취소한다.
+
+    ReceivableImportRow 원본에 강한 키워드 증거가 있고 payment_id로 정확히 연결된 건만 취소한다.
+    수동입금이나 근거가 불명확한 거래는 건드리지 않는다.
+    """
+    marker = db.query(ReceivableSystemState).filter(ReceivableSystemState.key == NON_RECEIVABLE_REPAIR_KEY).first()
+    if marker is not None:
+        return 0
+
+    rows = (
+        db.query(ReceivableImportRow)
+        .filter(ReceivableImportRow.status == "posted", ReceivableImportRow.payment_id.isnot(None))
+        .all()
+    )
+    repaired = 0
+    batch_ids = set()
+    now = datetime.now(KST)
+    for row in rows:
+        reason = _non_receivable_import_reason({
+            "payer_name": row.payer_name or "",
+            "memo": row.memo or "",
+            "external_id": row.external_id or "",
+            "raw_data": row.raw_data or {},
+        })
+        if not reason:
+            continue
+        payment = (
+            db.query(ReceivablePayment)
+            .filter(ReceivablePayment.id == row.payment_id, ReceivablePayment.cancelled_at.is_(None))
+            .first()
+        )
+        if payment is None:
+            continue
+        payment.cancelled_at = now
+        payment.cancelled_by = "system:nonreceivable-20260831"
+        row.status = "review"
+        row.match_reason = f"{reason} · 과거 자동반영 취소 · 재확인 필요"
+        batch_ids.add(row.batch_id)
+        repaired += 1
+
+    for batch_id in batch_ids:
+        batch = db.query(ReceivableImportBatch).filter(ReceivableImportBatch.id == batch_id).first()
+        if batch is not None:
+            _refresh_import_batch(db, batch)
+            batch.status = "partial" if batch.review_rows else batch.status
+
+    db.add(ReceivableSystemState(
+        key=NON_RECEIVABLE_REPAIR_KEY,
+        value=json.dumps({
+            "repaired": repaired,
+            "rule": "certificate/issuance/vehicle-replacement/join-fee imports are review-only",
+            "applied_at": now.isoformat(),
+        }, ensure_ascii=False),
+    ))
+    db.commit()
+    return repaired
+
+
 def _ensure_db_ledger_ready(db: Session) -> int:
     """DB 공식원장 준비.
 
@@ -587,6 +661,8 @@ def _ensure_db_ledger_ready(db: Session) -> int:
        자동 복구한다. 기존 payments/contact_logs는 삭제하거나 덮어쓰지 않는다.
     """
     _ensure_receivables_schema_ready()
+    # 기존 DB에 잘못 반영된 자격증명/발급비 일괄수납은 증거가 확실한 건만 1회 취소한다.
+    _repair_non_receivable_import_payments_once(db)
 
     marker = _baseline_marker(db)
     if marker is not None:
@@ -663,14 +739,23 @@ def _repair_account_types(db: Session) -> int:
     fixed = 0
     for p, member in rows:
         correct = _infer_account(member)
+        changed = False
         if p.account_type != correct or int(p.unit_fee or 0) != ACCOUNT_FEES.get(correct, 5000):
             p.account_type = correct
             p.unit_fee = ACCOUNT_FEES.get(correct, 5000)
-            basis = _billing_basis_date(member, correct)
-            first_charge = _first_of_next_month(basis) if basis else None
-            if first_charge and first_charge < LEGACY_NEXT_BILL_DATE:
-                first_charge = LEGACY_NEXT_BILL_DATE
-            p.first_charge_date = first_charge.isoformat() if first_charge else ""
+            changed = True
+
+        # 비legacy 자동계정은 부과기준일도 현재 회원정보와 항상 맞춘다.
+        # 협회비=가입일자 다음달 1일, 관리비=자격증명발급일자 다음달 1일, 없으면 미부과(None).
+        first = _business_first_charge_date(member, correct)
+        if first and first < LEGACY_NEXT_BILL_DATE:
+            first = LEGACY_NEXT_BILL_DATE
+        target_first = first.isoformat() if first else None
+        if (p.first_charge_date or None) != target_first:
+            p.first_charge_date = target_first
+            changed = True
+
+        if changed:
             fixed += 1
     if fixed:
         db.commit()
@@ -774,13 +859,17 @@ def _has_legacy_evidence(member, profile) -> bool:
 
 
 def _true_registration_date(member, profile=None) -> Optional[date]:
-    """신규 부과대기 판정도 실제 첫 부과 기준일과 동일한 업무일자를 사용한다."""
+    """신규 부과 판정용 실제 업무 기준일.
+
+    협회비는 가입일자, 관리비는 자격증명발급일자만 사용한다.
+    created_at/인가일자는 부과 기준으로 사용하지 않는다.
+    """
     account_type = getattr(profile, "account_type", None) or _infer_account(member)
     return _billing_basis_date(member, account_type)
 
 
 def _is_true_new_member(member, profile) -> bool:
-    """'부과대기'는 원장에 없고 실제 기준일이 컷오버 이후인 신규회원에게만 붙인다."""
+    """'부과대기'는 원장에 없고 실제 업무 기준일이 컷오버 이후인 회원에게만 붙인다."""
     if _has_legacy_evidence(member, profile):
         return False
     reg = _true_registration_date(member, profile)
@@ -937,8 +1026,8 @@ def _sync_all(db: Session):
     removed = _repair_invalid_auto_charges(db)
     r = _repair_account_types(db)
     c = _ensure_current_month_billing(db)
-    # 신규 profile이 이번 달부터 즉시 부과대상인 back-date 입력일 수 있으므로 마지막 보정 1회.
-    if p:
+    # 신규 profile 또는 가입일자/자격증명발급일자 변경으로 이번 달부터 부과대상이 된 경우 즉시 보정.
+    if p or r:
         c += _sync_charges(db)
     return {
         "profiles_created": p,
@@ -972,9 +1061,12 @@ def _monthly_billing_worker():
         try:
             _ensure_receivables_schema_ready()
             _ensure_db_ledger_ready(db)
-            # 15분마다 전체 회원을 훑지 않는다. 프로필이 없는 신규회원만 빠르게 연결한다.
-            _sync_missing_profiles_fast(db, limit=500, allow_legacy_seed=False)
+            # 프로필이 없는 신규회원만 빠르게 연결하고, 비legacy 회원의 계정/첫부과 기준일만 정합성 보정한다.
+            created = _sync_missing_profiles_fast(db, limit=500, allow_legacy_seed=False)
+            repaired = _repair_account_types(db)
             _ensure_current_month_billing(db)
+            if created or repaired:
+                _sync_charges(db)
         except Exception as exc:
             print(f"[receivables monthly scheduler] {type(exc).__name__}: {exc}")
             try:
@@ -1107,6 +1199,8 @@ def _billing_state(member, profile, balance: int, is_closed: bool = False) -> st
         if balance < 0:
             return "폐업 선납"
         return "폐업 완납"
+    if not _has_legacy_evidence(member, profile) and not first:
+        return "부과기준일 없음"
     # 핵심: 기존 MUSTARD/엑셀 원장 회원은 first_charge_date가 9/1이어도 신규가 아니다.
     if _is_true_new_member(member, profile) and first and first > today:
         return "부과대기"
@@ -1135,28 +1229,26 @@ def _serialize_member(
     is_closed = (getattr(member, "status", None) or "active") == "closed"
     canonical_membership = "가입" if is_association_member(getattr(member, "membership_date", None)) else "미가입"
     billing_state = _billing_state(member, profile, int(balance), is_closed=is_closed)
-    # legacy 기존회원의 9/1은 내부 컷오버일일 뿐 화면에 노출하지 않는다.
-    # 신규/비legacy 회원은 기준일자가 없을 때 첫 부과일을 0으로 명확히 표시한다.
-    if not is_closed and not _has_legacy_evidence(member, profile):
-        display_first_charge = profile.first_charge_date or "0"
-    else:
-        display_first_charge = ""
+    # 화면의 첫 부과일은 내부 DB 컷오버일이 아니라 실제 업무 기준일로 표시한다.
+    # 협회비=가입일자 다음달 1일, 관리비=자격증명발급일자 다음달 1일, 기준일 없으면 0.
+    business_first = _business_first_charge_date(member, profile.account_type)
+    display_first_charge = business_first.isoformat() if business_first else "0"
     return {
         "member_id": member.id,
         "name": member.name or "",
-        "management_number": getattr(member, "management_number", "") or "",
+        "management_number": getattr(member, "management_number", None) or "",
         "vehicle_number": member.vehicle_number or "",
         "region": member.region or "",
-        "address": getattr(member, "address", "") or "",
-        "mobile": getattr(member, "mobile", "") or "",
-        "phone": getattr(member, "phone", "") or "",
-        "certificate_issue_date": getattr(member, "certificate_issue_date", "") or "",
+        "address": getattr(member, "address", None) or "",
+        "mobile": getattr(member, "mobile", None) or "",
+        "phone": getattr(member, "phone", None) or "",
         "category": member.category or "",
         "account_type": profile.account_type,
         "unit_fee": int(profile.unit_fee or 0),
         "vehicle_count": int(profile.vehicle_count or 1),
         "membership_status": canonical_membership,
         "membership_date": member.membership_date or "",
+        "certificate_issue_date": getattr(member, "certificate_issue_date", None) or "",
         "member_status": (closure_type or "폐업") if is_closed else "활성",
         "active": not is_closed,
         "balance": int(balance),
@@ -1525,6 +1617,9 @@ def _hydrate_closure_records(db: Session, closure_rows):
                     "name": m.name or c.name or "",
                     "vehicle_number": m.vehicle_number or c.vehicle_number or "",
                     "region": m.region or c.region or "",
+                    "mobile": getattr(c, "mobile", None) or getattr(m, "mobile", None) or "",
+                    "phone": getattr(c, "phone", None) or getattr(m, "phone", None) or "",
+                    "address": getattr(m, "address", None) or "",
                     "category": m.category or "",
                     "account_type": "협회비" if is_association_member(getattr(m, "membership_date", None)) else "관리비",
                     "unit_fee": 0, "vehicle_count": 1,
@@ -1541,6 +1636,8 @@ def _hydrate_closure_records(db: Session, closure_rows):
                 "name": c.name or item.get("name", ""),
                 "vehicle_number": c.vehicle_number or item.get("vehicle_number", ""),
                 "region": c.region or item.get("region", ""),
+                "mobile": getattr(c, "mobile", None) or item.get("mobile", ""),
+                "phone": getattr(c, "phone", None) or item.get("phone", ""),
             })
         else:
             # 과거 폐업현황은 회원마스터/미수원장과 연결되지 않아도 반드시 보여준다.
@@ -1549,6 +1646,9 @@ def _hydrate_closure_records(db: Session, closure_rows):
                 "name": c.name or "",
                 "vehicle_number": c.vehicle_number or "",
                 "region": c.region or "",
+                "mobile": getattr(c, "mobile", None) or "",
+                "phone": getattr(c, "phone", None) or "",
+                "address": "",
                 "category": "", "account_type": "", "unit_fee": 0, "vehicle_count": 1,
                 "membership_status": "", "membership_date": "",
                 "member_status": ct, "active": False,
@@ -1613,6 +1713,8 @@ def _list_closure_records(
             models.Closure.name.ilike(pat),
             models.Closure.vehicle_number.ilike(pat),
             models.Closure.region.ilike(pat),
+            models.Closure.mobile.ilike(pat),
+            models.Closure.phone.ilike(pat),
             models.Closure.transferee.ilike(pat),
             models.Closure.transfer_region.ilike(pat),
             models.Closure.closure_type.ilike(pat),
@@ -1686,8 +1788,9 @@ def list_members(
     # 최신 Excel은 최초 1회만 DB로 이관된다. 이후 신규회원만 빠르게 연결한다.
     _ensure_db_ledger_ready(db)
     created_profiles = _sync_missing_profiles_fast(db, limit=100, allow_legacy_seed=False)
+    repaired_profiles = _repair_account_types(db)
     _ensure_current_month_billing(db)
-    if created_profiles:
+    if created_profiles or repaired_profiles:
         _sync_charges(db)
 
     # 폐업관리는 반드시 인허가/변경 > 폐업현황(closures) 원장을 직접 기준으로 한다.
@@ -1886,6 +1989,31 @@ _IMPORT_ALIASES = {
 }
 
 
+def _non_receivable_import_reason(item) -> str:
+    """자격증명/대폐차/가입비 등 월 미수금과 무관한 수입을 식별한다.
+
+    자동으로 돈을 버리지 않고 `확인필요`로 분리한다. 사용자가 정말 관리비/협회비 입금이라고
+    확인한 경우에만 수동연결 후 반영할 수 있다.
+    """
+    if item is None:
+        return ""
+    if isinstance(item, str):
+        text_blob = item
+    else:
+        raw = item.get("raw_data") or {} if isinstance(item, dict) else {}
+        pieces = []
+        if isinstance(item, dict):
+            pieces.extend([item.get("memo", ""), item.get("payer_name", ""), item.get("external_id", "")])
+        if isinstance(raw, dict):
+            pieces.extend(str(v or "") for v in raw.values())
+        text_blob = " ".join(str(x or "") for x in pieces)
+    normalized = re.sub(r"\s+", "", str(text_blob or "")).lower()
+    for keyword in NON_RECEIVABLE_IMPORT_KEYWORDS:
+        if re.sub(r"\s+", "", keyword).lower() in normalized:
+            return f"미수금 외 수입 의심({keyword})"
+    return ""
+
+
 def _find_import_header(raw: pd.DataFrame) -> int:
     best_idx, best_score = 0, -1
     max_rows = min(len(raw), 35)
@@ -2076,8 +2204,9 @@ def _unique_member(candidates):
 def _auto_match_import(row, maps):
     by_id, vehicles, names, mgmts, mobiles, aliases = maps
     payer_key = _norm(row.get("payer_name"))
-    if payer_key and payer_key in aliases and aliases[payer_key] in by_id:
-        return by_id[aliases[payer_key]], "기존 입금자 매칭이력"
+
+    # 과거 입금자 매칭이력보다 현재 거래에 들어 있는 관리번호/차량/핸드폰을 우선한다.
+    # 동명이인(예: 이건우)이 생긴 뒤에도 과거 alias가 엉뚱한 사람에게 입금을 붙이지 않게 한다.
     mgmt_key = _norm(row.get("management_number"))
     m = _unique_member(mgmts.get(mgmt_key)) if mgmt_key else None
     if m:
@@ -2090,6 +2219,14 @@ def _auto_match_import(row, maps):
     m = _unique_member(mobiles.get(mobile_key)) if len(mobile_key) >= 8 else None
     if m:
         return m, "핸드폰 정확일치"
+
+    # 입금자 과거 alias는 현재 동일 성명 회원이 정확히 1명일 때만 허용한다.
+    # 같은 이름의 회원이 2명 이상이면 자동매칭하지 않고 확인필요로 남긴다.
+    if payer_key and payer_key in aliases and aliases[payer_key] in by_id:
+        name_candidates = {x.id for x in (names.get(payer_key) or [])}
+        if len(name_candidates) == 1 and aliases[payer_key] in name_candidates:
+            return by_id[aliases[payer_key]], "기존 입금자 매칭이력(동명이인 없음)"
+
     m = _unique_member(names.get(payer_key)) if payer_key else None
     if m:
         return m, "성명 유일일치"
@@ -2135,7 +2272,9 @@ def _refresh_import_batch(db: Session, batch: ReceivableImportBatch):
     batch.review_rows = sum(1 for r in rows if r.status == "review")
     batch.duplicate_rows = sum(1 for r in rows if r.status == "duplicate")
     batch.posted_rows = sum(1 for r in rows if r.status == "posted")
-    batch.total_amount = sum(int(r.amount or 0) for r in rows if r.status != "duplicate")
+    # 반영예정액은 자동반영 확정(matched) + 이미 반영(posted)만 합산한다.
+    # review(자격증명/발급비 의심 포함)는 금액 합계에도 넣지 않아 오해를 막는다.
+    batch.total_amount = sum(int(r.amount or 0) for r in rows if r.status in {"matched", "posted"})
     batch.posted_amount = sum(int(r.amount or 0) for r in rows if r.status == "posted")
     return rows
 
@@ -2180,8 +2319,18 @@ async def preview_payment_import(
     for item in parsed:
         duplicate = item["fingerprint"] in posted or item["fingerprint"] in seen
         seen.add(item["fingerprint"])
-        member, reason = (None, "기존/파일내 중복") if duplicate else _auto_match_import(item, maps)
-        status = "duplicate" if duplicate else ("matched" if member else "review")
+        non_receivable_reason = "" if duplicate else _non_receivable_import_reason(item)
+        if duplicate:
+            member, reason, status = None, "기존/파일내 중복", "duplicate"
+        else:
+            member, match_reason = _auto_match_import(item, maps)
+            if non_receivable_reason:
+                # 후보 회원은 보여주되, 자동반영 대상(matched)으로 만들지 않는다.
+                reason = f"{non_receivable_reason} · 자동반영 금지" + (f" · 후보: {match_reason}" if member else "")
+                status = "review"
+            else:
+                reason = match_reason
+                status = "matched" if member else "review"
         db.add(ReceivableImportRow(
             batch_id=batch.id,
             source_row=item["source_row"],
@@ -2326,7 +2475,9 @@ def post_payment_import(
     posted_amount = 0
     method = "카드" if "결제" in (batch.source_type or "") or "사이다" in (batch.source_type or "") else "계좌이체"
     for row in rows:
-        if row.status in {"posted", "duplicate"}:
+        # 안전장치: 일괄반영은 status == matched 인 거래만 허용한다.
+        # review(자격증명/발급비 의심 포함)는 matched_member_id가 있더라도 절대 자동반영하지 않는다.
+        if row.status != "matched":
             continue
         if not row.matched_member_id:
             row.status = "review"
@@ -2893,6 +3044,9 @@ def add_payment(
     profile = _ensure_profile_for_member(db, member_id)
     if not profile:
         raise HTTPException(404, "미수금 프로필을 찾을 수 없습니다.")
+    non_receivable_reason = _non_receivable_import_reason({"memo": payload.memo or ""})
+    if non_receivable_reason:
+        raise HTTPException(400, f"{non_receivable_reason}은(는) 관리비/협회비 미수금 수납으로 등록할 수 없습니다.")
     row = ReceivablePayment(
         member_id=member_id,
         payment_date=d.isoformat(),
@@ -2969,12 +3123,5 @@ def update_account(
     profile.unit_fee = ACCOUNT_FEES[payload.account_type]
     profile.vehicle_count = payload.vehicle_count
     profile.account_manual_override = 1
-    member = db.query(models.LicenseHolder).filter(models.LicenseHolder.id == member_id).first()
-    if member and payload.account_type in ("협회비", "관리비"):
-        basis = _billing_basis_date(member, payload.account_type)
-        first_charge = _first_of_next_month(basis) if basis else None
-        if first_charge and first_charge < LEGACY_NEXT_BILL_DATE:
-            first_charge = LEGACY_NEXT_BILL_DATE
-        profile.first_charge_date = first_charge.isoformat() if first_charge else ""
     db.commit()
     return {"ok": True}
