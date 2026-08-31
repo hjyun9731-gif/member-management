@@ -675,3 +675,56 @@
 }
 @media(max-width:1350px){.performance-primary-grid{grid-template-columns:repeat(2,1fr)}.performance-detail-grid,.readable-chart-grid{grid-template-columns:1fr}.performance-verdict{grid-template-columns:1fr}.performance-verdict-number{border-left:0;border-top:1px solid #e4e7ec;padding:14px 0 0}.performance-insights{grid-template-columns:1fr}.readable-metric-list{grid-template-columns:1fr 1fr}}
 @media(max-width:800px){.performance-view-tabs{width:100%;overflow-x:auto}.performance-view-tab{padding:0 14px}.performance-primary-grid,.readable-metric-list,.readable-metric-list.four{grid-template-columns:1fr}.performance-verdict>div:first-child>strong{font-size:20px}.performance-verdict-number b{font-size:27px}.performance-trend{grid-auto-columns:90px}}
+
+
+/* 2026-08-31 V6 세로 스크롤형 미수금 성과 대시보드
+   핵심: 한 화면 높이에 맞추지 않음 / 탭으로 숨기지 않음 / 페이지 자체를 아래로 스크롤 */
+.performance-scroll-guide{
+  display:flex;flex-wrap:wrap;gap:8px;margin:0 0 20px;padding:10px 12px;
+  background:#f7f8fa;border:1px solid #e6e9ee;border-radius:12px
+}
+.performance-scroll-guide span{font-size:11px;font-weight:900;color:#697280;background:#fff;border:1px solid #e7eaf0;border-radius:999px;padding:7px 11px}
+.performance-view-shell{display:block!important;overflow:visible!important;max-height:none!important;min-height:0!important;padding:0!important}
+.performance-view-panel,.performance-view-panel.hidden{display:grid!important;gap:18px!important;padding:0!important;margin:0 0 44px!important}
+.performance-scroll-section{scroll-margin-top:145px}
+.performance-section-title,.performance-subsection-title{display:flex;align-items:flex-start;gap:12px;margin:0 0 2px;padding:3px 2px 0}
+.performance-section-title>span,.performance-subsection-title>span{flex:0 0 auto;min-width:36px;height:30px;border-radius:9px;background:#eef1f8;color:#555d9a;display:grid;place-items:center;font-size:11px;font-weight:950}
+.performance-section-title h3,.performance-subsection-title h3{margin:0;color:#2f3642;font-size:20px;letter-spacing:-.45px}
+.performance-section-title p,.performance-subsection-title p{margin:5px 0 0;color:#808895;font-size:11.5px;line-height:1.5}
+.performance-subsection-title{margin-top:8px}
+.performance-subsection-title h3{font-size:18px}
+
+/* 그래프를 좌우로 욱여넣지 않고 한 줄에 하나씩 넓게 */
+.readable-chart-grid.vertical-charts{display:grid!important;grid-template-columns:1fr!important;gap:18px!important}
+.readable-chart-card{min-height:360px;padding:20px 22px!important}
+.performance-trend-card{min-height:400px}
+.performance-trend{height:320px!important;grid-auto-columns:minmax(105px,1fr)!important;gap:15px!important;padding:8px 10px 12px!important;overflow-x:auto!important}
+.perf-trend-item{height:300px!important;grid-template-rows:30px 195px 27px 40px!important;min-width:105px!important}
+.perf-trend-bar{height:195px!important}.perf-trend-item>strong{font-size:13px!important}.perf-trend-item>b{font-size:12px!important}.perf-trend-item>small{font-size:10px!important}
+.monthly-flow-chart{padding:8px 4px!important;gap:14px!important}.flow-row{grid-template-columns:70px 1fr!important;gap:14px!important}.flow-row>b{font-size:12px!important}.flow-bars span{height:25px!important}.flow-bars em{font-size:11px!important;line-height:25px!important}
+.monthly-ratio-chart{padding:10px 4px!important;gap:16px!important}.ratio-row{grid-template-columns:70px 1fr 75px!important;gap:14px!important}.ratio-row>b,.ratio-row>strong{font-size:12px!important}.ratio-row>div{height:15px!important}
+.readable-insight-card{padding:20px 22px!important}.performance-insights{gap:14px!important}.insight-row{min-height:112px!important;padding:16px!important}.insight-row b{font-size:15px!important}.insight-row small{font-size:10.5px!important}.insight-row em{font-size:14px!important}
+
+/* 성과표는 내부 255/520px 스크롤 박스로 자르지 않고 페이지 스크롤에 맡김 */
+.performance-table-wrap{max-height:none!important;overflow-x:auto!important;overflow-y:visible!important}
+.performance-table th{position:sticky;top:120px;z-index:3}
+.performance-table td{height:46px!important;font-size:12px!important}.performance-table th{font-size:11px!important;padding:12px 10px!important}
+
+/* 미수회원 상세도 같은 페이지 아래쪽에 이어짐 */
+.arrears-member-section-title{margin:12px 0 14px;padding-top:10px;border-top:1px solid #e4e8ee}
+body.arrears-scroll-dashboard .page{overflow:visible!important;height:auto!important;max-height:none!important}
+body.arrears-scroll-dashboard #arrearsDashboard{display:block!important;overflow:visible!important;max-height:none!important;height:auto!important;margin-bottom:10px!important}
+body.arrears-scroll-dashboard .workspace{display:grid!important;margin-top:0}
+body.arrears-scroll-dashboard .workspace.arrears-mode .member-panel{position:static!important;top:auto!important}
+body.arrears-scroll-dashboard .workspace.arrears-mode .member-table-wrap{max-height:620px!important}
+
+/* 과거 V5의 뷰포트 고정 규칙 무력화 */
+@media(min-width:1360px) and (min-height:760px){
+  body.arrears-scroll-dashboard .page{overflow:visible!important}
+  body.arrears-scroll-dashboard #arrearsDashboard{flex:none!important;min-height:0!important;display:block!important}
+  body.arrears-scroll-dashboard .performance-view-shell{overflow:visible!important;display:block!important}
+}
+@media(max-width:1350px){
+  .performance-section-title h3{font-size:18px}.performance-subsection-title h3{font-size:17px}
+  .performance-trend{grid-auto-columns:105px!important}
+}
