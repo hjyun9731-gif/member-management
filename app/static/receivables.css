@@ -2784,3 +2784,96 @@ body.arrears-scroll-dashboard .workspace.arrears-mode .excel-export-btn{backgrou
  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-chart-grid{grid-template-columns:1fr!important}
  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-metrics{grid-template-columns:repeat(2,minmax(0,1fr))!important}
 }
+
+
+/* =========================================================
+   V16 — final hierarchy tuning
+   Layout/presentation only; data/API/business rules unchanged.
+   ========================================================= */
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-title-row{
+  align-items:center!important;
+  margin-bottom:16px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls{
+  align-self:center!important;
+  margin-top:0!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-band{
+  grid-template-columns:minmax(480px,1.3fr) minmax(560px,1fr)!important;
+  min-height:100px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-main{
+  padding:18px 22px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-main>strong{
+  font-size:20px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-metrics{
+  grid-template-columns:repeat(4,minmax(0,1fr))!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-metrics>div{
+  min-height:98px!important;
+  padding:16px 14px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-metrics span{font-size:11px!important}
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-metrics strong{font-size:20px!important}
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-metrics small{font-size:10px!important}
+
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-chart-card,
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-insight-card{
+  min-height:410px!important;
+  padding:20px 22px 18px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-trend,
+body.arrears-scroll-dashboard #arrearsDashboard .monthly-flow-chart,
+body.arrears-scroll-dashboard #arrearsDashboard .monthly-ratio-chart{
+  height:350px!important;
+  min-height:350px!important;
+  overflow:visible!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .dash-svg{
+  height:340px!important;
+  overflow:visible!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .monthly-flow-chart .svg-legend{
+  margin-bottom:0!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-insights{
+  height:350px!important;
+  display:grid!important;
+  grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  grid-template-rows:repeat(2,minmax(0,1fr))!important;
+  gap:0!important;
+  align-content:stretch!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .insight-row{
+  grid-template-columns:1fr auto!important;
+  grid-template-rows:auto auto!important;
+  min-height:0!important;
+  padding:20px!important;
+  border-right:1px solid #edf0f4!important;
+  border-bottom:1px solid #edf0f4!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .insight-row:nth-child(2n){border-right:0!important}
+body.arrears-scroll-dashboard #arrearsDashboard .insight-row:nth-last-child(-n+2){border-bottom:0!important}
+body.arrears-scroll-dashboard #arrearsDashboard .insight-row>span{
+  grid-column:1 / -1!important;
+  font-size:11px!important;
+  margin-bottom:10px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .insight-row>div{min-width:0!important}
+body.arrears-scroll-dashboard #arrearsDashboard .insight-row b{font-size:18px!important}
+body.arrears-scroll-dashboard #arrearsDashboard .insight-row small{display:block!important;margin-top:5px!important;white-space:normal!important;line-height:1.35!important}
+body.arrears-scroll-dashboard #arrearsDashboard .insight-row em{align-self:center!important;font-size:18px!important;margin-left:10px!important}
+
+@media (max-width:1450px){
+  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-band{grid-template-columns:1fr!important}
+  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-main{border-right:0!important;border-bottom:1px solid #edf0f4!important}
+  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-metrics{grid-template-columns:repeat(4,minmax(0,1fr))!important}
+}
+@media (max-width:920px){
+  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-summary-metrics{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  body.arrears-scroll-dashboard #arrearsDashboard .performance-insights{grid-template-columns:1fr!important;grid-template-rows:auto!important;height:auto!important}
+  body.arrears-scroll-dashboard #arrearsDashboard .insight-row{border-right:0!important;border-bottom:1px solid #edf0f4!important;min-height:110px!important}
+  body.arrears-scroll-dashboard #arrearsDashboard .insight-row:last-child{border-bottom:0!important}
+}

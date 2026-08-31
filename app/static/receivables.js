@@ -98,12 +98,16 @@ function svgFlowChart(history){
 }
 function svgRatioChart(history){
   if(!history.length)return '<div class="dash-empty">수납률 데이터 없음</div>';
-  const W=820,H=320,L=60,R=24,T=32,B=48,pw=W-L-R,ph=H-T-B;
+  const W=820,H=320,L=60,R=24,T=32,B=54,pw=W-L-R,ph=H-T-B;
+  const values=history.map(r=>r.collection_ratio===null||r.collection_ratio===undefined?0:Math.max(0,Number(r.collection_ratio)));
+  const peak=Math.max(100,...values);
+  const ymax=Math.max(100,Math.ceil(peak/25)*25);
+  const tickCount=4;
   let out=`<svg class="dash-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="월별 수납 부과율">`;
-  [0,25,50,75,100].forEach(v=>{const y=T+ph*(1-v/100);out+=`<line x1="${L}" y1="${y}" x2="${W-R}" y2="${y}" class="svg-grid"/><text x="${L-10}" y="${y+4}" text-anchor="end" class="svg-axis">${v}%</text>`});
-  const pts=[];history.forEach((r,i)=>{const v=r.collection_ratio===null||r.collection_ratio===undefined?0:Math.min(100,Math.max(0,Number(r.collection_ratio))),x=L+(history.length===1?pw/2:i*pw/(history.length-1)),y=T+ph*(1-v/100);pts.push(`${x},${y}`)});
+  for(let k=0;k<=tickCount;k++){const v=ymax*k/tickCount,y=T+ph*(1-v/ymax);out+=`<line x1="${L}" y1="${y}" x2="${W-R}" y2="${y}" class="svg-grid"/><text x="${L-10}" y="${y+4}" text-anchor="end" class="svg-axis">${Math.round(v)}%</text>`}
+  const pts=[];history.forEach((r,i)=>{const v=values[i],x=L+(history.length===1?pw/2:i*pw/(history.length-1)),y=T+ph*(1-v/ymax);pts.push(`${x},${y}`)});
   out+=`<polyline points="${pts.join(' ')}" class="svg-ratio-line"/>`;
-  history.forEach((r,i)=>{const v=r.collection_ratio===null||r.collection_ratio===undefined?0:Math.min(100,Math.max(0,Number(r.collection_ratio))),x=L+(history.length===1?pw/2:i*pw/(history.length-1)),y=T+ph*(1-v/100);out+=`<circle cx="${x}" cy="${y}" r="5" class="svg-ratio-dot"/><text x="${x}" y="${Math.max(18,y-11)}" text-anchor="middle" class="svg-value">${ratioText(r.collection_ratio)}</text><text x="${x}" y="${H-17}" text-anchor="middle" class="svg-month">${svgEsc(String(r.month).slice(5))}월</text>`});
+  history.forEach((r,i)=>{const v=values[i],x=L+(history.length===1?pw/2:i*pw/(history.length-1)),y=T+ph*(1-v/ymax);out+=`<circle cx="${x}" cy="${y}" r="5" class="svg-ratio-dot"/><text x="${x}" y="${Math.max(18,y-11)}" text-anchor="middle" class="svg-value">${ratioText(r.collection_ratio)}</text><text x="${x}" y="${H-16}" text-anchor="middle" class="svg-month">${svgEsc(String(r.month).slice(5))}월</text>`});
   out+='</svg>';return out;
 }
 
@@ -164,11 +168,14 @@ function renderMonthlyAnalysis(a){
   const ins=a.insights||{}, insights=$('#performanceInsights');
   if(insights){
     const br=ins.best_reduction,wi=ins.worst_increase,bc=ins.best_collection;
-    const row=(label,r,value,cls)=>`<div class="insight-row"><span>${label}</span><div><b>${r?esc(r.label):'-'}</b><small>${r?value(r):'데이터 없음'}</small></div><em class="${cls||''}">${r&&r.net_change!==undefined?signedWon(r.net_change):''}</em></div>`;
+    const validRates=history.filter(r=>r.collection_ratio!==null&&r.collection_ratio!==undefined&&Number.isFinite(Number(r.collection_ratio)));
+    const wc=validRates.length?validRates.reduce((a,b)=>Number(a.collection_ratio)<=Number(b.collection_ratio)?a:b):null;
+    const row=(label,r,value,cls,tail)=>`<div class="insight-row"><span>${label}</span><div><b>${r?esc(r.label):'-'}</b><small>${r?value(r):'데이터 없음'}</small></div><em class="${cls||''}">${r?(tail?tail(r):(r.net_change!==undefined?signedWon(r.net_change):'')):''}</em></div>`;
     insights.innerHTML=
       row('미수 가장 많이 감소',br,r=>`월말 ${fmt(r.end_arrears||0)}`,'good')+
       row('미수 가장 많이 증가',wi,r=>`월말 ${fmt(r.end_arrears||0)}`,'bad')+
-      `<div class="insight-row"><span>수납/부과율 최고</span><div><b>${bc?esc(bc.label):'-'}</b><small>${bc?`수납 ${fmt(bc.payments||0)} / 부과 ${fmt(bc.charges||0)}`:'데이터 없음'}</small></div><em class="good">${bc?ratioText(bc.collection_ratio):''}</em></div>`;
+      row('수납/부과율 최고',bc,r=>`수납 ${fmt(r.payments||0)} / 부과 ${fmt(r.charges||0)}`,'good',r=>ratioText(r.collection_ratio))+
+      row('수납/부과율 최저',wc,r=>`수납 ${fmt(r.payments||0)} / 부과 ${fmt(r.charges||0)}`,'bad',r=>ratioText(r.collection_ratio));
   }
 
   const tbody=$('#performanceTableRows');
