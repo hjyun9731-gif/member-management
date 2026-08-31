@@ -1253,3 +1253,457 @@ body.arrears-scroll-dashboard .arrears-member-section-title{
     padding:12px 0 0!important;
   }
 }
+
+/* =========================================================
+   V11 PREMIUM DASHBOARD RESTYLE — 미수금 대시보드 시각 디자인만
+   기능/데이터/JS/API/다른 탭 구조 변경 없음
+   ========================================================= */
+body.arrears-scroll-dashboard{
+  background:#f4f6f9!important;
+}
+body.arrears-scroll-dashboard .page{
+  max-width:1480px!important;
+  width:calc(100vw - 64px)!important;
+  padding-top:22px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard{
+  --v11-accent:#5b55d6;
+  --v11-accent-soft:#f0efff;
+  --v11-text:#1f2937;
+  --v11-sub:#7a8493;
+  --v11-line:#e4e8ee;
+  --v11-card:#ffffff;
+  --v11-green:#15805f;
+  --v11-green-soft:#eff8f4;
+  --v11-red:#cf4b53;
+  --v11-red-soft:#fff5f5;
+  --v11-amber:#a96b16;
+  --v11-amber-soft:#fff8ec;
+  color:var(--v11-text)!important;
+}
+
+/* 제목/월 비교 — 상단 바처럼 작고 정돈되게 */
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-head{
+  margin:0 0 16px!important;
+  padding:0 2px!important;
+  min-height:54px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-head h2{
+  font-size:24px!important;
+  font-weight:900!important;
+  color:#202737!important;
+  letter-spacing:-.65px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls{
+  padding:7px 8px!important;
+  border-radius:11px!important;
+  border:1px solid #dde2e9!important;
+  box-shadow:0 1px 2px rgba(25,34,51,.04)!important;
+  background:#fff!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls label{
+  gap:3px!important;
+  font-size:9.5px!important;
+  color:#788190!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls select{
+  height:34px!important;
+  min-width:132px!important;
+  border-radius:8px!important;
+  border-color:#dce1e8!important;
+  font-size:11px!important;
+  font-weight:800!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls>span{
+  padding-bottom:9px!important;
+  font-size:10px!important;
+  color:#9098a4!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard #applyMonthCompare{
+  height:34px!important;
+  min-width:50px!important;
+  border-radius:8px!important;
+  background:var(--v11-accent)!important;
+  box-shadow:none!important;
+  font-size:11px!important;
+}
+
+/* 첫 화면: 불필요한 중간 제목 없이 KPI -> 결과 -> 세부성과 */
+body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="summary"]{
+  display:grid!important;
+  grid-template-columns:1fr!important;
+  gap:12px!important;
+  margin-bottom:28px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="summary"]>.performance-section-title{
+  display:none!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid{
+  order:1!important;
+  gap:10px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict{
+  order:2!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-detail-grid{
+  order:3!important;
+}
+
+/* KPI — 흰 카드 + 얇은 포인트선, 파스텔 박스 남발 제거 */
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article{
+  position:relative!important;
+  min-height:104px!important;
+  padding:17px 18px 15px!important;
+  background:#fff!important;
+  border:1px solid var(--v11-line)!important;
+  border-radius:12px!important;
+  box-shadow:0 1px 3px rgba(23,32,48,.045)!important;
+  overflow:hidden!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article:before{
+  content:""!important;
+  position:absolute!important;
+  left:0!important;top:0!important;bottom:0!important;
+  width:4px!important;
+  background:#c8c7ed!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article.performance-paid:before{background:#75bca6!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article.performance-ratio:before{background:#d7ae6d!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article.performance-paid,
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article.performance-ratio{
+  background:#fff!important;
+  border-color:var(--v11-line)!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid span{
+  font-size:10.5px!important;
+  color:#737d8b!important;
+  letter-spacing:-.1px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid strong{
+  margin:9px 0 5px!important;
+  font-size:25px!important;
+  font-weight:900!important;
+  color:#202737!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid .performance-paid strong{color:var(--v11-green)!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid .performance-ratio strong{color:#9b6519!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid small{
+  font-size:10px!important;
+  color:#98a0ac!important;
+}
+
+/* 순증감 결과 — 큰 분홍 박스 대신 얇은 업무 요약바 */
+body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict{
+  min-height:82px!important;
+  grid-template-columns:minmax(0,1fr) 230px!important;
+  padding:15px 18px!important;
+  background:#fff!important;
+  border:1px solid var(--v11-line)!important;
+  border-radius:12px!important;
+  box-shadow:0 1px 3px rgba(23,32,48,.04)!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict>div:first-child>span,
+body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number>span{
+  color:#818a97!important;
+  font-size:9.5px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict>div:first-child>strong{
+  margin-top:5px!important;
+  font-size:18px!important;
+  font-weight:900!important;
+  color:#252c38!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict>div:first-child>p{
+  margin-top:5px!important;
+  color:#929aa6!important;
+  font-size:10px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number{
+  padding-left:20px!important;
+  border-left:1px solid #edf0f3!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number b{
+  font-size:24px!important;
+  margin-top:5px!important;
+}
+
+/* 세부 성과 — 카드 안 작은 카드 제거, 숫자 중심 */
+body.arrears-scroll-dashboard #arrearsDashboard .performance-detail-grid{
+  gap:10px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-detail-card{
+  min-height:134px!important;
+  padding:15px 16px!important;
+  border:1px solid var(--v11-line)!important;
+  border-radius:12px!important;
+  box-shadow:0 1px 3px rgba(23,32,48,.035)!important;
+  background:#fff!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-detail-card .dash-card-head{
+  margin-bottom:9px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-detail-card .dash-card-head b{
+  font-size:13px!important;
+  color:#303746!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list{
+  display:grid!important;
+  grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  gap:0!important;
+  border:1px solid #edf0f3!important;
+  border-radius:9px!important;
+  overflow:hidden!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list.four{
+  grid-template-columns:repeat(2,minmax(0,1fr))!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list>div{
+  min-height:62px!important;
+  padding:10px 12px!important;
+  background:#fff!important;
+  border:0!important;
+  border-right:1px solid #edf0f3!important;
+  border-bottom:1px solid #edf0f3!important;
+  border-radius:0!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list>div:last-child{border-right:0!important}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list span{
+  font-size:9.5px!important;
+  color:#8a929e!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list strong{
+  margin-top:4px!important;
+  font-size:18px!important;
+  color:#27303e!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list strong.good{color:#1d78b5!important}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list strong.bad{color:var(--v11-red)!important}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list small{
+  margin-top:2px!important;
+  font-size:9px!important;
+  color:#9ba3ae!important;
+}
+
+/* 월별 추이 — 섹션 제목과 차트 카드의 시각 계층 명확화 */
+body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="trend"]{
+  gap:12px!important;
+  margin-bottom:28px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="trend"]>.performance-section-title{
+  margin:0 0 2px!important;
+  padding:0 2px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="trend"]>.performance-section-title h3{
+  font-size:18px!important;
+  color:#252d39!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-chart-card,
+body.arrears-scroll-dashboard #arrearsDashboard .readable-insight-card{
+  border:1px solid var(--v11-line)!important;
+  border-radius:12px!important;
+  box-shadow:0 1px 3px rgba(23,32,48,.04)!important;
+  background:#fff!important;
+  padding:15px 16px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .dash-card-head b{
+  font-size:12.5px!important;
+  color:#303746!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-trend-card,
+body.arrears-scroll-dashboard #arrearsDashboard .performance-flow-card{
+  min-height:305px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .ratio-card,
+body.arrears-scroll-dashboard #arrearsDashboard .readable-insight-card{
+  min-height:220px!important;
+}
+
+/* 차트 자체: 막대가 두껍고 촌스럽지 않게 */
+body.arrears-scroll-dashboard #arrearsDashboard .performance-trend{
+  height:236px!important;
+  gap:12px!important;
+  padding:7px 8px 2px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .perf-trend-item{
+  height:222px!important;
+  grid-template-rows:24px 140px 24px 30px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .perf-trend-bar{
+  height:140px!important;
+  max-width:48px!important;
+  margin:0 auto!important;
+  border-radius:6px 6px 2px 2px!important;
+  background:linear-gradient(180deg,#8e86df,#b7b2ec)!important;
+  box-shadow:none!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .flow-bars span{
+  height:18px!important;
+  border-radius:4px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .flow-bars span:first-child{background:#d8c39c!important}
+body.arrears-scroll-dashboard #arrearsDashboard .flow-bars span:last-child{background:#8fc8b6!important}
+body.arrears-scroll-dashboard #arrearsDashboard .flow-bars em{
+  line-height:18px!important;
+  font-size:9px!important;
+  color:#4b5563!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .ratio-row>div{
+  height:10px!important;
+  background:#eef1f4!important;
+  border-radius:999px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .ratio-row>div>i{
+  border-radius:999px!important;
+  background:linear-gradient(90deg,#8177da,#5b55d6)!important;
+}
+
+/* 월별 인사이트: 세 칸 짧은 요약 */
+body.arrears-scroll-dashboard #arrearsDashboard .performance-insights{
+  gap:0!important;
+  border:1px solid #edf0f3!important;
+  border-radius:9px!important;
+  overflow:hidden!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .insight-row{
+  min-height:72px!important;
+  border:0!important;
+  border-right:1px solid #edf0f3!important;
+  border-radius:0!important;
+  background:#fff!important;
+  padding:11px 12px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .insight-row:last-child{border-right:0!important}
+
+/* 성과표 — 보라색 헤더 제거, 엑셀/관리 화면 같은 깨끗한 표 */
+body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="table"]{
+  margin-bottom:28px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="table"]>.performance-section-title{
+  display:none!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-table-card{
+  padding:0!important;
+  border:1px solid var(--v11-line)!important;
+  border-radius:12px!important;
+  box-shadow:0 1px 3px rgba(23,32,48,.04)!important;
+  overflow:hidden!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-table-card>.dash-card-head{
+  min-height:48px!important;
+  margin:0!important;
+  padding:0 15px!important;
+  border-bottom:1px solid #e9edf1!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-table-card>.dash-card-head b{
+  font-size:14px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-table-card>.dash-card-head small{
+  display:block!important;
+  color:#9aa2ad!important;
+  font-size:9.5px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-table-wrap{
+  border:0!important;
+  border-radius:0!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-table th{
+  height:38px!important;
+  padding:0 8px!important;
+  background:#f7f8fa!important;
+  color:#697382!important;
+  border-bottom:1px solid #e4e8ed!important;
+  font-size:9.5px!important;
+  font-weight:900!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-table td{
+  height:42px!important;
+  padding:0 8px!important;
+  font-size:10.5px!important;
+  color:#333b48!important;
+  border-bottom:1px solid #eef1f4!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-table tbody tr:nth-child(even) td{background:#fbfcfd!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-table tbody tr:hover td{background:#f4f6fb!important}
+
+/* 회원조회 — 대시보드 아래 하나의 큰 업무표처럼 */
+body.arrears-scroll-dashboard .arrears-member-section-title{
+  margin:0 0 9px!important;
+  padding:0 2px!important;
+  border:0!important;
+}
+body.arrears-scroll-dashboard .arrears-member-section-title h3{
+  font-size:18px!important;
+  color:#252d39!important;
+}
+body.arrears-scroll-dashboard .workspace.arrears-mode{
+  display:grid!important;
+  grid-template-columns:1fr!important;
+  gap:12px!important;
+  max-width:none!important;
+}
+body.arrears-scroll-dashboard .workspace.arrears-mode .member-panel{
+  border:1px solid #e2e6ec!important;
+  border-radius:12px!important;
+  box-shadow:0 1px 3px rgba(23,32,48,.04)!important;
+  background:#fff!important;
+  overflow:hidden!important;
+}
+body.arrears-scroll-dashboard .workspace.arrears-mode .panel-head{
+  min-height:58px!important;
+  padding:13px 16px 9px!important;
+  border-bottom:0!important;
+}
+body.arrears-scroll-dashboard .workspace.arrears-mode .panel-head h2{
+  font-size:14px!important;
+  color:#303746!important;
+}
+body.arrears-scroll-dashboard .workspace.arrears-mode .panel-head p{
+  font-size:9.5px!important;
+  color:#98a0ab!important;
+}
+body.arrears-scroll-dashboard .workspace.arrears-mode .filters{
+  padding:0 16px 12px!important;
+  grid-template-columns:minmax(260px,1.5fr) repeat(4,minmax(120px,.7fr))!important;
+  gap:7px!important;
+}
+body.arrears-scroll-dashboard .workspace.arrears-mode .filters input,
+body.arrears-scroll-dashboard .workspace.arrears-mode .filters select{
+  height:36px!important;
+  border-radius:8px!important;
+  font-size:10.5px!important;
+  border-color:#dfe4ea!important;
+}
+body.arrears-scroll-dashboard .workspace.arrears-mode .excel-export-btn{
+  background:#fff2c8!important;
+  border-color:#efd987!important;
+  color:#72591d!important;
+  box-shadow:none!important;
+}
+body.arrears-scroll-dashboard .workspace.arrears-mode .member-table-wrap{
+  border-top:1px solid #e8ecf1!important;
+}
+body.arrears-scroll-dashboard .workspace.arrears-mode .member-table th{
+  height:38px!important;
+  background:#f7f8fa!important;
+  color:#717b89!important;
+  font-size:9.5px!important;
+  font-weight:900!important;
+}
+body.arrears-scroll-dashboard .workspace.arrears-mode .member-table td{
+  height:43px!important;
+  font-size:10.5px!important;
+  border-bottom:1px solid #eef1f4!important;
+}
+body.arrears-scroll-dashboard .workspace.arrears-mode .member-table tbody tr:nth-child(even){background:#fbfcfd!important}
+body.arrears-scroll-dashboard .workspace.arrears-mode .member-table tbody tr:hover{background:#f3f6fb!important}
+body.arrears-scroll-dashboard .workspace.arrears-mode .detail-panel{
+  border-radius:12px!important;
+  box-shadow:0 1px 3px rgba(23,32,48,.04)!important;
+}
+
+@media(max-width:1100px){
+  body.arrears-scroll-dashboard .page{width:calc(100vw - 28px)!important}
+  body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  body.arrears-scroll-dashboard #arrearsDashboard .performance-detail-grid{grid-template-columns:1fr!important}
+  body.arrears-scroll-dashboard .workspace.arrears-mode .filters{grid-template-columns:1fr 1fr!important}
+}
