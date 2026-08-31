@@ -810,3 +810,54 @@ body.deadline-mode .content{padding:0;height:calc(100vh - 52px);min-height:620px
 
 .pbd-mini-day.selected.sun:not(.today)>span,.pbd-mini-day.selected.holiday:not(.today)>span{color:var(--pbd-sunday)!important}
 .pbd-mini-day.selected.sat:not(.holiday):not(.today)>span{color:var(--pbd-saturday)!important}
+
+/* =====================================================================
+   2026-08-31 — SYSTEM TABLE CENTER ALIGNMENT
+   Presentation only. No API/DB/save/edit/delete/search logic changes.
+   ===================================================================== */
+table th,
+table td{
+  text-align:center!important;
+  vertical-align:middle!important;
+}
+
+/* Common inline/flex content used inside table cells */
+table td > .phone-cell,
+table td > .phone-line,
+table td > .member-cell,
+table td > .manage-cell,
+table td > .td-actions,
+table td > .action-cell,
+table td > .status-wrap,
+table td > .badge-wrap,
+table td > .row-actions,
+table td > .cell-actions,
+table td > div[style*="display:flex"],
+table th > div[style*="display:flex"]{
+  justify-content:center!important;
+  text-align:center!important;
+}
+
+/* Keep sortable header labels visually centered even when arrows are present */
+thead th.sortable,
+thead th.no-sort{
+  text-align:center!important;
+}
+
+/* Report / ledger / permit tables */
+.rpt-tbl th,.rpt-tbl td,
+.mrp-sheet th,.mrp-sheet td,
+.member-table th,.member-table td,
+.bulk-table th,.bulk-table td,
+.pbd-table th,.pbd-table td{
+  text-align:center!important;
+  vertical-align:middle!important;
+}
+
+/* Override older amount/right-align rules so every system table is consistent */
+table td.amount,
+table th.amount,
+.member-table td:last-child,
+.workspace.closure-mode .member-table td:last-child{
+  text-align:center!important;
+}

@@ -449,3 +449,43 @@
 
 @media(max-width:1500px){.mode-guide{width:calc(100vw - 32px)}.workspace.arrears-mode{grid-template-columns:minmax(560px,.9fr) minmax(620px,1.1fr)}}
 @media(max-width:1250px){.workspace.arrears-mode{grid-template-columns:1fr}.mode-guide>div{align-items:flex-start;flex-direction:column;gap:3px}}
+
+/* =====================================================================
+   2026-08-31 — RECEIVABLES TABLE CENTER ALIGNMENT
+   UI only. Keeps all existing receivables behavior intact.
+   ===================================================================== */
+.workspace table th,
+.workspace table td,
+.member-table th,
+.member-table td,
+.ledger-table th,
+.ledger-table td,
+.bulk-table th,
+.bulk-table td{
+  text-align:center!important;
+  vertical-align:middle!important;
+}
+
+.member-table .phone-cell,
+.member-table .phone-line,
+.member-table .manage-cell,
+.member-table .row-actions,
+.member-table .cell-actions,
+.member-table td > div{
+  text-align:center!important;
+}
+.member-table .phone-cell,
+.member-table .phone-line,
+.member-table .manage-cell,
+.member-table .row-actions,
+.member-table .cell-actions{
+  justify-content:center!important;
+}
+
+/* Amounts were previously right-aligned in several views; center them too. */
+.member-table td.amount,
+.member-table th.amount,
+.member-table td:last-child,
+.workspace.closure-mode .member-table td:last-child{
+  text-align:center!important;
+}

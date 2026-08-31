@@ -14,7 +14,7 @@ function renderMemberHeader(){
   const h=$('#memberHead');
   if(!h)return;
   if(state.view==='closed'){
-    const base='<th class="col-closure-no">관리번호</th><th class="col-type">구분</th><th class="col-member">회원</th><th class="col-region">지역</th><th class="col-vehicle">차량번호</th><th class="col-phone">핸드폰</th><th class="col-process">처리정보</th>';
+    const base='<th class="col-closure-no">관리번호</th><th class="col-type">구분</th><th class="col-member">회원</th><th class="col-region">지역</th><th class="col-vehicle">차량번호</th><th class="col-phone">핸드폰</th>';
     h.innerHTML=state.closureMode==='current'
       ?`<tr>${base}<th class="num col-balance">잔액</th></tr>`
       :`<tr>${base}<th class="col-current-state">현재상태</th><th class="num col-balance">잔액</th></tr>`;
@@ -38,7 +38,7 @@ function renderPager(){const txt=$('#pageInfo');txt.textContent=`${state.page.to
 function renderMembers(){
   const tb=$('#memberRows');
   tb.innerHTML='';
-  const cols=state.view==='closed'?(state.closureMode==='current'?8:9):state.view==='contacts'?10:9;
+  const cols=state.view==='closed'?(state.closureMode==='current'?7:8):state.view==='contacts'?10:9;
   if(!state.members.length){
     tb.innerHTML=`<tr><td colspan="${cols}" class="empty-row">표시할 자료가 없습니다.</td></tr>`;
     return;
@@ -51,14 +51,10 @@ function renderMembers(){
     if(state.view==='closed'){
       const phone=m.mobile||m.phone||'-';
       const sms=m.member_id&&phone!=='-'?`<button type="button" class="row-sms-btn" data-sms-id="${m.member_id}">U+ 문자</button>`:'';
-      const route=m.transfer_region?`${m.region||'-'} → ${m.transfer_region}`:(m.transferee?`양수인 ${m.transferee}`:'폐업 처리');
-      const extra=m.transferee&&m.transfer_region?`양수인 ${m.transferee}`:'';
-      const dates=[m.closure_receipt_date?`접수 ${m.closure_receipt_date}`:'',m.closure_date?`처리 ${m.closure_date}`:''].filter(Boolean).join(' · ');
-      const processSub=[extra,dates].filter(Boolean).join(' · ')||'-';
       const currentState=!m.member_id?'과거기록':m.active?'현재활동':'폐업';
       const currentClass=!m.member_id?'history':m.active?'active':'closed';
       const stateCell=state.closureMode==='history'?`<td class="col-current-state"><span class="current-state-tag ${currentClass}">${currentState}</span></td>`:'';
-      tr.innerHTML=`<td class="col-closure-no"><b>${esc(m.closure_management_number||'-')}</b></td><td class="col-type"><span class="closure-type-tag">${esc(m.closure_type||'-')}</span></td><td class="col-member"><div class="closure-person"><b>${esc(m.name||'-')}</b></div></td><td class="col-region"><span class="region-text">${esc(m.region||'-')}</span></td><td class="col-vehicle"><span class="vehicle-text">${esc(m.vehicle_number||'-')}</span></td><td class="col-phone"><div class="phone-line"><span class="phone-number">${esc(phone)}</span>${sms}</div></td><td class="col-process"><div class="closure-process"><span>${esc(route)}</span><small>${esc(processSub)}</small></div></td>${stateCell}<td class="num col-balance ${ms.cls}">${ms.label==='선납금'?'선납 ':''}${ms.text}</td>`;
+      tr.innerHTML=`<td class="col-closure-no"><b>${esc(m.closure_management_number||'-')}</b></td><td class="col-type"><span class="closure-type-tag">${esc(m.closure_type||'-')}</span></td><td class="col-member"><div class="closure-person"><b>${esc(m.name||'-')}</b></div></td><td class="col-region"><span class="region-text">${esc(m.region||'-')}</span></td><td class="col-vehicle"><span class="vehicle-text">${esc(m.vehicle_number||'-')}</span></td><td class="col-phone"><div class="phone-line"><span class="phone-number">${esc(phone)}</span>${sms}</div></td>${stateCell}<td class="num col-balance ${ms.cls}">${ms.label==='선납금'?'선납 ':''}${ms.text}</td>`;
       if(!m.member_id)tr.classList.add('unlinked');
       tr.onclick=()=>m.member_id?selectMember(m.member_id,m.closure_id):toast('폐업현황 기록은 확인되지만 현재 수납 원장과 연결된 회원이 없습니다.');
       const sb=tr.querySelector('[data-sms-id]');
