@@ -1914,42 +1914,69 @@ def _legacy_month_row(profile: ReceivableProfile, month_key: str):
 
 @router.get("/api/receivables/monthly-analysis")
 def monthly_analysis(
+    from_month: Optional[str] = Query(None),
+    to_month: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """전월 대비 미수금 변동을 읽기 전용으로 계산한다.
+    """월별 미수금 증감·부과·수납 성과를 비교한다.
 
-    기존 수납/부과/폐업 처리 로직은 수정하지 않는다. 월별 원장의 실제 잔액을
-    회원별로 비교해 '증가/감소'를 계산하므로, 폐업 상태로 이동했다고 미수금이
-    사라진 것처럼 보이지 않도록 활성+폐업 전체 원장을 기준으로 한다.
+    사용자가 원하는 핵심은 '어느 월 대비 미수금이 얼마나 줄거나 늘었는지'와
+    '그 기간에 얼마를 부과했고 얼마를 실제로 수납했는지'다. 따라서 연락률·지역
+    랭킹이 아니라 월말 원장 스냅샷과 월별 현금흐름을 중심으로 읽기 전용 집계를
+    반환한다. 기존 수납/부과/폐업 저장 로직은 변경하지 않는다.
     """
     _ensure_db_ledger_ready(db)
     _ensure_current_month_billing(db)
 
     today_d = datetime.now(KST).date()
     current_key = f"{today_d.year:04d}-{today_d.month:02d}"
-    prev_key = _analysis_prev_month(current_key)
-    current_end = _analysis_month_end(current_key)
-    prev_end = _analysis_month_end(prev_key)
+    available_start = f"{LEGACY_YEAR:04d}-01"
+
+    def normalize_month(value: Optional[str], field_name: str) -> Optional[str]:
+        if value is None or str(value).strip() == "":
+            return None
+        value = str(value).strip()
+        if not re.fullmatch(r"\d{4}-\d{2}", value):
+            raise HTTPException(status_code=400, detail=f"{field_name} 형식은 YYYY-MM 이어야 합니다.")
+        yy, mm = [int(x) for x in value.split("-", 1)]
+        if not (1 <= mm <= 12):
+            raise HTTPException(status_code=400, detail=f"{field_name} 월 값이 올바르지 않습니다.")
+        return f"{yy:04d}-{mm:02d}"
+
+    selected_to = normalize_month(to_month, "비교월") or current_key
+    if selected_to < available_start or selected_to > current_key:
+        raise HTTPException(status_code=400, detail=f"비교월은 {available_start}~{current_key} 범위에서 선택하세요.")
+
+    default_from = _analysis_prev_month(selected_to)
+    if default_from < available_start:
+        default_from = available_start
+    selected_from = normalize_month(from_month, "기준월") or default_from
+    if selected_from < available_start or selected_from > current_key:
+        raise HTTPException(status_code=400, detail=f"기준월은 {available_start}~{current_key} 범위에서 선택하세요.")
+    if selected_from > selected_to:
+        raise HTTPException(status_code=400, detail="기준월은 비교월보다 앞선 월이어야 합니다.")
 
     profiles = db.query(ReceivableProfile).all()
     profile_by_member = {int(p.member_id): p for p in profiles}
     member_ids = set(profile_by_member)
 
-    # 현재 DB에 실제로 반영되는 부과만 월별 집계한다.
+    # 프로그램에서 실제로 추가된 월 부과. legacy 1~8월은 기준원장에 이미 포함되어 제외한다.
     charges_by_member = {}
-    month_charge_totals = {}
+    program_charge_by_month = {}
     if member_ids:
         for c in db.query(ReceivableCharge).filter(ReceivableCharge.member_id.in_(member_ids)).all():
             p = profile_by_member.get(int(c.member_id))
             if not p:
                 continue
-            # legacy 회원의 1~8월 auto charge는 기준원장에 이미 포함되어 잔액 계산에서 제외된다.
-            if p.legacy_source_row is not None and str(c.billing_month or "") <= LEGACY_DATA_THROUGH_KEY:
+            billing_month = str(c.billing_month or "")
+            if p.legacy_source_row is not None and billing_month <= LEGACY_DATA_THROUGH_KEY:
                 continue
-            charges_by_member.setdefault(int(c.member_id), []).append((str(c.billing_month or ""), int(c.amount or 0)))
-            month_charge_totals[str(c.billing_month or "")] = month_charge_totals.get(str(c.billing_month or ""), 0) + int(c.amount or 0)
+            amount = int(c.amount or 0)
+            charges_by_member.setdefault(int(c.member_id), []).append((billing_month, amount))
+            program_charge_by_month[billing_month] = program_charge_by_month.get(billing_month, 0) + amount
 
+    # 프로그램 수납 및 잔액수정. 실제 수납과 금액수정은 분리한다.
     payments_by_member = {}
     program_paid_by_month = {}
     balance_adjustment_by_month = {}
@@ -1973,15 +2000,24 @@ def monthly_analysis(
             else:
                 program_paid_by_month[mk] = program_paid_by_month.get(mk, 0) + amount
 
+    snapshot_cache = {}
+
     def snapshot(profile: ReceivableProfile, month_key: str) -> int:
+        cache_key = (int(profile.member_id), month_key)
+        if cache_key in snapshot_cache:
+            return snapshot_cache[cache_key]
+
         end_iso = _analysis_month_end(month_key).isoformat()
         y, m = [int(x) for x in month_key.split("-", 1)]
 
         if profile.legacy_source_row is not None:
-            if y == LEGACY_YEAR and m <= LEGACY_DATA_THROUGH_MONTH:
+            if (y, m) == (LEGACY_YEAR - 1, 12):
+                seed = _seed_for_profile(profile) or {}
+                base = int(seed.get("carryover") or 0)
+            elif y == LEGACY_YEAR and 1 <= m <= LEGACY_DATA_THROUGH_MONTH:
                 reconstructed = _legacy_reconstructed_balance(profile, m)
                 base = int(profile.legacy_balance or 0) if reconstructed is None else int(reconstructed)
-            elif (y, m) < (LEGACY_YEAR, LEGACY_DATA_THROUGH_MONTH):
+            elif (y, m) < (LEGACY_YEAR, 1):
                 base = 0
             else:
                 base = int(profile.legacy_balance or 0)
@@ -1994,9 +2030,15 @@ def monthly_analysis(
         for payment_date, amount, _method in payments_by_member.get(int(profile.member_id), []):
             if payment_date and payment_date <= end_iso:
                 base -= int(amount or 0)
+
+        snapshot_cache[cache_key] = int(base)
         return int(base)
 
+    aggregate_cache = {}
+
     def aggregate(month_key: str):
+        if month_key in aggregate_cache:
+            return aggregate_cache[month_key]
         arrears_total = 0
         arrears_members = 0
         prepaid_total = 0
@@ -2011,106 +2053,197 @@ def monthly_analysis(
             elif b < 0:
                 prepaid_total += -b
                 prepaid_members += 1
-        return {
+        out = {
             "arrears_total": int(arrears_total),
             "arrears_members": int(arrears_members),
             "prepaid_total": int(prepaid_total),
             "prepaid_members": int(prepaid_members),
             "balances": balances,
         }
+        aggregate_cache[month_key] = out
+        return out
 
-    prev = aggregate(prev_key)
-    cur = aggregate(current_key)
-
-    increased_amount = 0
-    decreased_amount = 0
-    increased_members = 0
-    decreased_members = 0
-    new_arrears_members = 0
-    settled_members = 0
-    for mid in member_ids:
-        pb = max(int(prev["balances"].get(mid, 0)), 0)
-        cb = max(int(cur["balances"].get(mid, 0)), 0)
-        diff = cb - pb
-        if diff > 0:
-            increased_amount += diff
-            increased_members += 1
-        elif diff < 0:
-            decreased_amount += -diff
-            decreased_members += 1
-        if pb <= 0 < cb:
-            new_arrears_members += 1
-        if pb > 0 and cb <= 0:
-            settled_members += 1
-
-    # legacy 월별 수납/부과 + 기준원장 이후 프로그램 거래를 합산한다.
-    legacy_paid = 0
-    legacy_charge = 0
-    cy, cm = [int(x) for x in current_key.split("-", 1)]
-    if cy == LEGACY_YEAR and cm <= LEGACY_DATA_THROUGH_MONTH:
-        for p in profiles:
-            if p.legacy_source_row is None:
-                continue
-            lr = _legacy_month_row(p, current_key)
-            if not lr:
-                continue
-            if lr.get("payment") is not None:
-                legacy_paid += int(lr.get("payment") or 0)
-            if lr.get("monthly_charge") is not None:
-                legacy_charge += int(lr.get("monthly_charge") or 0)
-
-    current_paid = int(legacy_paid + program_paid_by_month.get(current_key, 0))
-    current_charge = int(legacy_charge + month_charge_totals.get(current_key, 0))
-    current_adjustment = int(balance_adjustment_by_month.get(current_key, 0))
-    net_change = int(cur["arrears_total"] - prev["arrears_total"])
-    net_pct = round((net_change / prev["arrears_total"] * 100), 1) if prev["arrears_total"] else None
-
-    # 최근 6개월 미수 추이. 2026 기준원장이 시작되기 전 월은 제외한다.
-    trend = []
-    start_key = _analysis_shift_month(current_key, -5)
-    if start_key < f"{LEGACY_YEAR:04d}-01":
-        start_key = f"{LEGACY_YEAR:04d}-01"
-    mk = start_key
-    while mk <= current_key:
-        a = aggregate(mk)
-        trend.append({
-            "month": mk,
-            "label": f"{int(mk[5:7])}월",
-            "arrears_total": int(a["arrears_total"]),
-            "arrears_members": int(a["arrears_members"]),
-        })
-        mk = _analysis_shift_month(mk, 1)
-
-    return {
-        "basis": "전체 원장(활성+폐업)",
-        "period": {"previous": prev_key, "current": current_key},
-        "previous": {
-            "arrears_total": int(prev["arrears_total"]),
-            "arrears_members": int(prev["arrears_members"]),
-        },
-        "current": {
-            "arrears_total": int(cur["arrears_total"]),
-            "arrears_members": int(cur["arrears_members"]),
-            "prepaid_total": int(cur["prepaid_total"]),
-            "prepaid_members": int(cur["prepaid_members"]),
-        },
-        "movement": {
-            "payments": current_paid,
-            "charges": current_charge,
-            "balance_adjustment": current_adjustment,
+    def movement_between(start_data, end_data):
+        increased_amount = 0
+        decreased_amount = 0
+        increased_members = 0
+        decreased_members = 0
+        new_arrears_members = 0
+        settled_members = 0
+        for mid in member_ids:
+            pb = max(int(start_data["balances"].get(mid, 0)), 0)
+            cb = max(int(end_data["balances"].get(mid, 0)), 0)
+            diff = cb - pb
+            if diff > 0:
+                increased_amount += diff
+                increased_members += 1
+            elif diff < 0:
+                decreased_amount += -diff
+                decreased_members += 1
+            if pb <= 0 < cb:
+                new_arrears_members += 1
+            if pb > 0 and cb <= 0:
+                settled_members += 1
+        return {
             "increased_amount": int(increased_amount),
             "decreased_amount": int(decreased_amount),
             "increased_members": int(increased_members),
             "decreased_members": int(decreased_members),
             "new_arrears_members": int(new_arrears_members),
             "settled_members": int(settled_members),
-            "net_change": net_change,
-            "net_change_pct": net_pct,
-            "arrears_member_change": int(cur["arrears_members"] - prev["arrears_members"]),
-        },
-        "trend": trend,
-    }
+        }
 
+    legacy_flow_cache = {}
+
+    def month_flow(month_key: str):
+        if month_key in legacy_flow_cache:
+            return legacy_flow_cache[month_key]
+        yy, mm = [int(x) for x in month_key.split("-", 1)]
+        legacy_paid = 0
+        legacy_charge = 0
+        if yy == LEGACY_YEAR and mm <= LEGACY_DATA_THROUGH_MONTH:
+            for p in profiles:
+                if p.legacy_source_row is None:
+                    continue
+                lr = _legacy_month_row(p, month_key)
+                if not lr:
+                    continue
+                if lr.get("payment") is not None:
+                    legacy_paid += int(lr.get("payment") or 0)
+                monthly_charge = lr.get("monthly_charge")
+                if monthly_charge is None and lr.get("billed_total") is not None:
+                    monthly_charge = ACCOUNT_FEES.get(p.account_type)
+                if monthly_charge is not None:
+                    legacy_charge += int(monthly_charge or 0)
+        out = {
+            "payments": int(legacy_paid + program_paid_by_month.get(month_key, 0)),
+            "charges": int(legacy_charge + program_charge_by_month.get(month_key, 0)),
+            "balance_adjustment": int(balance_adjustment_by_month.get(month_key, 0)),
+        }
+        legacy_flow_cache[month_key] = out
+        return out
+
+    # 전체 월별 성과 이력. 월말 미수, 전월대비 증감, 부과·수납, 수납/부과율을 함께 준다.
+    history = []
+    mk = available_start
+    while mk <= current_key:
+        cur = aggregate(mk)
+        prev_key = _analysis_prev_month(mk)
+        prev = aggregate(prev_key)
+        mv = movement_between(prev, cur)
+        flow = month_flow(mk)
+        net_change = int(cur["arrears_total"] - prev["arrears_total"])
+        net_change_pct = round(net_change / prev["arrears_total"] * 100, 1) if prev["arrears_total"] else None
+        collection_ratio = round(flow["payments"] / flow["charges"] * 100, 1) if flow["charges"] else None
+        net_reduction_rate = round((prev["arrears_total"] - cur["arrears_total"]) / prev["arrears_total"] * 100, 1) if prev["arrears_total"] else None
+        history.append({
+            "month": mk,
+            "label": f"{int(mk[:4])}년 {int(mk[5:7])}월",
+            "start_arrears": int(prev["arrears_total"]),
+            "end_arrears": int(cur["arrears_total"]),
+            "arrears_members": int(cur["arrears_members"]),
+            "prepaid_total": int(cur["prepaid_total"]),
+            "payments": int(flow["payments"]),
+            "charges": int(flow["charges"]),
+            "balance_adjustment": int(flow["balance_adjustment"]),
+            "collection_ratio": collection_ratio,
+            "net_change": net_change,
+            "net_change_pct": net_change_pct,
+            "net_reduction_rate": net_reduction_rate,
+            "increased_amount": int(mv["increased_amount"]),
+            "decreased_amount": int(mv["decreased_amount"]),
+            "increased_members": int(mv["increased_members"]),
+            "decreased_members": int(mv["decreased_members"]),
+            "new_arrears_members": int(mv["new_arrears_members"]),
+            "settled_members": int(mv["settled_members"]),
+            "arrears_member_change": int(cur["arrears_members"] - prev["arrears_members"]),
+        })
+        mk = _analysis_shift_month(mk, 1)
+
+    start_data = aggregate(selected_from)
+    end_data = aggregate(selected_to)
+    selected_movement = movement_between(start_data, end_data)
+    net_change = int(end_data["arrears_total"] - start_data["arrears_total"])
+    net_change_pct = round(net_change / start_data["arrears_total"] * 100, 1) if start_data["arrears_total"] else None
+
+    # 월말 A → 월말 B 비교이므로 기간 거래는 A 다음 달부터 B월까지 합산한다.
+    period_keys = []
+    if selected_from < selected_to:
+        pk = _analysis_shift_month(selected_from, 1)
+        while pk <= selected_to:
+            period_keys.append(pk)
+            pk = _analysis_shift_month(pk, 1)
+    else:
+        period_keys = [selected_to]
+
+    period_payments = sum(month_flow(x)["payments"] for x in period_keys)
+    period_charges = sum(month_flow(x)["charges"] for x in period_keys)
+    period_adjustment = sum(month_flow(x)["balance_adjustment"] for x in period_keys)
+    payment_charge_ratio = round(period_payments / period_charges * 100, 1) if period_charges else None
+    gross_recovery_rate = round(selected_movement["decreased_amount"] / start_data["arrears_total"] * 100, 1) if start_data["arrears_total"] else None
+    settled_rate = round(selected_movement["settled_members"] / start_data["arrears_members"] * 100, 1) if start_data["arrears_members"] else None
+
+    # 인사이트: 전월 대비 미수금이 가장 많이 줄고/늘어난 달, 수납/부과율 최고 월.
+    comparable = [x for x in history if x["month"] > available_start or x["start_arrears"] > 0]
+    reduction_rows = [x for x in comparable if int(x.get("net_change") or 0) < 0]
+    increase_rows = [x for x in comparable if int(x.get("net_change") or 0) > 0]
+    best_reduction = min(reduction_rows, key=lambda x: x["net_change"], default=None)
+    worst_increase = max(increase_rows, key=lambda x: x["net_change"], default=None)
+    ratio_rows = [x for x in history if x["collection_ratio"] is not None]
+    best_collection = max(ratio_rows, key=lambda x: x["collection_ratio"], default=None)
+
+    available_months = [{"value": x["month"], "label": x["label"]} for x in history]
+
+    return {
+        "basis": "전체 원장(활성+폐업) · 월말 기준",
+        "available_months": available_months,
+        "period": {"from": selected_from, "to": selected_to, "months": len(period_keys)},
+        "from": {
+            "month": selected_from,
+            "arrears_total": int(start_data["arrears_total"]),
+            "arrears_members": int(start_data["arrears_members"]),
+            "average_arrears": int(round(start_data["arrears_total"] / start_data["arrears_members"])) if start_data["arrears_members"] else 0,
+            "prepaid_total": int(start_data["prepaid_total"]),
+        },
+        "to": {
+            "month": selected_to,
+            "arrears_total": int(end_data["arrears_total"]),
+            "arrears_members": int(end_data["arrears_members"]),
+            "average_arrears": int(round(end_data["arrears_total"] / end_data["arrears_members"])) if end_data["arrears_members"] else 0,
+            "prepaid_total": int(end_data["prepaid_total"]),
+        },
+        "comparison": {
+            **selected_movement,
+            "net_change": net_change,
+            "net_change_pct": net_change_pct,
+            "arrears_member_change": int(end_data["arrears_members"] - start_data["arrears_members"]),
+            "period_payments": int(period_payments),
+            "period_charges": int(period_charges),
+            "period_adjustment": int(period_adjustment),
+            "payment_charge_ratio": payment_charge_ratio,
+            "gross_recovery_rate": gross_recovery_rate,
+            "settled_rate": settled_rate,
+        },
+        "history": history,
+        "insights": {
+            "best_reduction": best_reduction,
+            "worst_increase": worst_increase,
+            "best_collection": best_collection,
+        },
+        # 구버전 프론트 호환 필드. 새 화면에서는 comparison/history를 사용한다.
+        "previous": {"arrears_total": int(start_data["arrears_total"]), "arrears_members": int(start_data["arrears_members"])},
+        "current": {"arrears_total": int(end_data["arrears_total"]), "arrears_members": int(end_data["arrears_members"]), "prepaid_total": int(end_data["prepaid_total"])},
+        "movement": {
+            "payments": int(period_payments),
+            "charges": int(period_charges),
+            "balance_adjustment": int(period_adjustment),
+            **selected_movement,
+            "net_change": net_change,
+            "net_change_pct": net_change_pct,
+            "arrears_member_change": int(end_data["arrears_members"] - start_data["arrears_members"]),
+        },
+        "trend": [{"month": x["month"], "label": f"{int(x['month'][5:7])}월", "arrears_total": x["end_arrears"], "arrears_members": x["arrears_members"]} for x in history],
+    }
 
 def _normalize_closure_type(v: str) -> str:
     v = str(v or "").strip()

@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>수납·미수금 | 회원관리시스템</title>
-  <link rel="stylesheet" href="/static/receivables.css?v=20260831-dashboard-v3" />
+  <link rel="stylesheet" href="/static/receivables.css?v=20260831-performance-v4" />
 </head>
 <body>
   <div id="appShell" class="app-shell">
@@ -44,58 +44,75 @@
         <article class="kpi-card"><div class="kpi-icon yellow">오늘</div><div><span>오늘 수납</span><strong id="kpiTodayPaid">-</strong><small>공용 DB 합계</small></div></article>
       </section>
 
-      <section id="arrearsDashboard" class="arrears-dashboard hidden" aria-label="미수금 대시보드">
-        <div class="dashboard-head">
+      <section id="arrearsDashboard" class="arrears-dashboard hidden" aria-label="미수금 월별 성과 대시보드">
+        <div class="dashboard-head performance-head">
           <div>
-            <div class="dashboard-kicker">ARREARS DASHBOARD</div>
-            <h2>미수금 대시보드</h2>
-            <p>금액 · 회원수 · 지역 · 계정 · 연락률 · 고액미수를 한 화면에서 비교합니다.</p>
+            <div class="dashboard-kicker">MONTHLY ARREARS PERFORMANCE</div>
+            <h2>미수금 월별 성과 대시보드</h2>
+            <p>몇 년 몇 월 대비 미수금이 얼마나 줄고 늘었는지, 부과액 대비 실제 수납성과까지 월별로 비교합니다.</p>
           </div>
-          <div class="dashboard-compare-controls">
-            <label>비교 A<select id="compareRegionA"><option value="">전체</option></select></label>
-            <span>VS</span>
-            <label>비교 B<select id="compareRegionB"><option value="">전체</option></select></label>
+          <div class="month-compare-controls">
+            <label>기준월<select id="compareMonthA"></select></label>
+            <span>대비</span>
+            <label>비교월<select id="compareMonthB"></select></label>
+            <button id="applyMonthCompare" type="button">비교</button>
           </div>
         </div>
 
-        <div class="dashboard-summary-grid">
-          <article><span>활성 미수금</span><strong id="dashArrearsTotal">-</strong><small id="dashArrearsMembers">-</small></article>
-          <article><span>1인 평균 미수</span><strong id="dashAverage">-</strong><small>활성 미수회원 기준</small></article>
-          <article><span>연락 기록률</span><strong id="dashContactRate">-</strong><small id="dashContactedMembers">-</small></article>
-          <article><span>10만원 이상</span><strong id="dashOver100Count">-</strong><small id="dashOver100Total">-</small></article>
-          <article><span>폐업 미수금</span><strong id="dashClosedTotal">-</strong><small id="dashClosedMembers">-</small></article>
-          <article><span>활성 선납금</span><strong id="dashPrepaidTotal">-</strong><small id="dashPrepaidMembers">-</small></article>
+        <div class="performance-summary-grid">
+          <article><span id="perfFromLabel">기준월 미수</span><strong id="perfFromTotal">-</strong><small id="perfFromMembers">-</small></article>
+          <article><span id="perfToLabel">비교월 미수</span><strong id="perfToTotal">-</strong><small id="perfToMembers">-</small></article>
+          <article id="perfNetCard" class="performance-net"><span>미수 순증감</span><strong id="perfNetChange">-</strong><small id="perfNetPct">-</small></article>
+          <article class="performance-paid"><span>비교기간 실제 수납</span><strong id="perfPayments">-</strong><small id="perfPeriodText">-</small></article>
+          <article><span>비교기간 부과액</span><strong id="perfCharges">-</strong><small>월 부과 합계</small></article>
+          <article class="performance-ratio"><span>수납 / 부과율</span><strong id="perfPayRate">-</strong><small>100% 초과면 과거 미수 회수 포함</small></article>
+          <article class="performance-down"><span>회원별 미수 감소액</span><strong id="perfDecrease">-</strong><small id="perfDecreaseMembers">-</small></article>
+          <article class="performance-up"><span>회원별 미수 증가액</span><strong id="perfIncrease">-</strong><small id="perfIncreaseMembers">-</small></article>
         </div>
 
-        <div class="dashboard-main-grid">
-          <article class="dash-card region-card">
-            <div class="dash-card-head"><div><b>지역별 미수 비교</b><span>미수금 TOP 8 · 비중/연락률</span></div></div>
-            <div id="regionBars" class="region-bars"></div>
+        <div class="performance-compare-strip">
+          <div><span>미수회원 증감</span><strong id="perfMemberChange">-</strong></div>
+          <div><span>완납 전환</span><strong id="perfSettled">-</strong><small id="perfSettledRate">-</small></div>
+          <div><span>신규 미수</span><strong id="perfNewArrears">-</strong></div>
+          <div><span>미수 감소 실적</span><strong id="perfRecoveryRate">-</strong><small>기준월 미수 대비 감소액</small></div>
+          <div><span>금액수정 영향</span><strong id="perfAdjustment">-</strong></div>
+        </div>
+
+        <div class="performance-main-grid">
+          <article class="dash-card performance-trend-card">
+            <div class="dash-card-head"><div><b>월말 총 미수금 추이</b><span>월별 월말잔액 · 전월 대비 증감</span></div></div>
+            <div id="performanceTrend" class="performance-trend"></div>
           </article>
-          <article class="dash-card account-card">
-            <div class="dash-card-head"><div><b>계정별 비교</b><span>협회비 · 관리비 · 70세</span></div></div>
-            <div id="accountCompare" class="account-compare"></div>
-          </article>
-          <article class="dash-card band-card">
-            <div class="dash-card-head"><div><b>미수금 구간</b><span>회원수와 금액 분포</span></div></div>
-            <div id="balanceBands" class="balance-bands"></div>
+          <article class="dash-card performance-flow-card">
+            <div class="dash-card-head"><div><b>월별 부과액 vs 수납액</b><span>실제 돈이 얼마나 들어왔는지 비교</span></div></div>
+            <div id="monthlyFlowChart" class="monthly-flow-chart"></div>
           </article>
         </div>
 
-        <div class="dashboard-bottom-grid">
-          <article class="dash-card compare-card">
-            <div class="dash-card-head"><div><b>지역 A/B 상세 비교</b><span>선택한 두 지역을 같은 기준으로 비교</span></div></div>
-            <div id="regionComparison" class="region-comparison"></div>
+        <div class="performance-secondary-grid">
+          <article class="dash-card ratio-card">
+            <div class="dash-card-head"><div><b>월별 수납 / 부과율</b><span>100% 초과 = 당월 부과보다 더 많이 수납</span></div></div>
+            <div id="monthlyRatioChart" class="monthly-ratio-chart"></div>
           </article>
-          <article class="dash-card contact-card">
-            <div class="dash-card-head"><div><b>연락 현황</b><span>활성 미수회원 최신 연락기록 기준</span></div></div>
-            <div id="arrearsContactBreakdown" class="contact-breakdown"></div>
+          <article class="dash-card compare-detail-card">
+            <div class="dash-card-head"><div><b id="compareDetailTitle">월말 A/B 비교</b><span>금액 · 회원수 · 1인 평균 미수</span></div></div>
+            <div id="monthComparisonDetail" class="month-comparison-detail"></div>
           </article>
-          <article class="dash-card top-card">
-            <div class="dash-card-head"><div><b>고액 미수 TOP 10</b><span>회원 선택 시 상세로 바로 이동</span></div></div>
-            <div id="topArrearsList" class="top-arrears-list"></div>
+          <article class="dash-card insight-card">
+            <div class="dash-card-head"><div><b>월별 성과 한눈에</b><span>감소·증가·수납 성과가 가장 두드러진 달</span></div></div>
+            <div id="performanceInsights" class="performance-insights"></div>
           </article>
         </div>
+
+        <article class="dash-card performance-table-card">
+          <div class="dash-card-head"><div><b>월별 미수금 성과표</b><span>전월말 미수 → 부과/수납 → 월말 미수 → 증감률</span></div><small>전체 원장 · 활성 + 폐업</small></div>
+          <div class="performance-table-wrap">
+            <table class="performance-table">
+              <thead><tr><th>월</th><th class="num">전월말 미수</th><th class="num">당월 부과</th><th class="num">당월 수납</th><th class="num">수납/부과율</th><th class="num">월말 미수</th><th class="num">전월 대비</th><th class="num">증감률</th><th class="num">미수회원</th><th class="num">완납전환</th><th class="num">신규미수</th></tr></thead>
+              <tbody id="performanceTableRows"></tbody>
+            </table>
+          </div>
+        </article>
       </section>
 
       <section id="contactOverview" class="contact-overview hidden" aria-label="연락관리 요약">
@@ -107,34 +124,6 @@
           <div><span>재연락 필요</span><strong id="contactRecall">-</strong></div>
           <div><span>부재</span><strong id="contactAbsent">-</strong></div>
           <div><span>최근 7일 연락</span><strong id="contactRecent">-</strong></div>
-        </div>
-      </section>
-
-      <section id="monthlyAnalysis" class="monthly-analysis" aria-label="전월 대비 미수금 변동">
-        <div class="monthly-analysis-head">
-          <div><strong>전월 대비 미수금 변동</strong><span id="analysisPeriod">-</span></div>
-          <small>전체 원장 기준 · 활성 + 폐업</small>
-        </div>
-        <div class="monthly-analysis-grid">
-          <div class="analysis-metric"><span>전월말 미수</span><strong id="analysisPrevArrears">-</strong><small id="analysisPrevMembers">-</small></div>
-          <div class="analysis-metric current"><span>현재 총 미수</span><strong id="analysisCurrentArrears">-</strong><small id="analysisCurrentMembers">-</small></div>
-          <div class="analysis-metric paid"><span>이번 달 수납</span><strong id="analysisPayments">-</strong><small>실제 입금액</small></div>
-          <div class="analysis-metric up"><span>미수 증가</span><strong id="analysisIncrease">-</strong><small id="analysisIncreaseMembers">-</small></div>
-          <div class="analysis-metric down"><span>미수 감소</span><strong id="analysisDecrease">-</strong><small id="analysisDecreaseMembers">-</small></div>
-          <div id="analysisNetCard" class="analysis-metric net"><span>전월 대비 순증감</span><strong id="analysisNet">-</strong><small id="analysisNetPct">-</small></div>
-        </div>
-        <div class="monthly-analysis-bottom">
-          <div class="analysis-detail-line">
-            <span>당월 부과 <b id="analysisCharges">-</b></span>
-            <span>미수회원 증감 <b id="analysisMemberChange">-</b></span>
-            <span>신규 미수 <b id="analysisNewArrears">-</b></span>
-            <span>완납 전환 <b id="analysisSettled">-</b></span>
-            <span id="analysisAdjustmentWrap" class="hidden">금액수정 <b id="analysisAdjustment">-</b></span>
-          </div>
-          <div class="analysis-trend-wrap">
-            <span>최근 6개월 총 미수 추이</span>
-            <div id="analysisTrend" class="analysis-trend"></div>
-          </div>
         </div>
       </section>
 
@@ -339,6 +328,6 @@
       <button class="primary-btn" type="submit">로그인</button><div id="loginError" class="login-error"></div>
     </form>
   </div>
-  <script src="/static/receivables.js?v=20260831-final-fix-v2" defer></script>
+  <script src="/static/receivables.js?v=20260831-performance-v4" defer></script>
 </body>
 </html>
