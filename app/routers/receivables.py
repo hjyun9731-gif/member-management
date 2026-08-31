@@ -52,6 +52,8 @@ CONTACT_STATUSES = {"미연락", "연락완료", "부재", "재연락 필요", "
 LEGACY_YEAR = 2026
 LEGACY_DATA_THROUGH_MONTH = 8
 LEGACY_DATA_THROUGH_KEY = "2026-08"
+LEGACY_DATA_THROUGH_DATE = date(2026, 8, 31)
+LEGACY_DATA_THROUGH_DATE_ISO = LEGACY_DATA_THROUGH_DATE.isoformat()
 LEGACY_NEXT_BILL_DATE = date(2026, 9, 1)
 LEGACY_NEW_MEMBER_CUTOFF = date(2026, 8, 1)
 LEGACY_BASELINE_KEY = "legacy_baseline_2026_08_28_v1"
@@ -1320,12 +1322,71 @@ def _start_monthly_billing_scheduler():
         ).start()
 
 
+def _legacy_snapshot_cutoff_at() -> datetime:
+    """최신 통장기준 원장이 확정된 시각.
+
+    legacy 회원은 이 시각 이전에 DB에 이미 존재하던 2026-08-31 이하 수납/잔액수정을
+    최신 원장에 포함된 과거 처리로 본다. 기록 자체는 삭제하지 않고 잔액 계산에서만
+    제외한다. 이 시각 이후 새로 입력한 수납은 같은 8/31 날짜라도 정상 반영한다.
+    """
+    fallback = datetime(2026, 8, 31, 20, 13, 23, tzinfo=KST)
+    try:
+        if DATA_FILE.exists():
+            payload = json.loads(DATA_FILE.read_text(encoding="utf-8"))
+            raw = str(payload.get("source_cutoff_at_kst") or "").strip()
+            if raw:
+                dt = datetime.fromisoformat(raw)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=KST)
+                return dt
+    except Exception:
+        pass
+    return fallback
+
+
+def _legacy_payment_is_snapshot_covered(profile: ReceivableProfile, payment: ReceivablePayment) -> bool:
+    """최신 8/31 원장에 이미 흡수된 과거 DB 수납인지 판정한다.
+
+    - legacy 회원만 대상
+    - 지급/수정 기준일이 2026-08-31 이하
+    - DB 생성시각이 최신 기준원장 확정시각 이하
+    위 세 조건을 모두 만족할 때만 잔액에서 중복 차감하지 않는다.
+    """
+    if getattr(profile, "legacy_source_row", None) is None:
+        return False
+    pd = str(getattr(payment, "payment_date", None) or "")[:10]
+    if not pd or pd > LEGACY_DATA_THROUGH_DATE_ISO:
+        return False
+    created = getattr(payment, "created_at", None)
+    if created is None:
+        # 과거 데이터 중 created_at이 없는 건은 최신 snapshot 이전 기록으로 취급한다.
+        return True
+    try:
+        cutoff = _legacy_snapshot_cutoff_at()
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=KST)
+        return created <= cutoff
+    except Exception:
+        return True
+
+
+def _legacy_effective_payment_sql_condition():
+    """ReceivableProfile을 join한 쿼리에서 사용하는 중복차감 방지 조건."""
+    cutoff = _legacy_snapshot_cutoff_at()
+    return or_(
+        ReceivableProfile.legacy_source_row.is_(None),
+        ReceivablePayment.payment_date > LEGACY_DATA_THROUGH_DATE_ISO,
+        ReceivablePayment.created_at > cutoff,
+    )
+
+
 def _charge_payment_subqueries(db: Session):
     """잔액 집계용 서브쿼리.
 
-    legacy_balance가 이미 2026-08까지의 누적 미수이므로, legacy 회원의
-    1~8월 auto charge와 모든 미래월 charge는 잔액에서 제외한다.
-    이 필터 덕분에 DB 정리 작업이 아직 끝나기 전에도 화면 잔액이 즉시 정상화된다.
+    legacy_balance가 최신 2026-08 통장기준 원장의 누적 미수이므로, legacy 회원의
+    1~8월 auto charge를 제외한다. 또한 최신 snapshot 확정 이전에 DB에 이미 존재하던
+    8/31 이하 수납/잔액수정은 snapshot에 흡수된 과거 처리이므로 다시 차감하지 않는다.
+    기존 DB 기록은 삭제하지 않으며 snapshot 이후 새 입력은 정상 반영한다.
     """
     today_month = _month_key(datetime.now(KST).date())
     charges_sq = (
@@ -1347,7 +1408,9 @@ def _charge_payment_subqueries(db: Session):
             ReceivablePayment.member_id.label("member_id"),
             func.coalesce(func.sum(ReceivablePayment.amount), 0).label("payment_total"),
         )
+        .join(ReceivableProfile, ReceivableProfile.member_id == ReceivablePayment.member_id)
         .filter(ReceivablePayment.cancelled_at.is_(None))
+        .filter(_legacy_effective_payment_sql_condition())
         .group_by(ReceivablePayment.member_id)
         .subquery()
     )
@@ -1678,12 +1741,17 @@ def summary(
         .one()
     )
 
+    # 오늘 수납 KPI도 현재잔액과 동일한 컷오버 규칙을 사용한다.
+    # 2026-08-31 최신 snapshot 확정 전에 이미 DB에 있던 legacy 수납은
+    # snapshot에 포함된 과거 수납이므로 오늘 수납으로 다시 세지 않는다.
     today_paid = (
         db.query(func.coalesce(func.sum(ReceivablePayment.amount), 0))
+        .join(ReceivableProfile, ReceivableProfile.member_id == ReceivablePayment.member_id)
         .filter(
             ReceivablePayment.payment_date == today_iso,
             ReceivablePayment.cancelled_at.is_(None),
             or_(ReceivablePayment.method.is_(None), ReceivablePayment.method != "잔액수정"),
+            _legacy_effective_payment_sql_condition(),
         )
         .scalar()
         or 0
@@ -1987,6 +2055,9 @@ def monthly_analysis(
             .all()
         )
         for pay in payment_rows:
+            profile = profile_by_member.get(int(pay.member_id))
+            if profile is not None and _legacy_payment_is_snapshot_covered(profile, pay):
+                continue
             pd = str(pay.payment_date or "")
             if len(pd) < 7:
                 continue
@@ -3618,12 +3689,17 @@ def member_detail(
     ]
     charge_total = sum(int(ch.amount or 0) for ch in valid_member_charges)
 
-    payment_total = (
-        db.query(func.coalesce(func.sum(ReceivablePayment.amount), 0))
-        .filter(ReceivablePayment.member_id == member_id, ReceivablePayment.cancelled_at.is_(None))
-        .scalar()
-        or 0
+    payment_total_query = db.query(func.coalesce(func.sum(ReceivablePayment.amount), 0)).filter(
+        ReceivablePayment.member_id == member_id,
+        ReceivablePayment.cancelled_at.is_(None),
     )
+    if profile.legacy_source_row is not None:
+        cutoff = _legacy_snapshot_cutoff_at()
+        payment_total_query = payment_total_query.filter(or_(
+            ReceivablePayment.payment_date > LEGACY_DATA_THROUGH_DATE_ISO,
+            ReceivablePayment.created_at > cutoff,
+        ))
+    payment_total = payment_total_query.scalar() or 0
     baseline_balance = _legacy_balance_as_of(profile, _parse_date(getattr(closure, "closure_date", None)) if closure else None)
     balance = int(baseline_balance) + int(charge_total) - int(payment_total)
 
@@ -3638,15 +3714,21 @@ def member_detail(
         ch for ch in valid_member_charges
         if str(ch.billing_month or "").startswith(f"{year}-")
     ]
-    program_payments = (
+    program_payments_query = (
         db.query(ReceivablePayment)
         .filter(
             ReceivablePayment.member_id == member_id,
             ReceivablePayment.cancelled_at.is_(None),
             ReceivablePayment.payment_date.like(f"{year}-%"),
         )
-        .all()
     )
+    if profile.legacy_source_row is not None:
+        cutoff = _legacy_snapshot_cutoff_at()
+        program_payments_query = program_payments_query.filter(or_(
+            ReceivablePayment.payment_date > LEGACY_DATA_THROUGH_DATE_ISO,
+            ReceivablePayment.created_at > cutoff,
+        ))
+    program_payments = program_payments_query.all()
     ch_by_month = {int(c.billing_month[-2:]): int(c.amount) for c in program_charges}
     pay_by_month = {}
     pay_dates = {}
@@ -3681,16 +3763,21 @@ def member_detail(
             for ch in valid_member_charges
             if str(ch.billing_month or "") < f"{year}-01"
         )
-        before_payments = (
+        before_payments_query = (
             db.query(func.coalesce(func.sum(ReceivablePayment.amount), 0))
             .filter(
                 ReceivablePayment.member_id == member_id,
                 ReceivablePayment.cancelled_at.is_(None),
                 ReceivablePayment.payment_date < f"{year}-01-01",
             )
-            .scalar()
-            or 0
         )
+        if profile.legacy_source_row is not None:
+            cutoff = _legacy_snapshot_cutoff_at()
+            before_payments_query = before_payments_query.filter(or_(
+                ReceivablePayment.payment_date > LEGACY_DATA_THROUGH_DATE_ISO,
+                ReceivablePayment.created_at > cutoff,
+            ))
+        before_payments = before_payments_query.scalar() or 0
         running = int(profile.legacy_balance or 0) + int(before_valid_charges) - int(before_payments)
 
     monthly = []
@@ -3760,9 +3847,20 @@ def member_detail(
             }
         )
 
+    # 상세의 "추가 입금·금액수정" 이력에도 snapshot에 이미 흡수된 과거 DB 수납을
+    # 다시 노출하지 않는다. 원본 legacy 월별 입금은 위 월별 장부의 legacy_payment로 표시된다.
+    payments_query = db.query(ReceivablePayment).filter(
+        ReceivablePayment.member_id == member_id,
+        ReceivablePayment.cancelled_at.is_(None),
+    )
+    if profile.legacy_source_row is not None:
+        cutoff = _legacy_snapshot_cutoff_at()
+        payments_query = payments_query.filter(or_(
+            ReceivablePayment.payment_date > LEGACY_DATA_THROUGH_DATE_ISO,
+            ReceivablePayment.created_at > cutoff,
+        ))
     payments = (
-        db.query(ReceivablePayment)
-        .filter(ReceivablePayment.member_id == member_id, ReceivablePayment.cancelled_at.is_(None))
+        payments_query
         .order_by(ReceivablePayment.payment_date.desc(), ReceivablePayment.id.desc())
         .limit(100)
         .all()
@@ -3945,9 +4043,16 @@ def edit_current_balance(
         if ch.source != "auto" or _valid_auto_charge(profile, member, current_closure, ch)
     ]
     charge_total = sum(int(ch.amount or 0) for ch in valid_member_charges)
-    payment_total = db.query(func.coalesce(func.sum(ReceivablePayment.amount), 0)).filter(
+    payment_total_query = db.query(func.coalesce(func.sum(ReceivablePayment.amount), 0)).filter(
         ReceivablePayment.member_id == member_id, ReceivablePayment.cancelled_at.is_(None)
-    ).scalar() or 0
+    )
+    if profile.legacy_source_row is not None:
+        cutoff = _legacy_snapshot_cutoff_at()
+        payment_total_query = payment_total_query.filter(or_(
+            ReceivablePayment.payment_date > LEGACY_DATA_THROUGH_DATE_ISO,
+            ReceivablePayment.created_at > cutoff,
+        ))
+    payment_total = payment_total_query.scalar() or 0
     baseline_balance = _legacy_balance_as_of(
         profile, _parse_date(getattr(current_closure, "closure_date", None)) if current_closure else None
     )
