@@ -861,3 +861,13 @@ table th.amount,
 .workspace.closure-mode .member-table td:last-child{
   text-align:center!important;
 }
+
+
+/* 2026-08-31 NAV EMPHASIS + EXCEL COLOR */
+.cat-btn{font-weight:750!important;color:#303744!important}
+.cat-btn.active{font-weight:850!important}
+.sub-tab{font-weight:750!important;color:#454c58!important}
+.sub-tab.active{font-weight:850!important}
+/* Excel download: remove saturated green/teal, use pale yellow */
+.bxl{background:#FFF4C2!important;color:#66520E!important;border-color:#E8D27A!important}
+.bxl:hover{background:#FFECA0!important;color:#584607!important;border-color:#DDBE4E!important}

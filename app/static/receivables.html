@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>수납·미수금 | 회원관리시스템</title>
-  <link rel="stylesheet" href="/static/receivables.css?v=20260831-final-fix-v2" />
+  <link rel="stylesheet" href="/static/receivables.css?v=20260831-dashboard-v3" />
 </head>
 <body>
   <div id="appShell" class="app-shell">
@@ -25,7 +25,7 @@
 
     <nav class="tabs" aria-label="수납 미수금 메뉴">
       <button class="tab active" data-view="payment">수납처리</button>
-      <button class="tab" data-view="arrears">미수금현황</button>
+      <button class="tab" data-view="arrears">미수금 대시보드</button>
       <button class="tab" data-view="closed">폐업관리</button>
       <button class="tab" data-view="contacts">연락관리</button>
     </nav>
@@ -42,6 +42,72 @@
         <article id="kpiPrepaidCard" class="kpi-card clickable"><div class="kpi-icon sky">선납</div><div><span>활성 선납금</span><strong id="kpiPrepaidTotal">-</strong><small id="kpiPrepaidCount">-</small></div></article>
         <article class="kpi-card"><div class="kpi-icon mint">폐업</div><div><span>폐업 미수금</span><strong id="kpiClosedTotal">-</strong><small id="kpiClosedCount">-</small></div></article>
         <article class="kpi-card"><div class="kpi-icon yellow">오늘</div><div><span>오늘 수납</span><strong id="kpiTodayPaid">-</strong><small>공용 DB 합계</small></div></article>
+      </section>
+
+      <section id="arrearsDashboard" class="arrears-dashboard hidden" aria-label="미수금 대시보드">
+        <div class="dashboard-head">
+          <div>
+            <div class="dashboard-kicker">ARREARS DASHBOARD</div>
+            <h2>미수금 대시보드</h2>
+            <p>금액 · 회원수 · 지역 · 계정 · 연락률 · 고액미수를 한 화면에서 비교합니다.</p>
+          </div>
+          <div class="dashboard-compare-controls">
+            <label>비교 A<select id="compareRegionA"><option value="">전체</option></select></label>
+            <span>VS</span>
+            <label>비교 B<select id="compareRegionB"><option value="">전체</option></select></label>
+          </div>
+        </div>
+
+        <div class="dashboard-summary-grid">
+          <article><span>활성 미수금</span><strong id="dashArrearsTotal">-</strong><small id="dashArrearsMembers">-</small></article>
+          <article><span>1인 평균 미수</span><strong id="dashAverage">-</strong><small>활성 미수회원 기준</small></article>
+          <article><span>연락 기록률</span><strong id="dashContactRate">-</strong><small id="dashContactedMembers">-</small></article>
+          <article><span>10만원 이상</span><strong id="dashOver100Count">-</strong><small id="dashOver100Total">-</small></article>
+          <article><span>폐업 미수금</span><strong id="dashClosedTotal">-</strong><small id="dashClosedMembers">-</small></article>
+          <article><span>활성 선납금</span><strong id="dashPrepaidTotal">-</strong><small id="dashPrepaidMembers">-</small></article>
+        </div>
+
+        <div class="dashboard-main-grid">
+          <article class="dash-card region-card">
+            <div class="dash-card-head"><div><b>지역별 미수 비교</b><span>미수금 TOP 8 · 비중/연락률</span></div></div>
+            <div id="regionBars" class="region-bars"></div>
+          </article>
+          <article class="dash-card account-card">
+            <div class="dash-card-head"><div><b>계정별 비교</b><span>협회비 · 관리비 · 70세</span></div></div>
+            <div id="accountCompare" class="account-compare"></div>
+          </article>
+          <article class="dash-card band-card">
+            <div class="dash-card-head"><div><b>미수금 구간</b><span>회원수와 금액 분포</span></div></div>
+            <div id="balanceBands" class="balance-bands"></div>
+          </article>
+        </div>
+
+        <div class="dashboard-bottom-grid">
+          <article class="dash-card compare-card">
+            <div class="dash-card-head"><div><b>지역 A/B 상세 비교</b><span>선택한 두 지역을 같은 기준으로 비교</span></div></div>
+            <div id="regionComparison" class="region-comparison"></div>
+          </article>
+          <article class="dash-card contact-card">
+            <div class="dash-card-head"><div><b>연락 현황</b><span>활성 미수회원 최신 연락기록 기준</span></div></div>
+            <div id="arrearsContactBreakdown" class="contact-breakdown"></div>
+          </article>
+          <article class="dash-card top-card">
+            <div class="dash-card-head"><div><b>고액 미수 TOP 10</b><span>회원 선택 시 상세로 바로 이동</span></div></div>
+            <div id="topArrearsList" class="top-arrears-list"></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="contactOverview" class="contact-overview hidden" aria-label="연락관리 요약">
+        <div class="contact-overview-head"><div><b>연락관리 현황</b><span>연락 기록이 1건 이상 있는 회원만 아래 목록에 표시됩니다.</span></div><span id="contactOverviewTotal">-</span></div>
+        <div class="contact-overview-grid">
+          <div><span>연락기록 회원</span><strong id="contactTotal">-</strong></div>
+          <div><span>연락완료</span><strong id="contactDone">-</strong></div>
+          <div><span>문자발송</span><strong id="contactSms">-</strong></div>
+          <div><span>재연락 필요</span><strong id="contactRecall">-</strong></div>
+          <div><span>부재</span><strong id="contactAbsent">-</strong></div>
+          <div><span>최근 7일 연락</span><strong id="contactRecent">-</strong></div>
+        </div>
       </section>
 
       <section id="monthlyAnalysis" class="monthly-analysis" aria-label="전월 대비 미수금 변동">

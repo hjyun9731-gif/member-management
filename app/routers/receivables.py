@@ -8,7 +8,7 @@ import json
 import re
 import threading
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 from urllib.parse import quote
@@ -1718,6 +1718,169 @@ def summary(
 
 
 
+
+@router.get("/api/receivables/dashboard")
+def receivables_dashboard(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """미수금현황 대시보드용 읽기 전용 집계.
+
+    기존 원장/부과/수납 데이터를 변경하지 않고 현재 잔액, 지역/계정 분포,
+    최신 연락기록, 고액 미수 순위를 한 번에 반환한다.
+    """
+    _ensure_db_ledger_ready(db)
+    _ensure_current_month_billing(db)
+    charges_sq, payments_sq = _charge_payment_subqueries(db)
+    latest_contact_sq = _latest_contact_subquery(db)
+    balance_expr = (
+        func.coalesce(ReceivableProfile.legacy_balance, 0)
+        + func.coalesce(charges_sq.c.charge_total, 0)
+        - func.coalesce(payments_sq.c.payment_total, 0)
+    ).label("balance")
+
+    rows = (
+        db.query(
+            models.LicenseHolder.id.label("member_id"),
+            models.LicenseHolder.name.label("name"),
+            models.LicenseHolder.region.label("region"),
+            models.LicenseHolder.vehicle_number.label("vehicle_number"),
+            models.LicenseHolder.status.label("member_status"),
+            models.LicenseHolder.deleted_at.label("deleted_at"),
+            ReceivableProfile.account_type.label("account_type"),
+            balance_expr,
+            latest_contact_sq.c.status.label("contact_status"),
+            latest_contact_sq.c.contact_date.label("last_contact_date"),
+        )
+        .join(ReceivableProfile, ReceivableProfile.member_id == models.LicenseHolder.id)
+        .outerjoin(charges_sq, charges_sq.c.member_id == ReceivableProfile.member_id)
+        .outerjoin(payments_sq, payments_sq.c.member_id == ReceivableProfile.member_id)
+        .outerjoin(latest_contact_sq, latest_contact_sq.c.member_id == models.LicenseHolder.id)
+        .filter(models.LicenseHolder.deleted_at.is_(None))
+        .all()
+    )
+
+    active_arrears = []
+    active_prepaid_total = 0
+    active_prepaid_members = 0
+    closed_arrears_total = 0
+    closed_arrears_members = 0
+    region_map = {}
+    account_map = {}
+    arrears_contact_status = {k: 0 for k in ["연락완료", "문자발송", "재연락 필요", "부재", "미연락"]}
+    contact_overview_status = {k: 0 for k in ["연락완료", "문자발송", "재연락 필요", "부재", "미연락"]}
+    total_contacted = 0
+    recent_7_days = 0
+    recent_cutoff = (datetime.now(KST).date() - timedelta(days=6)).isoformat()
+
+    for r in rows:
+        bal = int(r.balance or 0)
+        is_active = r.member_status in (None, "active")
+        is_closed = r.member_status == "closed"
+        contact_exists = bool(r.last_contact_date)
+        contact_status = (r.contact_status or "미연락").strip() or "미연락"
+
+        if contact_exists:
+            total_contacted += 1
+            contact_overview_status[contact_status] = contact_overview_status.get(contact_status, 0) + 1
+            if str(r.last_contact_date) >= recent_cutoff:
+                recent_7_days += 1
+
+        if is_closed and bal > 0:
+            closed_arrears_total += bal
+            closed_arrears_members += 1
+        if is_active and bal < 0:
+            active_prepaid_total += -bal
+            active_prepaid_members += 1
+        if not (is_active and bal > 0):
+            continue
+
+        item = {
+            "member_id": int(r.member_id),
+            "name": r.name or "",
+            "region": r.region or "미지정",
+            "vehicle_number": r.vehicle_number or "",
+            "account_type": r.account_type or "기타",
+            "balance": bal,
+            "contact_status": contact_status,
+            "last_contact_date": r.last_contact_date or "",
+            "contacted": contact_exists,
+        }
+        active_arrears.append(item)
+        arrears_contact_status[contact_status] = arrears_contact_status.get(contact_status, 0) + 1
+
+        rg = region_map.setdefault(item["region"], {"region": item["region"], "arrears_total": 0, "arrears_members": 0, "contacted_members": 0})
+        rg["arrears_total"] += bal
+        rg["arrears_members"] += 1
+        rg["contacted_members"] += 1 if contact_exists else 0
+
+        ac = account_map.setdefault(item["account_type"], {"account_type": item["account_type"], "arrears_total": 0, "arrears_members": 0})
+        ac["arrears_total"] += bal
+        ac["arrears_members"] += 1
+
+    active_total = sum(x["balance"] for x in active_arrears)
+    active_members = len(active_arrears)
+    contacted_members = sum(1 for x in active_arrears if x["contacted"])
+    over_100 = [x for x in active_arrears if x["balance"] >= 100000]
+
+    regions = []
+    for x in region_map.values():
+        members = int(x["arrears_members"] or 0)
+        x["average_arrears"] = int(round(x["arrears_total"] / members)) if members else 0
+        x["contact_rate"] = round((x["contacted_members"] / members * 100), 1) if members else 0
+        x["share_pct"] = round((x["arrears_total"] / active_total * 100), 1) if active_total else 0
+        regions.append(x)
+    regions.sort(key=lambda x: (-x["arrears_total"], x["region"]))
+
+    account_order = {"협회비": 0, "관리비": 1, "70세": 2}
+    accounts = []
+    for x in account_map.values():
+        members = int(x["arrears_members"] or 0)
+        x["average_arrears"] = int(round(x["arrears_total"] / members)) if members else 0
+        x["share_pct"] = round((x["arrears_total"] / active_total * 100), 1) if active_total else 0
+        accounts.append(x)
+    accounts.sort(key=lambda x: (account_order.get(x["account_type"], 99), -x["arrears_total"]))
+
+    band_defs = [
+        ("3만원 미만", 0, 30000),
+        ("3만~10만원", 30000, 100000),
+        ("10만~30만원", 100000, 300000),
+        ("30만~100만원", 300000, 1000000),
+        ("100만원 이상", 1000000, None),
+    ]
+    balance_bands = []
+    for label, lo, hi in band_defs:
+        vals = [x["balance"] for x in active_arrears if x["balance"] >= lo and (hi is None or x["balance"] < hi)]
+        balance_bands.append({"label": label, "members": len(vals), "amount": int(sum(vals))})
+
+    top_arrears = sorted(active_arrears, key=lambda x: (-x["balance"], x["name"]))[:10]
+
+    return {
+        "summary": {
+            "active_arrears_total": int(active_total),
+            "active_arrears_members": int(active_members),
+            "average_arrears": int(round(active_total / active_members)) if active_members else 0,
+            "contacted_members": int(contacted_members),
+            "contact_rate": round((contacted_members / active_members * 100), 1) if active_members else 0,
+            "over_100k_members": len(over_100),
+            "over_100k_total": int(sum(x["balance"] for x in over_100)),
+            "closed_arrears_total": int(closed_arrears_total),
+            "closed_arrears_members": int(closed_arrears_members),
+            "active_prepaid_total": int(active_prepaid_total),
+            "active_prepaid_members": int(active_prepaid_members),
+        },
+        "regions": regions,
+        "accounts": accounts,
+        "balance_bands": balance_bands,
+        "arrears_contact_status": arrears_contact_status,
+        "top_arrears": top_arrears,
+        "contact_overview": {
+            "total_contacted": int(total_contacted),
+            "recent_7_days": int(recent_7_days),
+            "status_counts": contact_overview_status,
+        },
+    }
+
 def _analysis_month_end(month_key: str) -> date:
     y, m = [int(x) for x in month_key.split("-", 1)]
     return date(y, m, calendar.monthrange(y, m)[1])
@@ -2239,6 +2402,7 @@ def list_members(
     region: str = "",
     account_type: str = "",
     contact_status: str = "",
+    contacted_only: bool = False,
     billing_status: str = Query("", pattern="^(|pending|arrears|settled|prepaid)$"),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=10, le=200),
@@ -2311,6 +2475,8 @@ def list_members(
         query = query.filter(models.LicenseHolder.region == region)
     if account_type:
         query = query.filter(ReceivableProfile.account_type == account_type)
+    if contacted_only:
+        query = query.filter(latest_contact_sq.c.member_id.isnot(None))
     if contact_status:
         if contact_status == "미연락":
             query = query.filter(or_(latest_contact_sq.c.status.is_(None), latest_contact_sq.c.status == "미연락"))
@@ -3032,6 +3198,7 @@ def export_receivables_excel(
     region: str = "",
     account_type: str = "",
     contact_status: str = "",
+    contacted_only: bool = False,
     billing_status: str = Query("", pattern="^(|pending|arrears|settled|prepaid)$"),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
@@ -3054,6 +3221,7 @@ def export_receivables_excel(
         region=region,
         account_type=account_type,
         contact_status=contact_status,
+        contacted_only=contacted_only,
         billing_status=billing_status,
         page=1,
         limit=1000000,
