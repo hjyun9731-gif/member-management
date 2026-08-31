@@ -728,3 +728,528 @@ body.arrears-scroll-dashboard .workspace.arrears-mode .member-table-wrap{max-hei
   .performance-section-title h3{font-size:18px}.performance-subsection-title h3{font-size:17px}
   .performance-trend{grid-auto-columns:105px!important}
 }
+
+
+/* V9 — hard browser-page scroll fix + data-only arrears dashboard */
+html,
+body {
+  height: auto !important;
+  min-height: 100% !important;
+  max-height: none !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+}
+body.arrears-scroll-dashboard {
+  position: static !important;
+  height: auto !important;
+  min-height: 100vh !important;
+  max-height: none !important;
+  overflow-y: auto !important;
+  overscroll-behavior-y: auto !important;
+}
+body.arrears-scroll-dashboard .app-shell {
+  display: block !important;
+  height: auto !important;
+  min-height: 100vh !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+body.arrears-scroll-dashboard .page {
+  display: block !important;
+  width: calc(100vw - 48px) !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow: visible !important;
+  padding-bottom: 96px !important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard,
+body.arrears-scroll-dashboard .performance-view-shell,
+body.arrears-scroll-dashboard .performance-view-panel,
+body.arrears-scroll-dashboard .performance-scroll-section {
+  display: block !important;
+  position: static !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+body.arrears-scroll-dashboard .performance-view-panel {
+  margin: 0 0 64px !important;
+}
+body.arrears-scroll-dashboard .performance-view-panel > * + * {
+  margin-top: 18px;
+}
+body.arrears-scroll-dashboard .performance-section-title,
+body.arrears-scroll-dashboard .performance-subsection-title {
+  display: block !important;
+  margin: 18px 0 14px !important;
+  padding: 0 !important;
+}
+body.arrears-scroll-dashboard .performance-section-title > span,
+body.arrears-scroll-dashboard .performance-subsection-title > span,
+body.arrears-scroll-dashboard .performance-section-title p,
+body.arrears-scroll-dashboard .performance-subsection-title p,
+body.arrears-scroll-dashboard .dash-card-head span,
+body.arrears-scroll-dashboard .dashboard-kicker,
+body.arrears-scroll-dashboard #modeGuide {
+  display: none !important;
+}
+body.arrears-scroll-dashboard .performance-section-title h3 {
+  margin: 0 !important;
+  font-size: 22px !important;
+}
+body.arrears-scroll-dashboard .performance-subsection-title h3 {
+  margin: 0 !important;
+  font-size: 20px !important;
+}
+body.arrears-scroll-dashboard .performance-table-wrap {
+  height: auto !important;
+  max-height: none !important;
+  overflow-x: auto !important;
+  overflow-y: visible !important;
+}
+body.arrears-scroll-dashboard .workspace {
+  display: grid !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+body.arrears-scroll-dashboard .workspace.arrears-mode .member-panel {
+  position: static !important;
+  top: auto !important;
+}
+body.arrears-scroll-dashboard .workspace.arrears-mode .member-table-wrap {
+  max-height: none !important;
+  overflow-x: auto !important;
+  overflow-y: visible !important;
+}
+@media (min-width:1360px) and (min-height:760px) {
+  body.arrears-scroll-dashboard,
+  body.arrears-scroll-dashboard .page,
+  body.arrears-scroll-dashboard #arrearsDashboard,
+  body.arrears-scroll-dashboard .performance-view-shell,
+  body.arrears-scroll-dashboard .performance-view-panel {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  body.arrears-scroll-dashboard {
+    min-height: 100vh !important;
+    overflow-y: auto !important;
+  }
+}
+
+/* =========================================================
+   V10 DESIGN-ONLY — 미수금 대시보드만 레퍼런스형으로 정돈
+   범위: body.arrears-scroll-dashboard 내부 #arrearsDashboard
+   기능/데이터/JS/API/다른 탭 레이아웃은 변경하지 않음
+   ========================================================= */
+body.arrears-scroll-dashboard #arrearsDashboard{
+  --dash-purple:#7b68d9;
+  --dash-purple-soft:#f2efff;
+  --dash-mint:#eaf8f3;
+  --dash-yellow:#fff7df;
+  --dash-coral:#fff0ed;
+  --dash-blue:#eef5ff;
+  --dash-border:#e7e9f0;
+  --dash-text:#232834;
+  --dash-sub:#858c99;
+  background:transparent!important;
+  margin:0!important;
+  padding:0 0 22px!important;
+}
+
+/* 상단: 제목 + 비교월 필터만 깔끔하게 */
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-head{
+  display:flex!important;
+  align-items:center!important;
+  justify-content:space-between!important;
+  gap:18px!important;
+  margin:0 0 14px!important;
+  padding:0!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-head h2{
+  margin:0!important;
+  font-size:23px!important;
+  line-height:1.2!important;
+  letter-spacing:-.55px!important;
+  color:var(--dash-text)!important;
+  font-weight:900!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls{
+  display:flex!important;
+  align-items:end!important;
+  gap:8px!important;
+  padding:10px 12px!important;
+  background:#fff!important;
+  border:1px solid var(--dash-border)!important;
+  border-radius:14px!important;
+  box-shadow:0 5px 18px rgba(33,40,55,.045)!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls label{
+  display:grid!important;
+  gap:5px!important;
+  font-size:10.5px!important;
+  font-weight:900!important;
+  color:#6e7480!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls select{
+  height:36px!important;
+  min-width:128px!important;
+  border-radius:9px!important;
+  background:#fff!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls>span{
+  padding-bottom:10px!important;
+  color:#979daa!important;
+  font-size:11px!important;
+  font-weight:800!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard #applyMonthCompare{
+  height:36px!important;
+  min-width:54px!important;
+  border:0!important;
+  border-radius:9px!important;
+  background:linear-gradient(135deg,#8d79e8,#735ed5)!important;
+  color:#fff!important;
+  font-weight:900!important;
+  box-shadow:0 5px 12px rgba(115,94,213,.18)!important;
+}
+
+/* 섹션 제목은 실제 업무 제목만 간결하게 */
+body.arrears-scroll-dashboard #arrearsDashboard .performance-section-title,
+body.arrears-scroll-dashboard #arrearsDashboard .performance-subsection-title{
+  margin:0 0 10px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-section-title h3,
+body.arrears-scroll-dashboard #arrearsDashboard .performance-subsection-title h3{
+  font-size:17px!important;
+  font-weight:900!important;
+  color:#303541!important;
+  letter-spacing:-.35px!important;
+}
+
+/* 각 대시보드 덩어리 간격 */
+body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel{
+  margin:0 0 24px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel > * + *{
+  margin-top:12px!important;
+}
+
+/* 첫 비교 결과는 큰 문장 대신 컴팩트한 요약 배너 */
+body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict{
+  min-height:96px!important;
+  display:grid!important;
+  grid-template-columns:minmax(0,1fr) 265px!important;
+  align-items:center!important;
+  gap:18px!important;
+  padding:18px 20px!important;
+  border:1px solid #eee3e3!important;
+  border-radius:16px!important;
+  background:linear-gradient(135deg,#fff,#fff8f7)!important;
+  box-shadow:0 6px 20px rgba(32,40,55,.035)!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict>div:first-child>span,
+body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number>span{
+  font-size:10.5px!important;
+  font-weight:900!important;
+  color:#858b96!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict>div:first-child>strong{
+  display:block!important;
+  margin-top:7px!important;
+  font-size:21px!important;
+  line-height:1.3!important;
+  color:#292f3a!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict>div:first-child>p{
+  margin:6px 0 0!important;
+  font-size:11px!important;
+  color:#7d8490!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number{
+  min-width:0!important;
+  padding:2px 0 2px 22px!important;
+  border-left:1px solid #e7e8ed!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number b{
+  display:block!important;
+  margin:6px 0 2px!important;
+  font-size:29px!important;
+  line-height:1.05!important;
+  white-space:nowrap!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number small{
+  font-size:10.5px!important;
+}
+
+/* KPI: 레퍼런스처럼 한 줄 카드 */
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid{
+  display:grid!important;
+  grid-template-columns:repeat(4,minmax(0,1fr))!important;
+  gap:12px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article{
+  min-height:112px!important;
+  padding:16px 17px!important;
+  border-radius:15px!important;
+  border:1px solid var(--dash-border)!important;
+  background:#fff!important;
+  box-shadow:0 5px 16px rgba(36,43,57,.035)!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article:nth-child(1){background:#fff!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article:nth-child(2){background:#fff!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid .performance-paid{background:var(--dash-mint)!important;border-color:#d9eee6!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid .performance-ratio{background:var(--dash-yellow)!important;border-color:#f1e5c4!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid span{
+  font-size:10.5px!important;
+  font-weight:900!important;
+  color:#777e8a!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid strong{
+  margin:8px 0 4px!important;
+  font-size:24px!important;
+  line-height:1.05!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid small{
+  font-size:10px!important;
+}
+
+/* 보조 성과 카드: 너무 크게 벌어지지 않게 */
+body.arrears-scroll-dashboard #arrearsDashboard .performance-detail-grid{
+  display:grid!important;
+  grid-template-columns:1fr 1fr!important;
+  gap:12px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-detail-card{
+  min-height:154px!important;
+  padding:16px!important;
+  border:1px solid var(--dash-border)!important;
+  border-radius:15px!important;
+  box-shadow:0 5px 16px rgba(36,43,57,.03)!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-detail-card .dash-card-head{
+  margin:0 0 10px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-detail-card .dash-card-head b{
+  font-size:14px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list{
+  gap:8px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list>div{
+  min-height:72px!important;
+  padding:11px 12px!important;
+  background:#fafbfc!important;
+  border:1px solid #eff1f5!important;
+  border-radius:10px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list strong{
+  font-size:18px!important;
+}
+
+/* 월별 추이: 레퍼런스처럼 큰 차트 2개를 좌우 배치 */
+body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="trend"]{
+  display:grid!important;
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;
+  gap:12px!important;
+  align-items:start!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="trend"]>.performance-section-title{
+  grid-column:1/-1!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="trend"]>.performance-subsection-title{
+  display:none!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-chart-grid.vertical-charts{
+  display:contents!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-trend-card{
+  grid-column:1!important;
+  grid-row:2!important;
+  min-height:330px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-flow-card{
+  grid-column:2!important;
+  grid-row:2!important;
+  min-height:330px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .ratio-card{
+  grid-column:1!important;
+  grid-row:3!important;
+  min-height:250px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-insight-card{
+  grid-column:2!important;
+  grid-row:3!important;
+  min-height:250px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-chart-card,
+body.arrears-scroll-dashboard #arrearsDashboard .readable-insight-card{
+  padding:16px 17px!important;
+  border:1px solid var(--dash-border)!important;
+  border-radius:15px!important;
+  box-shadow:0 5px 16px rgba(36,43,57,.035)!important;
+  background:#fff!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .dash-card-head{
+  margin-bottom:10px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .dash-card-head b{
+  font-size:14px!important;
+  color:#313742!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-trend{
+  height:255px!important;
+  grid-auto-columns:minmax(82px,1fr)!important;
+  gap:9px!important;
+  padding:3px 4px 6px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .perf-trend-item{
+  height:245px!important;
+  grid-template-rows:25px 155px 24px 34px!important;
+  min-width:82px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .perf-trend-bar{
+  height:155px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .monthly-flow-chart{
+  gap:9px!important;
+  padding:2px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .flow-row{
+  grid-template-columns:56px 1fr!important;
+  gap:8px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .flow-bars span{
+  height:21px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .flow-bars em{
+  line-height:21px!important;
+  font-size:9.5px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .monthly-ratio-chart{
+  gap:10px!important;
+  padding:4px 2px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .ratio-row{
+  grid-template-columns:55px 1fr 60px!important;
+  gap:8px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .ratio-row>div{
+  height:12px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-insights{
+  display:grid!important;
+  grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  gap:8px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .insight-row{
+  min-height:86px!important;
+  padding:11px 12px!important;
+  border-radius:10px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .insight-row b{
+  font-size:13px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .insight-row em{
+  font-size:12px!important;
+}
+
+/* 성과표: 레퍼런스의 연보라 헤더 + 가운데 정렬 */
+body.arrears-scroll-dashboard #arrearsDashboard .performance-table-card{
+  padding:16px 17px!important;
+  background:#fff!important;
+  border:1px solid var(--dash-border)!important;
+  border-radius:15px!important;
+  box-shadow:0 5px 16px rgba(36,43,57,.035)!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-table-wrap{
+  border:1px solid #e8e5f2!important;
+  border-radius:11px!important;
+  overflow-x:auto!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-table{
+  min-width:1120px!important;
+  border-collapse:separate!important;
+  border-spacing:0!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-table th{
+  position:static!important;
+  height:42px!important;
+  padding:0 9px!important;
+  background:#f4f1ff!important;
+  color:#5f5792!important;
+  border-bottom:1px solid #e5e0f3!important;
+  font-size:10.5px!important;
+  font-weight:900!important;
+  text-align:center!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-table td{
+  height:43px!important;
+  padding:0 9px!important;
+  background:#fff!important;
+  border-bottom:1px solid #eff0f3!important;
+  font-size:11.5px!important;
+  text-align:center!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-table th.num,
+body.arrears-scroll-dashboard #arrearsDashboard .performance-table td.num{
+  text-align:center!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-table tbody tr:hover td{
+  background:#fbfaff!important;
+}
+
+/* 대시보드 뒤의 회원조회는 기존 기능/레이아웃 그대로 — 시각적 연결만 최소화 */
+body.arrears-scroll-dashboard .arrears-member-section-title{
+  margin:8px 0 10px!important;
+  padding-top:16px!important;
+  border-top:1px solid #e7e9ee!important;
+}
+
+/* 이 스타일은 미수금 대시보드가 활성일 때만 적용 */
+@media(max-width:1350px){
+  body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="trend"]{
+    grid-template-columns:1fr!important;
+  }
+  body.arrears-scroll-dashboard #arrearsDashboard .performance-trend-card,
+  body.arrears-scroll-dashboard #arrearsDashboard .performance-flow-card,
+  body.arrears-scroll-dashboard #arrearsDashboard .ratio-card,
+  body.arrears-scroll-dashboard #arrearsDashboard .readable-insight-card{
+    grid-column:1!important;
+    grid-row:auto!important;
+  }
+}
+@media(max-width:1000px){
+  body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid,
+  body.arrears-scroll-dashboard #arrearsDashboard .performance-detail-grid{
+    grid-template-columns:1fr 1fr!important;
+  }
+}
+@media(max-width:700px){
+  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-head,
+  body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls{
+    align-items:stretch!important;
+  }
+  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-head{
+    flex-direction:column!important;
+  }
+  body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls{
+    flex-wrap:wrap!important;
+  }
+  body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict,
+  body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid,
+  body.arrears-scroll-dashboard #arrearsDashboard .performance-detail-grid{
+    grid-template-columns:1fr!important;
+  }
+  body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number{
+    border-left:0!important;
+    border-top:1px solid #e7e8ed!important;
+    padding:12px 0 0!important;
+  }
+}
