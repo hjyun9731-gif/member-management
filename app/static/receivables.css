@@ -2221,3 +2221,340 @@ body.arrears-scroll-dashboard .workspace.arrears-mode .excel-export-btn{
   body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list,
   body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list.four{grid-template-columns:1fr 1fr!important}
 }
+
+/* =========================================================
+   2026-08-31 V13 — approved dashboard mock visual treatment
+   STYLE ONLY. No JS/API/data/DB logic changes.
+   ========================================================= */
+body.arrears-scroll-dashboard{
+  --v13-ink:#162033;
+  --v13-muted:#6f7b8f;
+  --v13-line:#e3e8f0;
+  --v13-soft:#f6f8fc;
+  --v13-purple:#6657d9;
+  --v13-purple-2:#8174e6;
+  --v13-blue:#285ecb;
+  --v13-green:#168a66;
+  --v13-amber:#bd6a08;
+  --v13-red:#c83232;
+  --v13-yellow:#fff1b8;
+  background:#f7f8fb!important;
+}
+body.arrears-scroll-dashboard .page{
+  width:min(1500px,calc(100vw - 48px))!important;
+  max-width:1500px!important;
+  padding-top:26px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard{
+  width:100%!important;
+  max-width:none!important;
+  margin:0!important;
+}
+
+/* header */
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-head{
+  min-height:64px!important;
+  margin:0 0 18px!important;
+  display:flex!important;
+  align-items:flex-start!important;
+  justify-content:space-between!important;
+  gap:24px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-head h2{
+  font-size:27px!important;
+  line-height:1.2!important;
+  font-weight:900!important;
+  letter-spacing:-.7px!important;
+  color:var(--v13-ink)!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls{
+  padding:10px 11px!important;
+  gap:8px!important;
+  border:1px solid var(--v13-line)!important;
+  border-radius:14px!important;
+  background:#fff!important;
+  box-shadow:0 4px 14px rgba(28,39,60,.045)!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls select{
+  min-width:144px!important;
+  height:39px!important;
+  border-radius:9px!important;
+  font-size:12px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard #applyMonthCompare{
+  height:39px!important;
+  min-width:58px!important;
+  border-radius:9px!important;
+  background:#edeaff!important;
+  color:#5644c7!important;
+  border:1px solid #d8d1ff!important;
+  font-weight:900!important;
+}
+
+/* remove design narration / duplicate headings */
+body.arrears-scroll-dashboard #arrearsDashboard .performance-section-title,
+body.arrears-scroll-dashboard #arrearsDashboard .performance-subsection-title{
+  display:none!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-view-shell{
+  display:block!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel{
+  margin:0 0 20px!important;
+  padding:0!important;
+  border:0!important;
+  background:transparent!important;
+}
+
+/* summary: KPI first, comparison banner second, compact details third */
+body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="summary"]{
+  display:grid!important;
+  grid-template-columns:1fr!important;
+  gap:14px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid{
+  order:1!important;
+  display:grid!important;
+  grid-template-columns:repeat(4,minmax(0,1fr))!important;
+  gap:14px!important;
+  margin:0!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article{
+  min-height:132px!important;
+  padding:20px 22px!important;
+  border:1px solid var(--v13-line)!important;
+  border-radius:16px!important;
+  background:#fff!important;
+  box-shadow:0 5px 18px rgba(30,42,64,.045)!important;
+  position:relative!important;
+  overflow:hidden!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article:before{
+  content:""!important;
+  position:absolute!important;
+  left:0!important;top:0!important;bottom:0!important;
+  width:4px!important;
+  border-radius:16px 0 0 16px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article:nth-child(1):before{background:#7969df!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article:nth-child(2):before{background:#4d79da!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article.performance-paid:before{background:#35a37c!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article.performance-ratio:before{background:#e0a34f!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid span{
+  font-size:12px!important;font-weight:800!important;color:#657185!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid strong{
+  margin:10px 0 7px!important;
+  font-size:27px!important;line-height:1!important;letter-spacing:-.5px!important;color:#1f2b42!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid .performance-paid strong{color:var(--v13-green)!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid .performance-ratio strong{color:var(--v13-amber)!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid small{
+  font-size:10.5px!important;color:#8792a3!important;line-height:1.45!important;
+}
+
+body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict{
+  order:2!important;
+  min-height:108px!important;
+  margin:0!important;
+  padding:18px 22px!important;
+  display:grid!important;
+  grid-template-columns:minmax(0,1fr) 260px!important;
+  align-items:center!important;
+  gap:22px!important;
+  border:1px solid var(--v13-line)!important;
+  border-radius:16px!important;
+  background:#fff!important;
+  box-shadow:0 5px 18px rgba(30,42,64,.04)!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict>div:first-child>span,
+body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number>span{
+  font-size:10.5px!important;font-weight:900!important;color:#818c9e!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict>div:first-child>strong{
+  display:block!important;margin:7px 0 5px!important;font-size:20px!important;line-height:1.35!important;color:#1b2538!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict>div:first-child>p{
+  margin:0!important;font-size:11px!important;color:#7a8597!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number{
+  padding-left:24px!important;border-left:1px solid #e6eaf0!important;text-align:left!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number b{
+  display:block!important;margin:7px 0 3px!important;font-size:27px!important;line-height:1!important;color:var(--v13-red)!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number small{font-size:10.5px!important;color:#8993a3!important}
+
+body.arrears-scroll-dashboard #arrearsDashboard .performance-detail-grid{
+  order:3!important;
+  display:grid!important;
+  grid-template-columns:1fr 1fr!important;
+  gap:14px!important;
+  margin:0!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-detail-card{
+  padding:17px 18px!important;
+  border:1px solid var(--v13-line)!important;
+  border-radius:16px!important;
+  background:#fff!important;
+  box-shadow:0 4px 14px rgba(30,42,64,.035)!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-detail-card .dash-card-head{margin-bottom:11px!important}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-detail-card .dash-card-head b{font-size:13px!important}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list,
+body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list.four{
+  display:grid!important;
+  grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  gap:0!important;
+  border:1px solid #edf0f4!important;
+  border-radius:11px!important;
+  overflow:hidden!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list.four{grid-template-columns:repeat(4,minmax(0,1fr))!important}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list>div{
+  min-height:72px!important;
+  padding:11px 13px!important;
+  border:0!important;
+  border-right:1px solid #edf0f4!important;
+  background:#fff!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list>div:last-child{border-right:0!important}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list span{font-size:9.5px!important;color:#818c9d!important}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list strong{margin:5px 0 2px!important;font-size:19px!important}
+
+/* charts: true 2x2, equally readable */
+body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="trend"]{
+  display:grid!important;
+  grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  gap:14px!important;
+  align-items:stretch!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-chart-grid.vertical-charts{display:contents!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-trend-card{grid-column:1!important;grid-row:1!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-flow-card{grid-column:2!important;grid-row:1!important}
+body.arrears-scroll-dashboard #arrearsDashboard .ratio-card{grid-column:1!important;grid-row:2!important}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-insight-card{grid-column:2!important;grid-row:2!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-trend-card,
+body.arrears-scroll-dashboard #arrearsDashboard .performance-flow-card,
+body.arrears-scroll-dashboard #arrearsDashboard .ratio-card,
+body.arrears-scroll-dashboard #arrearsDashboard .readable-insight-card{
+  min-height:340px!important;
+  padding:18px 20px!important;
+  border:1px solid var(--v13-line)!important;
+  border-radius:16px!important;
+  background:#fff!important;
+  box-shadow:0 5px 18px rgba(30,42,64,.04)!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .dash-card-head{margin:0 0 14px!important;min-height:26px!important}
+body.arrears-scroll-dashboard #arrearsDashboard .dash-card-head b{font-size:14px!important;color:#283348!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-trend{
+  height:270px!important;
+  grid-auto-columns:minmax(70px,1fr)!important;
+  gap:11px!important;
+  padding:8px 2px 0!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .perf-trend-item{
+  height:255px!important;
+  grid-template-rows:28px 165px 25px 32px!important;
+  min-width:70px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .perf-trend-bar{
+  height:165px!important;
+  width:58%!important;
+  max-width:42px!important;
+  background:linear-gradient(180deg,#8d7ce8 0%,#725fdc 100%)!important;
+  border-radius:7px 7px 2px 2px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .monthly-flow-chart{
+  min-height:270px!important;
+  display:flex!important;
+  flex-direction:column!important;
+  justify-content:space-around!important;
+  gap:7px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .flow-row{grid-template-columns:54px 1fr!important;gap:9px!important}
+body.arrears-scroll-dashboard #arrearsDashboard .flow-bars span{height:18px!important;border-radius:5px!important}
+body.arrears-scroll-dashboard #arrearsDashboard .flow-bars span:first-child{background:#e4c996!important}
+body.arrears-scroll-dashboard #arrearsDashboard .flow-bars span:last-child{background:#70c5a7!important}
+body.arrears-scroll-dashboard #arrearsDashboard .monthly-ratio-chart{
+  min-height:270px!important;
+  display:flex!important;
+  flex-direction:column!important;
+  justify-content:space-around!important;
+  gap:7px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .ratio-row{grid-template-columns:54px 1fr 50px!important;gap:9px!important}
+body.arrears-scroll-dashboard #arrearsDashboard .ratio-row>div{height:12px!important;background:#edf0f5!important}
+body.arrears-scroll-dashboard #arrearsDashboard .ratio-row>div>i{background:#7765df!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-insights{
+  min-height:270px!important;
+  display:grid!important;
+  grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  gap:10px!important;
+  align-content:center!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .insight-row{
+  min-height:105px!important;
+  padding:15px!important;
+  border:1px solid #edf0f4!important;
+  border-radius:11px!important;
+  background:#fbfcfe!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .insight-row:last-child{border-right:1px solid #edf0f4!important}
+
+/* monthly performance table */
+body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="table"]{margin-top:2px!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-table-card{
+  border:1px solid var(--v13-line)!important;
+  border-radius:16px!important;
+  background:#fff!important;
+  box-shadow:0 5px 18px rgba(30,42,64,.04)!important;
+  overflow:hidden!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-table-card>.dash-card-head{
+  min-height:54px!important;padding:0 18px!important;border-bottom:1px solid #e8ecf2!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-table th{
+  height:44px!important;padding:0 11px!important;background:#f3f5f9!important;color:#687487!important;font-size:10.5px!important;font-weight:900!important;text-align:center!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-table td{
+  height:46px!important;padding:0 11px!important;font-size:11.5px!important;text-align:center!important;background:#fff!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-table tbody tr:nth-child(even) td{background:#fbfcfe!important}
+
+/* member lookup: same system, visually calmer */
+body.arrears-scroll-dashboard .arrears-member-section-title{margin:34px 0 12px!important}
+body.arrears-scroll-dashboard .arrears-member-section-title h3{font-size:21px!important;color:var(--v13-ink)!important}
+body.arrears-scroll-dashboard .workspace.arrears-mode .member-panel{
+  border:1px solid var(--v13-line)!important;
+  border-radius:16px!important;
+  background:#fff!important;
+  box-shadow:0 5px 18px rgba(30,42,64,.035)!important;
+}
+body.arrears-scroll-dashboard .workspace.arrears-mode .panel-head{padding:17px 19px 12px!important}
+body.arrears-scroll-dashboard .workspace.arrears-mode .filters{padding:0 19px 15px!important}
+body.arrears-scroll-dashboard .workspace.arrears-mode .member-table th{height:42px!important;background:#f3f5f9!important;color:#6c7788!important;font-size:10.5px!important}
+body.arrears-scroll-dashboard .workspace.arrears-mode .member-table td{height:47px!important;font-size:11.5px!important}
+body.arrears-scroll-dashboard .workspace.arrears-mode .excel-export-btn{
+  background:var(--v13-yellow)!important;border-color:#ecd887!important;color:#725714!important;font-weight:900!important;
+}
+
+@media(max-width:1180px){
+  body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="trend"]{grid-template-columns:1fr!important}
+  body.arrears-scroll-dashboard #arrearsDashboard .performance-trend-card,
+  body.arrears-scroll-dashboard #arrearsDashboard .performance-flow-card,
+  body.arrears-scroll-dashboard #arrearsDashboard .ratio-card,
+  body.arrears-scroll-dashboard #arrearsDashboard .readable-insight-card{grid-column:1!important;grid-row:auto!important}
+}
+@media(max-width:760px){
+  body.arrears-scroll-dashboard .page{width:calc(100vw - 24px)!important}
+  body.arrears-scroll-dashboard #arrearsDashboard .dashboard-head{flex-direction:column!important;align-items:stretch!important}
+  body.arrears-scroll-dashboard #arrearsDashboard .month-compare-controls{flex-wrap:wrap!important}
+  body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid,
+  body.arrears-scroll-dashboard #arrearsDashboard .performance-detail-grid{grid-template-columns:1fr!important}
+  body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict{grid-template-columns:1fr!important}
+  body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number{padding:12px 0 0!important;border-left:0!important;border-top:1px solid #e6eaf0!important}
+  body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list,
+  body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list.four{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+}
