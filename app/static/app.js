@@ -174,6 +174,10 @@ function ensureTransferLedgerPolishStyle(){
     #tlLedgerCard .tl-mgmt{color:#6257b8;font-weight:800}
     #tlLedgerCard .tl-date{color:#42495d;font-weight:700}
     #tlLedgerCard .tl-namecell{min-width:118px}
+    #tlLedgerCard .tl-ledger-table th:nth-child(6){background:#fbfaff;color:#5f55a9}
+    #tlLedgerCard .tl-ledger-table td:nth-child(6) a.tbl-link{font-size:12.5px;font-weight:900;color:#5c63c7!important}
+    #tlLedgerCard.tl-hide-transferor .tl-ledger-table th:nth-child(6){background:#f8f5ff;color:#554aa5}
+    #tlLedgerCard.tl-hide-transferor .tl-ledger-table td:nth-child(6){background:#fdfcff}
     #tlLedgerCard .tl-subline{display:flex;align-items:center;gap:5px;margin-top:4px;min-height:18px}
     #tlLedgerCard .tl-mem-date{font-size:9.5px;color:#8b91a3}
     #tlLedgerCard .tl-mem-joined{background:#edf8ff;color:#3176b4;border-color:#bfe1f6}
@@ -186,9 +190,9 @@ function ensureTransferLedgerPolishStyle(){
     #tlTransferorToggle{background:#fff;color:#626a7e;border-color:#dfe3eb}
     #tlTransferorToggle:hover{background:#f7f8fb}
     .btn.bdomestic,
-    .btn[onclick*="openDomesticTransfer"]{background:#effbe9!important;color:#4f814d!important;border-color:#c9e6c2!important}
+    .btn[onclick*="openDomesticTransfer"]{background:#f3fbe9!important;color:#5e7d43!important;border-color:#d7e9bd!important}
     .btn.bdomestic:hover,
-    .btn[onclick*="openDomesticTransfer"]:hover{background:#e4f7dc!important;color:#3f723d!important;border-color:#b6dcae!important}
+    .btn[onclick*="openDomesticTransfer"]:hover{background:#eaf7dc!important;color:#4f6f38!important;border-color:#c7dfaa!important}
   `;
   document.head.appendChild(st);
 }
@@ -1439,7 +1443,8 @@ async function renderNewRegistrations(){
 async function renderTransferLedger(){
   ensureTransferLedgerPolishStyle();
   const f=ST.fl.tl||{};
-  const transferorHidden=localStorage.getItem('tl-transferor-hidden')==='1';
+  const transferorStored=localStorage.getItem('tl-transferor-hidden');
+  const transferorHidden=transferorStored===null?true:transferorStored==='1';
   document.getElementById('content').innerHTML=`
     <div class="card ${transferorHidden?'tl-hide-transferor':''}" id="tlLedgerCard">
       <div class="card-hd">
@@ -1447,7 +1452,7 @@ async function renderTransferLedger(){
           <span class="badge b-sky" style="font-size:10px;margin-left:6px">접수일자 기준</span></div>
         <div class="flex gap-8">
           <button class="btn bg btn-sm" id="tlAddBtn">+ 등록</button>
-          <button class="btn bo btn-sm" id="tlTransferorToggle">${transferorHidden?'양도자 펼치기':'양도자 접기'}</button>
+          <button class="btn bo btn-sm" id="tlTransferorToggle">${transferorHidden?'양도자 보기':'양도자 숨기기'}</button>
           ${isAdmin()?`<button class="btn bo btn-sm" id="tlRelinkBtn" title="양도자/양수자 회원 ID 연결 자동 복구">🔗 연결복구</button>`:''}
           ${isAdmin()?`<button class="btn bo btn-sm" id="tlMissingBtn" title="관리번호 양YY-N 회원 중 대장 누락건 찾기/복구">🧩 누락대장 복구</button>`:''}
           ${isAdmin()?`<button class="btn bo btn-sm" id="tlCertSyncBtn" title="대장에 나중에 입력한 자격증명발급번호를 연결된 회원/예정자에 소급 반영">🪪 발급번호 동기화</button>`:''}
@@ -1520,7 +1525,7 @@ async function renderTransferLedger(){
     const hide=!card.classList.contains('tl-hide-transferor');
     card.classList.toggle('tl-hide-transferor',hide);
     localStorage.setItem('tl-transferor-hidden',hide?'1':'0');
-    tlToggle.textContent=hide?'양도자 펼치기':'양도자 접기';
+    tlToggle.textContent=hide?'양도자 보기':'양도자 숨기기';
   };
   const relinkBtn=document.getElementById('tlRelinkBtn');
   if(relinkBtn) relinkBtn.onclick=()=>bulkRelinkTransfers();

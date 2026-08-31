@@ -418,3 +418,34 @@
 
 /* 2026-08-31: 입금등록 아래 노란 안내박스 제거 (표시만 제거, 검증 로직 유지) */
 .payment-safety-note{display:none!important}
+
+
+/* 2026-08-31 UI rethink: 수납처리와 미수금현황을 역할별로 명확히 분리. API/저장 로직 변경 없음. */
+.mode-guide{width:calc(100vw - 48px);max-width:1760px;margin:12px auto 0;padding:11px 14px;border:1px solid var(--line);border-radius:13px;background:#fff;display:flex;align-items:center;justify-content:space-between;gap:14px;box-shadow:0 4px 14px rgba(48,57,76,.035)}
+.mode-guide>div{display:flex;align-items:baseline;gap:10px;min-width:0}.mode-guide strong{font-size:13px;color:#343b49;white-space:nowrap}.mode-guide span{font-size:11px;color:#758093}.mode-guide>span:last-child{flex:0 0 auto;padding:5px 9px;border-radius:999px;font-size:10px;font-weight:900}
+.mode-guide.payment-mode-guide{background:#f9fbff;border-color:#dfe9fb}.mode-guide.payment-mode-guide>span:last-child{background:#e6efff;color:#4966a7}
+.mode-guide.arrears-mode-guide{background:#fffafa;border-color:#f1e2e4}.mode-guide.arrears-mode-guide>span:last-child{background:#ffecef;color:#a35463}
+
+/* 수납처리 = 입력 업무. 전월분석은 숨기고 입금/연락 입력을 그대로 유지 */
+.workspace.payment-mode .action-grid{display:grid}
+.workspace.payment-mode .detail-panel{border-color:#e2e9f7}
+.workspace.payment-mode .member-panel{border-color:#e5eaf2}
+
+/* 미수금현황 = 조회/분석. 회원 상세·월별장부는 보되 입력용 영역은 숨김 */
+.workspace.arrears-mode{grid-template-columns:minmax(650px,.98fr) minmax(650px,1.02fr)}
+.workspace.arrears-mode .action-grid,
+.workspace.arrears-mode .member-work-bar,
+.workspace.arrears-mode .history-box{display:none!important}
+.workspace.arrears-mode .detail-panel{background:#fffdfd;border-color:#f0e5e7}
+.workspace.arrears-mode .member-panel{border-color:#eee6e8}
+.workspace.arrears-mode .member-table tbody tr:hover{background:#fff7f8}
+.workspace.arrears-mode .member-table tbody tr.selected{background:#fff0f2}
+.workspace.arrears-mode .panel-title-row h2{color:#7e4550}
+.workspace.arrears-mode .count-badge{background:#fff0f2;color:#9d5866}
+.workspace.arrears-mode .balance-edit-btn{display:inline-flex}
+
+/* 노란 수납 안내 박스는 DOM에서도 제거하지만 구버전 캐시 대비 숨김 */
+.payment-safety-note{display:none!important}
+
+@media(max-width:1500px){.mode-guide{width:calc(100vw - 32px)}.workspace.arrears-mode{grid-template-columns:minmax(560px,.9fr) minmax(620px,1.1fr)}}
+@media(max-width:1250px){.workspace.arrears-mode{grid-template-columns:1fr}.mode-guide>div{align-items:flex-start;flex-direction:column;gap:3px}}

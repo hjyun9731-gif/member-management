@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>수납·미수금 | 회원관리시스템</title>
-  <link rel="stylesheet" href="/static/receivables.css?v=20260831-balance-edit-v1" />
+  <link rel="stylesheet" href="/static/receivables.css?v=20260831-ui-rethink-v1" />
 </head>
 <body>
   <div id="appShell" class="app-shell">
@@ -29,6 +29,10 @@
       <button class="tab" data-view="closed">폐업관리</button>
       <button class="tab" data-view="contacts">연락관리</button>
     </nav>
+    <div id="modeGuide" class="mode-guide payment-mode-guide">
+      <div><strong id="modeGuideTitle">수납처리</strong><span id="modeGuideText">회원을 찾아 실제 입금을 등록하는 화면입니다. 미수·완납·선납을 포함한 활성회원 전체에서 찾습니다.</span></div>
+      <span id="modeGuideBadge">입금 업무</span>
+    </div>
 
     <main class="page">
       <section class="kpi-grid">
@@ -38,6 +42,34 @@
         <article id="kpiPrepaidCard" class="kpi-card clickable"><div class="kpi-icon sky">선납</div><div><span>활성 선납금</span><strong id="kpiPrepaidTotal">-</strong><small id="kpiPrepaidCount">-</small></div></article>
         <article class="kpi-card"><div class="kpi-icon mint">폐업</div><div><span>폐업 미수금</span><strong id="kpiClosedTotal">-</strong><small id="kpiClosedCount">-</small></div></article>
         <article class="kpi-card"><div class="kpi-icon yellow">오늘</div><div><span>오늘 수납</span><strong id="kpiTodayPaid">-</strong><small>공용 DB 합계</small></div></article>
+      </section>
+
+      <section id="monthlyAnalysis" class="monthly-analysis" aria-label="전월 대비 미수금 변동">
+        <div class="monthly-analysis-head">
+          <div><strong>전월 대비 미수금 변동</strong><span id="analysisPeriod">-</span></div>
+          <small>전체 원장 기준 · 활성 + 폐업</small>
+        </div>
+        <div class="monthly-analysis-grid">
+          <div class="analysis-metric"><span>전월말 미수</span><strong id="analysisPrevArrears">-</strong><small id="analysisPrevMembers">-</small></div>
+          <div class="analysis-metric current"><span>현재 총 미수</span><strong id="analysisCurrentArrears">-</strong><small id="analysisCurrentMembers">-</small></div>
+          <div class="analysis-metric paid"><span>이번 달 수납</span><strong id="analysisPayments">-</strong><small>실제 입금액</small></div>
+          <div class="analysis-metric up"><span>미수 증가</span><strong id="analysisIncrease">-</strong><small id="analysisIncreaseMembers">-</small></div>
+          <div class="analysis-metric down"><span>미수 감소</span><strong id="analysisDecrease">-</strong><small id="analysisDecreaseMembers">-</small></div>
+          <div id="analysisNetCard" class="analysis-metric net"><span>전월 대비 순증감</span><strong id="analysisNet">-</strong><small id="analysisNetPct">-</small></div>
+        </div>
+        <div class="monthly-analysis-bottom">
+          <div class="analysis-detail-line">
+            <span>당월 부과 <b id="analysisCharges">-</b></span>
+            <span>미수회원 증감 <b id="analysisMemberChange">-</b></span>
+            <span>신규 미수 <b id="analysisNewArrears">-</b></span>
+            <span>완납 전환 <b id="analysisSettled">-</b></span>
+            <span id="analysisAdjustmentWrap" class="hidden">금액수정 <b id="analysisAdjustment">-</b></span>
+          </div>
+          <div class="analysis-trend-wrap">
+            <span>최근 6개월 총 미수 추이</span>
+            <div id="analysisTrend" class="analysis-trend"></div>
+          </div>
+        </div>
       </section>
 
       <section class="workspace">
@@ -125,7 +157,6 @@
             <div class="action-grid">
               <section class="action-card payment-card">
                 <div class="section-head"><div><h3>입금 등록</h3><p>폐업회원도 남은 미수금 수납 가능</p></div><span class="mascot-mini">🐱</span></div>
-                <div class="payment-safety-note"><b>미수금 수납만 입력</b> · 자격증명 발급비, 대폐차 수수료, 가입비 등은 관리비/협회비 선납으로 잡지 않습니다.</div>
                 <div class="quick-amounts"><button data-amount="5000">5천</button><button data-amount="10000">1만</button><button data-amount="20000">2만</button><button data-amount="50000">5만</button><button id="fullAmountBtn">전액</button></div>
                 <div class="form-grid three"><label>입금일<input id="paymentDate" type="date" /></label><label>입금액<input id="paymentAmount" type="number" min="1" placeholder="0" /></label><label>입금방법<select id="paymentMethod"><option>계좌이체</option><option>카드</option><option>현금</option><option>기타</option></select></label></div>
                 <label>메모<input id="paymentMemo" placeholder="선택 입력" /></label>
@@ -242,6 +273,6 @@
       <button class="primary-btn" type="submit">로그인</button><div id="loginError" class="login-error"></div>
     </form>
   </div>
-  <script src="/static/receivables.js?v=20260831-balance-edit-v1" defer></script>
+  <script src="/static/receivables.js?v=20260831-ui-rethink-v1" defer></script>
 </body>
 </html>
