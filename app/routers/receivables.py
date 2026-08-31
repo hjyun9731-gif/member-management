@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import calendar
 import hashlib
 import io
 import json
@@ -421,30 +422,74 @@ def _seed_for_profile(profile):
         return None
 
 
-def _legacy_balance_as_of(profile, as_of_date: Optional[date]) -> int:
-    """폐업자의 기준원장 잔액을 폐업월 시점으로 고정한다.
-    2026 최신 Excel이 폐업 이후 월까지 누적부과돼 있더라도 이후 월은 폐업 잔액에 포함하지 않는다.
+def _legacy_reconstructed_balance(profile, month_no: int) -> Optional[int]:
+    """2026 기준원장의 특정 월말 잔액을 안전하게 복원한다.
+
+    원본 엑셀에는 일부 월의 ``미수금`` 셀이 비어 있지만 ``청구금`` 또는
+    고정 월부과액은 남아 있는 행이 있다. 기존 화면은 이런 달에서 잔액을
+    그대로 멈춰 보여 10,000원 부과가 있는데도 잔액이 증가하지 않는 모순이
+    생겼다. 명시된 월말 미수금이 있으면 그것을 최우선으로 사용하고, 없으면
+    청구금-입금액, 그것도 없으면 전월잔액+고정월부과-입금액 순으로 복원한다.
+    실제 DB 잔액이나 입금 저장 로직은 변경하지 않는다.
     """
-    fallback = int(getattr(profile, "legacy_balance", 0) or 0)
-    if as_of_date is None or as_of_date.year != 2026:
-        return fallback
-    last = None
-    for row in (getattr(profile, "legacy_months", None) or []):
+    try:
+        target = max(1, min(12, int(month_no)))
+    except Exception:
+        return None
+
+    months = list(getattr(profile, "legacy_months", None) or [])
+    if not months:
+        return int(getattr(profile, "legacy_balance", 0) or 0)
+
+    seed = _seed_for_profile(profile)
+    try:
+        running = int((seed or {}).get("carryover") or 0)
+    except Exception:
+        running = 0
+
+    rows = {}
+    for row in months:
         try:
             mm = int(row.get("month") or 0)
         except Exception:
             continue
-        if mm <= as_of_date.month and row.get("arrears") is not None:
-            last = int(row.get("arrears") or 0)
-    if last is not None:
-        return last
-    seed = _seed_for_profile(profile)
-    if seed is not None:
-        try:
-            return int(seed.get("carryover") or 0)
-        except Exception:
-            pass
-    return fallback
+        if 1 <= mm <= 12:
+            rows[mm] = row
+
+    touched = bool(running)
+    for mm in range(1, target + 1):
+        row = rows.get(mm) or {}
+        arrears = row.get("arrears")
+        billed_total = row.get("billed_total")
+        payment = int(row.get("payment") or 0)
+        monthly_charge = row.get("monthly_charge")
+
+        if arrears is not None:
+            running = int(arrears or 0)
+            touched = True
+            continue
+        if billed_total is not None:
+            running = int(billed_total or 0) - payment
+            touched = True
+            continue
+        if monthly_charge is not None and int(monthly_charge or 0) != 0:
+            running += int(monthly_charge or 0) - payment
+            touched = True
+            continue
+        if payment:
+            running -= payment
+            touched = True
+
+    return int(running) if touched else None
+
+
+def _legacy_balance_as_of(profile, as_of_date: Optional[date]) -> int:
+    """폐업자의 기준원장 잔액을 폐업월 시점으로 고정한다."""
+    fallback = int(getattr(profile, "legacy_balance", 0) or 0)
+    if as_of_date is None or as_of_date.year != 2026:
+        return fallback
+    reconstructed = _legacy_reconstructed_balance(profile, as_of_date.month)
+    return fallback if reconstructed is None else int(reconstructed)
 
 
 def _infer_account(member) -> str:
@@ -1669,6 +1714,238 @@ def summary(
         "closed_prepaid_total": int(row.closed_prepaid_total or 0),
         "pending_members": int(pending_members),
         "today_paid": int(today_paid),
+    }
+
+
+
+def _analysis_month_end(month_key: str) -> date:
+    y, m = [int(x) for x in month_key.split("-", 1)]
+    return date(y, m, calendar.monthrange(y, m)[1])
+
+
+def _analysis_prev_month(month_key: str) -> str:
+    y, m = [int(x) for x in month_key.split("-", 1)]
+    if m == 1:
+        return f"{y - 1:04d}-12"
+    return f"{y:04d}-{m - 1:02d}"
+
+
+def _analysis_shift_month(month_key: str, delta: int) -> str:
+    y, m = [int(x) for x in month_key.split("-", 1)]
+    idx = y * 12 + (m - 1) + delta
+    return f"{idx // 12:04d}-{idx % 12 + 1:02d}"
+
+
+def _legacy_month_row(profile: ReceivableProfile, month_key: str):
+    y, m = [int(x) for x in month_key.split("-", 1)]
+    if y != LEGACY_YEAR:
+        return None
+    for row in (profile.legacy_months or []):
+        try:
+            if int(row.get("month") or 0) == m:
+                return row
+        except Exception:
+            continue
+    return None
+
+
+@router.get("/api/receivables/monthly-analysis")
+def monthly_analysis(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """전월 대비 미수금 변동을 읽기 전용으로 계산한다.
+
+    기존 수납/부과/폐업 처리 로직은 수정하지 않는다. 월별 원장의 실제 잔액을
+    회원별로 비교해 '증가/감소'를 계산하므로, 폐업 상태로 이동했다고 미수금이
+    사라진 것처럼 보이지 않도록 활성+폐업 전체 원장을 기준으로 한다.
+    """
+    _ensure_db_ledger_ready(db)
+    _ensure_current_month_billing(db)
+
+    today_d = datetime.now(KST).date()
+    current_key = f"{today_d.year:04d}-{today_d.month:02d}"
+    prev_key = _analysis_prev_month(current_key)
+    current_end = _analysis_month_end(current_key)
+    prev_end = _analysis_month_end(prev_key)
+
+    profiles = db.query(ReceivableProfile).all()
+    profile_by_member = {int(p.member_id): p for p in profiles}
+    member_ids = set(profile_by_member)
+
+    # 현재 DB에 실제로 반영되는 부과만 월별 집계한다.
+    charges_by_member = {}
+    month_charge_totals = {}
+    if member_ids:
+        for c in db.query(ReceivableCharge).filter(ReceivableCharge.member_id.in_(member_ids)).all():
+            p = profile_by_member.get(int(c.member_id))
+            if not p:
+                continue
+            # legacy 회원의 1~8월 auto charge는 기준원장에 이미 포함되어 잔액 계산에서 제외된다.
+            if p.legacy_source_row is not None and str(c.billing_month or "") <= LEGACY_DATA_THROUGH_KEY:
+                continue
+            charges_by_member.setdefault(int(c.member_id), []).append((str(c.billing_month or ""), int(c.amount or 0)))
+            month_charge_totals[str(c.billing_month or "")] = month_charge_totals.get(str(c.billing_month or ""), 0) + int(c.amount or 0)
+
+    payments_by_member = {}
+    program_paid_by_month = {}
+    balance_adjustment_by_month = {}
+    if member_ids:
+        payment_rows = (
+            db.query(ReceivablePayment)
+            .filter(ReceivablePayment.member_id.in_(member_ids), ReceivablePayment.cancelled_at.is_(None))
+            .all()
+        )
+        for pay in payment_rows:
+            pd = str(pay.payment_date or "")
+            if len(pd) < 7:
+                continue
+            mk = pd[:7]
+            amount = int(pay.amount or 0)
+            method = str(pay.method or "")
+            payments_by_member.setdefault(int(pay.member_id), []).append((pd, amount, method))
+            if method == "잔액수정":
+                # 잔액 = ... - payment.amount 이므로 실제 잔액 변화량은 -amount.
+                balance_adjustment_by_month[mk] = balance_adjustment_by_month.get(mk, 0) - amount
+            else:
+                program_paid_by_month[mk] = program_paid_by_month.get(mk, 0) + amount
+
+    def snapshot(profile: ReceivableProfile, month_key: str) -> int:
+        end_iso = _analysis_month_end(month_key).isoformat()
+        y, m = [int(x) for x in month_key.split("-", 1)]
+
+        if profile.legacy_source_row is not None:
+            if y == LEGACY_YEAR and m <= LEGACY_DATA_THROUGH_MONTH:
+                reconstructed = _legacy_reconstructed_balance(profile, m)
+                base = int(profile.legacy_balance or 0) if reconstructed is None else int(reconstructed)
+            elif (y, m) < (LEGACY_YEAR, LEGACY_DATA_THROUGH_MONTH):
+                base = 0
+            else:
+                base = int(profile.legacy_balance or 0)
+        else:
+            base = 0
+
+        for billing_month, amount in charges_by_member.get(int(profile.member_id), []):
+            if billing_month and billing_month <= month_key:
+                base += int(amount or 0)
+        for payment_date, amount, _method in payments_by_member.get(int(profile.member_id), []):
+            if payment_date and payment_date <= end_iso:
+                base -= int(amount or 0)
+        return int(base)
+
+    def aggregate(month_key: str):
+        arrears_total = 0
+        arrears_members = 0
+        prepaid_total = 0
+        prepaid_members = 0
+        balances = {}
+        for p in profiles:
+            b = snapshot(p, month_key)
+            balances[int(p.member_id)] = b
+            if b > 0:
+                arrears_total += b
+                arrears_members += 1
+            elif b < 0:
+                prepaid_total += -b
+                prepaid_members += 1
+        return {
+            "arrears_total": int(arrears_total),
+            "arrears_members": int(arrears_members),
+            "prepaid_total": int(prepaid_total),
+            "prepaid_members": int(prepaid_members),
+            "balances": balances,
+        }
+
+    prev = aggregate(prev_key)
+    cur = aggregate(current_key)
+
+    increased_amount = 0
+    decreased_amount = 0
+    increased_members = 0
+    decreased_members = 0
+    new_arrears_members = 0
+    settled_members = 0
+    for mid in member_ids:
+        pb = max(int(prev["balances"].get(mid, 0)), 0)
+        cb = max(int(cur["balances"].get(mid, 0)), 0)
+        diff = cb - pb
+        if diff > 0:
+            increased_amount += diff
+            increased_members += 1
+        elif diff < 0:
+            decreased_amount += -diff
+            decreased_members += 1
+        if pb <= 0 < cb:
+            new_arrears_members += 1
+        if pb > 0 and cb <= 0:
+            settled_members += 1
+
+    # legacy 월별 수납/부과 + 기준원장 이후 프로그램 거래를 합산한다.
+    legacy_paid = 0
+    legacy_charge = 0
+    cy, cm = [int(x) for x in current_key.split("-", 1)]
+    if cy == LEGACY_YEAR and cm <= LEGACY_DATA_THROUGH_MONTH:
+        for p in profiles:
+            if p.legacy_source_row is None:
+                continue
+            lr = _legacy_month_row(p, current_key)
+            if not lr:
+                continue
+            if lr.get("payment") is not None:
+                legacy_paid += int(lr.get("payment") or 0)
+            if lr.get("monthly_charge") is not None:
+                legacy_charge += int(lr.get("monthly_charge") or 0)
+
+    current_paid = int(legacy_paid + program_paid_by_month.get(current_key, 0))
+    current_charge = int(legacy_charge + month_charge_totals.get(current_key, 0))
+    current_adjustment = int(balance_adjustment_by_month.get(current_key, 0))
+    net_change = int(cur["arrears_total"] - prev["arrears_total"])
+    net_pct = round((net_change / prev["arrears_total"] * 100), 1) if prev["arrears_total"] else None
+
+    # 최근 6개월 미수 추이. 2026 기준원장이 시작되기 전 월은 제외한다.
+    trend = []
+    start_key = _analysis_shift_month(current_key, -5)
+    if start_key < f"{LEGACY_YEAR:04d}-01":
+        start_key = f"{LEGACY_YEAR:04d}-01"
+    mk = start_key
+    while mk <= current_key:
+        a = aggregate(mk)
+        trend.append({
+            "month": mk,
+            "label": f"{int(mk[5:7])}월",
+            "arrears_total": int(a["arrears_total"]),
+            "arrears_members": int(a["arrears_members"]),
+        })
+        mk = _analysis_shift_month(mk, 1)
+
+    return {
+        "basis": "전체 원장(활성+폐업)",
+        "period": {"previous": prev_key, "current": current_key},
+        "previous": {
+            "arrears_total": int(prev["arrears_total"]),
+            "arrears_members": int(prev["arrears_members"]),
+        },
+        "current": {
+            "arrears_total": int(cur["arrears_total"]),
+            "arrears_members": int(cur["arrears_members"]),
+            "prepaid_total": int(cur["prepaid_total"]),
+            "prepaid_members": int(cur["prepaid_members"]),
+        },
+        "movement": {
+            "payments": current_paid,
+            "charges": current_charge,
+            "balance_adjustment": current_adjustment,
+            "increased_amount": int(increased_amount),
+            "decreased_amount": int(decreased_amount),
+            "increased_members": int(increased_members),
+            "decreased_members": int(decreased_members),
+            "new_arrears_members": int(new_arrears_members),
+            "settled_members": int(settled_members),
+            "net_change": net_change,
+            "net_change_pct": net_pct,
+            "arrears_member_change": int(cur["arrears_members"] - prev["arrears_members"]),
+        },
+        "trend": trend,
     }
 
 
@@ -3125,7 +3402,11 @@ def member_detail(
     for m in range(1, 13):
         legacy = legacy_by_month.get(m) or {}
         month_key = f"{year}-{m:02d}"
-        has_legacy_row = any(legacy.get(k) is not None for k in ("billed_total", "payment", "arrears")) or bool(legacy.get("payment_date"))
+        has_legacy_row = (
+            any(legacy.get(k) is not None for k in ("billed_total", "payment", "arrears"))
+            or bool(legacy.get("payment_date"))
+            or bool(legacy.get("monthly_charge"))
+        )
 
         # Excel의 '월 부과금' 열은 실제 월회비가 아니라 전월 잔액이 포함된 누적 청구액이다.
         # 화면에는 사용자가 이해하는 실제 월 부과액만 표시한다.
@@ -3135,10 +3416,13 @@ def member_detail(
             expected_fee = ACCOUNT_FEES.get(profile.account_type)
             legacy_monthly_charge = int(expected_fee) if expected_fee is not None else None
 
-        # 원본 장부의 월말 미수금을 그 달의 기준값으로 그대로 사용한다.
-        if legacy.get("arrears") is not None:
-            running = int(legacy.get("arrears") or 0)
-            previous_legacy_arrears = int(legacy.get("arrears") or 0)
+        # 원본에 월말 미수금이 비어 있는 달은 청구금/고정월부과액으로 복원한다.
+        # 예: 4~7월 미수칸이 공란이어도 월 10,000원씩 정상 증가하도록 표시.
+        reconstructed_legacy = None
+        if year == LEGACY_YEAR and m <= LEGACY_DATA_THROUGH_MONTH:
+            reconstructed_legacy = _legacy_reconstructed_balance(profile, m)
+            if reconstructed_legacy is not None:
+                running = int(reconstructed_legacy)
 
         auto_charge = int(ch_by_month.get(m, 0) or 0)
         extra_paid = int(pay_by_month.get(m, 0) or 0)
@@ -3160,7 +3444,11 @@ def member_detail(
                 "legacy_monthly_charge": legacy_monthly_charge,
                 "legacy_payment": legacy.get("payment"),
                 "legacy_payment_date": legacy.get("payment_date") or "",
-                "legacy_arrears": legacy.get("arrears"),
+                "legacy_arrears": (
+                    legacy.get("arrears")
+                    if legacy.get("arrears") is not None
+                    else (reconstructed_legacy if has_legacy_row else None)
+                ),
                 "legacy_adjustment": legacy.get("legacy_adjustment"),
                 "auto_charge": auto_charge,
                 "additional_payment": extra_paid,

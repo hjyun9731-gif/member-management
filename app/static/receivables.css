@@ -489,3 +489,72 @@
 .workspace.closure-mode .member-table td:last-child{
   text-align:center!important;
 }
+
+
+/* =====================================================================
+   2026-08-31 FINAL FIX V2
+   - 미수금현황: 불필요한 빈 상세패널 제거, 한 화면 밀도 개선
+   - 전월 대비 분석: 카드 높이/여백 축소
+   - 월별장부: 자동부과 별도열 제거, 월말잔액을 최종 잔액으로 단일화
+   ===================================================================== */
+
+/* 전체 상단 밀도를 줄여 1920px PC에서 목록을 더 많이 보이게 한다. */
+.page{padding-top:12px!important}
+.mode-guide{margin-top:8px!important;padding:8px 12px!important}
+.kpi-grid{gap:9px!important;margin-bottom:9px!important}
+.kpi-card{min-height:78px!important;padding:10px 13px!important;gap:10px!important;border-radius:14px!important}
+.kpi-icon{width:36px!important;height:36px!important;border-radius:12px!important;font-size:10px!important}
+.kpi-card span{font-size:10.5px!important}
+.kpi-card strong{font-size:21px!important;line-height:1.1!important;margin:2px 0!important}
+.kpi-card small{font-size:9.5px!important}
+
+/* 전월 대비 미수금 변동: 숫자는 유지하고 박스만 압축한다. */
+.monthly-analysis{margin:7px 0 9px!important;padding:9px 11px!important;border-radius:12px!important}
+.monthly-analysis-head{margin-bottom:7px!important}
+.monthly-analysis-grid{gap:6px!important}
+.analysis-metric{padding:7px 8px!important;border-radius:9px!important;min-height:61px!important}
+.analysis-metric span{font-size:9.5px!important;margin-bottom:3px!important}
+.analysis-metric strong{font-size:15px!important}
+.analysis-metric small{font-size:8.8px!important;margin-top:2px!important}
+.monthly-analysis-bottom{grid-template-columns:minmax(0,1.55fr) minmax(330px,.45fr)!important;gap:10px!important;margin-top:7px!important;padding-top:7px!important;align-items:center!important}
+.analysis-detail-line{gap:5px 12px!important;font-size:9.5px!important}
+.analysis-detail-line b{font-size:10px!important}
+.analysis-trend-wrap{grid-template-columns:auto 1fr!important;gap:7px!important;align-items:center!important}
+.analysis-trend-wrap>span{font-size:9px!important;padding-bottom:0!important}
+.analysis-trend{height:34px!important;gap:3px!important}
+.analysis-trend-item{height:34px!important;grid-template-rows:9px 18px 9px!important}
+.analysis-trend-value,.analysis-trend-item span{font-size:7.5px!important}
+.analysis-trend-barbox{height:18px!important}
+
+/* 미수금현황에서 회원 미선택 시, 오른쪽 빈 패널을 없애고 목록을 100% 사용한다. */
+.workspace.arrears-mode:not(.has-detail){grid-template-columns:minmax(0,1fr)!important}
+.workspace.arrears-mode:not(.has-detail) .detail-panel{display:none!important}
+.workspace.arrears-mode:not(.has-detail) .member-panel{position:static!important;width:100%!important}
+.workspace.arrears-mode:not(.has-detail) .member-table-wrap{max-height:calc(100vh - 390px)!important;min-height:300px!important}
+.workspace.arrears-mode:not(.has-detail) .member-table{min-width:0!important;width:100%!important;table-layout:fixed!important}
+.workspace.arrears-mode:not(.has-detail) .member-table th,
+.workspace.arrears-mode:not(.has-detail) .member-table td{height:43px!important;padding-left:8px!important;padding-right:8px!important}
+
+/* 선택한 회원이 있을 때만 목록 + 상세 분할. */
+.workspace.arrears-mode.has-detail{grid-template-columns:minmax(610px,.92fr) minmax(720px,1.08fr)!important}
+.workspace.arrears-mode.has-detail .member-panel{position:sticky!important;top:128px!important}
+
+/* 월별 장부는 실제 업무 필드 7개만: 월/월부과/원본입금/입금일/추가입금/금액수정/월말잔액 */
+.monthly-table{min-width:650px!important;table-layout:fixed!important}
+.monthly-table th,.monthly-table td{text-align:center!important;vertical-align:middle!important;height:35px!important;padding:0 7px!important;white-space:nowrap!important}
+.monthly-table th:nth-child(1),.monthly-table td:nth-child(1){width:9%!important}
+.monthly-table th:nth-child(2),.monthly-table td:nth-child(2){width:15%!important}
+.monthly-table th:nth-child(3),.monthly-table td:nth-child(3){width:15%!important}
+.monthly-table th:nth-child(4),.monthly-table td:nth-child(4){width:15%!important;min-width:90px!important;overflow:visible!important;text-overflow:clip!important}
+.monthly-table th:nth-child(5),.monthly-table td:nth-child(5){width:15%!important}
+.monthly-table th:nth-child(6),.monthly-table td:nth-child(6){width:15%!important}
+.monthly-table th:nth-child(7),.monthly-table td:nth-child(7){width:16%!important;font-weight:900!important}
+
+@media(max-width:1600px){
+  .monthly-analysis-bottom{grid-template-columns:1fr!important}
+  .workspace.arrears-mode.has-detail{grid-template-columns:minmax(560px,.88fr) minmax(650px,1.12fr)!important}
+}
+@media(max-width:1250px){
+  .workspace.arrears-mode.has-detail{grid-template-columns:1fr!important}
+  .workspace.arrears-mode.has-detail .member-panel{position:static!important}
+}

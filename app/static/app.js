@@ -233,6 +233,34 @@ function ensurePermitLedgerLikeNewStyle(){
     .permit-ledger-like-new .bdomestic{background:#f3fbe9!important;color:#5e7d43!important;border-color:#d7e9bd!important}
     #tlExpandAllBtn{background:#fff;color:#676f81;border-color:#dfe3eb}
     #tlExpandAllBtn:hover{background:#f7f8fb}
+
+    /* 2026-08-31 final: 양도양수대장 한 화면 정렬/가독성 */
+    #tlLedgerCard .tbl-wrap{overflow-x:hidden!important}
+    #tlLedgerCard .tl-ledger-table{width:100%!important;min-width:0!important;table-layout:fixed!important;font-size:11.5px!important}
+    #tlLedgerCard .tl-ledger-table th,
+    #tlLedgerCard .tl-ledger-table td{box-sizing:border-box!important;text-align:center!important;vertical-align:middle!important;padding:5px 4px!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+    #tlLedgerCard .tl-ledger-table th:nth-child(1),#tlLedgerCard .tl-ledger-table td:nth-child(1){width:74px!important}
+    #tlLedgerCard .tl-ledger-table th:nth-child(2),#tlLedgerCard .tl-ledger-table td:nth-child(2){width:62px!important}
+    #tlLedgerCard .tl-ledger-table th:nth-child(3),#tlLedgerCard .tl-ledger-table td:nth-child(3){width:105px!important}
+    #tlLedgerCard .tl-ledger-table th:nth-child(4),#tlLedgerCard .tl-ledger-table td:nth-child(4){width:72px!important;background:#fdfcff!important}
+    #tlLedgerCard .tl-ledger-table th:nth-child(4){background:#faf8ff!important;color:#5b52a5!important}
+    #tlLedgerCard .tl-ledger-table th:nth-child(5),#tlLedgerCard .tl-ledger-table td:nth-child(5){width:54px!important}
+    #tlLedgerCard .tl-ledger-table th:nth-child(6),#tlLedgerCard .tl-ledger-table td:nth-child(6){width:104px!important;background:transparent!important}
+    #tlLedgerCard .tl-ledger-table th:nth-child(7),#tlLedgerCard .tl-ledger-table td:nth-child(7){width:80px!important}
+    #tlLedgerCard .tl-ledger-table th:nth-child(8),#tlLedgerCard .tl-ledger-table td:nth-child(8){width:80px!important}
+    #tlLedgerCard .tl-ledger-table th:nth-child(9),#tlLedgerCard .tl-ledger-table td:nth-child(9){width:80px!important}
+    #tlLedgerCard .tl-ledger-table th:nth-child(10),#tlLedgerCard .tl-ledger-table td:nth-child(10){width:102px!important}
+    #tlLedgerCard .tl-ledger-table th:nth-child(11),#tlLedgerCard .tl-ledger-table td:nth-child(11){width:96px!important}
+    #tlLedgerCard .tl-ledger-table th:nth-child(12),#tlLedgerCard .tl-ledger-table td:nth-child(12){width:118px!important}
+    #tlLedgerCard .tl-ledger-table th:nth-child(13),#tlLedgerCard .tl-ledger-table td:nth-child(13){width:48px!important}
+    #tlLedgerCard .tl-ledger-table th:nth-child(14),#tlLedgerCard .tl-ledger-table td:nth-child(14){width:168px!important}
+    #tlLedgerCard .tl-ledger-table th:nth-child(15),#tlLedgerCard .tl-ledger-table td:nth-child(15){width:142px!important}
+    #tlLedgerCard .tl-ledger-table th:nth-child(16),#tlLedgerCard .tl-ledger-table td:nth-child(16){width:210px!important;min-width:210px!important;max-width:210px!important;overflow:visible!important;text-overflow:clip!important}
+    #tlLedgerCard .td-act{white-space:nowrap!important;text-align:center!important}
+    #tlLedgerCard .td-act .btn,#tlLedgerCard .td-act .badge{display:inline-flex!important;align-items:center!important;justify-content:center!important;margin:0 1px!important;vertical-align:middle!important}
+    #tlLedgerCard .td-act .btn{padding:4px 7px!important;min-width:0!important}
+    #tlLedgerCard .tl-transferor-detail td{width:auto!important;max-width:none!important;overflow:visible!important}
+    #tlLedgerCard .tl-transferor-detail-box{padding:7px 16px 8px 16px!important;justify-content:center!important;flex-wrap:wrap!important}
   `;
   document.head.appendChild(st);
 }
@@ -1511,7 +1539,7 @@ async function renderTransferLedger(){
   // 신규등록대장과 같은 정보 흐름: 양수자(현재 등록 대상)를 본문 중심으로 두고,
   // 양도자는 필요할 때만 아래 보조행을 펼쳐 확인한다.
   const hdrs=[
-    {label:''},{label:'관리번호'},{label:'지역'},{label:'차량번호'},
+    {label:'관리번호'},{label:'지역'},{label:'차량번호'},
     {label:'양수자'},{label:'가입'},{label:'핸드폰'},{label:'접수일자'},{label:'인가일자'},
     {label:'가입일자'},{label:'자격증명발급일자'},{label:'자격증명발급번호'},
     {label:'차종'},{label:'유종'},{label:'주소'},{label:'비고'},{label:'관리',noSort:true}
@@ -1550,7 +1578,6 @@ async function renderTransferLedger(){
           ?`<a class="tbl-link" onclick="viewMember(${r.transferor_member_id});return false">${fv(r.transferor)}</a>`
           :`<a class="tbl-link" onclick="viewTransfer(${r.id});return false">${fv(r.transferor)}</a>`;
         return `<tr class="tl-main-row" data-id="${r.id}">
-          <td style="width:34px;text-align:center"><button type="button" class="btn bo btn-xs ledger-expand-btn tl-row-expander" data-id="${r.id}" title="양도자 보기" aria-expanded="false">▸</button></td>
           <td><a class="tbl-link ledger-mgmt" onclick="viewTransfer(${r.id});return false">${fv(r.management_number)}</a></td>
           <td>${fv(r.region)}</td>
           <td><a class="tbl-link" onclick="viewTransfer(${r.id});return false">${fv(r.vehicle_number)}</a></td>
@@ -1573,7 +1600,7 @@ async function renderTransferLedger(){
           </td>
         </tr>
         <tr class="tl-transferor-detail" id="tl-extra-${r.id}" hidden>
-          <td colspan="17"><div class="tl-transferor-detail-box">
+          <td colspan="16"><div class="tl-transferor-detail-box">
             <span class="detail-person"><span class="detail-label">양도자</span><strong>${torName}</strong></span>
             <span class="detail-person"><span class="detail-label">가입여부</span>${memBadge(torStatus||'미확인')}${torJoin?`<span class="ledger-joined-date">${e_(fv(torJoin))}</span>`:''}</span>
             <span class="detail-person"><span class="detail-label">연결</span>${linked?`<span class="badge tl-link-soft" style="font-size:10px">🔗 연결됨</span>`:`<span class="badge b-gray" style="font-size:10px">미연결</span>`}</span>
@@ -1584,16 +1611,6 @@ async function renderTransferLedger(){
     </table></div>${pgn(d,doSearch)}`;
     bindPgn('tlTbl',doSearch);
 
-    tw.querySelectorAll('.tl-row-expander').forEach(btn=>{
-      btn.onclick=()=>{
-        const row=document.getElementById(`tl-extra-${btn.dataset.id}`);if(!row)return;
-        const open=row.hidden;
-        row.hidden=!open;
-        btn.textContent=open?'▾':'▸';
-        btn.title=open?'양도자 닫기':'양도자 보기';
-        btn.setAttribute('aria-expanded',open?'true':'false');
-      };
-    });
   };
 
   document.getElementById('tlSrchBtn').onclick=()=>doSearch(1);
@@ -1606,11 +1623,6 @@ async function renderTransferLedger(){
     const rows=[...document.querySelectorAll('#tlTbl .tl-transferor-detail')];
     const shouldOpen=rows.some(r=>r.hidden);
     rows.forEach(r=>r.hidden=!shouldOpen);
-    document.querySelectorAll('#tlTbl .tl-row-expander').forEach(b=>{
-      b.textContent=shouldOpen?'▾':'▸';
-      b.title=shouldOpen?'양도자 닫기':'양도자 보기';
-      b.setAttribute('aria-expanded',shouldOpen?'true':'false');
-    });
     expandAll.textContent=shouldOpen?'양도자 전체닫기':'양도자 전체보기';
   };
 
