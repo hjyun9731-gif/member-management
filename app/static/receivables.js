@@ -56,6 +56,57 @@ function syncMonthOptions(a){
   if(a.period?.from)from.value=a.period.from;
   if(a.period?.to)to.value=a.period.to;
 }
+
+function compactWon(n){
+  const v=Number(n||0);
+  if(Math.abs(v)>=100000000)return `${(v/100000000).toFixed(v%100000000===0?0:1)}억`;
+  if(Math.abs(v)>=10000)return `${(v/10000).toFixed(v%10000===0?0:1)}만`;
+  return v.toLocaleString('ko-KR');
+}
+function svgEsc(v){return esc(v)}
+function svgTrendChart(history){
+  if(!history.length)return '<div class="dash-empty">월별 데이터 없음</div>';
+  const W=820,H=320,L=60,R=20,T=30,B=62,pw=W-L-R,ph=H-T-B;
+  const max=Math.max(1,...history.map(r=>Number(r.end_arrears||0)));
+  const ymax=Math.ceil(max/100000000)*100000000 || max;
+  const ticks=[0,.25,.5,.75,1];
+  let out=`<svg class="dash-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="월별 미수금 추이">`;
+  ticks.forEach(t=>{const y=T+ph*(1-t),val=ymax*t;out+=`<line x1="${L}" y1="${y}" x2="${W-R}" y2="${y}" class="svg-grid"/><text x="${L-10}" y="${y+4}" text-anchor="end" class="svg-axis">${compactWon(val)}</text>`});
+  const step=pw/history.length, bw=Math.min(52,step*.46);
+  history.forEach((r,i)=>{const v=Number(r.end_arrears||0),barH=v/ymax*ph,x=L+i*step+(step-bw)/2,y=T+ph-barH,n=Number(r.net_change||0),cls=n<0?'good':n>0?'bad':'flat';
+    out+=`<rect x="${x}" y="${y}" width="${bw}" height="${barH}" rx="7" class="svg-bar-purple"/>`+
+      `<text x="${x+bw/2}" y="${Math.max(18,y-8)}" text-anchor="middle" class="svg-value">${(v/1000000).toFixed(1)}M</text>`+
+      `<text x="${x+bw/2}" y="${H-32}" text-anchor="middle" class="svg-month">${svgEsc(String(r.month).slice(5))}월</text>`+
+      `<text x="${x+bw/2}" y="${H-12}" text-anchor="middle" class="svg-change ${cls}">${n===0?'0':signedWon(n)}</text>`;
+  });
+  out+='</svg>';return out;
+}
+function svgFlowChart(history){
+  if(!history.length)return '<div class="dash-empty">부과·수납 데이터 없음</div>';
+  const W=820,H=320,L=60,R=20,T=38,B=50,pw=W-L-R,ph=H-T-B;
+  const max=Math.max(1,...history.flatMap(r=>[Number(r.charges||0),Number(r.payments||0)]));
+  const ymax=Math.ceil(max/10000000)*10000000 || max;
+  let out=`<div class="svg-legend"><span><i class="legend-charge"></i>부과액</span><span><i class="legend-paid"></i>실제 수납액</span></div><svg class="dash-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="월별 부과액과 실제 수납액">`;
+  [0,.25,.5,.75,1].forEach(t=>{const y=T+ph*(1-t);out+=`<line x1="${L}" y1="${y}" x2="${W-R}" y2="${y}" class="svg-grid"/><text x="${L-10}" y="${y+4}" text-anchor="end" class="svg-axis">${compactWon(ymax*t)}</text>`});
+  const step=pw/history.length,bw=Math.min(30,step*.28);
+  history.forEach((r,i)=>{const c=Number(r.charges||0),p=Number(r.payments||0),base=L+i*step+step/2, hc=c/ymax*ph,hp=p/ymax*ph,xc=base-bw-3,xp=base+3,yc=T+ph-hc,yp=T+ph-hp;
+    out+=`<rect x="${xc}" y="${yc}" width="${bw}" height="${hc}" rx="5" class="svg-bar-charge"/><rect x="${xp}" y="${yp}" width="${bw}" height="${hp}" rx="5" class="svg-bar-paid"/>`+
+      `<text x="${xc+bw/2}" y="${Math.max(20,yc-6)}" text-anchor="middle" class="svg-small-value">${(c/1000000).toFixed(1)}M</text>`+
+      `<text x="${xp+bw/2}" y="${Math.max(20,yp-6)}" text-anchor="middle" class="svg-small-value">${(p/1000000).toFixed(1)}M</text>`+
+      `<text x="${base}" y="${H-18}" text-anchor="middle" class="svg-month">${svgEsc(String(r.month).slice(5))}월</text>`;
+  });out+='</svg>';return out;
+}
+function svgRatioChart(history){
+  if(!history.length)return '<div class="dash-empty">수납률 데이터 없음</div>';
+  const W=820,H=320,L=60,R=24,T=32,B=48,pw=W-L-R,ph=H-T-B;
+  let out=`<svg class="dash-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="월별 수납 부과율">`;
+  [0,25,50,75,100].forEach(v=>{const y=T+ph*(1-v/100);out+=`<line x1="${L}" y1="${y}" x2="${W-R}" y2="${y}" class="svg-grid"/><text x="${L-10}" y="${y+4}" text-anchor="end" class="svg-axis">${v}%</text>`});
+  const pts=[];history.forEach((r,i)=>{const v=r.collection_ratio===null||r.collection_ratio===undefined?0:Math.min(100,Math.max(0,Number(r.collection_ratio))),x=L+(history.length===1?pw/2:i*pw/(history.length-1)),y=T+ph*(1-v/100);pts.push(`${x},${y}`)});
+  out+=`<polyline points="${pts.join(' ')}" class="svg-ratio-line"/>`;
+  history.forEach((r,i)=>{const v=r.collection_ratio===null||r.collection_ratio===undefined?0:Math.min(100,Math.max(0,Number(r.collection_ratio))),x=L+(history.length===1?pw/2:i*pw/(history.length-1)),y=T+ph*(1-v/100);out+=`<circle cx="${x}" cy="${y}" r="5" class="svg-ratio-dot"/><text x="${x}" y="${Math.max(18,y-11)}" text-anchor="middle" class="svg-value">${ratioText(r.collection_ratio)}</text><text x="${x}" y="${H-17}" text-anchor="middle" class="svg-month">${svgEsc(String(r.month).slice(5))}월</text>`});
+  out+='</svg>';return out;
+}
+
 function renderMonthlyAnalysis(a){
   if(!a)return;
   if(a.__error){
@@ -96,30 +147,12 @@ function renderMonthlyAnalysis(a){
   set('perfAdjustment',signedWon(c.period_adjustment||0));
 
   const history=a.history||[];
-  const maxArrears=Math.max(1,...history.map(x=>Number(x.end_arrears||0)));
   const trend=$('#performanceTrend');
-  if(trend){
-    trend.innerHTML=history.map(r=>{
-      const h=Math.max(10,Math.round(Number(r.end_arrears||0)/maxArrears*100));
-      const n=Number(r.net_change||0);const cls=n<0?'good':n>0?'bad':'flat';
-      return `<div class="perf-trend-item" title="${esc(r.label)} · 월말 미수 ${fmt(r.end_arrears||0)} · 전월 대비 ${signedWon(n)}"><strong>${(Number(r.end_arrears||0)/1000000).toFixed(1)}M</strong><div class="perf-trend-bar"><i style="height:${h}%"></i></div><b>${esc(String(r.month).slice(5))}월</b><small class="${cls}">${n===0?'0원':signedWon(n)}</small></div>`;
-    }).join('')||'<div class="dash-empty">월별 데이터 없음</div>';
-  }
-
-  const maxFlow=Math.max(1,...history.flatMap(x=>[Number(x.charges||0),Number(x.payments||0)]));
+  if(trend)trend.innerHTML=svgTrendChart(history);
   const flow=$('#monthlyFlowChart');
-  if(flow){
-    flow.innerHTML=history.map(r=>`<div class="flow-row"><b>${esc(String(r.month).slice(2).replace('-','.'))}</b><div class="flow-bars"><span class="charge"><i style="width:${Math.max(1,Number(r.charges||0)/maxFlow*100)}%"></i><em>부과 ${fmt(r.charges||0)}</em></span><span class="paid"><i style="width:${Math.max(1,Number(r.payments||0)/maxFlow*100)}%"></i><em>수납 ${fmt(r.payments||0)}</em></span></div></div>`).join('')||'<div class="dash-empty">부과·수납 데이터 없음</div>';
-  }
-
+  if(flow)flow.innerHTML=svgFlowChart(history);
   const ratio=$('#monthlyRatioChart');
-  if(ratio){
-    ratio.innerHTML=history.map(r=>{
-      const rv=r.collection_ratio;const width=rv===null||rv===undefined?0:Math.min(100,Math.max(2,Number(rv)));
-      const cls=rv===null||rv===undefined?'none':Number(rv)>=100?'great':Number(rv)>=80?'good':Number(rv)>=50?'mid':'low';
-      return `<div class="ratio-row"><b>${esc(String(r.month).slice(2).replace('-','.'))}</b><div><i class="${cls}" style="width:${width}%"></i></div><strong>${ratioText(rv)}</strong></div>`;
-    }).join('')||'<div class="dash-empty">수납률 데이터 없음</div>';
-  }
+  if(ratio)ratio.innerHTML=svgRatioChart(history);
 
   const comp=$('#monthComparisonDetail');
   if(comp){
@@ -156,6 +189,20 @@ function syncPerformanceView(){
   if(memberHead)memberHead.classList.toggle('hidden',!isArrears);
   document.body.classList.toggle('arrears-scroll-dashboard',isArrears);
   document.body.classList.remove('arrears-performance-mode','arrears-members-mode');
+  // V9: dashboard scrolling belongs to the browser document, never to a fixed-height inner panel.
+  if(isArrears){
+    document.documentElement.style.setProperty('overflow-y','auto','important');
+    document.documentElement.style.setProperty('height','auto','important');
+    document.body.style.setProperty('overflow-y','auto','important');
+    document.body.style.setProperty('height','auto','important');
+    const page=document.querySelector('main.page');
+    if(page){page.style.setProperty('overflow','visible','important');page.style.setProperty('height','auto','important');page.style.setProperty('max-height','none','important');}
+  }else{
+    document.documentElement.style.removeProperty('overflow-y');
+    document.documentElement.style.removeProperty('height');
+    document.body.style.removeProperty('overflow-y');
+    document.body.style.removeProperty('height');
+  }
 }
 function setPerformanceView(){
   syncPerformanceView();
@@ -178,7 +225,7 @@ async function loadSummary(){
   if(a)renderMonthlyAnalysis(a);if(dash)renderDashboard(dash);
 }
 function viewConfig(){if(state.view==='closed')return{scope:'closed',arrears:false,contactedOnly:false,title:state.closureMode==='current'?'폐업관리':'전체 폐업이력',sub:state.closureMode==='current'?'현재 실제 폐업·양도·이관 처리되어 회원상태가 폐업인 회원만 표시합니다.':'인허가/변경의 과거 폐업·양도·이관 전체 기록을 조회합니다.'};if(state.view==='arrears')return{scope:'active',arrears:true,contactedOnly:false,title:'미수회원 상세 조회',sub:'대시보드 아래에서 미수회원 개별 상세와 월별 장부를 확인합니다.'};if(state.view==='contacts')return{scope:'all',arrears:false,contactedOnly:true,title:'연락 기록 회원',sub:'연락 기록이 1건 이상 있는 회원만 표시합니다. 최근 연락일·상태·잔액을 함께 확인합니다.'};return{scope:'active',arrears:false,contactedOnly:false,title:'수납 대상 회원',sub:'실제 입금을 등록할 회원을 찾는 화면 · 미수/완납/선납을 포함한 활성회원 전체'}}
-async function loadMembers(resetPage=false){if(resetPage)state.page=1;const c=viewConfig();const billing=$('#billingFilter').value;const explicitBilling=Boolean(billing);const effectiveArrears=c.arrears&&!explicitBilling;state.scope=c.scope;state.arrearsOnly=effectiveArrears;let title=c.title,sub=c.sub;if(state.view==='arrears'&&billing==='prepaid'){title='활성 선납금';sub='현재 잔액이 음수인 활성회원, 즉 선납금이 남아 있는 회원을 표시합니다.'}else if(state.view==='arrears'&&billing==='settled'){title='활성 완납회원';sub='현재 잔액이 0원인 활성회원을 표시합니다.'}else if(state.view==='arrears'&&billing==='pending'){title='신규 부과대기';sub='신규등록 후 첫 부과일이 아직 도래하지 않은 활성회원을 표시합니다.'}$('#listTitle').textContent=title;$('#listSubtitle').textContent=sub;const ws=document.querySelector('.workspace');if(ws){ws.classList.toggle('closure-mode',state.view==='closed');ws.classList.toggle('closure-history',state.view==='closed'&&state.closureMode==='history');ws.classList.toggle('payment-mode',state.view==='payment');ws.classList.toggle('arrears-mode',state.view==='arrears');ws.classList.toggle('contacts-mode',state.view==='contacts');syncWorkspaceDetailState()}const cms=$('#closureModeSwitch');if(cms)cms.classList.toggle('hidden',state.view!=='closed');const cf=$('#contactFilter');if(cf)cf.classList.toggle('hidden',state.view==='payment');const bf=$('#billingFilter');if(bf){bf.classList.toggle('hidden',state.view==='arrears');if(state.view==='arrears')bf.value=''}const ma=$('#monthlyAnalysis');if(ma)ma.classList.toggle('hidden',state.view!=='arrears');const ad=$('#arrearsDashboard');if(ad)ad.classList.toggle('hidden',state.view!=='arrears');syncPerformanceView();const co=$('#contactOverview');if(co)co.classList.toggle('hidden',state.view!=='contacts');const kg=document.querySelector('.kpi-grid');if(kg)kg.classList.toggle('dashboard-hidden',state.view==='arrears');const mg=$('#modeGuide'),mgt=$('#modeGuideTitle'),mgx=$('#modeGuideText'),mgb=$('#modeGuideBadge');if(mg&&mgt&&mgx&&mgb){mg.classList.toggle('arrears-mode-guide',state.view==='arrears');mg.classList.toggle('payment-mode-guide',state.view==='payment');mg.classList.toggle('contacts-mode-guide',state.view==='contacts');mg.classList.toggle('hidden',!['payment','arrears','contacts'].includes(state.view));if(state.view==='arrears'){mgt.textContent='미수금현황';mgx.textContent='월말 미수금이 전월·과거월 대비 얼마나 줄고 늘었는지, 부과액과 실제 수납액을 비교하는 성과 대시보드입니다.';mgb.textContent='월별 성과 · 비교'}else if(state.view==='contacts'){mgt.textContent='연락관리';mgx.textContent='연락 기록이 있는 회원만 모아서 최근 연락일·상태·잔액을 관리합니다.';mgb.textContent='연락기록만'}else if(state.view==='payment'){mgt.textContent='수납처리';mgx.textContent='회원을 찾아 실제 입금을 등록하는 화면입니다. 미수·완납·선납을 포함한 활성회원 전체에서 찾습니다.';mgb.textContent='입금 업무'}}renderMemberHeader();if(membersAbort)membersAbort.abort();membersAbort=new AbortController();const p=new URLSearchParams({scope:c.scope,closure_mode:state.closureMode,arrears_only:String(effectiveArrears),q:$('#searchInput').value.trim(),region:$('#regionFilter').value,account_type:$('#accountFilter').value,contact_status:state.view==='payment'?'':$('#contactFilter').value,contacted_only:String(Boolean(c.contactedOnly)),billing_status:billing,page:String(state.page),limit:String(state.limit)});try{const d=await api(`/api/receivables/members?${p}`,{signal:membersAbort.signal});state.members=d.items||[];state.total=Number(d.count||0);state.page=Number(d.page||1);state.pages=Number(d.pages||1);$('#memberCount').textContent=`${state.total.toLocaleString()}${state.view==='closed'?(state.closureMode==='current'?'명':'건'):'명'}`;renderMembers();renderPager();if(state.selected&&!state.members.some(x=>x.member_id===state.selected)&&!state.detail)clearDetail(false)}catch(e){if(e.name!=='AbortError')throw e}}
+async function loadMembers(resetPage=false){if(resetPage)state.page=1;const c=viewConfig();const billing=$('#billingFilter').value;const explicitBilling=Boolean(billing);const effectiveArrears=c.arrears&&!explicitBilling;state.scope=c.scope;state.arrearsOnly=effectiveArrears;let title=c.title,sub=c.sub;if(state.view==='arrears'&&billing==='prepaid'){title='활성 선납금';sub='현재 잔액이 음수인 활성회원, 즉 선납금이 남아 있는 회원을 표시합니다.'}else if(state.view==='arrears'&&billing==='settled'){title='활성 완납회원';sub='현재 잔액이 0원인 활성회원을 표시합니다.'}else if(state.view==='arrears'&&billing==='pending'){title='신규 부과대기';sub='신규등록 후 첫 부과일이 아직 도래하지 않은 활성회원을 표시합니다.'}$('#listTitle').textContent=title;$('#listSubtitle').textContent=sub;const ws=document.querySelector('.workspace');if(ws){ws.classList.toggle('closure-mode',state.view==='closed');ws.classList.toggle('closure-history',state.view==='closed'&&state.closureMode==='history');ws.classList.toggle('payment-mode',state.view==='payment');ws.classList.toggle('arrears-mode',state.view==='arrears');ws.classList.toggle('contacts-mode',state.view==='contacts');syncWorkspaceDetailState()}const cms=$('#closureModeSwitch');if(cms)cms.classList.toggle('hidden',state.view!=='closed');const cf=$('#contactFilter');if(cf)cf.classList.toggle('hidden',state.view==='payment');const bf=$('#billingFilter');if(bf){bf.classList.toggle('hidden',state.view==='arrears');if(state.view==='arrears')bf.value=''}const ma=$('#monthlyAnalysis');if(ma)ma.classList.toggle('hidden',state.view!=='arrears');const ad=$('#arrearsDashboard');if(ad)ad.classList.toggle('hidden',state.view!=='arrears');syncPerformanceView();const co=$('#contactOverview');if(co)co.classList.toggle('hidden',state.view!=='contacts');const kg=document.querySelector('.kpi-grid');if(kg)kg.classList.toggle('dashboard-hidden',state.view==='arrears');const mg=$('#modeGuide'),mgt=$('#modeGuideTitle'),mgx=$('#modeGuideText'),mgb=$('#modeGuideBadge');if(mg&&mgt&&mgx&&mgb){mg.classList.toggle('arrears-mode-guide',state.view==='arrears');mg.classList.toggle('payment-mode-guide',state.view==='payment');mg.classList.toggle('contacts-mode-guide',state.view==='contacts');mg.classList.toggle('hidden',state.view==='arrears'||!['payment','arrears','contacts'].includes(state.view));if(state.view==='arrears'){mgt.textContent='';mgx.textContent='';mgb.textContent=''}else if(state.view==='contacts'){mgt.textContent='연락관리';mgx.textContent='연락 기록이 있는 회원만 모아서 최근 연락일·상태·잔액을 관리합니다.';mgb.textContent='연락기록만'}else if(state.view==='payment'){mgt.textContent='수납처리';mgx.textContent='회원을 찾아 실제 입금을 등록하는 화면입니다. 미수·완납·선납을 포함한 활성회원 전체에서 찾습니다.';mgb.textContent='입금 업무'}}renderMemberHeader();if(membersAbort)membersAbort.abort();membersAbort=new AbortController();const p=new URLSearchParams({scope:c.scope,closure_mode:state.closureMode,arrears_only:String(effectiveArrears),q:$('#searchInput').value.trim(),region:$('#regionFilter').value,account_type:$('#accountFilter').value,contact_status:state.view==='payment'?'':$('#contactFilter').value,contacted_only:String(Boolean(c.contactedOnly)),billing_status:billing,page:String(state.page),limit:String(state.limit)});try{const d=await api(`/api/receivables/members?${p}`,{signal:membersAbort.signal});state.members=d.items||[];state.total=Number(d.count||0);state.page=Number(d.page||1);state.pages=Number(d.pages||1);$('#memberCount').textContent=`${state.total.toLocaleString()}${state.view==='closed'?(state.closureMode==='current'?'명':'건'):'명'}`;renderMembers();renderPager();if(state.selected&&!state.members.some(x=>x.member_id===state.selected)&&!state.detail)clearDetail(false)}catch(e){if(e.name!=='AbortError')throw e}}
 function currentExportParams(){const c=viewConfig();const billing=$('#billingFilter').value;const explicitBilling=Boolean(billing);const effectiveArrears=c.arrears&&!explicitBilling;return new URLSearchParams({view:state.view,scope:c.scope,closure_mode:state.closureMode,arrears_only:String(effectiveArrears),q:$('#searchInput').value.trim(),region:$('#regionFilter').value,account_type:$('#accountFilter').value,contact_status:state.view==='payment'?'':$('#contactFilter').value,contacted_only:String(Boolean(c.contactedOnly)),billing_status:billing})}
 async function downloadFilteredExcel(){const btn=$('#excelExportBtn');if(!btn)return;const old=btn.textContent;btn.disabled=true;btn.textContent='내려받는 중…';try{const headers={};if(token())headers.Authorization=`Bearer ${token()}`;const r=await fetch(`/api/receivables/export.xlsx?${currentExportParams()}`,{headers,cache:'no-store'});if(r.status===401){$('#loginOverlay').classList.remove('hidden');throw new Error('로그인이 필요합니다.')}if(!r.ok){let msg='엑셀 다운로드에 실패했습니다.';try{const d=await r.json();msg=d.detail||msg}catch(e){}throw new Error(msg)}const blob=await r.blob();const cd=r.headers.get('Content-Disposition')||'';let filename=`수납미수금_${today()}.xlsx`;const m=cd.match(/filename\*=UTF-8''([^;]+)/i);if(m){try{filename=decodeURIComponent(m[1])}catch(e){}}const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);const count=r.headers.get('X-Export-Count');toast(`엑셀 다운로드 완료${count?` · ${Number(count).toLocaleString()}건`:''}`)}finally{btn.disabled=false;btn.textContent=old}}
 function renderPager(){const txt=$('#pageInfo');txt.textContent=`${state.page.toLocaleString()} / ${state.pages.toLocaleString()}`;$('#prevPageBtn').disabled=state.page<=1;$('#nextPageBtn').disabled=state.page>=state.pages}

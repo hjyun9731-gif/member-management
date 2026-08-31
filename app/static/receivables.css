@@ -2558,3 +2558,108 @@ body.arrears-scroll-dashboard .workspace.arrears-mode .excel-export-btn{
   body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list,
   body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list.four{grid-template-columns:repeat(2,minmax(0,1fr))!important}
 }
+
+/* =========================================================
+   V14 — REAL DASHBOARD RENDER FIX
+   Presentation only: full-width layout + real SVG charts.
+   ========================================================= */
+body.arrears-scroll-dashboard{background:#f5f7fb!important}
+body.arrears-scroll-dashboard .page{
+  width:calc(100vw - 56px)!important;
+  max-width:1680px!important;
+  margin:0 auto!important;
+  padding:28px 0 60px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-head{margin-bottom:20px!important;align-items:center!important}
+body.arrears-scroll-dashboard #arrearsDashboard .dashboard-head h2{font-size:30px!important;letter-spacing:-1px!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid{gap:16px!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid>article{min-height:146px!important;padding:22px 24px!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid span{font-size:13px!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid strong{font-size:31px!important;margin:12px 0 8px!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-primary-grid small{font-size:12px!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict{min-height:112px!important;padding:20px 24px!important;grid-template-columns:minmax(0,1fr) 280px!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict>div:first-child>strong{font-size:24px!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict>div:first-child>p{font-size:12px!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-verdict-number b{font-size:31px!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-detail-grid{gap:16px!important}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-detail-card{padding:20px!important}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-detail-card .dash-card-head b{font-size:15px!important}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list span{font-size:11px!important}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-metric-list strong{font-size:21px!important}
+
+/* charts: two equal columns; SVG owns the visual */
+body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="trend"]{
+  display:grid!important;
+  grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  gap:18px!important;
+  align-items:stretch!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-chart-grid.vertical-charts{display:contents!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-trend-card{grid-column:1!important;grid-row:1!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-flow-card{grid-column:2!important;grid-row:1!important}
+body.arrears-scroll-dashboard #arrearsDashboard .ratio-card{grid-column:1!important;grid-row:2!important}
+body.arrears-scroll-dashboard #arrearsDashboard .readable-insight-card{grid-column:2!important;grid-row:2!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-trend-card,
+body.arrears-scroll-dashboard #arrearsDashboard .performance-flow-card,
+body.arrears-scroll-dashboard #arrearsDashboard .ratio-card,
+body.arrears-scroll-dashboard #arrearsDashboard .readable-insight-card{
+  min-height:420px!important;
+  padding:22px 24px!important;
+  border-radius:16px!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .dash-card-head{min-height:34px!important;margin-bottom:10px!important}
+body.arrears-scroll-dashboard #arrearsDashboard .dash-card-head b{font-size:16px!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-trend,
+body.arrears-scroll-dashboard #arrearsDashboard .monthly-flow-chart,
+body.arrears-scroll-dashboard #arrearsDashboard .monthly-ratio-chart{
+  height:340px!important;
+  min-height:340px!important;
+  width:100%!important;
+  display:block!important;
+  padding:0!important;
+  overflow:hidden!important;
+}
+body.arrears-scroll-dashboard #arrearsDashboard .dash-svg{display:block;width:100%;height:320px;overflow:visible}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-grid{stroke:#e8ecf3;stroke-width:1}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-axis{fill:#8b95a6;font-size:11px;font-weight:700}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-month{fill:#5e6879;font-size:12px;font-weight:800}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-value{fill:#273247;font-size:11px;font-weight:900}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-small-value{fill:#606b7c;font-size:9.5px;font-weight:800}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-change{font-size:8.5px;font-weight:800}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-change.good{fill:#226fd0}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-change.bad{fill:#d34949}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-change.flat{fill:#8791a2}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-bar-purple{fill:#806fe0}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-bar-charge{fill:#dfc38b}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-bar-paid{fill:#69bfa2}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-ratio-line{fill:none;stroke:#7060dd;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-ratio-dot{fill:#7060dd;stroke:#fff;stroke-width:2}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-legend{height:24px;display:flex;justify-content:flex-end;align-items:center;gap:16px;font-size:11px;font-weight:800;color:#6c7687}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-legend span{display:flex;align-items:center;gap:6px}
+body.arrears-scroll-dashboard #arrearsDashboard .svg-legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
+body.arrears-scroll-dashboard #arrearsDashboard .legend-charge{background:#dfc38b}
+body.arrears-scroll-dashboard #arrearsDashboard .legend-paid{background:#69bfa2}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-insights{min-height:340px!important;grid-template-columns:1fr!important;gap:0!important;align-content:center!important}
+body.arrears-scroll-dashboard #arrearsDashboard .insight-row{min-height:92px!important;padding:14px 16px!important;border-right:0!important;border-bottom:1px solid #edf0f4!important}
+body.arrears-scroll-dashboard #arrearsDashboard .insight-row:last-child{border-bottom:0!important}
+body.arrears-scroll-dashboard #arrearsDashboard .insight-row span{font-size:11px!important}
+body.arrears-scroll-dashboard #arrearsDashboard .insight-row b{font-size:15px!important}
+body.arrears-scroll-dashboard #arrearsDashboard .insight-row em{font-size:16px!important}
+
+/* performance table + member table: readable at normal browser zoom */
+body.arrears-scroll-dashboard #arrearsDashboard .performance-table th{height:48px!important;font-size:11.5px!important}
+body.arrears-scroll-dashboard #arrearsDashboard .performance-table td{height:50px!important;font-size:12.5px!important}
+body.arrears-scroll-dashboard .arrears-member-section-title h3{font-size:24px!important}
+body.arrears-scroll-dashboard .workspace.arrears-mode .panel-head{padding:20px 22px 13px!important}
+body.arrears-scroll-dashboard .workspace.arrears-mode .filters{padding:0 22px 18px!important}
+body.arrears-scroll-dashboard .workspace.arrears-mode .member-table th{height:46px!important;font-size:11.5px!important}
+body.arrears-scroll-dashboard .workspace.arrears-mode .member-table td{height:50px!important;font-size:12px!important}
+
+@media(max-width:1180px){
+  body.arrears-scroll-dashboard .page{width:calc(100vw - 32px)!important}
+  body.arrears-scroll-dashboard #arrearsDashboard .performance-view-panel[data-perf-panel="trend"]{grid-template-columns:1fr!important}
+  body.arrears-scroll-dashboard #arrearsDashboard .performance-trend-card,
+  body.arrears-scroll-dashboard #arrearsDashboard .performance-flow-card,
+  body.arrears-scroll-dashboard #arrearsDashboard .ratio-card,
+  body.arrears-scroll-dashboard #arrearsDashboard .readable-insight-card{grid-column:1!important;grid-row:auto!important}
+}
