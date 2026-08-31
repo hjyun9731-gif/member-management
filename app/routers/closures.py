@@ -140,6 +140,19 @@ def _fmt(c, member=None):
                 v = getattr(member, f, None)
                 if v:
                     result[f] = v
+
+    # 폐업현황 목록 표시용 읽기 전용 보강값.
+    # 기존 회원 관리번호는 폐업관리번호와 별개이므로 연결된 회원마스터에서만 가져온다.
+    result["previous_management_number"] = (getattr(member, "management_number", "") or "") if member else ""
+
+    # 과거 자료의 가입여부가 비어 있거나 오래된 값이어도 가입일자가 있으면 '가입'으로 본다.
+    # 저장 데이터는 변경하지 않고 응답 표시값만 정규화한다.
+    mem_date = (result.get("membership_date") or "").strip()
+    mem_status = (result.get("membership_status") or "").strip()
+    if mem_date or mem_status == "가입":
+        result["membership_status"] = "가입"
+    elif mem_status not in ("가입", "미가입"):
+        result["membership_status"] = "미가입"
     return result
 
 

@@ -78,6 +78,33 @@ function renderMembers(){
   }
   tb.appendChild(frag);
 }
+
+// 회원 행 선택/상세 열기 — 기존 기능 복구.
+// 이전 패치에서 이 함수 두 개가 실수로 빠져 행 클릭 시 ReferenceError가 발생했다.
+async function selectMember(id,closureId=null){
+  state.selected=id;
+  state.selectedClosure=closureId;
+  renderMembers();
+  const extra=closureId?`&closure_id=${encodeURIComponent(closureId)}`:'';
+  try{
+    const d=await api(`/api/receivables/members/${id}?year=2026${extra}`);
+    if(state.selected!==id||state.selectedClosure!==closureId)return;
+    state.detail=d;
+    renderDetail(d);
+    const detail=$('#detailContent');
+    if(detail)detail.scrollTop=0;
+  }catch(e){
+    toast(e.message||'회원 상세정보를 불러오지 못했습니다.');
+  }
+}
+function clearDetail(resetSelection=true){
+  if(resetSelection){state.selected=null;state.selectedClosure=null}
+  state.detail=null;
+  $('#emptyState').classList.remove('hidden');
+  $('#detailContent').classList.add('hidden');
+  renderMembers();
+}
+
 function renderDetail(d){const m=d.member;$('#emptyState').classList.add('hidden');$('#detailContent').classList.remove('hidden');$('#detailName').textContent=m.name||'-';$('#detailStatus').textContent=m.member_status;$('#detailStatus').classList.toggle('closed',!m.active);$('#detailAccount').textContent=m.account_type;$('#detailVehicle').textContent=m.vehicle_number||'-';$('#detailRegion').textContent=m.region||'-';$('#detailMobile').textContent=m.mobile||m.phone||'-';const detailSmsBtn=$('#detailSmsBtn');if(detailSmsBtn){const hasSmsNumber=Boolean(m.mobile||m.phone);detailSmsBtn.disabled=!hasSmsNumber;detailSmsBtn.title=hasSmsNumber?'U+ CRM Pro 문자 보내기':'핸드폰번호가 없습니다.'}$('#detailAddress').textContent=m.address||'-';$('#detailContact').textContent=`${m.contact_status}${m.last_contact_date?` · ${m.last_contact_date}`:''}`;$('#detailBilling').textContent=m.billing_state||'-';$('#detailFirstCharge').textContent=(m.first_charge_date===undefined||m.first_charge_date===null||m.first_charge_date==='')?'0':m.first_charge_date;const ms=moneyState(m);$('#detailBalanceLabel').textContent=ms.label;$('#detailBalance').textContent=ms.text;$('#detailBalance').className=ms.cls;$('#detailClosure').textContent=!m.active?`${m.closure_management_number?m.closure_management_number+' · ':''}${m.closure_type||'폐업'} ${m.closure_date||''}`:'';const ctx=m.closure_context||(!m.active?{management_number:m.closure_management_number,closure_type:m.closure_type,closure_date:m.closure_date,receipt_date:m.closure_receipt_date,transferee:m.transferee,transfer_region:m.transfer_region,reason:m.closure_reason}:null);const ci=$('#closureInfo');if(ctx){ci.classList.remove('hidden');$('#detailClosureMgmt').textContent=ctx.management_number||'-';$('#detailClosureType').textContent=ctx.closure_type||'-';$('#detailClosureDate').textContent=ctx.closure_date||'-';$('#detailClosureReceipt').textContent=ctx.receipt_date||'-';$('#detailTransferee').textContent=ctx.transferee||'-';$('#detailTransferRegion').textContent=ctx.transfer_region||'-';$('#detailClosureReason').textContent=ctx.reason||'-'}else ci.classList.add('hidden');const wb=$('#memberWorkBar');const workBtn=$('#openMemberWorkBtn');if(wb&&workBtn){workBtn.classList.toggle('hidden',!m.active);$('#memberWorkHint').textContent=m.active?'현재 활성회원입니다. 여기서 기존 폐업·양도·이관 처리를 바로 실행할 수 있습니다.':`${m.closure_management_number||''} ${m.closure_type||'폐업'} 처리된 회원입니다. 입금·연락 이력은 계속 유지됩니다.`}const notice=$('#pendingNotice');if(m.billing_state==='부과대기'){notice.classList.remove('hidden');notice.textContent=`신규등록 회원입니다. ${m.first_charge_date}부터 ${m.account_type} ${fmt(Number(m.unit_fee||0)*Number(m.vehicle_count||1))}이 부과될 예정입니다.`}else notice.classList.add('hidden');const co=$('#ledgerCarryover');if(co){const v=Number(d.profile?.legacy_carryover||0);co.textContent=v?`· 이월금 ${v.toLocaleString()}원`:''}renderMonthly(d.monthly);renderHistory(d);$('#paymentDate').value=today();$('#contactDate').value=today();$('#paymentAmount').value='';$('#paymentMemo').value='';$('#contactMemo').value=''}
 function renderMonthly(rows){const tb=$('#monthlyRows');tb.innerHTML='';const frag=document.createDocumentFragment();for(const r of rows){const hasCurrent=r.current_arrears!==null&&r.current_arrears!==undefined;const current=hasCurrent?Number(r.current_arrears):null;const currentText=!hasCurrent?'-':current<0?`선납 ${Math.abs(current).toLocaleString()}`:current.toLocaleString();const currentClass=!hasCurrent?'':current>0?'positive':current<0?'prepaid':'zero';const adj=Number(r.balance_adjustment||0);const adjText=adj===0?'-':`${adj>0?'+':'−'}${Math.abs(adj).toLocaleString()}`;const adjClass=adj>0?'adjustment-positive':adj<0?'adjustment-negative':'';const tr=document.createElement('tr');tr.innerHTML=`<td>${r.month}월</td><td class="num">${r.legacy_monthly_charge==null?'-':Number(r.legacy_monthly_charge).toLocaleString()}</td><td class="num">${r.legacy_payment==null?'-':Number(r.legacy_payment).toLocaleString()}</td><td>${esc(r.legacy_payment_date||'-')}</td><td class="num">${r.legacy_arrears==null?'-':Number(r.legacy_arrears).toLocaleString()}</td><td class="num">${r.auto_charge?Number(r.auto_charge).toLocaleString():'-'}</td><td class="num">${r.additional_payment?Number(r.additional_payment).toLocaleString():'-'}</td><td class="num ${adjClass}">${adjText}</td><td class="num ${currentClass}">${currentText}</td>`;frag.appendChild(tr)}tb.appendChild(frag)}
 function renderHistory(d){$('#paymentHistory').innerHTML=d.payments.length?d.payments.map(p=>{if(p.is_balance_edit){const e=Number(p.balance_effect||0);return `<div class="history-item balance-edit-history"><div><b>${p.payment_date}</b> · 금액수정<br><span>${esc(p.memo||'')}</span></div><div><b class="balance-edit-effect">${e>0?'+':e<0?'−':''}${fmt(Math.abs(e))}</b><br><span>${esc(p.created_by||'')}</span></div></div>`}return `<div class="history-item"><div><b>${p.payment_date}</b> · ${esc(p.method||'')}<br><span>${esc(p.memo||'')}</span></div><div><b>${fmt(p.amount)}</b><br><span>${esc(p.created_by||'')}</span></div></div>`}).join(''):'<div class="history-item"><span>추가 입금·금액수정 없음</span></div>';$('#contactHistory').innerHTML=d.contacts.length?d.contacts.map(c=>`<div class="history-item"><div><b>${c.contact_date}</b> · ${esc(c.contact_method)}</div><div><b>${esc(c.status)}</b><br><span>${esc(c.memo||c.created_by||'')}</span></div></div>`).join(''):'<div class="history-item"><span>연락 기록 없음</span></div>'}

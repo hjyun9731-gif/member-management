@@ -617,7 +617,7 @@ window.viewClosure=async(id)=>{
   const rawReceipt=raw['접수일자']||raw['접수일']||'';
   const rawSeq=raw['번호']||'';
   const sections=[
-    {title:'기본 정보',fields:[['기존 관리번호',r.member_management_number],['폐업 관리번호',r.management_number],['처리구분',r.closure_type],['자료구분',r.data_type],['지역',r.region],['차량번호',r.vehicle_number],['성명',r.name],['상호',r.company_name]]},
+    {title:'기본 정보',fields:[['관리번호',r.management_number],['처리구분',r.closure_type],['자료구분',r.data_type],['지역',r.region],['차량번호',r.vehicle_number],['성명',r.name],['상호',r.company_name]]},
     {title:'차량 정보',fields:[['차종',r.vehicle_type||raw['차종']||raw['차량종류']||''],['유종',r.fuel_type||raw['유종']||raw['연료']||''],['구조변경',r.structure_change||raw['구조변경']||'',true]]},
     {title:'연락처 / 주소',fields:[['전화번호',r.phone||rawPhone],['핸드폰',r.mobile||rawMobile],['주소',r.address||rawAddr,true],['공문주소',r.official_address||'',true],['주민등록번호',r.resident_number||rawResNo]]},
     {title:'회원 / 자격',fields:[['가입여부',r.membership_status],['가입일자',r.membership_date||rawMemDate],['인가일자',r.approval_date],['자격증명발급일자',r.certificate_issue_date||rawCertDate],['자격증명발급번호',r.certificate_number||rawCertNo],['운전면허번호',r.driver_license_number||rawDrvLic]]},
@@ -1618,7 +1618,7 @@ async function renderClosures(){
     </div>`;
 
   const sk='cl';
-  const hdrs=[{label:'기존관리번호'},{label:'폐업관리번호'},{label:'구분'},{label:'지역'},{label:'차량번호'},{label:'성명'},{label:'양수인'},{label:'이관지역'},{label:'접수일자'},{label:'처리일자'},{label:'관리',noSort:true}];
+  const hdrs=[{label:'기존관리번호'},{label:'폐업관리번호'},{label:'구분'},{label:'지역'},{label:'차량번호'},{label:'성명'},{label:'가입'},{label:'가입일자'},{label:'양수인'},{label:'이관지역'},{label:'접수일자'},{label:'처리일자'},{label:'관리',noSort:true}];
 
   const doSearch=async(pg=1)=>{
     ST.fl.cl={region:document.getElementById('clRegF').value,closure_type:document.getElementById('clTypF').value,data_type:document.getElementById('clDtF').value,date_order:document.getElementById('clSortF').value,search:document.getElementById('clSrch').value.trim()};
@@ -1630,12 +1630,14 @@ async function renderClosures(){
     tw.innerHTML=`<div class="tbl-wrap"><table>
       <thead><tr>${plainHeaders(hdrs)}</tr></thead>
       <tbody>${d.items.map(r=>`<tr>
-        <td><strong>${fv(r.member_management_number)}</strong></td>
+        <td><strong>${fv(r.previous_management_number)}</strong></td>
         <td><a class="click-link" onclick="viewClosure(${r.id});return false"><strong>${fv(r.management_number)}</strong></a></td>
         <td>${ctBadge(r.closure_type)}</td>
         <td>${fv(r.region)}</td>
         <td><a class="click-link" onclick="viewClosure(${r.id});return false">${fv(r.vehicle_number)}</a></td>
         <td><a class="click-link" onclick="viewClosure(${r.id});return false">${fv(r.name)}</a></td>
+        <td>${memBadge(r.membership_status||((r.membership_date||'').trim()?'가입':'미가입'))}</td>
+        <td style="font-size:11px">${fv(r.membership_date)}</td>
         <td>${fv(r.transferee)}</td>
         <td>${fv(r.transfer_region)}</td>
         <td style="font-size:11px">${fv(r.receipt_date)}</td>
