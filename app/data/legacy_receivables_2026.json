@@ -2,37 +2,37 @@
   "year": 2026,
   "data_through_month": 8,
   "source_filename": "2026미수금_1-8월_수식서식보존_최종(1).xlsx",
-  "source_sha256": "a04cc76d70ddd8c1b38c4db0be138d04ae2d4beceb5d8615da605e72b149fbe6",
-  "snapshot_label": "2026-09-02 사용자 확인 최신 1-8월 수식서식보존 최종",
+  "source_sha256": "c57d170aa981542053782295828950caca5ea61229a3a7531ce950b22d506a0d",
+  "snapshot_label": "2026-09-02 최신 1-8월 원장 + 합동납부 전수교정 V31",
   "count": 3267,
   "summary": {
     "arrears_members": 2650,
-    "arrears_total": 327093000,
-    "prepaid_members": 197,
-    "prepaid_total": 4843000,
-    "settled_members": 420,
-    "net_balance": 322250000,
+    "arrears_total": 326838000,
+    "prepaid_members": 194,
+    "prepaid_total": 4808000,
+    "settled_members": 423,
+    "net_balance": 322030000,
     "by_account": {
       "협회비": {
         "count": 1017,
         "arrears_members": 725,
-        "arrears_total": 115773000,
-        "prepaid_members": 78,
-        "prepaid_total": 2416000
-      },
-      "관리비": {
-        "count": 2084,
-        "arrears_members": 1832,
-        "arrears_total": 205830000,
-        "prepaid_members": 69,
-        "prepaid_total": 945000
+        "arrears_total": 115528000,
+        "prepaid_members": 75,
+        "prepaid_total": 2376000
       },
       "70세": {
         "count": 166,
         "arrears_members": 93,
         "arrears_total": 5490000,
         "prepaid_members": 50,
-        "prepaid_total": 1482000
+        "prepaid_total": 1497000
+      },
+      "관리비": {
+        "count": 2084,
+        "arrears_members": 1832,
+        "arrears_total": 205820000,
+        "prepaid_members": 69,
+        "prepaid_total": 935000
       }
     },
     "excluded_rows": 1
@@ -38884,44 +38884,44 @@
         {
           "month": 3,
           "billed_total": 10000,
-          "payment": 10000,
-          "payment_date": "2026-03-25",
-          "arrears": 0
-        },
-        {
-          "month": 4,
-          "billed_total": 10000,
           "payment": 5000,
-          "payment_date": "2026-04-28",
+          "payment_date": "2026-03-25",
           "arrears": 5000
         },
         {
-          "month": 5,
+          "month": 4,
           "billed_total": 15000,
           "payment": 5000,
-          "payment_date": "2026-05-26",
+          "payment_date": "2026-04-27",
           "arrears": 10000
         },
         {
-          "month": 6,
+          "month": 5,
           "billed_total": 20000,
           "payment": 5000,
-          "payment_date": "2026-06-25",
+          "payment_date": "2026-05-26",
           "arrears": 15000
         },
         {
-          "month": 7,
+          "month": 6,
           "billed_total": 25000,
           "payment": 5000,
-          "payment_date": "2026-07-27",
+          "payment_date": "2026-06-25",
           "arrears": 20000
         },
         {
-          "month": 8,
+          "month": 7,
           "billed_total": 30000,
           "payment": 5000,
-          "payment_date": "2026-08-25",
+          "payment_date": "2026-07-27",
           "arrears": 25000
+        },
+        {
+          "month": 8,
+          "billed_total": 35000,
+          "payment": 5000,
+          "payment_date": "2026-08-25",
+          "arrears": 30000
         },
         {
           "month": 9,
@@ -38953,7 +38953,7 @@
         }
       ],
       "last_month": 8,
-      "current_arrears": 25000
+      "current_arrears": 30000
     },
     {
       "source_row": 400,
@@ -51919,7 +51919,7 @@
           "month": 3,
           "billed_total": 20000,
           "payment": 20000,
-          "payment_date": "2026-03-04//2026-03-30",
+          "payment_date": "2026-03-03 / 2026-03-30",
           "arrears": 0
         },
         {
@@ -57917,23 +57917,23 @@
         {
           "month": 6,
           "billed_total": 150000,
-          "payment": null,
-          "payment_date": "",
-          "arrears": 150000
+          "payment": 150000,
+          "payment_date": "2026-06-12",
+          "arrears": 0
         },
         {
           "month": 7,
-          "billed_total": 160000,
+          "billed_total": 10000,
           "payment": null,
           "payment_date": "",
-          "arrears": 160000
+          "arrears": 10000
         },
         {
           "month": 8,
-          "billed_total": 170000,
+          "billed_total": 20000,
           "payment": null,
           "payment_date": "",
-          "arrears": 170000
+          "arrears": 20000
         },
         {
           "month": 9,
@@ -57965,7 +57965,7 @@
         }
       ],
       "last_month": 8,
-      "current_arrears": 170000
+      "current_arrears": 20000
     },
     {
       "source_row": 594,
@@ -60240,52 +60240,52 @@
         },
         {
           "month": 2,
-          "billed_total": null,
+          "billed_total": 10000,
           "payment": 10000,
           "payment_date": "2026-02-04",
-          "arrears": null
+          "arrears": 0
         },
         {
           "month": 3,
-          "billed_total": 0,
+          "billed_total": 10000,
           "payment": 10000,
-          "payment_date": "#######",
-          "arrears": -10000
+          "payment_date": "2026-03-04",
+          "arrears": 0
         },
         {
           "month": 4,
-          "billed_total": 0,
+          "billed_total": 10000,
           "payment": 10000,
           "payment_date": "2026-04-03",
-          "arrears": -10000
+          "arrears": 0
         },
         {
           "month": 5,
-          "billed_total": 0,
+          "billed_total": 10000,
           "payment": 10000,
           "payment_date": "2026-05-05",
-          "arrears": -10000
+          "arrears": 0
         },
         {
           "month": 6,
-          "billed_total": 0,
+          "billed_total": 10000,
           "payment": 10000,
           "payment_date": "2026-06-05",
-          "arrears": -10000
+          "arrears": 0
         },
         {
           "month": 7,
-          "billed_total": 0,
+          "billed_total": 10000,
           "payment": 10000,
           "payment_date": "2026-07-03",
-          "arrears": -10000
+          "arrears": 0
         },
         {
           "month": 8,
-          "billed_total": 0,
+          "billed_total": 10000,
           "payment": 10000,
           "payment_date": "2026-08-03",
-          "arrears": -10000
+          "arrears": 0
         },
         {
           "month": 9,
@@ -60317,7 +60317,7 @@
         }
       ],
       "last_month": 8,
-      "current_arrears": -10000
+      "current_arrears": 0
     },
     {
       "source_row": 618,
@@ -81444,16 +81444,16 @@
         {
           "month": 7,
           "billed_total": 10000,
-          "payment": 20000,
+          "payment": 10000,
           "payment_date": "2026-07-01",
-          "arrears": -10000
+          "arrears": 0
         },
         {
           "month": 8,
-          "billed_total": 0,
-          "payment": 20000,
+          "billed_total": 10000,
+          "payment": 10000,
           "payment_date": "2026-08-03",
-          "arrears": -20000
+          "arrears": 0
         },
         {
           "month": 9,
@@ -81485,7 +81485,7 @@
         }
       ],
       "last_month": 8,
-      "current_arrears": -20000
+      "current_arrears": 0
     },
     {
       "source_row": 834,
@@ -86204,58 +86204,58 @@
         {
           "month": 1,
           "billed_total": 10000,
-          "payment": 20000,
+          "payment": 10000,
           "payment_date": "2026-01-20",
-          "arrears": -10000
+          "arrears": 0
         },
         {
           "month": 2,
-          "billed_total": 0,
+          "billed_total": 10000,
           "payment": 10000,
           "payment_date": "2026-02-20",
-          "arrears": -10000
+          "arrears": 0
         },
         {
           "month": 3,
-          "billed_total": 0,
+          "billed_total": 10000,
           "payment": 10000,
-          "payment_date": "#######",
-          "arrears": -10000
+          "payment_date": "2026-03-20",
+          "arrears": 0
         },
         {
           "month": 4,
-          "billed_total": 0,
+          "billed_total": 10000,
           "payment": 10000,
           "payment_date": "2026-04-20",
-          "arrears": -10000
+          "arrears": 0
         },
         {
           "month": 5,
-          "billed_total": 0,
+          "billed_total": 10000,
           "payment": 10000,
           "payment_date": "2026-05-20",
-          "arrears": -10000
+          "arrears": 0
         },
         {
           "month": 6,
-          "billed_total": 0,
+          "billed_total": 10000,
           "payment": 10000,
           "payment_date": "2026-06-22",
-          "arrears": -10000
+          "arrears": 0
         },
         {
           "month": 7,
-          "billed_total": 0,
+          "billed_total": 10000,
           "payment": 10000,
           "payment_date": "2026-07-20",
-          "arrears": -10000
+          "arrears": 0
         },
         {
           "month": 8,
-          "billed_total": 0,
+          "billed_total": 10000,
           "payment": 10000,
           "payment_date": "2026-08-20",
-          "arrears": -10000
+          "arrears": 0
         },
         {
           "month": 9,
@@ -86287,7 +86287,7 @@
         }
       ],
       "last_month": 8,
-      "current_arrears": -10000
+      "current_arrears": 0
     },
     {
       "source_row": 883,
@@ -93448,7 +93448,7 @@
       "region": "강릉시",
       "account_type": "협회비",
       "legacy_note": "",
-      "vehicle_number": "",
+      "vehicle_number": "82배 1128",
       "name": "김영호",
       "vehicle_count": 1,
       "carryover": 860000,
@@ -93498,16 +93498,16 @@
         {
           "month": 7,
           "billed_total": 930000,
-          "payment": 500000,
-          "payment_date": "2026-07-\n21/22/27",
-          "arrears": 430000
+          "payment": 600000,
+          "payment_date": "2026-07-21 / 2026-07-22 / 2026-07-27 / 2026-07-31",
+          "arrears": 330000
         },
         {
           "month": 8,
-          "billed_total": 440000,
+          "billed_total": 340000,
           "payment": 100000,
           "payment_date": "2026-08-05",
-          "arrears": 340000
+          "arrears": 240000
         },
         {
           "month": 9,
@@ -93539,7 +93539,7 @@
         }
       ],
       "last_month": 8,
-      "current_arrears": 340000
+      "current_arrears": 240000
     },
     {
       "source_row": 957,
@@ -100232,44 +100232,44 @@
         {
           "month": 3,
           "billed_total": -90000,
-          "payment": 5000,
-          "payment_date": "2026-03-20",
-          "arrears": -95000
-        },
-        {
-          "month": 4,
-          "billed_total": -90000,
           "payment": 15000,
-          "payment_date": "2026-04-20",
+          "payment_date": "2026-03-20",
           "arrears": -105000
         },
         {
-          "month": 5,
+          "month": 4,
           "billed_total": -100000,
           "payment": 15000,
-          "payment_date": "2026-05-20",
+          "payment_date": "2026-04-20",
           "arrears": -115000
         },
         {
-          "month": 6,
+          "month": 5,
           "billed_total": -110000,
           "payment": 15000,
-          "payment_date": "2026-06-22",
+          "payment_date": "2026-05-20",
           "arrears": -125000
         },
         {
-          "month": 7,
+          "month": 6,
           "billed_total": -120000,
+          "payment": 15000,
+          "payment_date": "2026-06-22",
+          "arrears": -135000
+        },
+        {
+          "month": 7,
+          "billed_total": -130000,
           "payment": null,
           "payment_date": "",
-          "arrears": -120000
+          "arrears": -130000
         },
         {
           "month": 8,
-          "billed_total": -115000,
+          "billed_total": -125000,
           "payment": null,
           "payment_date": "",
-          "arrears": -115000
+          "arrears": -125000
         },
         {
           "month": 9,
@@ -100301,7 +100301,7 @@
         }
       ],
       "last_month": 8,
-      "current_arrears": -115000
+      "current_arrears": -125000
     },
     {
       "source_row": 1026,
@@ -111684,57 +111684,57 @@
         {
           "month": 1,
           "billed_total": 5000,
-          "payment": 10000,
+          "payment": 5000,
           "payment_date": "2026-01-07",
-          "arrears": -5000
+          "arrears": 0
         },
         {
           "month": 2,
-          "billed_total": 0,
-          "payment": null,
-          "payment_date": "",
+          "billed_total": 5000,
+          "payment": 5000,
+          "payment_date": "2026-01-07",
           "arrears": 0
         },
         {
           "month": 3,
           "billed_total": 5000,
-          "payment": 10000,
-          "payment_date": "#######",
-          "arrears": -5000
+          "payment": 5000,
+          "payment_date": "2026-03-03",
+          "arrears": 0
         },
         {
           "month": 4,
-          "billed_total": 0,
-          "payment": null,
-          "payment_date": "",
+          "billed_total": 5000,
+          "payment": 5000,
+          "payment_date": "2026-03-03",
           "arrears": 0
         },
         {
           "month": 5,
           "billed_total": 5000,
-          "payment": 10000,
+          "payment": 5000,
           "payment_date": "2026-05-06",
-          "arrears": -5000
+          "arrears": 0
         },
         {
           "month": 6,
-          "billed_total": 0,
-          "payment": null,
-          "payment_date": "",
+          "billed_total": 5000,
+          "payment": 5000,
+          "payment_date": "2026-05-06",
           "arrears": 0
         },
         {
           "month": 7,
           "billed_total": 5000,
-          "payment": 10000,
+          "payment": 5000,
           "payment_date": "2026-07-01",
-          "arrears": -5000
+          "arrears": 0
         },
         {
           "month": 8,
-          "billed_total": 0,
-          "payment": null,
-          "payment_date": "",
+          "billed_total": 5000,
+          "payment": 5000,
+          "payment_date": "2026-07-01",
           "arrears": 0
         },
         {
@@ -112370,57 +112370,57 @@
         {
           "month": 1,
           "billed_total": 5000,
-          "payment": 10000,
+          "payment": 5000,
           "payment_date": "2026-01-07",
-          "arrears": -5000
+          "arrears": 0
         },
         {
           "month": 2,
-          "billed_total": 0,
-          "payment": null,
-          "payment_date": "",
+          "billed_total": 5000,
+          "payment": 5000,
+          "payment_date": "2026-01-07",
           "arrears": 0
         },
         {
           "month": 3,
           "billed_total": 5000,
-          "payment": 10000,
-          "payment_date": "#######",
-          "arrears": -5000
+          "payment": 5000,
+          "payment_date": "2026-03-03",
+          "arrears": 0
         },
         {
           "month": 4,
-          "billed_total": 0,
-          "payment": null,
-          "payment_date": "",
+          "billed_total": 5000,
+          "payment": 5000,
+          "payment_date": "2026-03-03",
           "arrears": 0
         },
         {
           "month": 5,
           "billed_total": 5000,
-          "payment": 10000,
+          "payment": 5000,
           "payment_date": "2026-05-06",
-          "arrears": -5000
+          "arrears": 0
         },
         {
           "month": 6,
-          "billed_total": 0,
-          "payment": null,
-          "payment_date": "",
+          "billed_total": 5000,
+          "payment": 5000,
+          "payment_date": "2026-05-06",
           "arrears": 0
         },
         {
           "month": 7,
           "billed_total": 5000,
-          "payment": 10000,
+          "payment": 5000,
           "payment_date": "2026-07-01",
-          "arrears": -5000
+          "arrears": 0
         },
         {
           "month": 8,
-          "billed_total": 0,
-          "payment": null,
-          "payment_date": "",
+          "billed_total": 5000,
+          "payment": 5000,
+          "payment_date": "2026-07-01",
           "arrears": 0
         },
         {
@@ -112566,57 +112566,57 @@
         {
           "month": 1,
           "billed_total": 5000,
-          "payment": 10000,
+          "payment": 5000,
           "payment_date": "2026-01-07",
-          "arrears": -5000
+          "arrears": 0
         },
         {
           "month": 2,
-          "billed_total": 0,
-          "payment": null,
-          "payment_date": "",
+          "billed_total": 5000,
+          "payment": 5000,
+          "payment_date": "2026-01-07",
           "arrears": 0
         },
         {
           "month": 3,
           "billed_total": 5000,
-          "payment": 10000,
-          "payment_date": "#######",
-          "arrears": -5000
+          "payment": 5000,
+          "payment_date": "2026-03-03",
+          "arrears": 0
         },
         {
           "month": 4,
-          "billed_total": 0,
-          "payment": null,
-          "payment_date": "",
+          "billed_total": 5000,
+          "payment": 5000,
+          "payment_date": "2026-03-03",
           "arrears": 0
         },
         {
           "month": 5,
           "billed_total": 5000,
-          "payment": 10000,
+          "payment": 5000,
           "payment_date": "2026-05-06",
-          "arrears": -5000
+          "arrears": 0
         },
         {
           "month": 6,
-          "billed_total": 0,
-          "payment": null,
-          "payment_date": "",
+          "billed_total": 5000,
+          "payment": 5000,
+          "payment_date": "2026-05-06",
           "arrears": 0
         },
         {
           "month": 7,
           "billed_total": 5000,
-          "payment": 10000,
+          "payment": 5000,
           "payment_date": "2026-07-01",
-          "arrears": -5000
+          "arrears": 0
         },
         {
           "month": 8,
-          "billed_total": 0,
-          "payment": null,
-          "payment_date": "",
+          "billed_total": 5000,
+          "payment": 5000,
+          "payment_date": "2026-07-01",
           "arrears": 0
         },
         {
@@ -112860,57 +112860,57 @@
         {
           "month": 1,
           "billed_total": 5000,
-          "payment": 10000,
+          "payment": 5000,
           "payment_date": "2026-01-07",
-          "arrears": -5000
+          "arrears": 0
         },
         {
           "month": 2,
-          "billed_total": 0,
-          "payment": null,
-          "payment_date": "",
+          "billed_total": 5000,
+          "payment": 5000,
+          "payment_date": "2026-01-07",
           "arrears": 0
         },
         {
           "month": 3,
           "billed_total": 5000,
-          "payment": 10000,
-          "payment_date": "#######",
-          "arrears": -5000
+          "payment": 5000,
+          "payment_date": "2026-03-03",
+          "arrears": 0
         },
         {
           "month": 4,
-          "billed_total": 0,
-          "payment": null,
-          "payment_date": "",
+          "billed_total": 5000,
+          "payment": 5000,
+          "payment_date": "2026-03-03",
           "arrears": 0
         },
         {
           "month": 5,
           "billed_total": 5000,
-          "payment": 10000,
+          "payment": 5000,
           "payment_date": "2026-05-06",
-          "arrears": -5000
+          "arrears": 0
         },
         {
           "month": 6,
-          "billed_total": 0,
-          "payment": null,
-          "payment_date": "",
+          "billed_total": 5000,
+          "payment": 5000,
+          "payment_date": "2026-05-06",
           "arrears": 0
         },
         {
           "month": 7,
           "billed_total": 5000,
-          "payment": 10000,
+          "payment": 5000,
           "payment_date": "2026-07-01",
-          "arrears": -5000
+          "arrears": 0
         },
         {
           "month": 8,
-          "billed_total": 0,
-          "payment": null,
-          "payment_date": "",
+          "billed_total": 5000,
+          "payment": 5000,
+          "payment_date": "2026-07-01",
           "arrears": 0
         },
         {
@@ -114736,44 +114736,44 @@
         {
           "month": 3,
           "billed_total": -5000,
-          "payment": 5000,
-          "payment_date": "2026-03-20",
-          "arrears": -10000
-        },
-        {
-          "month": 4,
-          "billed_total": -5000,
           "payment": 10000,
-          "payment_date": "2026-04-20",
+          "payment_date": "2026-03-20",
           "arrears": -15000
         },
         {
-          "month": 5,
+          "month": 4,
           "billed_total": -10000,
           "payment": 10000,
-          "payment_date": "2026-05-20",
+          "payment_date": "2026-04-20",
           "arrears": -20000
         },
         {
-          "month": 6,
+          "month": 5,
           "billed_total": -15000,
           "payment": 10000,
-          "payment_date": "2026-06-22",
+          "payment_date": "2026-05-20",
           "arrears": -25000
         },
         {
-          "month": 7,
+          "month": 6,
           "billed_total": -20000,
           "payment": 10000,
-          "payment_date": "2026-07-20",
+          "payment_date": "2026-06-22",
           "arrears": -30000
         },
         {
-          "month": 8,
+          "month": 7,
           "billed_total": -25000,
           "payment": 10000,
-          "payment_date": "2026-08-20",
+          "payment_date": "2026-07-20",
           "arrears": -35000
+        },
+        {
+          "month": 8,
+          "billed_total": -30000,
+          "payment": 10000,
+          "payment_date": "2026-08-20",
+          "arrears": -40000
         },
         {
           "month": 9,
@@ -114805,7 +114805,7 @@
         }
       ],
       "last_month": 8,
-      "current_arrears": -35000
+      "current_arrears": -40000
     },
     {
       "source_row": 1174,
@@ -146586,44 +146586,44 @@
         {
           "month": 3,
           "billed_total": 35000,
-          "payment": 30000,
-          "payment_date": "2026-03-20 / 2026-03-20",
-          "arrears": 5000
+          "payment": 40000,
+          "payment_date": "2026-03-20",
+          "arrears": -5000
         },
         {
           "month": 4,
-          "billed_total": 10000,
+          "billed_total": 0,
           "payment": null,
           "payment_date": "",
-          "arrears": 10000
-        },
-        {
-          "month": 5,
-          "billed_total": 15000,
-          "payment": 15000,
-          "payment_date": "2026-05-15",
           "arrears": 0
         },
         {
+          "month": 5,
+          "billed_total": 5000,
+          "payment": 15000,
+          "payment_date": "2026-05-15",
+          "arrears": -10000
+        },
+        {
           "month": 6,
+          "billed_total": -5000,
+          "payment": null,
+          "payment_date": "",
+          "arrears": -5000
+        },
+        {
+          "month": 7,
+          "billed_total": 0,
+          "payment": null,
+          "payment_date": "",
+          "arrears": 0
+        },
+        {
+          "month": 8,
           "billed_total": 5000,
           "payment": null,
           "payment_date": "",
           "arrears": 5000
-        },
-        {
-          "month": 7,
-          "billed_total": 10000,
-          "payment": null,
-          "payment_date": "",
-          "arrears": 10000
-        },
-        {
-          "month": 8,
-          "billed_total": 15000,
-          "payment": null,
-          "payment_date": "",
-          "arrears": 15000
         },
         {
           "month": 9,
@@ -146655,7 +146655,7 @@
         }
       ],
       "last_month": 8,
-      "current_arrears": 15000
+      "current_arrears": 5000
     },
     {
       "source_row": 1500,
@@ -152746,58 +152746,58 @@
         {
           "month": 1,
           "billed_total": 10000,
-          "payment": 20000,
+          "payment": 15000,
           "payment_date": "2026-01-09 / 2026-01-26",
-          "arrears": -10000
+          "arrears": -5000
         },
         {
           "month": 2,
-          "billed_total": -5000,
+          "billed_total": 0,
           "payment": 5000,
           "payment_date": "2026-02-25",
-          "arrears": -10000
+          "arrears": -5000
         },
         {
           "month": 3,
-          "billed_total": -5000,
+          "billed_total": 0,
           "payment": 5000,
           "payment_date": "#######",
-          "arrears": -10000
+          "arrears": -5000
         },
         {
           "month": 4,
-          "billed_total": -5000,
+          "billed_total": 0,
           "payment": 5000,
           "payment_date": "2026-04-28",
-          "arrears": -10000
+          "arrears": -5000
         },
         {
           "month": 5,
-          "billed_total": -5000,
+          "billed_total": 0,
           "payment": 5000,
           "payment_date": "2026-05-26",
-          "arrears": -10000
+          "arrears": -5000
         },
         {
           "month": 6,
-          "billed_total": -5000,
+          "billed_total": 0,
           "payment": 5000,
           "payment_date": "2026-06-25",
-          "arrears": -10000
+          "arrears": -5000
         },
         {
           "month": 7,
-          "billed_total": -5000,
+          "billed_total": 0,
           "payment": 5000,
           "payment_date": "2026-07-27",
-          "arrears": -10000
+          "arrears": -5000
         },
         {
           "month": 8,
-          "billed_total": -5000,
+          "billed_total": 0,
           "payment": 5000,
           "payment_date": "2026-08-25",
-          "arrears": -10000
+          "arrears": -5000
         },
         {
           "month": 9,
@@ -152829,7 +152829,7 @@
         }
       ],
       "last_month": 8,
-      "current_arrears": -10000
+      "current_arrears": -5000
     },
     {
       "source_row": 1563,
@@ -199408,44 +199408,44 @@
         {
           "month": 3,
           "billed_total": -5000,
-          "payment": 10000,
+          "payment": 5000,
           "payment_date": "2026-03-02",
-          "arrears": -15000
+          "arrears": -10000
         },
         {
           "month": 4,
-          "billed_total": -10000,
+          "billed_total": -5000,
           "payment": 5000,
           "payment_date": "2026-04-01",
-          "arrears": -15000
+          "arrears": -10000
         },
         {
           "month": 5,
-          "billed_total": -10000,
+          "billed_total": -5000,
           "payment": 5000,
           "payment_date": "2026-04-30",
-          "arrears": -15000
+          "arrears": -10000
         },
         {
           "month": 6,
-          "billed_total": -10000,
+          "billed_total": -5000,
           "payment": 5000,
           "payment_date": "2026-05-29",
-          "arrears": -15000
+          "arrears": -10000
         },
         {
           "month": 7,
-          "billed_total": -10000,
+          "billed_total": -5000,
           "payment": 5000,
           "payment_date": "2026-07-31",
-          "arrears": -15000
+          "arrears": -10000
         },
         {
           "month": 8,
-          "billed_total": -10000,
+          "billed_total": -5000,
           "payment": 5000,
           "payment_date": "2026-08-31",
-          "arrears": -15000
+          "arrears": -10000
         },
         {
           "month": 9,
@@ -199477,7 +199477,7 @@
         }
       ],
       "last_month": 8,
-      "current_arrears": -15000
+      "current_arrears": -10000
     },
     {
       "source_row": 2039,
@@ -320219,9 +320219,16 @@
   "source_cutoff_at_kst": "2026-09-01T15:22:32+09:00",
   "cutover_rule": "legacy snapshot is authoritative through 2026-08-31; pre-snapshot DB financial postings do not alter legacy balances",
   "latest_bank_source_filename": "2026년통장_1-8월_거래자명우선_수정표시_최종.xlsx",
-  "reconciliation_rules_version": "2026-09-02 사용자 확인 최신 미수금 원장 기준",
+  "reconciliation_rules_version": "2026-09-02-v31-joint-payment-full-audit",
   "reconciliation_notes": [
-    "사용자가 2026-09-02 최종 기준으로 지정한 2026미수금_1-8월_수식서식보존_최종(1).xlsx를 authoritative source로 사용",
-    "{'matching_priority': ['거래자명·거래기록사항', '이름', '차량번호', '동명이인 시 금액'], 'date_rule': '매칭된 통장/지로 실제 거래일 사용; 금액 불일치는 장부 인정금액을 임의 변경하지 않음', 'suspense_rule': '이주석2087 관련 허장덕 합동2 6·7·8월 각 10,000원은 가수금 유지', 'preserved_unverified': ['한상록1282', '이병준5934', '김성호1014', '조명수1106', '이창원1020'], 'data_through_month': 8}"
+    "2026미수금_1-8월_수식서식보존_최종의 확정 정정표를 baseline에 반영",
+    "한인교 합동3: 한인교2046/신명한2400/정의진8657/박달원8670 4명 분배 및 월별 5,000원 배분 유지",
+    "조철만 합동1: 110,000원을 12명(협회비 10명 + 70세 2명)에게 지정금액대로 분배",
+    "허장덕 합동2: 6~8월 각 70,000원 중 이주석85자2087 10,000원은 양도 후 가수금으로 회원 미수금에 강제 귀속하지 않음; 현재 회원 반영액은 월 60,000원",
+    "주신평: 7명(1518/1289/1251/1154/1150/1130/1841)에게 3개월분 30,000원씩, 1월/7월 각 210,000원 분배 확인",
+    "화물계약유지 115,000원: 이민행/한상근/김경수/김득회/양길호 각 23,000원 잡수입으로 미수금 회비에 반영하지 않음",
+    "박민우/HRH김남진/이정호/김영준/최돈규/김지호/진기준/유성만/김영호/박준형 확정 정정 반영",
+    "오병춘은 최신 정정표에서 정상 판정이므로 변경하지 않음",
+    "한상록1282/이병준80-5934/김성호1014/조명수80배1106/이창원90배1020 장부입금 인정값 유지"
   ]
 }

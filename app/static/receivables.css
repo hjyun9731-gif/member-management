@@ -309,15 +309,20 @@
 .member-table td.col-current-state,.member-table td.col-type,.member-table td.col-closure-no{
   text-align:left!important;
 }
-.member-table td.col-phone{font-weight:400!important;overflow:visible!important;text-overflow:clip!important}
+.member-table td.col-phone{font-weight:400!important;overflow:hidden!important;text-overflow:ellipsis!important}
 .member-table td.col-region{font-weight:800!important;color:#263247!important}
 .member-table td.col-first-charge{font-weight:700!important;color:#4b5565!important;font-variant-numeric:tabular-nums}
 .member-table td.col-balance{text-align:right!important;font-weight:900!important;white-space:nowrap!important;overflow:visible!important}
 .member-table td.col-process{white-space:normal!important;overflow:visible!important;text-overflow:clip!important}
-.region-text,.vehicle-text,.phone-number,.first-charge-text{white-space:nowrap!important;overflow:visible!important;text-overflow:clip!important}
-.phone-line{display:flex!important;align-items:center!important;gap:6px!important;white-space:nowrap!important;min-width:max-content}
-.phone-number{font-weight:800;color:#263247;font-variant-numeric:tabular-nums;letter-spacing:-.1px}
-.row-sms-btn{flex:0 0 auto!important;padding:4px 6px!important;font-size:10px!important;line-height:1!important}
+.region-text,.vehicle-text,.first-charge-text{white-space:nowrap!important;overflow:visible!important;text-overflow:clip!important}
+.phone-line{display:grid!important;grid-template-columns:minmax(0,1fr) auto!important;align-items:center!important;justify-content:center!important;gap:5px!important;white-space:normal!important;min-width:0!important;max-width:100%!important;overflow:visible!important}
+.phone-line.multi-phone{grid-template-columns:1fr!important;justify-items:center!important;gap:3px!important}
+.phone-values{display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;gap:1px!important;min-width:0!important;width:100%!important;max-width:100%!important;overflow:visible!important}
+.phone-number{display:block!important;font-size:11px!important;font-weight:800!important;color:#263247;font-variant-numeric:tabular-nums;letter-spacing:-.15px;line-height:1.18!important;white-space:nowrap!important;overflow:visible!important;text-overflow:clip!important;max-width:100%!important}
+.row-sms-btn{flex:0 0 auto!important;padding:3px 6px!important;font-size:9.5px!important;line-height:1.05!important;white-space:nowrap!important}
+.phone-line.multi-phone .row-sms-btn{justify-self:center!important;margin-top:1px!important}
+.member-table td.col-phone{padding-top:5px!important;padding-bottom:5px!important}
+.member-table tr:has(.phone-line.multi-phone) td{height:58px!important}
 .closure-process{display:flex!important;flex-direction:column!important;gap:3px!important;min-width:0}
 .closure-process span{font-weight:800!important;color:#394457!important;white-space:normal!important;overflow:visible!important;text-overflow:clip!important;word-break:keep-all!important}
 .closure-process small{font-size:10px!important;line-height:1.35!important;color:#838d9d!important;white-space:normal!important;overflow:visible!important;text-overflow:clip!important;word-break:keep-all!important}
@@ -1477,4 +1482,17 @@ body.arrears-scroll-dashboard .workspace.arrears-mode.has-detail .member-table-w
   body.arrears-scroll-dashboard #arrearsDashboard .performance-insights{height:auto!important;min-height:0!important;grid-template-columns:1fr!important;grid-template-rows:auto!important}
   body.arrears-scroll-dashboard #arrearsDashboard .insight-row{min-height:96px!important}
   body.arrears-scroll-dashboard .workspace.arrears-mode .filters{grid-template-columns:1fr!important}
+}
+/* V30 phone layout: two mobile numbers must never run into adjacent columns. */
+body.arrears-scroll-dashboard .workspace.arrears-mode .member-table th.col-phone,
+body.arrears-scroll-dashboard .workspace.arrears-mode .member-table td.col-phone,
+.member-table th.col-phone,
+.member-table td.col-phone{
+  width:158px!important;
+  min-width:158px!important;
+  max-width:158px!important;
+}
+body.arrears-scroll-dashboard .workspace.arrears-mode .member-table td.col-phone{
+  overflow:visible!important;
+  text-overflow:clip!important;
 }

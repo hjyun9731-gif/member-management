@@ -553,6 +553,19 @@ def _business_first_charge_date(member, account_type: str) -> Optional[date]:
     return _business_first_charge_date_raw(member, account_type)
 
 
+def _legacy_next_charge_date(member, account_type: str) -> date:
+    """2026-08 기준원장 이후 legacy 회원의 다음 자동부과일.
+
+    - 협회비 / 70세 / '배' 차량 관리비: 2026-09-01부터 기존대로 계속 부과.
+    - 비'배' 일반 관리비: 2026년에는 자동부과하지 않고 2027-01-01부터 시작.
+
+    baseline JSON이 갱신되어 profile을 다시 채우는 경우에도 이 규칙을 반드시 유지한다.
+    """
+    if account_type == "관리비" and not _is_bae_vehicle(member):
+        return GENERAL_MANAGEMENT_START_DATE
+    return LEGACY_NEXT_BILL_DATE
+
+
 def _make_profile(member, seed=None) -> ReceivableProfile:
     if seed:
         # legacy_balance는 2026-08 원본 장부의 "현재 미수금(8월 미수금)" 그 자체다.
@@ -564,7 +577,7 @@ def _make_profile(member, seed=None) -> ReceivableProfile:
             account_type=acct,
             unit_fee=ACCOUNT_FEES.get(acct, 5000),
             vehicle_count=1,
-            first_charge_date=LEGACY_NEXT_BILL_DATE.isoformat(),
+            first_charge_date=_legacy_next_charge_date(member, acct).isoformat(),
             legacy_balance=int(seed.get("current_arrears") or 0),
             legacy_months=seed.get("months") or [],
             legacy_source_row=seed.get("source_row"),
@@ -697,8 +710,9 @@ def _apply_legacy_baseline_once(db: Session) -> int:
                 profile.account_type = account
                 profile.unit_fee = ACCOUNT_FEES.get(account, 5000)
 
-            # 2026-08까지의 잔액은 snapshot에 이미 포함되어 있으므로 9월부터 DB 자동부과.
-            profile.first_charge_date = LEGACY_NEXT_BILL_DATE.isoformat()
+            # 2026-08까지 잔액은 snapshot에 포함. 다만 비'배' 일반 관리비는
+            # 2026년에 자동부과하지 않고 2027-01-01부터 시작한다.
+            profile.first_charge_date = _legacy_next_charge_date(member, profile.account_type).isoformat()
             imported += 1
 
         payload = json.loads(DATA_FILE.read_text(encoding="utf-8")) if DATA_FILE.exists() else {}
@@ -772,7 +786,8 @@ def _refresh_legacy_baseline_if_seed_changed(db: Session, marker) -> int:
             account = seed.get("account_type") or _infer_account(member)
             profile.account_type = account
             profile.unit_fee = ACCOUNT_FEES.get(account, 5000)
-        profile.first_charge_date = LEGACY_NEXT_BILL_DATE.isoformat()
+        # 최신 baseline 재반영 때도 2027 일반 관리비 규칙을 되돌리지 않는다.
+        profile.first_charge_date = _legacy_next_charge_date(member, profile.account_type).isoformat()
         refreshed += 1
 
     info.update({
@@ -896,8 +911,11 @@ def _repair_general_management_2027_rule_once(db: Session) -> dict:
     for profile, member in rows:
         if _is_bae_vehicle(member):
             continue
-        first = _business_first_charge_date(member, "관리비")
-        target = first.isoformat() if first else None
+        if profile.legacy_source_row is not None:
+            target = GENERAL_MANAGEMENT_START_DATE.isoformat()
+        else:
+            first = _business_first_charge_date(member, "관리비")
+            target = first.isoformat() if first else None
         if (profile.first_charge_date or None) != target:
             profile.first_charge_date = target
             profiles_fixed += 1
@@ -971,7 +989,7 @@ def _ensure_db_ledger_ready(db: Session) -> int:
                     account = seed.get('account_type') or _infer_account(member)
                     profile.account_type = account
                     profile.unit_fee = ACCOUNT_FEES.get(account, 5000)
-                profile.first_charge_date = LEGACY_NEXT_BILL_DATE.isoformat()
+                profile.first_charge_date = _legacy_next_charge_date(member, profile.account_type).isoformat()
                 repaired += 1
             db.commit()
 
@@ -1142,11 +1160,26 @@ def _true_registration_date(member, profile=None) -> Optional[date]:
 
 
 def _is_true_new_member(member, profile) -> bool:
-    """'부과대기'는 원장에 없고 실제 업무 기준일이 컷오버 이후인 회원에게만 붙인다."""
+    """실제 신규등록자 여부. 다른 신규회원 판정에서만 사용한다."""
     if _has_legacy_evidence(member, profile):
         return False
     reg = _true_registration_date(member, profile)
     return bool(reg and reg >= LEGACY_NEW_MEMBER_CUTOFF)
+
+
+def _pending_charge_date(today: Optional[date] = None) -> date:
+    """부과대기 화면의 기준일: 언제나 '다음 달 1일'.
+
+    예) 2026-09 어느 날이든 2026-10-01, 2026-12 어느 날이든 2027-01-01.
+    장기 미래 부과자는 미리 부과대기에 노출하지 않는다.
+    """
+    today = today or datetime.now(KST).date()
+    return _first_of_next_month(today)
+
+
+def _is_pending_next_month(profile, today: Optional[date] = None) -> bool:
+    first = _parse_date(getattr(profile, "first_charge_date", None))
+    return bool(first and first == _pending_charge_date(today))
 
 
 def _repair_profile_fee_rules(db: Session) -> int:
@@ -1590,8 +1623,9 @@ def _billing_state(member, profile, balance: int, is_closed: bool = False) -> st
         return "폐업 완납"
     if not _has_legacy_evidence(member, profile) and not first:
         return "부과기준일 없음"
-    # 핵심: 기존 MUSTARD/엑셀 원장 회원은 first_charge_date가 9/1이어도 신규가 아니다.
-    if _is_true_new_member(member, profile) and first and first > today:
+    # 부과대기는 장기 미래 전체가 아니라 '다음 달 1일 첫 부과자'만 표시한다.
+    # 따라서 일반 관리비 2027-01-01 대상은 2026년 12월에만 부과대기로 보인다.
+    if _is_pending_next_month(profile, today):
         return "부과대기"
     if balance > 0:
         return "미수"
@@ -1855,17 +1889,18 @@ def summary(
         .scalar()
         or 0
     )
-    # 부과대기는 legacy 기존회원이 아니라 실제 신규등록자만 집계한다.
-    pending_rows = (
-        db.query(ReceivableProfile, models.LicenseHolder)
+    # 부과대기 KPI는 '다음 달 1일 첫 부과 예정자'만 집계한다.
+    # 장기 미래(예: 2027-01 일반 관리비)는 해당 직전 달인 2026-12에만 나타난다.
+    pending_date_iso = _pending_charge_date().isoformat()
+    pending_members = (
+        db.query(func.count(ReceivableProfile.id))
         .join(models.LicenseHolder, models.LicenseHolder.id == ReceivableProfile.member_id)
         .outerjoin(current_closure_sq, current_closure_sq.c.closure_id == models.LicenseHolder.closure_id)
-        .filter(ReceivableProfile.legacy_source_row.is_(None))
-        .filter(ReceivableProfile.first_charge_date > today_iso)
+        .filter(ReceivableProfile.first_charge_date == pending_date_iso)
         .filter(_receivable_active_sql(current_closure_sq))
-        .all()
+        .scalar()
+        or 0
     )
-    pending_members = sum(1 for p, m in pending_rows if _is_true_new_member(m, p))
 
     _schedule_background_sync(background_tasks)
     return {
@@ -2786,13 +2821,13 @@ def list_members(
         else:
             query = query.filter(latest_contact_sq.c.status == contact_status)
 
-    today_iso = datetime.now(KST).date().isoformat()
-    pending_post_filter = billing_status == "pending"
     if billing_status == "pending":
+        # '부과대기'는 오직 다음 달 1일부터 첫 부과되는 사람만.
+        # 2027-01-01 일반 관리비 대상은 2026-12에만 이 필터에 들어온다.
+        pending_date_iso = _pending_charge_date().isoformat()
         query = query.filter(
             _receivable_active_sql(current_closure_sq),
-            ReceivableProfile.legacy_source_row.is_(None),
-            ReceivableProfile.first_charge_date > today_iso,
+            ReceivableProfile.first_charge_date == pending_date_iso,
         )
     elif billing_status == "arrears":
         query = query.filter(balance_expr > 0)
@@ -2818,16 +2853,8 @@ def list_members(
         )
 
     ordered = query.order_by(balance_expr.desc(), models.LicenseHolder.name.asc(), models.LicenseHolder.vehicle_number.asc())
-    if pending_post_filter:
-        # 후보 자체가 소수라서 실제 등록일을 Python에서 정확히 파싱 후 페이지네이션한다.
-        candidate_rows = ordered.all()
-        candidate_rows = [r for r in candidate_rows if _is_true_new_member(r[0], r[1])]
-        total = len(candidate_rows)
-        start = (page - 1) * limit
-        rows = candidate_rows[start:start + limit]
-    else:
-        total = query.order_by(None).with_entities(func.count()).scalar() or 0
-        rows = ordered.offset((page - 1) * limit).limit(limit).all()
+    total = query.order_by(None).with_entities(func.count()).scalar() or 0
+    rows = ordered.offset((page - 1) * limit).limit(limit).all()
 
     items = [
         _serialize_member(
