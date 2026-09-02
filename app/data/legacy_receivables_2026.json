@@ -1,9 +1,9 @@
 {
   "year": 2026,
   "data_through_month": 8,
-  "source_filename": "_사용_2026미수금.xlsx",
-  "source_sha256": "b43ae11d1284e07308e120b262573eb0abe44668da1a24002d10f7e875e0bd80",
-  "snapshot_label": "2026-09-02 최신 1-8월 원장 + 합동납부 전수교정 V31",
+  "source_filename": "[사용]2026미수금.xlsx",
+  "source_sha256": "5ea04905d47e6ff16f0b0bd763695618590afa02a8b6852352bbd73e440f820c",
+  "snapshot_label": "2026-09-02 사용자 지정 최신 [사용]2026미수금.xlsx 1-8월 authoritative baseline V35",
   "count": 3268,
   "summary": {
     "arrears_members": 2650,
@@ -13,13 +13,6 @@
     "settled_members": 425,
     "net_balance": 322475000,
     "by_account": {
-      "관리비": {
-        "count": 2084,
-        "arrears_members": 1832,
-        "arrears_total": 205820000,
-        "prepaid_members": 68,
-        "prepaid_total": 930000
-      },
       "협회비": {
         "count": 1018,
         "arrears_members": 725,
@@ -33,6 +26,13 @@
         "arrears_total": 5490000,
         "prepaid_members": 50,
         "prepaid_total": 1497000
+      },
+      "관리비": {
+        "count": 2084,
+        "arrears_members": 1832,
+        "arrears_total": 205820000,
+        "prepaid_members": 68,
+        "prepaid_total": 930000
       }
     },
     "excluded_rows": 0
@@ -4355,7 +4355,7 @@
       "source_row": 46,
       "region": "춘천시",
       "account_type": "협회비",
-      "legacy_note": "장부입금 인정(통장 미대조)",
+      "legacy_note": "",
       "vehicle_number": "1282",
       "name": "한상록",
       "vehicle_count": 1,
@@ -4379,7 +4379,7 @@
           "month": 3,
           "billed_total": 10000,
           "payment": 10000,
-          "payment_date": "",
+          "payment_date": "미확정",
           "arrears": 0
         },
         {
@@ -9747,7 +9747,7 @@
       "account_type": "협회비",
       "legacy_note": "분할납부 올해 완납예정 7/22",
       "vehicle_number": "5340",
-      "name": "윤교종",
+      "name": "",
       "vehicle_count": 1,
       "carryover": 430000,
       "months": [
@@ -9837,7 +9837,8 @@
         }
       ],
       "last_month": 8,
-      "current_arrears": 510000
+      "current_arrears": 510000,
+      "match_warning": "성명 공란 — DB에서 지역+차량 끝4자리 유일후보일 때만 연결"
     },
     {
       "source_row": 102,
@@ -22299,7 +22300,7 @@
           "month": 1,
           "billed_total": 230000,
           "payment": null,
-          "payment_date": "",
+          "payment_date": "230000",
           "arrears": null
         },
         {
@@ -43653,7 +43654,7 @@
       "source_row": 447,
       "region": "강릉시",
       "account_type": "협회비",
-      "legacy_note": "이체 / 장부입금 인정(통장 미대조)",
+      "legacy_note": "이체",
       "vehicle_number": "80-5934",
       "name": "이병준",
       "vehicle_count": 1,
@@ -43677,7 +43678,7 @@
           "month": 3,
           "billed_total": 10000,
           "payment": 10000,
-          "payment_date": "",
+          "payment_date": "미확정",
           "arrears": 0
         },
         {
@@ -70603,7 +70604,7 @@
       "source_row": 722,
       "region": "횡성군",
       "account_type": "협회비",
-      "legacy_note": "7월부터 부과",
+      "legacy_note": "",
       "vehicle_number": "1318",
       "name": "박병섭",
       "vehicle_count": 1,
@@ -70648,7 +70649,7 @@
           "month": 6,
           "billed_total": null,
           "payment": null,
-          "payment_date": "",
+          "payment_date": "7월부터 부과",
           "arrears": null
         },
         {
@@ -77169,7 +77170,7 @@
       "source_row": 789,
       "region": "철원군",
       "account_type": "협회비",
-      "legacy_note": "장부입금 인정(통장 미대조)",
+      "legacy_note": "",
       "vehicle_number": "1014",
       "name": "김성호",
       "vehicle_count": 1,
@@ -77193,7 +77194,7 @@
           "month": 3,
           "billed_total": 20000,
           "payment": 10000,
-          "payment_date": "",
+          "payment_date": "미확정",
           "arrears": 10000
         },
         {
@@ -84421,7 +84422,7 @@
       "source_row": 863,
       "region": "춘천시",
       "account_type": "협회비",
-      "legacy_note": "당시 완납 / 장부입금 인정(통장 미대조)",
+      "legacy_note": "",
       "vehicle_number": "80배 1106",
       "name": "조명수",
       "vehicle_count": 1,
@@ -84452,7 +84453,7 @@
           "month": 4,
           "billed_total": 70000,
           "payment": 50000,
-          "payment_date": "",
+          "payment_date": "당시 완납",
           "arrears": 0
         },
         {
@@ -144692,7 +144693,7 @@
       "region": "춘천시",
       "account_type": "관리비",
       "legacy_note": "",
-      "vehicle_number": "80배 1683",
+      "vehicle_number": "0",
       "name": "박호철",
       "vehicle_count": 1,
       "carryover": 105000,
@@ -276991,7 +276992,7 @@
       "source_row": 2829,
       "region": "속초시",
       "account_type": "관리비",
-      "legacy_note": "장부입금 인정(통장 미대조)",
+      "legacy_note": "",
       "vehicle_number": "90배 1020",
       "name": "이창원",
       "vehicle_count": 1,
@@ -277015,7 +277016,7 @@
           "month": 3,
           "billed_total": 45000,
           "payment": 45000,
-          "payment_date": "",
+          "payment_date": "미확정",
           "arrears": 0
         },
         {
@@ -320304,21 +320305,17 @@
       "current_arrears": 30000
     }
   ],
-  "source_cutoff_at_kst": "2026-09-02T13:38:16.366067+09:00",
-  "cutover_rule": "legacy snapshot is authoritative through 2026-08-31; pre-snapshot DB financial postings do not alter legacy balances",
+  "source_cutoff_at_kst": "2026-09-02T13:06:00+09:00",
+  "cutover_rule": "authoritative source through 2026-08-31; program activity starts after baseline; pre-baseline auto charges are invalid for matched legacy members",
   "latest_bank_source_filename": "2026년통장_1-8월_거래자명우선_수정표시_최종.xlsx",
-  "reconciliation_rules_version": "2026-09-02-v32-user-confirmed-latest-source",
+  "reconciliation_rules_version": "2026-09-02-v35-all-member-authoritative-rebind",
   "reconciliation_notes": [
-    "2026미수금_1-8월_수식서식보존_최종의 확정 정정표를 baseline에 반영",
-    "한인교 합동3: 한인교2046/신명한2400/정의진8657/박달원8670 4명 분배 및 월별 5,000원 배분 유지",
-    "조철만 합동1: 110,000원을 12명(협회비 10명 + 70세 2명)에게 지정금액대로 분배",
-    "허장덕 합동2: 6~8월 각 70,000원 중 이주석85자2087 10,000원은 양도 후 가수금으로 회원 미수금에 강제 귀속하지 않음; 현재 회원 반영액은 월 60,000원",
-    "주신평: 7명(1518/1289/1251/1154/1150/1130/1841)에게 3개월분 30,000원씩, 1월/7월 각 210,000원 분배 확인",
-    "화물계약유지 115,000원: 이민행/한상근/김경수/김득회/양길호 각 23,000원 잡수입으로 미수금 회비에 반영하지 않음",
-    "박민우/HRH김남진/이정호/김영준/최돈규/김지호/진기준/유성만/김영호/박준형 확정 정정 반영",
-    "오병춘은 최신 정정표에서 정상 판정이므로 변경하지 않음",
-    "한상록1282/이병준80-5934/김성호1014/조명수80배1106/이창원90배1020 장부입금 인정값 유지",
-    "2026-09-02 재동기화([사용]2026미수금.xlsx): 박수연(1352) 6월 입금 60,000원 미차감 오류 정정(잔액 80,000→20,000), (주)진흥기업(981523) 8월 입금 10,000원 반영(잔액 10,000→0), 이인섭(841237) 8월 선납 5,000원 취소 반영(잔액 -5,000→0), 박호철(80배1683) 차량번호 데이터 정정, 윤교종(5340) 성명 공란 매칭 보강 반영. 위 5건 외 전체 3,268명은 기존 baseline과 동일(허장덕/조철만/한인교/주신평/화물계약유지/오병춘 등 기존 합동·정정 반영분 전수 확인 완료)",
-    "송영태(86-2028) 1월 입금날짜 셀이 원본 파일에 2529-09-18로 잘못 입력되어 있어(연도 오타로 추정) 화면표시만 공란 처리, 금액/잔액은 원본 그대로 유지 — 원본 파일 수정 권장"
+    "[사용]2026미수금.xlsx를 유일한 2026-08-31 기준원장으로 사용",
+    "원본 sheet1의 3269 데이터행 중 완전공란 1행만 제외하고 성명공란 1행(차량 5340)은 baseline에 보존; DB에서 지역+차량 끝4자리 유일후보일 때만 연결",
+    "1~8월 부과/입금/입금일/월말미수를 원본 셀의 저장값에서 직접 재생성; 표시폭 때문에 #######로 보이던 날짜는 실제 Excel serial 값으로 복원",
+    "지역명 뒤 인원표시 예: 양양군(13)는 지역 매칭용으로 양양군으로 정규화",
+    "9월 이후는 프로그램 자동부과/실제수납 영역으로 분리하고 baseline에는 8월말 미수만 저장",
+    "합동/가수금/수동정정은 별도 추정 재계산하지 않고 사용자가 지정한 최신 원장의 확정 셀값을 그대로 authoritative 값으로 사용",
+    "DB에서는 모든 회원 프로필을 다시 대조하여 legacy source_row를 1:1 재부착하고 matched legacy의 2026-01~08 auto charge를 삭제한 뒤 현재월 정상부과만 생성"
   ]
 }

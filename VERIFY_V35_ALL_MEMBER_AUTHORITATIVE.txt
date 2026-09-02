@@ -1,0 +1,28 @@
+V35 전체회원 authoritative baseline 검증보고
+============================================================================
+[01] 원본 파일 SHA 일치: True / 5ea04905d47e6ff16f0b0bd763695618590afa02a8b6852352bbd73e440f820c
+[02] 원본 유효 baseline 행: 3,268명 (성명공란 5340 포함), 완전공란 1315만 제외
+[03] JSON 행수/중복: 3268행 / source_row 중복 0건
+[04] 원본↔JSON 직접 대조 셀: 124,184개 / 불일치 0건
+[05] 8월말 요약: 미수 2,650명 327,278,000원 / 선납 193명 4,803,000원 / 완납 425명
+[06] 한인교 합동3 4명: 1~8월 32개 월행 부과5,000/입금5,000/잔액0 PASS
+[07] 한인교 2046: 8월말 baseline 0원 PASS; 프로그램 9월 정상부과는 5,000원 1건만 허용
+[08] 주신평 7명: 1월/7월 각 210,000원 분배 + 8월말 각 10,000원 PASS
+[09] 허장덕 합동2: 6~8월 회원귀속 각 60,000원 PASS; 가수금 10,000원은 baseline 회원강제귀속 없음
+[10] 조철만 합동1: 6~8월 각 110,000원 지정분배 PASS
+[11] 정우영 85-2022: 8월말 50,000원 PASS
+[12] payment_date ####### 잔존 0건 / 지역명 (숫자) suffix 잔존 0건
+[13] 성명공란 source_row101/춘천/5340/510,000원 baseline 보존 + 런타임 유일 지역+끝4자리 매칭만 허용
+[14] V35 런타임: DB 누락 profile 선생성 → 전체 profile authoritative 1:1 대조 → source_row 중복귀속 제거
+[15] matched legacy의 2026-01~08 source=auto 오부과 삭제 후 현재월 정상부과만 재생성
+[16] 2026 비배 일반관리비 금지 / 2027-01 시작 규칙 코드 유지
+[17] verify API에 authoritative reconcile 결과와 duplicate source_row 검사 추가
+[18] Python AST 문법검사 PASS
+
+중요: Railway PostgreSQL의 실제 약 3.8천명 회원마스터는 이 환경에서 직접 읽을 수 없으므로,
+배포 시 V35 코드가 운영 DB 전체 profile을 직접 순회하고 marker에 total_profiles_checked / matched_profiles / unmatched_seed_count를 기록한다.
+운영 DB가 3,880명이면 total_profiles_checked가 그 실제 DB profile 수로 기록된다.
+
+SHA-256
+- JSON: 0638b301e1e1158a9b0c0f0275125df52e4ee1a90c5fb0df5cb9bd65865dc97e
+- router: 237378effa253a3ba032a0c8da95df8b8a0d4957c236b94709187bac383988d4

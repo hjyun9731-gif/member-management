@@ -75,6 +75,7 @@ FEE_REPAIR_KEY = "receivables_fixed_monthly_fee_repair_20260831_v1"
 GENERAL_MANAGEMENT_START_DATE = date(2027, 1, 1)
 GENERAL_MANAGEMENT_START_KEY = "2027-01"
 MANAGEMENT_2027_REPAIR_KEY = "receivables_general_management_2027_start_repair_20260901_v1"
+AUTHORITATIVE_BASELINE_RECONCILE_KEY = "receivables_authoritative_baseline_reconcile_20260902_v35_all_members"
 
 # receivables 전용 lazy schema guard.
 # Railway healthcheck를 빠르게 통과시키기 위해 main.py의 전체 DB 유지보수는
@@ -157,6 +158,13 @@ def _norm_vehicle_key(v) -> str:
     s = re.sub(r"^(강원특별자치도|강원도|강원)", "", s)
     s = re.sub(r"호$", "", s)
     return s
+
+
+def _region_key(v) -> str:
+    """지역명 뒤 집계표시(예: 양양군(13))를 제거한 안전 비교키."""
+    raw = str(v or "").strip()
+    raw = re.sub(r"([시군])\s*\(\s*\d+\s*\)$", r"\1", raw)
+    return _norm(raw)
 
 
 def _vehicle_tail4(v) -> str:
@@ -320,6 +328,7 @@ _billing_ready_month = None
 _billing_month_lock = threading.Lock()
 _monthly_scheduler_started = False
 _monthly_scheduler_lock = threading.Lock()
+_authoritative_reconcile_ready_fp = None
 
 
 def _load_seed():
@@ -341,7 +350,7 @@ def _load_seed():
                 by_source[int(sr)] = r
             except Exception:
                 pass
-        nv, nn, nr = _norm(r.get("vehicle_number")), _norm(r.get("name")), _norm(r.get("region"))
+        nv, nn, nr = _norm(r.get("vehicle_number")), _norm(r.get("name")), _region_key(r.get("region"))
         by_combo[(nv, nn)] = r
         if nv:
             by_vehicle.setdefault(nv, []).append(r)
@@ -362,6 +371,32 @@ def _load_seed():
     return rows
 
 
+
+def _legacy_bundle_fingerprint(payload: Optional[dict] = None) -> str:
+    """번들 JSON의 실제 원장내용 지문.
+
+    source_sha256은 원본 Excel 파일의 SHA라서, 같은 Excel을 기준으로 JSON만
+    교정한 배포(V29/V31 등)를 구분하지 못한다. DB baseline 갱신 여부는
+    실제 번들 rows + 정합성 버전을 해시한 이 지문으로 판정한다.
+    """
+    try:
+        if payload is None:
+            if not DATA_FILE.exists():
+                return ""
+            payload = json.loads(DATA_FILE.read_text(encoding="utf-8"))
+        canonical = {
+            "year": payload.get("year"),
+            "data_through_month": payload.get("data_through_month"),
+            "reconciliation_rules_version": payload.get("reconciliation_rules_version"),
+            "snapshot_label": payload.get("snapshot_label"),
+            "rows": payload.get("rows", []) or [],
+        }
+        raw = json.dumps(canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    except Exception:
+        return ""
+
+
 def _match_seed(member):
     _load_seed()
     # Legacy 자동매칭 우선순위:
@@ -373,7 +408,7 @@ def _match_seed(member):
     #
     # 차량번호만 같고 성명이 전혀 다른 경우(양도/소유자 변경)는 절대 자동연결하지 않는다.
     nv, nn = _norm(member.vehicle_number), _norm(member.name)
-    nr = _norm(getattr(member, "region", ""))
+    nr = _region_key(getattr(member, "region", ""))
     if not nn:
         return None
 
@@ -410,6 +445,10 @@ def _match_seed(member):
             return name_matches[0]
 
     nr_candidates = _seed_by_name_region.get((nn, nr), [])
+    # 차량번호가 이후 변경되었거나 원장에는 끝4자리만 있는 기존회원도
+    # 성명+지역 조합이 원장에서 단 1명일 때만 마지막 안전 fallback으로 연결한다.
+    if len(nr_candidates) == 1:
+        return nr_candidates[0]
     blank_vehicle_candidates = [r for r in nr_candidates if not _norm(r.get("vehicle_number"))]
     if len(blank_vehicle_candidates) == 1:
         return blank_vehicle_candidates[0]
@@ -720,6 +759,7 @@ def _apply_legacy_baseline_once(db: Session) -> int:
             {
                 "source_filename": payload.get("source_filename", ""),
                 "source_sha256": payload.get("source_sha256", ""),
+                "bundle_fingerprint": _legacy_bundle_fingerprint(payload),
                 "source_rows": len(payload.get("rows", []) or []),
                 "matched_profiles": imported,
                 "cutover_through": LEGACY_DATA_THROUGH_KEY,
@@ -743,11 +783,11 @@ def _apply_legacy_baseline_once(db: Session) -> int:
 
 
 def _refresh_legacy_baseline_if_seed_changed(db: Session, marker) -> int:
-    """번들된 최신 기준원장이 기존 DB baseline과 다를 때 **한 번만** 갱신한다.
+    """번들된 기준원장의 **실제 내용**이 DB baseline과 다를 때 갱신한다.
 
-    수납/선납/연락은 별도 테이블이므로 절대 삭제하지 않는다. 이 함수가 바꾸는 것은
-    2026-08 기준 snapshot(legacy_balance/legacy_months/계정/대수)뿐이다.
-    marker에 최신 source_sha256을 기록하므로 같은 파일로 재배포해도 다시 덮어쓰지 않는다.
+    과거에는 원본 Excel의 source_sha256만 비교해서, 같은 Excel을 바탕으로 JSON의
+    합동납부/입금배분을 교정해도 DB가 갱신되지 않는 문제가 있었다. 이제 rows 자체의
+    bundle_fingerprint를 비교한다. 수납/선납/연락 테이블은 절대 삭제하지 않는다.
     """
     if marker is None or not DATA_FILE.exists():
         return 0
@@ -755,15 +795,20 @@ def _refresh_legacy_baseline_if_seed_changed(db: Session, marker) -> int:
         payload = json.loads(DATA_FILE.read_text(encoding="utf-8"))
     except Exception:
         return 0
+
     current_sha = str(payload.get("source_sha256") or "").strip()
-    if not current_sha:
+    current_fp = _legacy_bundle_fingerprint(payload)
+    if not current_fp:
         return 0
+
     try:
         info = json.loads(marker.value or "{}") if marker.value else {}
     except Exception:
         info = {}
-    applied_sha = str(info.get("source_sha256") or "").strip()
-    if applied_sha == current_sha:
+    applied_fp = str(info.get("bundle_fingerprint") or "").strip()
+
+    # V31 이하 marker에는 bundle_fingerprint가 없으므로 V32 배포 시 반드시 1회 재반영된다.
+    if applied_fp == current_fp:
         return 0
 
     _load_seed()
@@ -774,7 +819,9 @@ def _refresh_legacy_baseline_if_seed_changed(db: Session, marker) -> int:
     )
     refreshed = 0
     for profile, member in rows:
-        seed = _seed_for_profile(profile) or _match_seed(member)
+        # 현재 회원정보로 안전하게 재매칭하는 것을 우선한다. 이름/차량이 이후 바뀌어
+        # 현재 매칭이 불가능한 기존회원만 과거 source_row를 fallback으로 사용한다.
+        seed = _match_seed(member) or _seed_for_profile(profile)
         if not seed:
             continue
         profile.legacy_source_row = int(seed.get("source_row")) if seed.get("source_row") is not None else None
@@ -786,13 +833,13 @@ def _refresh_legacy_baseline_if_seed_changed(db: Session, marker) -> int:
             account = seed.get("account_type") or _infer_account(member)
             profile.account_type = account
             profile.unit_fee = ACCOUNT_FEES.get(account, 5000)
-        # 최신 baseline 재반영 때도 2027 일반 관리비 규칙을 되돌리지 않는다.
         profile.first_charge_date = _legacy_next_charge_date(member, profile.account_type).isoformat()
         refreshed += 1
 
     info.update({
         "source_filename": payload.get("source_filename", ""),
         "source_sha256": current_sha,
+        "bundle_fingerprint": current_fp,
         "source_rows": len(payload.get("rows", []) or []),
         "matched_profiles": refreshed,
         "cutover_through": LEGACY_DATA_THROUGH_KEY,
@@ -800,12 +847,11 @@ def _refresh_legacy_baseline_if_seed_changed(db: Session, marker) -> int:
         "ledger_mode": LEDGER_MODE,
         "excel_reupload_required": False,
         "baseline_refreshed_at": datetime.now(KST).isoformat(),
-        "baseline_refresh_reason": "bundled_final_snapshot_changed",
+        "baseline_refresh_reason": "bundled_snapshot_content_changed_v32",
     })
     marker.value = json.dumps(info, ensure_ascii=False)
     db.commit()
     return refreshed
-
 
 def _repair_non_receivable_import_payments_once(db: Session) -> int:
     """과거 버그로 일괄수납된 자격증명/발급비 등 비미수금 거래를 1회 안전 취소한다.
@@ -936,6 +982,344 @@ def _repair_general_management_2027_rule_once(db: Session) -> dict:
     return {"profiles_fixed": profiles_fixed, "charges_removed": charges_removed}
 
 
+
+def _seed_member_match_score(member, seed, profile=None) -> int:
+    """authoritative baseline 1:1 연결 우선순위 점수.
+
+    점수는 자동연결을 넓히기 위한 것이 아니라, 동일 seed가 여러 DB 회원 후보와
+    겹쳤을 때 가장 강한 신원근거를 하나만 선택하기 위해 사용한다.
+    """
+    if member is None or not seed:
+        return -1
+    mn, sn = _norm(getattr(member, "name", "")), _norm(seed.get("name"))
+    if not mn or not sn:
+        return -1
+    name_exact = mn == sn
+    name_safe = name_exact or _names_safely_equivalent(getattr(member, "name", ""), seed.get("name"))
+    if not name_safe:
+        return -1
+
+    mv = _norm_vehicle_key(getattr(member, "vehicle_number", ""))
+    sv = _norm_vehicle_key(seed.get("vehicle_number"))
+    mt = _vehicle_tail4(getattr(member, "vehicle_number", ""))
+    st = _vehicle_tail4(seed.get("vehicle_number"))
+    mr = _region_key(getattr(member, "region", ""))
+    sr = _region_key(seed.get("region"))
+
+    score = 0
+    if name_exact:
+        score += 50
+    else:
+        score += 35
+    if mv and sv and mv == sv:
+        score += 60
+    elif mt and st and mt == st:
+        score += 50
+    if mr and sr and mr == sr:
+        score += 20
+    if profile is not None:
+        try:
+            if int(getattr(profile, "legacy_source_row", 0) or 0) == int(seed.get("source_row") or 0):
+                score += 15
+        except Exception:
+            pass
+        if str(getattr(profile, "account_type", "") or "") == str(seed.get("account_type") or ""):
+            score += 3
+    return score
+
+
+def _build_authoritative_assignments(db: Session):
+    """현재 DB 전체 프로필과 authoritative seed 전체를 1:1로 연결한다.
+
+    반환값 assignments는 member_id -> (profile, member, seed, score, reason)이다.
+    하나의 source_row를 둘 이상의 회원에게 절대 붙이지 않는다.
+    """
+    _load_seed()
+    pairs = (
+        db.query(ReceivableProfile, models.LicenseHolder)
+        .join(models.LicenseHolder, models.LicenseHolder.id == ReceivableProfile.member_id)
+        .all()
+    )
+    pair_by_member = {int(member.id): (profile, member) for profile, member in pairs}
+
+    proposals = []
+    for profile, member in pairs:
+        seen = set()
+        primary = _match_seed(member)
+        existing = _seed_for_profile(profile)
+        for seed, reason in ((primary, "identity"), (existing, "existing_source")):
+            if not seed:
+                continue
+            try:
+                sr = int(seed.get("source_row"))
+            except Exception:
+                continue
+            if sr in seen:
+                continue
+            seen.add(sr)
+            score = _seed_member_match_score(member, seed, profile)
+            # existing_source는 회원정보가 이후 바뀐 폐업/양도 이력도 보존해야 하므로
+            # 현재 신원점수가 약해도 source_row 자체가 유효하면 후순위 후보로 남긴다.
+            if score < 0 and reason == "existing_source":
+                score = 10
+            if score >= 0:
+                proposals.append((score, 1 if reason == "identity" else 0, int(member.id), sr, reason, seed))
+
+    # 강한 후보부터 member와 seed를 동시에 1회만 소비한다.
+    proposals.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    assignments = {}
+    used_sources = set()
+    for score, identity_first, member_id, sr, reason, seed in proposals:
+        if member_id in assignments or sr in used_sources:
+            continue
+        profile, member = pair_by_member[member_id]
+        assignments[member_id] = (profile, member, seed, score, reason)
+        used_sources.add(sr)
+
+    # 1차 매칭 후 남은 seed는 성명+지역이 양쪽에서 모두 유일한 경우에만 복구한다.
+    unassigned_pairs = [(p, m) for p, m in pairs if int(m.id) not in assignments]
+    by_name_region = {}
+    by_name_global = {}
+    for profile, member in unassigned_pairs:
+        nn = _norm(getattr(member, "name", "")); nr = _region_key(getattr(member, "region", ""))
+        if nn:
+            by_name_global.setdefault(nn, []).append((profile, member))
+        if nn and nr:
+            by_name_region.setdefault((nn, nr), []).append((profile, member))
+
+    seed_name_region_counts = {}
+    seed_name_counts = {}
+    for seed in (_seed_cache or []):
+        try:
+            sr = int(seed.get("source_row"))
+        except Exception:
+            continue
+        if sr in used_sources:
+            continue
+        nn = _norm(seed.get("name")); nr = _region_key(seed.get("region"))
+        if nn:
+            seed_name_counts[nn] = seed_name_counts.get(nn, 0) + 1
+        if nn and nr:
+            seed_name_region_counts[(nn, nr)] = seed_name_region_counts.get((nn, nr), 0) + 1
+
+    # exact 성명+지역이 DB와 seed 모두 1개뿐인 경우
+    for seed in (_seed_cache or []):
+        try:
+            sr = int(seed.get("source_row"))
+        except Exception:
+            continue
+        if sr in used_sources:
+            continue
+        nn = _norm(seed.get("name")); nr = _region_key(seed.get("region"))
+        candidates = by_name_region.get((nn, nr), []) if nn and nr else []
+        if len(candidates) == 1 and seed_name_region_counts.get((nn, nr), 0) == 1:
+            profile, member = candidates[0]
+            mid = int(member.id)
+            if mid in assignments:
+                continue
+            assignments[mid] = (profile, member, seed, 70, "unique_name_region")
+            used_sources.add(sr)
+
+    # 지역이 DB에서 변경/누락된 경우: exact 성명이 전체 DB와 seed에서 모두 1명일 때만 최후 fallback.
+    # 동명이인이 하나라도 있으면 절대 자동연결하지 않는다.
+    remaining_pairs = [(p, m) for p, m in pairs if int(m.id) not in assignments]
+    by_name_global = {}
+    for profile, member in remaining_pairs:
+        nn = _norm(getattr(member, "name", ""))
+        if nn:
+            by_name_global.setdefault(nn, []).append((profile, member))
+    for seed in (_seed_cache or []):
+        try:
+            sr = int(seed.get("source_row"))
+        except Exception:
+            continue
+        if sr in used_sources:
+            continue
+        nn = _norm(seed.get("name"))
+        candidates = by_name_global.get(nn, []) if nn else []
+        if len(candidates) == 1 and seed_name_counts.get(nn, 0) == 1:
+            profile, member = candidates[0]
+            mid = int(member.id)
+            if mid in assignments:
+                continue
+            assignments[mid] = (profile, member, seed, 55, "unique_name_global")
+            used_sources.add(sr)
+
+    # 최신 원장에 성명이 공란인 행도 삭제하지 않는다.
+    # 지역+차량 끝4자리가 DB 미배정회원 중 정확히 1명일 때만 연결한다.
+    # (현재 최신원장 source_row 101 / 춘천시 / 5340 같은 케이스)
+    remaining_pairs = [(p, m) for p, m in pairs if int(m.id) not in assignments]
+    by_region_tail = {}
+    for profile, member in remaining_pairs:
+        rk = _region_key(getattr(member, "region", ""))
+        tail = _vehicle_tail4(getattr(member, "vehicle_number", ""))
+        if rk and tail:
+            by_region_tail.setdefault((rk, tail), []).append((profile, member))
+    for seed in (_seed_cache or []):
+        try:
+            sr = int(seed.get("source_row"))
+        except Exception:
+            continue
+        if sr in used_sources or _norm(seed.get("name")):
+            continue
+        rk = _region_key(seed.get("region")); tail = _vehicle_tail4(seed.get("vehicle_number"))
+        candidates = by_region_tail.get((rk, tail), []) if rk and tail else []
+        if len(candidates) > 1:
+            acct = str(seed.get("account_type") or "")
+            candidates = [(p, m) for p, m in candidates if str(getattr(p, "account_type", "") or "") == acct]
+        if len(candidates) == 1:
+            profile, member = candidates[0]
+            mid = int(member.id)
+            if mid not in assignments:
+                assignments[mid] = (profile, member, seed, 45, "blank_name_unique_region_tail")
+                used_sources.add(sr)
+
+    all_sources = {int(r.get("source_row")) for r in (_seed_cache or []) if r.get("source_row") is not None}
+    unmatched_sources = sorted(all_sources - used_sources)
+    return assignments, unmatched_sources, len(pairs)
+
+
+def _reconcile_authoritative_legacy_profiles_once(db: Session) -> dict:
+    """V35: 최신 [사용] 원장을 전체 DB 회원에 1:1 재부착한다.
+
+    - marker/fingerprint가 과거에 남아 있어도 번들 지문이 바뀌면 다시 실행한다.
+    - authoritative seed 전체를 DB 전체 프로필과 1:1 매칭하며 동일 source_row 중복귀속을 금지한다.
+    - matched legacy 회원의 2026-01~08 source='auto' 오부과를 제거한다.
+    - 실제 수납/수동조정/연락/폐업 데이터는 삭제하지 않는다.
+    """
+    global _authoritative_reconcile_ready_fp
+    payload = json.loads(DATA_FILE.read_text(encoding="utf-8")) if DATA_FILE.exists() else {}
+    current_fp = _legacy_bundle_fingerprint(payload)
+    seed_count = len(payload.get("rows", []) or [])
+    if current_fp and _authoritative_reconcile_ready_fp == current_fp:
+        return {"matched": 0, "changed": 0, "charges_removed": 0, "charges_created": 0, "skipped": "process_ready"}
+
+    marker = db.query(ReceivableSystemState).filter(
+        ReceivableSystemState.key == AUTHORITATIVE_BASELINE_RECONCILE_KEY
+    ).first()
+    if marker is not None:
+        try:
+            info = json.loads(marker.value or "{}")
+        except Exception:
+            info = {}
+        if (
+            str(info.get("bundle_fingerprint") or "") == current_fp
+            and int(info.get("matched_profiles") or 0) >= seed_count
+            and int(info.get("unmatched_seed_count") or 0) == 0
+        ):
+            _authoritative_reconcile_ready_fp = current_fp
+            return {"matched": 0, "changed": 0, "charges_removed": 0, "charges_created": 0, "skipped": "db_verified"}
+
+    assignments, unmatched_sources, total_profiles = _build_authoritative_assignments(db)
+    matched = 0
+    changed = 0
+    assigned_source_to_member = {}
+    for member_id, (profile, member, seed, score, reason) in assignments.items():
+        matched += 1
+        sr = int(seed.get("source_row")) if seed.get("source_row") is not None else None
+        assigned_source_to_member[sr] = member_id
+        before = (
+            getattr(profile, "legacy_source_row", None),
+            int(getattr(profile, "legacy_balance", 0) or 0),
+            json.dumps(getattr(profile, "legacy_months", None) or [], ensure_ascii=False, sort_keys=True),
+            str(getattr(profile, "account_type", "") or ""),
+            str(getattr(profile, "first_charge_date", "") or ""),
+        )
+        profile.legacy_source_row = sr
+        profile.legacy_balance = int(seed.get("current_arrears") or 0)
+        profile.legacy_months = seed.get("months") or []
+        profile.legacy_note = seed.get("legacy_note") or None
+        profile.vehicle_count = 1
+        if int(getattr(profile, "account_manual_override", 0) or 0) != 1:
+            account = seed.get("account_type") or _infer_account(member)
+            profile.account_type = account
+            profile.unit_fee = ACCOUNT_FEES.get(account, 5000)
+        profile.first_charge_date = _legacy_next_charge_date(member, profile.account_type).isoformat()
+        after = (
+            getattr(profile, "legacy_source_row", None),
+            int(getattr(profile, "legacy_balance", 0) or 0),
+            json.dumps(getattr(profile, "legacy_months", None) or [], ensure_ascii=False, sort_keys=True),
+            str(getattr(profile, "account_type", "") or ""),
+            str(getattr(profile, "first_charge_date", "") or ""),
+        )
+        if before != after:
+            changed += 1
+
+    # 같은 source_row가 과거 버그로 둘 이상의 profile에 붙어 있으면 authoritative assignment 외 중복만 제거.
+    duplicate_profiles_cleared = 0
+    if assigned_source_to_member:
+        all_profiles = db.query(ReceivableProfile).filter(ReceivableProfile.legacy_source_row.isnot(None)).all()
+        for profile in all_profiles:
+            try:
+                sr = int(profile.legacy_source_row)
+            except Exception:
+                continue
+            owner = assigned_source_to_member.get(sr)
+            if owner is None or int(profile.member_id) == int(owner):
+                continue
+            profile.legacy_source_row = None
+            profile.legacy_balance = 0
+            profile.legacy_months = []
+            profile.legacy_note = None
+            duplicate_profiles_cleared += 1
+
+    db.commit()
+    charges_removed = _repair_invalid_auto_charges(db)
+    charges_created = _sync_charges(db)
+
+    marker_payload = {
+        "source_filename": payload.get("source_filename", ""),
+        "source_sha256": payload.get("source_sha256", ""),
+        "bundle_fingerprint": current_fp,
+        "seed_rows": seed_count,
+        "total_profiles_checked": total_profiles,
+        "matched_profiles": matched,
+        "nonlegacy_profiles_after_reconcile": max(0, total_profiles - matched),
+        "unmatched_seed_count": len(unmatched_sources),
+        "unmatched_seed_rows_sample": unmatched_sources[:100],
+        "changed_profiles": changed,
+        "duplicate_profiles_cleared": duplicate_profiles_cleared,
+        "charges_removed": charges_removed,
+        "charges_created": charges_created,
+        "rule": "[사용]2026미수금.xlsx authoritative 2026-08 baseline; one source_row per member; remove pre-cutover auto charges",
+        "applied_at": datetime.now(KST).isoformat(),
+    }
+    if marker is None:
+        db.add(ReceivableSystemState(key=AUTHORITATIVE_BASELINE_RECONCILE_KEY, value=json.dumps(marker_payload, ensure_ascii=False)))
+    else:
+        marker.value = json.dumps(marker_payload, ensure_ascii=False)
+
+    # 기존 baseline marker도 같은 authoritative 지문으로 즉시 갱신한다.
+    # 이렇게 해야 바로 뒤의 구버전 refresh 루틴이 다시 member-centric 방식으로 덮어쓰지 않는다.
+    baseline_marker = _baseline_marker(db)
+    if baseline_marker is not None:
+        try:
+            baseline_info = json.loads(baseline_marker.value or "{}") if baseline_marker.value else {}
+        except Exception:
+            baseline_info = {}
+        baseline_info.update({
+            "source_filename": payload.get("source_filename", ""),
+            "source_sha256": payload.get("source_sha256", ""),
+            "bundle_fingerprint": current_fp,
+            "source_rows": seed_count,
+            "matched_profiles": matched,
+            "authoritative_reconcile_key": AUTHORITATIVE_BASELINE_RECONCILE_KEY,
+            "baseline_refreshed_at": datetime.now(KST).isoformat(),
+            "baseline_refresh_reason": "v35_all_member_authoritative_rebind",
+        })
+        baseline_marker.value = json.dumps(baseline_info, ensure_ascii=False)
+    db.commit()
+    _authoritative_reconcile_ready_fp = current_fp
+    return {
+        "matched": matched,
+        "changed": changed,
+        "unmatched_seed_count": len(unmatched_sources),
+        "duplicate_profiles_cleared": duplicate_profiles_cleared,
+        "charges_removed": charges_removed,
+        "charges_created": charges_created,
+    }
+
+
 def _ensure_db_ledger_ready(db: Session) -> int:
     """DB 공식원장 준비.
 
@@ -945,18 +1329,29 @@ def _ensure_db_ledger_ready(db: Session) -> int:
        자동 복구한다. 기존 payments/contact_logs는 삭제하거나 덮어쓰지 않는다.
     """
     _ensure_receivables_schema_ready()
+    # DB 전체 회원(현재 운영화면의 약 3.8천명)을 먼저 프로필로 연결한 뒤 authoritative 전수대조한다.
+    # 이미 존재하는 프로필은 건드리지 않고 누락 프로필만 생성한다.
+    _sync_profiles_full(db, allow_legacy_seed=True)
     # 기존 DB에 잘못 반영된 자격증명/발급비 일괄수납은 증거가 확실한 건만 1회 취소한다.
     _repair_non_receivable_import_payments_once(db)
     # 협회비 10,000 / 관리비·70세 5,000 외의 잘못된 자동부과도 1회 정리한다.
     _repair_fixed_monthly_fees_once(db)
     # 2026 비택배 일반 관리비 오부과를 제거하고 2027-01 시작 규칙을 고정한다.
     _repair_general_management_2027_rule_once(db)
+    # V35: 최신 [사용] 원장을 전체 프로필에 1:1 재대조한다.
+    # 한인교처럼 legacy 연결 누락 + 1~8월 auto 누적 상태를 source_row 단위로 제거한다.
+    _reconcile_authoritative_legacy_profiles_once(db)
 
     marker = _baseline_marker(db)
     if marker is not None:
         # 최종 기준원장 파일이 바뀐 경우에만 baseline snapshot을 1회 갱신한다.
         # 프로그램에서 입력한 payments/contact_logs는 그대로 보존된다.
-        _refresh_legacy_baseline_if_seed_changed(db, marker)
+        refreshed = _refresh_legacy_baseline_if_seed_changed(db, marker)
+        if refreshed:
+            # 잘못된 nonlegacy 상태에서 생성된 1~8월 auto charge를 baseline 재부착 직후 제거한다.
+            # 이후 현재월 정상부과만 다시 보강한다(중복은 UNIQUE/member-month로 차단).
+            _repair_invalid_auto_charges(db)
+            _sync_charges(db)
         profile_count = db.query(func.count(ReceivableProfile.id)).scalar() or 0
         legacy_count = (
             db.query(func.count(ReceivableProfile.id))
@@ -1381,7 +1776,7 @@ def _ensure_current_month_billing(db: Session) -> int:
 def _sync_all(db: Session):
     """운영 DB 동기화. Excel/JSON 재반영은 절대 하지 않는다."""
     baseline_imported = _ensure_db_ledger_ready(db)
-    p = _sync_profiles_full(db, allow_legacy_seed=False)
+    p = _sync_profiles_full(db, allow_legacy_seed=True)
     r = _repair_account_types(db)
     fee_fixed = _repair_profile_fee_rules(db)
     removed = _repair_invalid_auto_charges(db)
@@ -1423,7 +1818,7 @@ def _monthly_billing_worker():
             _ensure_receivables_schema_ready()
             _ensure_db_ledger_ready(db)
             # 프로필이 없는 신규회원만 빠르게 연결하고, 비legacy 회원의 계정/첫부과 기준일만 정합성 보정한다.
-            created = _sync_missing_profiles_fast(db, limit=500, allow_legacy_seed=False)
+            created = _sync_missing_profiles_fast(db, limit=500, allow_legacy_seed=True)
             repaired = _repair_account_types(db)
             _ensure_current_month_billing(db)
             if created or repaired:
@@ -1802,12 +2197,28 @@ def verify_legacy_import(
         except Exception:
             marker_value = {"raw": marker.value}
 
+    auth_marker = db.query(ReceivableSystemState).filter(
+        ReceivableSystemState.key == AUTHORITATIVE_BASELINE_RECONCILE_KEY
+    ).first()
+    try:
+        auth_value = json.loads(auth_marker.value or "{}") if auth_marker else {}
+    except Exception:
+        auth_value = {"raw": auth_marker.value} if auth_marker else {}
+    duplicate_source_rows = (
+        db.query(ReceivableProfile.legacy_source_row, func.count(ReceivableProfile.id))
+        .filter(ReceivableProfile.legacy_source_row.isnot(None))
+        .group_by(ReceivableProfile.legacy_source_row)
+        .having(func.count(ReceivableProfile.id) > 1)
+        .all()
+    )
+
     return {
         "system": {
             "ledger_mode": LEDGER_MODE,
             "excel_reupload_required": False,
             "baseline_applied": bool(marker),
             "baseline": marker_value,
+            "authoritative_reconcile": auth_value,
         },
         "legacy_json": {
             "source_filename": payload.get("source_filename", ""),
@@ -1828,6 +2239,8 @@ def verify_legacy_import(
             "legacy_net_balance_matches": seed_stats["net_balance"] == db_stats["net_balance"],
             "legacy_arrears_total_matches": seed_stats["arrears_total"] == db_stats["arrears_total"],
             "legacy_prepaid_total_matches": seed_stats["prepaid_total"] == db_stats["prepaid_total"],
+            "duplicate_legacy_source_rows": [int(sr) for sr, _cnt in duplicate_source_rows if sr is not None],
+            "duplicate_legacy_source_row_count": len(duplicate_source_rows),
         },
     }
 
@@ -2749,7 +3162,7 @@ def list_members(
 ):
     # 최신 Excel은 최초 1회만 DB로 이관된다. 이후 신규회원만 빠르게 연결한다.
     _ensure_db_ledger_ready(db)
-    created_profiles = _sync_missing_profiles_fast(db, limit=100, allow_legacy_seed=False)
+    created_profiles = _sync_missing_profiles_fast(db, limit=100, allow_legacy_seed=True)
     repaired_profiles = _repair_account_types(db)
     _ensure_current_month_billing(db)
     if created_profiles or repaired_profiles:
@@ -3765,6 +4178,31 @@ def member_detail(
     profile = _ensure_profile_for_member(db, member_id)
     if not profile:
         raise HTTPException(404, "미수금 프로필을 찾을 수 없습니다.")
+
+    # V34 이중 안전장치: 상세조회 시에도 최신 seed가 존재하면 DB snapshot 누락을 즉시 복구한다.
+    # 운영 DB marker가 남아 있더라도 특정 회원의 legacy_months가 비어 있는 상태를 허용하지 않는다.
+    seed = _match_seed(member) or _seed_for_profile(profile)
+    if seed:
+        expected_source_row = int(seed.get("source_row")) if seed.get("source_row") is not None else None
+        expected_balance = int(seed.get("current_arrears") or 0)
+        expected_months = seed.get("months") or []
+        if (
+            profile.legacy_source_row != expected_source_row
+            or int(profile.legacy_balance or 0) != expected_balance
+            or (profile.legacy_months or []) != expected_months
+        ):
+            profile.legacy_source_row = expected_source_row
+            profile.legacy_balance = expected_balance
+            profile.legacy_months = expected_months
+            profile.legacy_note = seed.get("legacy_note") or None
+            if int(getattr(profile, "account_manual_override", 0) or 0) != 1:
+                account = seed.get("account_type") or _infer_account(member)
+                profile.account_type = account
+                profile.unit_fee = ACCOUNT_FEES.get(account, 5000)
+            profile.first_charge_date = _legacy_next_charge_date(member, profile.account_type).isoformat()
+            db.commit()
+            _repair_invalid_auto_charges(db)
+            _sync_charges(db)
 
     # 현재 폐업상태와 과거 폐업현황 조회 문맥을 분리한다.
     # active 회원에게 과거 closure 이력이 있어도 현재 폐업으로 취급하지 않는다.
