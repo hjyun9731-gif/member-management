@@ -75,4 +75,5 @@ def _ensure_closure_management_columns() -> None:
             pass
 
 
-_ensure_closure_management_columns()
+
+# _ensure_closure_management_columns()
