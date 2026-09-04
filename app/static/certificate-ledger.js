@@ -111,7 +111,13 @@
       if (!document.documentElement.contains(target) || currentTarget !== target) return;
       const counts = stats.counts || {};
       target.innerHTML = `
-        <div class="cl-head"><div class="cl-help">신청서류 접수 → 예정자 입력 → 발급번호 확인 → 자격증명 생성·발급완료 → 이후 시청 인가일자 반영</div></div>
+        <div class="cl-head" style="display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap">
+          <div class="cl-help">신청서류 접수 → 예정자 입력 → 발급번호 확인 → 자격증명 생성·발급완료 → 이후 시청 인가일자 반영</div>
+          <div style="display:flex;gap:6px">
+            <button class="btn bo btn-sm" id="clRefreshBtn">새로고침</button>
+            <button class="btn bp btn-sm" id="clReconcileBtn">대장 정리</button>
+          </div>
+        </div>
         <div class="cl-stats">
           <div class="cl-stat"><span>누적 자격증명번호</span><strong>${esc(stats.last_certificate_number || stats.total || '-')}</strong></div>
           <div class="cl-stat cl-pending"><span>생성대기</span><strong>${Number(counts['생성대기'] || 0).toLocaleString()}</strong></div>
@@ -144,6 +150,30 @@
       const searchInput=target.querySelector('#clSearch');
       const statusSelect=target.querySelector('#clStatus');
       const resetBtn=target.querySelector('#clResetBtn');
+      const refreshBtn=target.querySelector('#clRefreshBtn');
+      const reconcileBtn=target.querySelector('#clReconcileBtn');
+      refreshBtn.onclick = () => render(state.page || 1, target);
+      reconcileBtn.onclick = async () => {
+        const original = reconcileBtn.textContent;
+        reconcileBtn.disabled = true;
+        reconcileBtn.textContent = '정리 중...';
+        try {
+          const result = await request('POST', '/api/certificate-ledger/refresh');
+          const changed = Number(result.candidate_changes || 0) + Number(result.number_log_changes || 0);
+          reconcileBtn.textContent = changed ? `정리 완료 (${changed})` : '정리 완료';
+          await render(1, target);
+        } catch (error) {
+          reconcileBtn.textContent = '정리 실패';
+          alert(error.message || '대장 정리 중 오류가 발생했습니다.');
+        } finally {
+          setTimeout(() => {
+            if (document.documentElement.contains(reconcileBtn)) {
+              reconcileBtn.disabled = false;
+              reconcileBtn.textContent = original;
+            }
+          }, 1200);
+        }
+      };
       searchBtn.onclick = () => {
         state.search = searchInput.value.trim();
         state.status = statusSelect.value;

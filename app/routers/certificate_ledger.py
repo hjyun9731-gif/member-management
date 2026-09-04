@@ -425,13 +425,10 @@ async def candidate_choices(
 
 @router.get("/stats")
 async def ledger_stats(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    # 조회 화면에서는 무거운 전체 대조/정리를 실행하지 않는다.
+    # 예정자 저장/수정 시 발급대장 연동은 candidates.py에서 즉시 처리되고,
+    # 과거 누락 보정이 필요할 때만 /refresh 버튼으로 수동 실행한다.
     ensure_ledger_schema(db)
-    reconcile_registered_candidates(db)
-    # 수기로 개인/택배회원의 자격증명번호를 고친 경우도 번호 원장과 즉시 맞춘다.
-    try:
-        crud.reconcile_certificate_number_logs(db)
-    except Exception:
-        db.rollback()
 
     rows = (
         db.query(ledger_models.CertificateIssuanceLedger)
@@ -479,8 +476,8 @@ async def list_ledger(
     db: Session = Depends(get_db),
     _=Depends(get_current_user),
 ):
+    # 목록 조회는 조회만 수행한다. 전체 대조는 /refresh에서만 실행한다.
     ensure_ledger_schema(db)
-    reconcile_registered_candidates(db)
     rows = (
         db.query(ledger_models.CertificateIssuanceLedger)
         .filter(ledger_models.CertificateIssuanceLedger.deleted_at.is_(None))
@@ -517,6 +514,30 @@ async def list_ledger(
         "page": page,
         "pages": max(1, ceil(total / limit)),
         "limit": limit,
+    }
+
+
+@router.post("/refresh")
+async def refresh_ledger(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """관리자가 필요할 때만 발급대장/자격증명번호 원장을 전체 대조한다.
+
+    일반 목록·통계 조회에서는 실행하지 않아 화면 전환이 느려지지 않도록 한다.
+    """
+    ensure_ledger_schema(db)
+    changed_candidates = reconcile_registered_candidates(db)
+    changed_numbers = 0
+    try:
+        result = crud.reconcile_certificate_number_logs(db)
+        if isinstance(result, dict):
+            changed_numbers = int(result.get("changed") or result.get("updated") or 0)
+        elif isinstance(result, (int, float)):
+            changed_numbers = int(result)
+    except Exception:
+        db.rollback()
+    return {
+        "ok": True,
+        "candidate_changes": changed_candidates,
+        "number_log_changes": changed_numbers,
     }
 
 
