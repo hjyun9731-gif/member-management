@@ -815,6 +815,7 @@ async function renderCandidates(){
 
 async function renderCandidateSection(){
   const f=ST.fl.cand||{};
+  const rightView=ST.inner.candidateRight||'list';
   document.getElementById('innerContent').innerHTML=`
     <div class="split-55">
     <div class="card">
@@ -845,15 +846,12 @@ async function renderCandidateSection(){
         <button type="button" class="btn bg btn-sm" id="candSaveBtn">+ 저장</button>
       </div></form></div>
     </div>
-    <div class="card">
-      <div class="card-hd"><div class="card-hd-l"><span class="card-ico">📂</span><span class="card-ttl">예정자 목록</span><span class="cnt" id="cCnt">0건</span></div></div>
-      <div class="frow">
-        ${rselflt('cRegF',f.region||'')}
-        <input class="srch" id="cSrch" placeholder="성명, 차량번호, 관리번호, 주민번호" value="${e_(f.search||'')}">
-        <button class="btn bp btn-sm" id="cSrchBtn">조회</button>
-        <button class="btn bo btn-sm" id="cRstBtn">초기화</button>
+    <div class="candidate-right-column">
+      <div class="inner-tab-bar candidate-right-tabs" style="margin-bottom:10px">
+        <button type="button" class="inner-tab ${rightView==='list'?'active':''}" id="candRightListTab">📂 예정자 목록</button>
+        <button type="button" class="inner-tab ${rightView==='ledger'?'active':''}" id="candRightLedgerTab">🪪 자격증명발급대장</button>
       </div>
-      <div id="cTbl"><div class="loading-box"><div class="spin"></div></div></div>
+      <div id="candidateRightPane" class="candidate-right-pane"></div>
     </div>
     </div>`;
 
@@ -862,42 +860,93 @@ async function renderCandidateSection(){
 
   const sk='cand';
   const hdrs=[{field:'region',label:'지역'},{field:'vehicle_number',label:'차량번호'},{field:'name',label:'성명'},{field:'resident_number',label:'주민등록번호'},{field:'mobile',label:'핸드폰'},{field:'vehicle_type',label:'차종'},{field:'certificate_number',label:'자격증번호'},{field:'affiliated_company',label:'소속업체'},{label:'관리',noSort:true}];
-  const doSearch=async(pg=1)=>{
-    ST.fl.cand={region:document.getElementById('cRegF').value,search:document.getElementById('cSrch').value.trim()};
-    const q=new URLSearchParams({page:pg,limit:50,...getSortParams(sk),...Object.fromEntries(Object.entries(ST.fl.cand).filter(([,v])=>v))});
-    const d=await api('GET',`/api/candidates?${q}`).catch(()=>null);if(!d)return;
-    _sts('cCnt',`${d.total}건`);
-    const tw=document.getElementById('cTbl');if(!tw)return;
-    if(!d.items.length){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">📋</div><p class="empty-txt">예정자가 없습니다.</p></div>`;return;}
-    tw.innerHTML=`<div class="tbl-wrap"><table>
-      <thead><tr>${plainHeaders(hdrs)}</tr></thead>
-      <tbody>${d.items.map(r=>`<tr>
-        <td>${fv(r.region)}</td>
-        <td>${fv(r.vehicle_number)}</td>
-        <td><a class="click-link" onclick="editCandidate(${r.id});return false">${fv(r.name)}</a></td>
-        <td style="font-size:11px">${fv(r.resident_number)}</td>
-        <td>${fv(r.mobile)}</td>
-        <td>${fv(r.vehicle_type)}</td>
-        <td>${fv(r.certificate_number)}</td><td>${fv(r.affiliated_company)}</td>
-        <td class="td-act">
-          <button class="btn bp btn-xs" onclick="editCandidate(${r.id})">수정</button>
-          <button class="btn-check" onclick="registerCandidate(${r.id},'${e_(r.vehicle_number)}','${e_(r.name)}')">✅ 등록</button>
-          <button class="btn br btn-xs" onclick="deleteCandidate(${r.id})">삭제</button>
-        </td></tr>`).join('')}</tbody>
-    </table></div>${pgn(d,doSearch)}`;
-    bindPgn('cTbl',doSearch);
+  let doSearch=null;
+
+  const setRightTabActive=(mode)=>{
+    document.getElementById('candRightListTab')?.classList.toggle('active',mode==='list');
+    document.getElementById('candRightLedgerTab')?.classList.toggle('active',mode==='ledger');
   };
-  document.getElementById('cSrchBtn').onclick=()=>doSearch(1);
-  document.getElementById('cSrch').onkeydown=e=>{if(e.key==='Enter')doSearch(1);};
-  document.getElementById('cRstBtn').onclick=()=>{ST.fl.cand={};renderCandidateSection();};
+
+  const renderCandidateListPane=async(pg=1)=>{
+    ST.inner.candidateRight='list';
+    setRightTabActive('list');
+    const pane=document.getElementById('candidateRightPane');
+    if(!pane)return;
+    const filters=ST.fl.cand||{};
+    pane.innerHTML=`<div class="card">
+      <div class="card-hd"><div class="card-hd-l"><span class="card-ico">📂</span><span class="card-ttl">예정자 목록</span><span class="cnt" id="cCnt">0건</span></div></div>
+      <div class="frow">
+        ${rselflt('cRegF',filters.region||'')}
+        <input class="srch" id="cSrch" placeholder="성명, 차량번호, 관리번호, 주민번호" value="${e_(filters.search||'')}">
+        <button class="btn bp btn-sm" id="cSrchBtn">조회</button>
+        <button class="btn bo btn-sm" id="cRstBtn">초기화</button>
+      </div>
+      <div id="cTbl"><div class="loading-box"><div class="spin"></div></div></div>
+    </div>`;
+
+    doSearch=async(page=1)=>{
+      const reg=document.getElementById('cRegF'), srch=document.getElementById('cSrch');
+      if(!reg||!srch)return;
+      ST.fl.cand={region:reg.value,search:srch.value.trim()};
+      const q=new URLSearchParams({page,limit:50,...getSortParams(sk),...Object.fromEntries(Object.entries(ST.fl.cand).filter(([,v])=>v))});
+      const d=await api('GET',`/api/candidates?${q}`).catch(()=>null);if(!d)return;
+      _sts('cCnt',`${d.total}건`);
+      const tw=document.getElementById('cTbl');if(!tw)return;
+      if(!d.items.length){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">📋</div><p class="empty-txt">예정자가 없습니다.</p></div>`;return;}
+      tw.innerHTML=`<div class="tbl-wrap"><table>
+        <thead><tr>${plainHeaders(hdrs)}</tr></thead>
+        <tbody>${d.items.map(r=>`<tr>
+          <td>${fv(r.region)}</td>
+          <td>${fv(r.vehicle_number)}</td>
+          <td><a class="click-link" onclick="editCandidate(${r.id});return false">${fv(r.name)}</a></td>
+          <td style="font-size:11px">${fv(r.resident_number)}</td>
+          <td>${fv(r.mobile)}</td>
+          <td>${fv(r.vehicle_type)}</td>
+          <td>${fv(r.certificate_number)}</td><td>${fv(r.affiliated_company)}</td>
+          <td class="td-act">
+            <button class="btn bp btn-xs" onclick="editCandidate(${r.id})">수정</button>
+            <button class="btn-check" onclick="registerCandidate(${r.id},'${e_(r.vehicle_number)}','${e_(r.name)}')">✅ 등록</button>
+            <button class="btn br btn-xs" onclick="deleteCandidate(${r.id})">삭제</button>
+          </td></tr>`).join('')}</tbody>
+      </table></div>${pgn(d,doSearch)}`;
+      bindPgn('cTbl',doSearch);
+    };
+    document.getElementById('cSrchBtn').onclick=()=>doSearch(1);
+    document.getElementById('cSrch').onkeydown=e=>{if(e.key==='Enter')doSearch(1);};
+    document.getElementById('cRstBtn').onclick=()=>{ST.fl.cand={};renderCandidateListPane(1);};
+    await doSearch(pg);
+  };
+
+  const renderCertificateLedgerPane=async()=>{
+    ST.inner.candidateRight='ledger';
+    setRightTabActive('ledger');
+    const pane=document.getElementById('candidateRightPane');
+    if(!pane)return;
+    if(window.CertificateLedger?.renderInto){
+      await window.CertificateLedger.renderInto(pane);
+    }else{
+      pane.innerHTML='<div class="card"><div class="empty-box"><p class="empty-txt">자격증명발급대장 모듈을 불러오지 못했습니다.</p></div></div>';
+    }
+  };
+
+  document.getElementById('candRightListTab').onclick=()=>renderCandidateListPane(1);
+  document.getElementById('candRightLedgerTab').onclick=()=>renderCertificateLedgerPane();
+
   document.getElementById('candSaveBtn').onclick=async()=>{
     const form=document.getElementById('candForm');
     if(!_validateFmt(form))return;
     const fd=_normFormDates(Object.fromEntries(new FormData(form)));
     const r=await api('POST','/api/candidates',fd).catch(()=>null);
-    if(r){toast('예정자 저장 완료');form.reset();doSearch(1);}
+    if(r){
+      toast('예정자 저장 완료');
+      form.reset();
+      if(ST.inner.candidateRight==='list'&&doSearch) await doSearch(1);
+      else if(ST.inner.candidateRight==='ledger'&&window.CertificateLedger?.refreshInto) await window.CertificateLedger.refreshInto(document.getElementById('candidateRightPane'));
+    }
   };
-  await doSearch(1);
+
+  if(rightView==='ledger') await renderCertificateLedgerPane();
+  else await renderCandidateListPane(1);
 }
 
 window.editCandidate=async(id)=>{
