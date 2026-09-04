@@ -23,7 +23,7 @@ import app.models as _models
 from app.routers import receivables
 import app.receivables_models as _receivables_models
 
-# === CERTIFICATE LEDGER ===
+# === CERTIFICATE LEDGER ROUTER ===
 from app.routers import certificate_ledger
 import app.certificate_ledger_models as _certificate_ledger_models
 
@@ -327,7 +327,7 @@ app.include_router(admin.router,          prefix="/api/admin",          tags=["�
 # === RECEIVABLES MODULE ROUTER ===
 app.include_router(receivables.router)
 
-# 자격증명 발급대장
+# 자격증명 발급대장 API
 app.include_router(certificate_ledger.router)
 
 # 기한관리
