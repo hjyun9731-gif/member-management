@@ -1,43 +1,23 @@
-member-management 수납/미수금 통합 모듈 검증 결과
-=============================================
+자격증명 발급대장 추가 전용 검증 결과
 
-1) 원본 2026 미수금 장부 이관
-- 회원/장부 행: 3,239명
-- 계정: 협회비 1,017 / 관리비 2,056 / 70세 166
-- 2026년 8월 기준 현재 미수금 합계: 335,675,000원
-- 월별 원본 부과금 / 입금액 / 입금일 / 미수금 보존
+1. 신규 파일
+- app/certificate_ledger_models.py
+- app/services/certificate_ledger_service.py
+- app/routers/certificate_ledger.py
+- app/static/certificate-ledger.js
+- app/static/certificate-form.html
+- migrations/20260904_add_certificate_ledger.sql
 
-2) 신규등록 규칙 테스트
-- 2026-09-01 신규 + 가입(협회비) -> 첫 부과일 2026-10-01 : PASS
-- 2026-09-30 신규 + 미가입(관리비) -> 첫 부과일 2026-10-01 : PASS
-- 협회비 기본 월부과 10,000원 / 관리비 5,000원 : PASS
+2. 기존 파일 연결 범위
+- app/main.py: 신규 모델 import 2줄, 신규 router include 1줄
+- app/routers/candidates.py: 등록 성공 후 상태 연동용 오류격리 훅 7줄
+- app/static/index.html: 독립 UI 스크립트 로더 1줄
+- 기존 줄 삭제: 0줄
 
-3) 폐업 연동 테스트
-- 전체회원마스터 status=closed 회원은 활성 수납목록에서 제외 : PASS
-- 기존 미수금은 receivable profile에 유지 : PASS
-- 폐업 미수금 목록에서 조회 가능 : PASS
-- 폐업 후에도 payment API로 수납 가능하도록 설계 : PASS
-
-4) 연락관리
-- 미연락 / 연락완료 / 부재 / 재연락 필요 / 문자발송 지원
-- 연락일 / 연락방법 / 상태 / 담당자 / 메모 이력형 저장
-
-5) 기존 시스템 보호
-- 기존 models.py 변경 없음
-- 기존 members.py 변경 없음
-- 기존 candidates.py 변경 없음
-- 기존 closures.py 변경 없음
-- 기존 DB 테이블 DROP/ALTER 없음
-- 새 테이블 4개만 추가
-  * receivable_profiles
-  * receivable_charges
-  * receivable_payments
-  * receivable_contact_logs
-- main.py에는 수납모듈 import/include_router만 추가
-- index.html에는 바로가기 script 1줄만 추가(설치 시 --no-launcher로 생략 가능)
-
-6) 코드 검증
-- Python py_compile: PASS
-- JavaScript node --check: PASS
-- 설치 스크립트 mock repo 적용: PASS
-- 설치 전 main.py/index.html 자동 백업: PASS
+3. 확인 완료
+- 설치기 기존 프로젝트 백업본 적용 성공
+- 설치기 2회 실행 시 중복 삽입 없음
+- Python py_compile 통과
+- certificate-ledger.js node --check 통과
+- 화면 상태값은 인가대기 / 인가완료 / 발급완료 세 개만 사용
+- 기존 테이블 ALTER / UPDATE / DELETE / DROP 없음
