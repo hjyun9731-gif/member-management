@@ -3875,3 +3875,5 @@ window._smsHistRefresh=async(id)=>{
   const r=await api('POST',`/api/sms/history/${id}/refresh`).catch(()=>null);
   if(r){toast(r.ok?'결과가 갱신되었습니다':'갱신 실패');_smsHistDetail(id);}
 };
+
+// PHASE1_DEPLOY_MARKER: 20260904_1605_FORCE_DEPLOY (app.js)

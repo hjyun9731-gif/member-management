@@ -202,3 +202,5 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', removeLegacyTopMenu);
   else removeLegacyTopMenu();
 })();
+
+// PHASE1_DEPLOY_MARKER: 20260904_1605_FORCE_DEPLOY (certificate-ledger.js)
