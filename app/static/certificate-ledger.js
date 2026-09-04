@@ -27,7 +27,7 @@
       .cl-badge{display:inline-flex;align-items:center;padding:3px 8px;border-radius:20px;font-size:10.5px;font-weight:800;white-space:nowrap}
       .cl-badge.wait{color:#b45309;background:#fff7ed}.cl-badge.approved{color:#4f46e5;background:#eef2ff}.cl-badge.issued{color:#047857;background:#ecfdf5}
       .cl-table th,.cl-table td{white-space:nowrap}.cl-table td{font-size:12px}.cl-table .cl-name{font-weight:700;color:var(--c-text)}
-      .cl-actions{display:flex;gap:4px;justify-content:center}.cl-empty{padding:34px;text-align:center;color:var(--c-text-3)}
+      .cl-actions{display:flex;gap:4px;justify-content:center;align-items:center}.cl-empty{padding:34px;text-align:center;color:var(--c-text-3)}
       .cl-candidate-results{border:1px solid var(--c-border);border-radius:7px;max-height:210px;overflow:auto;margin-top:5px;background:#fff}
       .cl-candidate{display:block;width:100%;border:0;border-bottom:1px solid var(--c-border-l);background:#fff;text-align:left;padding:8px 10px;cursor:pointer;font-family:inherit}
       .cl-candidate:hover{background:var(--c-pri-bg)}.cl-candidate[disabled]{cursor:not-allowed;opacity:.5;background:#f9fafb}
@@ -79,13 +79,13 @@
 
   function actionButtons(row) {
     const history = `<button class="btn bo btn-xs" data-cl-history="${row.id}">이력</button>`;
-    if (row.status === '인가완료') {
-      return `${history}<button class="btn bg btn-xs" data-cl-issue="${row.id}">발급완료</button>`;
-    }
     if (row.status === '발급완료') {
-      return `${history}<button class="btn bp btn-xs" data-cl-print="${row.id}">양식 열기</button>`;
+      return `${history}<button class="btn bp btn-xs" data-cl-form="${row.id}">양식 열기</button>`;
     }
-    return `${history}<span style="font-size:10.5px;color:var(--c-text-3);padding:3px 5px">예정자 등록 대기</span>`;
+    if (row.document_number) {
+      return `${history}<button class="btn bg btn-xs" data-cl-form="${row.id}">자격증명 생성</button>`;
+    }
+    return `${history}<span style="font-size:10.5px;color:var(--c-text-3);padding:3px 5px">발급번호 먼저 부여</span>`;
   }
 
   async function render(page = 1) {
@@ -104,8 +104,8 @@
       const counts = stats.counts || {};
       content.innerHTML = `
         <div class="cl-head">
-          <div><div class="cl-title">자격증명 발급대장</div><div class="cl-help">예정자 등록과 연결되어 인가대기 → 인가완료 → 발급완료 순서로 자동 관리됩니다.</div></div>
-          <button class="btn bg btn-sm" id="clCreateBtn">+ 자격증명 생성</button>
+          <div><div class="cl-title">자격증명 발급대장</div><div class="cl-help">서류 접수 → 예정자 입력·발급번호 부여 → 자격증명 생성 / 시청 인가 공문 후 예정자 등록·인가일자 반영</div></div>
+          <button class="btn bg btn-sm" id="clCreateBtn">+ 자격증명생성</button>
         </div>
         <div class="cl-stats">
           <div class="cl-stat"><span>전체</span><strong>${Number(stats.total || 0).toLocaleString()}</strong></div>
@@ -127,7 +127,7 @@
           ${data.items.length ? `<div class="tbl-wrap"><table class="cl-table"><thead><tr>
             <th>자격증명 발급일</th><th>증명서 No.</th><th>지역</th><th>차량번호</th><th>성명</th><th>자격증번호</th><th>처리상태</th><th>최근 담당자</th><th>관리</th>
           </tr></thead><tbody>${data.items.map(row => `<tr>
-            <td>${esc(display(row.certificate_issue_date))}</td><td><strong>${esc(row.document_number)}</strong></td><td>${esc(row.region || '-')}</td>
+            <td>${esc(display(row.certificate_issue_date))}</td><td><strong>${esc(row.document_number || '-')}</strong></td><td>${esc(row.region || '-')}</td>
             <td>${esc(row.vehicle_number || '-')}</td><td class="cl-name">${esc(row.name)}</td><td>${esc(row.qualification_number || '-')}</td>
             <td>${statusBadge(row.status)}</td><td>${esc(row.latest_operator || '-')}</td><td><div class="cl-actions">${actionButtons(row)}</div></td>
           </tr>`).join('')}</tbody></table></div>${pager(data)}` : '<div class="cl-empty">자격증명 발급대장 기록이 없습니다.</div>'}
@@ -150,8 +150,7 @@
         button.onclick = () => render(Number(button.dataset.clPage));
       });
       content.querySelectorAll('[data-cl-history]').forEach(button => button.onclick = () => showHistory(Number(button.dataset.clHistory)));
-      content.querySelectorAll('[data-cl-issue]').forEach(button => button.onclick = () => completeAndOpen(Number(button.dataset.clIssue)));
-      content.querySelectorAll('[data-cl-print]').forEach(button => button.onclick = () => openForm(Number(button.dataset.clPrint)));
+      content.querySelectorAll('[data-cl-form]').forEach(button => button.onclick = () => openForm(Number(button.dataset.clForm)));
     } catch (error) {
       content.innerHTML = `<div class="card"><div class="cl-empty">${esc(error.message)}</div></div>`;
     }
@@ -168,11 +167,11 @@
         return;
       }
       const candidates = data.items;
-      box.innerHTML = candidates.map(row => `<button type="button" class="cl-candidate" data-candidate-id="${row.id}" ${row.already_connected ? 'disabled' : ''}>
+      box.innerHTML = candidates.map(row => `<button type="button" class="cl-candidate" data-candidate-id="${row.id}">
         <strong>${esc(row.name || '-')} · ${esc(row.vehicle_number || '-')}</strong>
-        <small>${esc(row.region || '-')} · ${row.is_registered ? '등록완료' : '예정자'} · 증명서 No. ${esc(row.document_number || '자동 부여')}${row.already_connected ? ' · 이미 대장에 있음' : ''}</small>
+        <small>${esc(row.region || '-')} · ${row.is_registered ? '등록완료' : '예정자'} · 대장상태 ${esc(row.ledger_status || (row.is_registered ? '인가완료' : '인가대기'))} · 증명서 No. ${esc(row.document_number || '미발급')}</small>
       </button>`).join('');
-      box.querySelectorAll('.cl-candidate:not([disabled])').forEach(button => {
+      box.querySelectorAll('.cl-candidate').forEach(button => {
         button.onclick = () => selectCandidate(candidates.find(row => row.id === Number(button.dataset.candidateId)));
       });
     } catch (error) {
@@ -181,9 +180,10 @@
   }
 
   function selectCandidate(candidate) {
+    window.__clSelectedCandidate = candidate;
     document.getElementById('clCandidateId').value = candidate.id;
     document.getElementById('clSelected').innerHTML = `<strong>${esc(candidate.name)}</strong> · ${esc(candidate.vehicle_number || '-')} · ${esc(candidate.region || '-')}<br>
-      <span style="color:var(--c-text-3)">생성 상태: ${candidate.is_registered ? '인가완료' : '인가대기'} / 증명서 No.: ${esc(candidate.document_number || '저장할 때 자동 부여')}</span>`;
+      <span style="color:var(--c-text-3)">현재 상태: ${esc(candidate.ledger_status || (candidate.is_registered ? '인가완료' : '인가대기'))} / 증명서 No.: ${esc(candidate.document_number || '미부여')}</span>`;
     document.getElementById('clCandidateResults').style.display = 'none';
   }
 
@@ -194,8 +194,8 @@
       <div class="fi"><label>예정자 찾기 <span class="req">*</span></label><input class="fc" id="clCandidateSearch" placeholder="성명 또는 차량번호 입력"></div>
       <div class="cl-candidate-results" id="clCandidateResults"></div>
       <div class="cl-selected" id="clSelected">목록에서 예정자를 선택하세요.</div>
-      <div class="fi" style="margin-top:10px"><label>자격증번호 <span class="req">*</span></label><input class="fc" id="clQualificationNumber" placeholder="예: 1-25-233916"></div>
-      <div style="font-size:11px;color:var(--c-text-3);margin-top:8px">증명서 No.는 예정자에 기존 번호가 있으면 그대로 쓰고, 없으면 기존 발급번호 순번에서 자동 부여합니다.</div>
+      <div class="fi" style="margin-top:10px"><label>자격증번호</label><input class="fc" id="clQualificationNumber" placeholder="자격증번호가 있으면 입력"></div>
+      <div style="font-size:11px;color:var(--c-text-3);margin-top:8px">예정자 입력 화면에서 자격증명발급번호를 먼저 부여한 뒤 자격증명을 생성합니다. 시청 인가 전(인가대기)에도 자격증명 생성이 가능합니다.</div>
     `, '<button class="btn bg btn-sm" id="clSaveBtn">자격증명 생성</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>', 'msm');
     let timer;
     const input = document.getElementById('clCandidateSearch');
@@ -209,13 +209,23 @@
       const candidateId = Number(document.getElementById('clCandidateId').value || 0);
       const qualification = document.getElementById('clQualificationNumber').value.trim();
       if (!candidateId) { if (typeof toast === 'function') toast('예정자를 선택하세요.', 'warn'); return; }
-      if (!qualification) { if (typeof toast === 'function') toast('자격증번호를 입력하세요.', 'warn'); return; }
       const button = document.getElementById('clSaveBtn');
       button.disabled = true; button.textContent = '생성 중...';
       try {
-        await request('POST', '/api/certificate-ledger', { candidate_id: candidateId, qualification_number: qualification });
-        if (typeof toast === 'function') toast('자격증명 발급대장을 생성했습니다.');
+        const selected = window.__clSelectedCandidate || {};
+        let row;
+        if (!selected.document_number) {
+          if (typeof toast === 'function') toast('자격증명발급번호가 없습니다. 예정자 입력 화면에서 발급번호를 먼저 부여하세요.', 'warn');
+          button.disabled = false; button.textContent = '자격증명 생성';
+          return;
+        }
+        if (selected.already_connected && selected.ledger_id) {
+          row = await request('GET', `/api/certificate-ledger/${selected.ledger_id}`);
+        } else {
+          row = await request('POST', '/api/certificate-ledger', { candidate_id: candidateId, qualification_number: qualification });
+        }
         if (typeof closeModal === 'function') closeModal();
+        openForm(row.id);
         render(1);
       } catch (_) {
         button.disabled = false; button.textContent = '자격증명 생성';
@@ -242,20 +252,6 @@
     window.open(`/static/certificate-form.html?ledger_id=${id}`, '_blank', 'noopener');
   }
 
-  async function completeAndOpen(id) {
-    if (!window.confirm('발급완료 처리하고 자격증명 양식을 여시겠습니까?')) return;
-    const popup = window.open('about:blank', '_blank');
-    try {
-      await request('POST', `/api/certificate-ledger/${id}/issue`, {});
-      if (popup) popup.location.replace(`/static/certificate-form.html?ledger_id=${id}`);
-      else openForm(id);
-      if (typeof toast === 'function') toast('발급완료 처리했습니다.');
-      render(state.page);
-    } catch (_) {
-      if (popup) popup.close();
-    }
-  }
-
   function activate() {
     if (typeof ST !== 'undefined') { ST.cat = 'certificate-ledger'; ST.sub = 'certificate-ledger'; }
     document.body.classList.remove('deadline-mode');
@@ -278,5 +274,6 @@
     nav.appendChild(button);
   }
 
-  document.addEventListener('DOMContentLoaded', installMenu);
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', installMenu);
+  else installMenu();
 })();

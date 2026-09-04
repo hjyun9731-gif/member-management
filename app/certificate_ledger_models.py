@@ -26,7 +26,7 @@ class CertificateIssuanceLedger(Base):
     vehicle_number = Column(String(50), index=True)
     name = Column(String(100), index=True, nullable=False)
     qualification_number = Column(String(100))
-    document_number = Column(String(100), unique=True, index=True, nullable=False)
+    document_number = Column(String(100), unique=True, index=True, nullable=True)
 
     approval_date = Column(String(50))
     certificate_issue_date = Column(String(50), index=True)

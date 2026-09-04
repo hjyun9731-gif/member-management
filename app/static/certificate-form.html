@@ -90,6 +90,8 @@
   .btn-content { background: #111827; color: #fff; margin-top: 8px; }
   .btn-content:hover { background: #000; }
   .btn-sub { background: #f0f1f4; color: #222; }
+  .btn-save { background: #059669; color: #fff; margin-top: 8px; }
+  .btn-save:disabled { opacity: .55; cursor: not-allowed; }
   .btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
 
   .preview {
@@ -395,6 +397,7 @@
 
     <button class="btn btn-print" type="button" onclick="printFull()">① 전체 양식 인쇄 / PDF 저장</button>
     <button class="btn btn-content" type="button" onclick="printContentOnly()">② 기존 양식지에 내용만 인쇄</button>
+    <button class="btn btn-save" type="button" id="issueCompleteBtn" style="display:none">발급완료 저장</button>
     <div class="btn-row">
       <button class="btn btn-sub" type="button" onclick="setToday()">오늘 날짜</button>
       <button class="btn btn-sub" type="button" onclick="clearAll()">전체 지우기</button>
@@ -521,24 +524,52 @@
   render();
 </script>
 <script>
-  // 자격증명 발급대장에서 연 경우 해당 기록을 자동으로 채운다.
+  // 자격증명 발급대장에서 연 경우 해당 기록을 자동으로 채우고,
+  // 담당자가 입력한 최종값을 발급완료 시점에만 서버에 저장한다.
   (async function loadCertificateLedgerRecord() {
     const ledgerId = new URLSearchParams(location.search).get('ledger_id');
     if (!ledgerId) return;
-    try {
-      const response = await fetch(`/api/certificate-ledger/${encodeURIComponent(ledgerId)}`, {
+    const issueButton = document.getElementById('issueCompleteBtn');
+
+    async function api(method, url, body) {
+      const options = {
+        method,
         headers: { Authorization: `Bearer ${localStorage.getItem('authToken') || ''}` }
-      });
+      };
+      if (body !== undefined) {
+        options.headers['Content-Type'] = 'application/json';
+        options.body = JSON.stringify(body);
+      }
+      const response = await fetch(url, options);
       if (response.status === 401) {
         location.replace('/login');
-        return;
+        throw new Error('로그인이 필요합니다.');
       }
-      if (!response.ok) throw new Error('발급대장 기록을 불러오지 못했습니다.');
-      const row = await response.json();
+      let data = {};
+      try { data = await response.json(); } catch (_) {}
+      if (!response.ok) throw new Error(data.detail || '처리 중 오류가 발생했습니다.');
+      return data;
+    }
+
+    function issueDateValue() {
+      const yy = val('y');
+      const mm = val('m').padStart(2, '0');
+      const dd = val('d').padStart(2, '0');
+      if (!yy || !mm || !dd) return '';
+      return `${yy}-${mm}-${dd}`;
+    }
+
+    try {
+      const row = await api('GET', `/api/certificate-ledger/${encodeURIComponent(ledgerId)}`);
       document.getElementById('name').value = row.name || '';
       document.getElementById('certNo').value = row.qualification_number || '';
       document.getElementById('carNo').value = row.vehicle_number || '';
-      document.getElementById('docNo').value = row.document_number || '';
+      const docNoInput = document.getElementById('docNo');
+      docNoInput.value = row.document_number || '';
+      // 증명서 No.는 예정자 입력 화면에서 이미 부여된 자격증명발급번호를 그대로 사용한다.
+      // 이 화면에서 새 번호를 채번하거나 수기로 바꾸지 않는다.
+      docNoInput.readOnly = true;
+      docNoInput.title = '예정자 입력 단계에서 이미 부여된 자격증명발급번호입니다.';
       const dateValue = row.certificate_issue_date || '';
       const parts = dateValue.match(/^(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
       if (parts) {
@@ -546,9 +577,51 @@
         document.getElementById('m').value = parts[2].padStart(2, '0');
         document.getElementById('d').value = parts[3].padStart(2, '0');
       }
-      document.querySelector('.panel h1').textContent = `화물운송종사자격증명 · ${row.document_number || ''}`;
-      document.querySelector('.note').innerHTML = '<b>발급대장 연결 양식</b><br>성명·자격증번호·자동차번호·증명서 No.·발급일을 자동으로 불러왔습니다.<br>사진을 넣은 뒤 A6 가로, 배율 100%로 인쇄하세요.';
+      document.querySelector('.panel h1').textContent = `화물운송종사자격증명 · ${row.name || ''}`;
+
+      if (!row.document_number) {
+        document.querySelector('.note').innerHTML = '<b>자격증명발급번호 미부여</b><br>예정자 입력 화면에서 먼저 <b>발급번호 부여</b>를 한 뒤 다시 자격증명을 생성하세요.';
+        issueButton.style.display = 'none';
+      } else if (row.status === '발급완료') {
+        document.querySelector('.note').innerHTML = '<b>발급완료 기록</b><br>저장된 발급정보를 불러왔습니다. 필요하면 같은 양식으로 다시 인쇄할 수 있습니다.';
+        issueButton.style.display = 'none';
+      } else if (row.status === '인가대기') {
+        document.querySelector('.note').innerHTML = `<b>자격증명 생성 · 인가대기</b><br>예정자 입력 단계에서 부여된 자격증명발급번호 <b>${row.document_number || ''}</b>를 그대로 사용합니다. 시청 인가 전에도 자격증명을 만들 수 있습니다. 자격증번호·발급일자·사진을 확인한 뒤 <b>발급완료 저장</b>을 누르세요.`;
+        issueButton.style.display = '';
+      } else {
+        document.querySelector('.note').innerHTML = `<b>자격증명 생성 · 인가완료</b><br>예정자에게 이미 부여된 자격증명발급번호 <b>${row.document_number || ''}</b>를 그대로 사용합니다. 자격증번호·발급일자·사진을 확인한 뒤 <b>발급완료 저장</b>을 누르세요.`;
+        issueButton.style.display = '';
+      }
       render();
+
+      issueButton.onclick = async function() {
+        const qualification = val('certNo');
+        const documentNumber = val('docNo');
+        const issueDate = issueDateValue();
+        if (!qualification) { alert('자격증번호를 입력하세요.'); return; }
+        if (!documentNumber) { alert('증명서 No.를 입력하세요.'); return; }
+        if (!issueDate) { alert('발급일자를 입력하세요.'); return; }
+        if (!confirm('현재 입력값으로 발급완료 처리할까요?')) return;
+
+        issueButton.disabled = true;
+        issueButton.textContent = '저장 중...';
+        try {
+          const savedRow = await api('POST', `/api/certificate-ledger/${encodeURIComponent(ledgerId)}/issue`, {
+            qualification_number: qualification,
+            document_number: documentNumber,
+            issue_date: issueDate
+          });
+          document.querySelector('.note').innerHTML = `<b>발급완료 저장됨</b><br>증명서 No. ${savedRow.document_number || ''} / 발급일 ${savedRow.certificate_issue_date || ''}<br>이 창에서 바로 인쇄하거나 닫아도 됩니다.`;
+          issueButton.style.display = 'none';
+          if (window.opener && !window.opener.closed) {
+            try { window.opener.location.reload(); } catch (_) {}
+          }
+        } catch (error) {
+          alert(error.message);
+          issueButton.disabled = false;
+          issueButton.textContent = '발급완료 저장';
+        }
+      };
     } catch (error) {
       document.querySelector('.note').innerHTML = `<b style="color:#b91c1c">${error.message}</b>`;
     }

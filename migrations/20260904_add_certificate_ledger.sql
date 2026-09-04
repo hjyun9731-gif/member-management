@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS certificate_issuance_ledger (
     vehicle_number VARCHAR(50),
     name VARCHAR(100) NOT NULL,
     qualification_number VARCHAR(100),
-    document_number VARCHAR(100) NOT NULL UNIQUE,
+    document_number VARCHAR(100) UNIQUE,
     approval_date VARCHAR(50),
     certificate_issue_date VARCHAR(50),
     status VARCHAR(20) NOT NULL DEFAULT '인가대기'
@@ -40,3 +40,6 @@ CREATE TABLE IF NOT EXISTS certificate_issuance_history (
 );
 
 CREATE INDEX IF NOT EXISTS ix_certificate_issuance_history_ledger ON certificate_issuance_history(ledger_id);
+
+-- 예정자 저장 직후에는 아직 자격증명발급번호가 없을 수 있으므로 NULL 허용.
+ALTER TABLE certificate_issuance_ledger ALTER COLUMN document_number DROP NOT NULL;
