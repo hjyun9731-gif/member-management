@@ -1,0 +1,429 @@
+from dotenv import load_dotenv
+load_dotenv()  # .env 파일 로딩 (Railway에서는 환경변수가 자동 주입됨)
+
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
+import os
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+from app.database import Base, engine, SessionLocal, DATABASE_URL
+from app.auth import create_default_admin
+from app.routers import (auth, dashboard, reports, excel)
+from app.routers import (candidates, members, transfer_ledger,
+                          closures, change_history, allocation, admin)
+from app.routers import sms as sms_router
+import app.models as _models
+
+# === RECEIVABLES MODULE IMPORT ===
+from app.routers import receivables
+import app.receivables_models as _receivables_models
+
+# DB 테이블 생성/마이그레이션은 Railway healthcheck를 막지 않도록 startup 이후 백그라운드에서 실행한다.
+
+# 컬럼 마이그레이션: 새 컬럼이 없으면 추가
+def _run_migrations():
+    """신규 컬럼이 기존 DB에 없을 경우 ALTER TABLE로 추가 (컬럼별 독립 트랜잭션)"""
+    from sqlalchemy import text, inspect as sa_inspect
+    is_sqlite = "sqlite" in DATABASE_URL
+
+    # 현재 license_holders 테이블의 실제 컬럼 목록 조회
+    try:
+        inspector = sa_inspect(engine)
+        existing_cols = {c["name"] for c in inspector.get_columns("license_holders")}
+        logger.info(f"현재 license_holders 컬럼: {sorted(existing_cols)}")
+    except Exception as ex:
+        logger.warning(f"컬럼 조회 실패 (전체 마이그레이션 시도): {ex}")
+        existing_cols = set()
+
+    new_cols = [
+        ("reapproval_date",       "license_holders",  "VARCHAR(50)"),
+        ("official_address",      "license_holders",  "TEXT"),
+        ("agent_name",            "license_holders",  "VARCHAR(100)"),
+        ("agent_resident_number", "license_holders",  "VARCHAR(30)"),
+        ("agent_mobile",          "license_holders",  "VARCHAR(50)"),
+        ("upload_id",             "license_holders",  "INTEGER"),
+        ("upload_id",             "transfer_ledger",  "INTEGER"),
+        ("upload_id",             "closures",         "INTEGER"),
+        ("upload_id",             "change_history",   "INTEGER"),
+        ("transferee",            "closures",         "VARCHAR(100)"),
+        ("transfer_region",       "closures",         "VARCHAR(50)"),
+        ("receipt_date",          "closures",         "VARCHAR(50)"),
+        ("vehicle_type",          "closures",         "VARCHAR(100)"),
+        ("fuel_type",             "closures",         "VARCHAR(30)"),
+        ("structure_change",      "closures",         "TEXT"),
+        ("phone",                 "closures",         "VARCHAR(50)"),
+        ("mobile",                "closures",         "VARCHAR(50)"),
+        ("address",               "closures",         "TEXT"),
+        ("official_address",      "closures",         "TEXT"),
+        ("membership_status",     "closures",         "VARCHAR(20)"),
+        ("membership_date",       "closures",         "VARCHAR(50)"),
+        ("certificate_issue_date","closures",         "VARCHAR(50)"),
+        ("certificate_number",    "closures",         "VARCHAR(100)"),
+        ("driver_license_number", "closures",         "VARCHAR(100)"),
+        ("resident_number",       "closures",         "VARCHAR(30)"),
+        ("affiliated_company",    "closures",         "VARCHAR(200)"),
+        ("agent_name",            "closures",         "VARCHAR(100)"),
+        ("agent_mobile",          "closures",         "VARCHAR(50)"),
+        ("vehicle_type",          "transfer_ledger",  "VARCHAR(100)"),
+        ("fuel_type",             "transfer_ledger",  "VARCHAR(30)"),
+        ("structure_change",      "transfer_ledger",  "TEXT"),
+        ("affiliated_company",    "transfer_ledger",  "VARCHAR(200)"),
+        ("membership_date",       "candidates",       "VARCHAR(50)"),
+        ("structure_change",      "license_holders",  "TEXT"),
+        ("pinned",                "license_holders",  "BOOLEAN"),
+        ("agent_address",         "license_holders",  "TEXT"),  # 대리인 주소 (개인회원 전용)
+        # 도내 양도양수 등록 기능: 양도자/양수자 회원 ID 연결
+        ("transferor_member_id",  "transfer_ledger",  "INTEGER"),
+        ("transferee_member_id",  "transfer_ledger",  "INTEGER"),
+        ("transferee_member_id",  "closures",         "INTEGER"),
+        ("transfer_ledger_id",    "closures",         "INTEGER"),
+        # glosign_documents
+        ("contract_method",       "glosign_documents","VARCHAR(30)"),
+        ("deleted_at",            "glosign_documents","DATETIME"),
+        # member_edit_logs
+        ("change_type",           "member_edit_logs", "VARCHAR(50)"),
+        # 관리번호 중복발급 버그 수정: 예정자(candidate)로 등록되는 양수자도
+        # 관리번호를 실제로 저장해야 다음 발급 시 최댓값 계산에 반영됨
+        ("management_number",     "candidates",       "VARCHAR(50)"),
+        # 월례보고서 항목 관리: 직접입력 항목의 기본값(월계/누계 초기 표시값)
+        ("default_value",         "report_field_defs","VARCHAR(200)"),
+        # PLANB 기한관리: 일정별 색상
+        ("event_color",           "deadline_tasks",   "VARCHAR(20)"),
+        # 수납/미수금 모듈: 가입/미가입 정합성 자동보정이 수동 지정 계정을 덮어쓰지 않도록 구분
+        ("account_manual_override", "receivable_profiles", "INTEGER"),
+        # 폐업현황 관리번호 구조 분리: 회원 원래 관리번호와 폐업/이관 번호를 별도 보존
+        ("original_management_number", "closures", "VARCHAR(50)"),
+        ("original_mgmt_match_status", "closures", "VARCHAR(20)"),
+    ]
+
+    for col_name, table_name, col_type in new_cols:
+        # 각 테이블별 실제 컬럼 체크
+        try:
+            tbl_cols = {c["name"] for c in inspector.get_columns(table_name)}
+        except Exception:
+            tbl_cols = set()
+        if col_name in tbl_cols:
+            continue  # 이미 있는 컬럼 스킵
+        # 컬럼별 독립 트랜잭션
+        try:
+            with engine.begin() as conn:
+                if is_sqlite:
+                    conn.execute(text(
+                        f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_type}"))
+                else:
+                    conn.execute(text(
+                        f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {col_name} {col_type}"))
+            logger.info(f"마이그레이션 완료: {table_name}.{col_name} 추가")
+        except Exception as e:
+            logger.warning(f"마이그레이션 스킵 ({table_name}.{col_name}): {e}")
+
+
+# 수납/미수금 조회 성능용 인덱스. 기존 데이터/기능은 변경하지 않고 인덱스만 추가한다.
+def _ensure_receivables_indexes():
+    from sqlalchemy import text
+    statements = [
+        "CREATE INDEX IF NOT EXISTS ix_receivable_profiles_account_type ON receivable_profiles (account_type)",
+        "CREATE INDEX IF NOT EXISTS ix_receivable_profiles_first_charge_date ON receivable_profiles (first_charge_date)",
+        "CREATE INDEX IF NOT EXISTS ix_receivable_payments_member_date ON receivable_payments (member_id, payment_date)",
+        "CREATE INDEX IF NOT EXISTS ix_receivable_contacts_member_date ON receivable_contact_logs (member_id, contact_date)",
+        "CREATE INDEX IF NOT EXISTS ix_closures_member_id ON closures (member_id)",
+    ]
+    try:
+        with engine.begin() as conn:
+            for stmt in statements:
+                conn.execute(text(stmt))
+        logger.info("수납/미수금 성능 인덱스 확인 완료")
+    except Exception as e:
+        logger.warning(f"수납/미수금 인덱스 생성 경고 (무시): {e}")
+
+# 변경이력 change_type 자동 재정규화 (기존 '기타' 데이터 수정)
+def _renormalize_change_types():
+    from app.database import SessionLocal as _SL
+    from app import models as _m
+    from app.routers.change_history import normalize_change_type as _norm_ct
+    db = _SL()
+    try:
+        records = db.query(_m.ChangeHistory).filter(
+            _m.ChangeHistory.deleted_at.is_(None),
+        ).all()
+        updated = 0
+        for rec in records:
+            probe_texts = [
+                rec.change_type or '',
+                rec.memo or '',
+                rec.before_value or '',
+                rec.after_value or '',
+            ]
+            if isinstance(rec.raw_data, dict):
+                for k in ('비고', '변경내용', '변경유형', '구분', '변경종류'):
+                    v = rec.raw_data.get(k, '')
+                    if v: probe_texts.append(str(v))
+            for txt in probe_texts:
+                if txt and txt.strip():
+                    detected = _norm_ct(txt)
+                    if detected and detected not in ('기타', ''):
+                        if detected != rec.change_type:
+                            rec.change_type = detected
+                            updated += 1
+                        break
+        if updated:
+            db.commit()
+            logger.info(f"변경이력 재정규화: {updated}건 업데이트")
+    except Exception as e:
+        logger.warning(f"변경이력 재정규화 오류 (무시): {e}")
+    finally:
+        db.close()
+
+# 양도양수대장: 양도자/양수자 회원ID가 동일하게 잘못 연결된 기존 레코드 복구
+# (도내 양도양수 중복확인이 양도자 본인을 양수자 후보로 잘못 제시하던 버그의 산물).
+# 조건에 해당하는 소수 레코드만 대상으로 하는 가벼운 쿼리라 startup에 포함해도 안전함.
+def _fix_self_referencing_transfer_ledger():
+    from app.database import SessionLocal as _SL
+    from app import crud as _crud
+    db = _SL()
+    try:
+        result = _crud.fix_self_referencing_transfer_ledger(db)
+        if result.get("found_self_referencing"):
+            logger.info(f"양도양수대장 자기참조 오류 복구: {result}")
+    except Exception as e:
+        logger.warning(f"양도양수대장 자기참조 복구 오류 (무시): {e}")
+    finally:
+        db.close()
+
+
+# 관리번호(양YY-N 등) 중복 방지: 기존 중복 데이터가 없을 때만 UNIQUE 인덱스 생성.
+# 이미 중복이 있으면 인덱스 생성을 건너뛰고 로그로만 알림 (기존 데이터는 건드리지 않음).
+# 중복 목록은 GET /api/admin/duplicate-management-numbers 로 조회 가능.
+def _add_management_number_unique_index():
+    from sqlalchemy import text
+    if "sqlite" in DATABASE_URL:
+        return  # 개발환경(SQLite)은 스킵
+
+    def _check_and_create(table_name, index_name):
+        with engine.connect() as conn:
+            dups = conn.execute(text(
+                f"SELECT management_number, COUNT(*) c FROM {table_name} "
+                f"WHERE deleted_at IS NULL AND management_number IS NOT NULL AND management_number <> '' "
+                f"GROUP BY management_number HAVING COUNT(*) > 1"
+            )).fetchall()
+        if dups:
+            logger.warning(
+                f"{table_name}.management_number 중복 {len(dups)}건 발견 - UNIQUE 인덱스 생성을 건너뜁니다. "
+                f"중복 번호: {[r[0] for r in dups][:20]} "
+                f"(GET /api/admin/duplicate-management-numbers 로 상세 조회 후 수동 정리 필요)"
+            )
+            return
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    f"CREATE UNIQUE INDEX IF NOT EXISTS {index_name} "
+                    f"ON {table_name} (management_number) WHERE deleted_at IS NULL"
+                ))
+            logger.info(f"{table_name}.management_number UNIQUE 인덱스 확인/생성 완료")
+        except Exception as e:
+            logger.warning(f"{table_name}.management_number UNIQUE 인덱스 생성 경고 (무시): {e}")
+
+    try:
+        _check_and_create("license_holders", "uq_license_holders_mgmt_active")
+        _check_and_create("transfer_ledger", "uq_transfer_ledger_mgmt_active")
+        _check_and_create("candidates", "uq_candidates_mgmt_active")
+    except Exception as e:
+        logger.warning(f"관리번호 UNIQUE 인덱스 처리 경고 (무시): {e}")
+
+
+def _backfill_certificate_logs():
+    """이미 발급되어 있지만(카운터가 앞서 있음) 로그가 없는 자격증명발급번호를
+    관리 화면에 노출되도록 1회성으로 채워 넣는다. 실제 데이터는 건드리지 않고
+    이력(certificate_number_logs)만 생성한다."""
+    from app import crud
+    db = SessionLocal()
+    try:
+        crud.backfill_certificate_number_logs(db)
+        logger.info("자격증명발급번호 발급이력 백필 확인 완료")
+    except Exception as e:
+        logger.warning(f"자격증명발급번호 발급이력 백필 경고 (무시): {e}")
+    finally:
+        db.close()
+
+
+def _backfill_closure_original_mgmt_numbers():
+    """폐업현황 관리번호 구조 분리: 과거(이전자료 포함) 전체 폐업/이관 데이터에
+    대해 회원의 '원래' 관리번호를 복구한다. 멱등 처리 - 서버 재기동마다 실행되어도
+    이미 채워진 건은 건드리지 않고, 새로 회원이 매칭되는 건만 채운다."""
+    from app import crud
+    db = SessionLocal()
+    try:
+        result = crud.backfill_closure_original_management_numbers(db)
+        logger.info(f"폐업현황 원래 관리번호 소급 복구 완료: {result}")
+    except Exception as e:
+        logger.warning(f"폐업현황 원래 관리번호 소급 복구 경고 (무시): {e}")
+    finally:
+        db.close()
+
+_maintenance_lock = None
+
+
+def _run_deferred_db_maintenance():
+    """
+    Railway healthcheck가 먼저 통과하도록 DB 유지보수 작업을 서버 기동 후 백그라운드에서 실행한다.
+    기존 작업 자체는 삭제하지 않고 실행 시점만 뒤로 옮긴다.
+    """
+    import threading as _threading
+    global _maintenance_lock
+    if _maintenance_lock is None:
+        _maintenance_lock = _threading.Lock()
+    if not _maintenance_lock.acquire(blocking=False):
+        logger.info("DB 유지보수 작업이 이미 실행 중이므로 중복 실행을 건너뜁니다.")
+        return
+    try:
+        jobs = [
+            ("DB 테이블 생성", lambda: _models.Base.metadata.create_all(bind=engine, checkfirst=True)),
+            ("컬럼 마이그레이션", _run_migrations),
+            ("수납/미수금 인덱스", _ensure_receivables_indexes),
+            ("변경이력 재정규화", _renormalize_change_types),
+            ("양도양수 자기참조 복구", _fix_self_referencing_transfer_ledger),
+            ("관리번호 UNIQUE 인덱스", _add_management_number_unique_index),
+            ("자격증명 발급이력 백필", _backfill_certificate_logs),
+            ("폐업현황 원래 관리번호 소급 복구", _backfill_closure_original_mgmt_numbers),
+        ]
+        for name, job in jobs:
+            try:
+                job()
+                logger.info(f"백그라운드 DB 유지보수 완료: {name}")
+            except Exception as e:
+                logger.warning(f"백그라운드 DB 유지보수 경고 ({name}): {e}")
+        db_type = "SQLite" if "sqlite" in DATABASE_URL else "PostgreSQL"
+        logger.info(f"백그라운드 DB 유지보수 전체 완료 ({db_type})")
+    finally:
+        _maintenance_lock.release()
+
+
+app = FastAPI(title="강원도 개인소형화물협회 업무관리 시스템", version="3.0.0")
+
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
+                   allow_methods=["*"], allow_headers=["*"])
+
+app.include_router(auth.router,           prefix="/api/auth",           tags=["인증"])
+app.include_router(candidates.router,     prefix="/api/candidates",     tags=["예정자"])
+app.include_router(members.router,        prefix="/api/members",        tags=["회원"])
+app.include_router(transfer_ledger.router,prefix="/api/transfer-ledger",tags=["양도양수대장"])
+app.include_router(closures.router,       prefix="/api/closures",       tags=["폐지현황"])
+app.include_router(change_history.router, prefix="/api/change-history", tags=["변경이력"])
+app.include_router(allocation.router,     prefix="/api/allocation",     tags=["부과대수"])
+app.include_router(dashboard.router,      prefix="/api/dashboard",      tags=["대시보드"])
+app.include_router(reports.router,        prefix="/api/reports",        tags=["보고서"])
+app.include_router(excel.router,          prefix="/api/excel",          tags=["엑셀"])
+app.include_router(admin.router,          prefix="/api/admin",          tags=["관리자"])
+
+# === RECEIVABLES MODULE ROUTER ===
+app.include_router(receivables.router)
+
+# === CERTIFICATE LEDGER ROUTER ===
+# 자격증명발급대장 모듈 오류가 전체 앱/Railway healthcheck를 죽이지 않도록
+# 라우터만 격리해서 등록한다. 정상일 때는 기존과 동일하게 API가 활성화된다.
+try:
+    from app.routers import certificate_ledger as _certificate_ledger_router
+    import app.certificate_ledger_models as _certificate_ledger_models
+    app.include_router(_certificate_ledger_router.router)
+    logger.info("자격증명발급대장 API 라우터 등록 완료")
+except Exception as _cert_router_error:
+    logger.exception(f"자격증명발급대장 API 라우터 등록 실패 (앱 기동은 계속): {_cert_router_error}")
+
+# 기한관리
+from app.routers import deadlines
+app.include_router(deadlines.router)
+app.include_router(sms_router.router)
+
+# 연동 (글로싸인 등)
+from app.routers import integrations
+app.include_router(integrations.router)
+
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+# ── 전체면허자현황 모바일 버전 (기존 PC 화면/코드와 완전히 분리된 별도 앱) ─────────
+# 기존 /static, /, /{p:path} 라우트는 전혀 수정하지 않음. 아래는 순수 추가.
+mobile_static_dir = os.path.join(os.path.dirname(__file__), "static_mobile")
+app.mount("/static-m", StaticFiles(directory=mobile_static_dir), name="static-mobile")
+
+
+@app.get("/m")
+@app.get("/m/{p:path}")
+def mobile_app(p: str = ""):
+    return FileResponse(os.path.join(mobile_static_dir, "index.html"))
+
+
+@app.get("/sw.js")
+def service_worker():
+    # 루트 경로(/sw.js)로 제공해야 서비스워커 scope가 전체 앱(/)을 포함한다.
+    # (/static/sw.js로 등록하면 기본 scope가 /static/ 이하로 제한됨)
+    return FileResponse(
+        os.path.join(static_dir, "sw.js"),
+        media_type="application/javascript",
+        headers={"Service-Worker-Allowed": "/", "Cache-Control": "no-cache"},
+    )
+
+
+@app.get("/manifest.json")
+def pwa_manifest():
+    return FileResponse(os.path.join(static_dir, "manifest.json"), media_type="application/manifest+json")
+
+
+@app.on_event("startup")
+async def startup():
+    # Railway healthcheck를 최우선으로 통과시키기 위해 startup은 즉시 반환한다.
+    # DB 초기화/마이그레이션/대량 백필은 아래 daemon thread에서 순차 실행한다.
+    import threading as _threading
+    _threading.Thread(
+        target=_run_deferred_db_maintenance,
+        name="db-maintenance",
+        daemon=True,
+    ).start()
+
+    # 기본 관리자 생성도 DB 응답 지연이 서버 기동을 막지 않도록 별도 thread로 처리한다.
+    def _ensure_admin():
+        db = SessionLocal()
+        try:
+            create_default_admin(db)
+        except Exception as e:
+            logger.warning(f"기본 관리자 확인 경고: {e}")
+        finally:
+            db.close()
+    _threading.Thread(target=_ensure_admin, name="default-admin", daemon=True).start()
+
+    # 예약문자 스케줄러: 문자발송(발송닷컴 연동) 기능은 더 이상 사용하지 않으므로 비활성화.
+    # 관련 코드/테이블은 삭제하지 않고 그대로 두되, 어떤 경로로도 발송닷컴 API가
+    # 자동 호출되지 않도록 백그라운드 태스크 등록만 끊는다.
+    # try:
+    #     import asyncio as _asyncio
+    #     from app.routers.sms import run_scheduled_sms_loop
+    #     _asyncio.create_task(run_scheduled_sms_loop())
+    #     logger.info("예약문자 스케줄러 시작")
+    # except Exception as e:
+    #     logger.warning(f"예약문자 스케줄러 시작 실패 (무시): {e}")
+
+
+@app.get("/health")
+async def health(): return {"status": "ok"}
+
+@app.get("/login")
+def login_page():
+    return FileResponse(os.path.join(static_dir, "login.html"))
+
+
+@app.get("/")
+def index():
+    return FileResponse(os.path.join(static_dir, "index.html"))
+
+
+@app.get("/{p:path}")
+def catch_all(p: str):
+    if p.startswith(("api/", "static/")):
+        from fastapi import HTTPException
+        raise HTTPException(404)
+    return FileResponse(os.path.join(static_dir, "index.html"))
