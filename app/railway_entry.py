@@ -66,7 +66,12 @@ def _load_real_app() -> None:
         os._exit(1)
 
 
-def _ensure_loader_started() -> None:
+def _ensure_loader_started(delay: float = 0.0) -> None:
+    """Start the real app loader once, optionally after a short delay.
+
+    Railway must be able to bind the port and answer /health before any heavy
+    application import or database work can interfere with process startup.
+    """
     global _loader_started
     if _loader_started:
         return
@@ -74,6 +79,14 @@ def _ensure_loader_started() -> None:
         if _loader_started:
             return
         _loader_started = True
+
+        if delay > 0:
+            timer = threading.Timer(delay, _load_real_app)
+            timer.name = "real-app-loader-delay"
+            timer.daemon = True
+            timer.start()
+            return
+
         threading.Thread(
             target=_load_real_app,
             name="real-app-loader",
@@ -101,7 +114,10 @@ class RailwayEntryApp:
             while True:
                 message = await receive()
                 if message["type"] == "lifespan.startup":
-                    _ensure_loader_started()
+                    # Tell Uvicorn startup is complete first, then load the heavy
+                    # FastAPI app in the background. The short delay gives Railway
+                    # time to bind the socket and reach /health reliably.
+                    _ensure_loader_started(delay=0.5)
                     await send({"type": "lifespan.startup.complete"})
                 elif message["type"] == "lifespan.shutdown":
                     # Run existing app shutdown hooks when available.
@@ -121,9 +137,10 @@ class RailwayEntryApp:
                 await _real_app(scope, receive, send)
             return
 
-        _ensure_loader_started()
         path = scope.get("path", "")
 
+        # Railway liveness endpoint must stay completely independent from the
+        # real app loader and database. Do not start heavy imports from /health.
         # Railway liveness endpoint: port becomes reachable immediately. If the
         # actual app has a fatal import/startup error the process exits, so a
         # broken deployment cannot remain promoted just because this is 200.
@@ -137,6 +154,9 @@ class RailwayEntryApp:
             await send(start_msg)
             await send(body_msg)
             return
+
+        # Any non-health request may ensure the real app loader has started.
+        _ensure_loader_started()
 
         if _ready.is_set() and _real_app is not None:
             await _real_app(scope, receive, send)
@@ -154,6 +174,7 @@ class RailwayEntryApp:
 
 app = RailwayEntryApp()
 
-# Start loading immediately on import as well as from ASGI lifespan. The guard
-# prevents duplicate loaders.
-_ensure_loader_started()
+# IMPORTANT: do not start app.main during module import. Uvicorn/Railway must
+# first finish process startup and bind the service port. The real app loader
+# is started from ASGI lifespan (with a short delay) or the first non-health
+# request.

@@ -23,9 +23,6 @@ import app.models as _models
 from app.routers import receivables
 import app.receivables_models as _receivables_models
 
-# === CERTIFICATE LEDGER ADD-ONLY ===
-from app.routers import certificate_ledger
-import app.certificate_ledger_models as _certificate_ledger_models
 
 # DB 테이블 생성/마이그레이션은 Railway healthcheck를 막지 않도록 startup 이후 백그라운드에서 실행한다.
 
@@ -327,8 +324,6 @@ app.include_router(admin.router,          prefix="/api/admin",          tags=["�
 # === RECEIVABLES MODULE ROUTER ===
 app.include_router(receivables.router)
 
-# 자격증명 발급대장: 신규 API만 추가
-app.include_router(certificate_ledger.router)
 
 # 기한관리
 from app.routers import deadlines

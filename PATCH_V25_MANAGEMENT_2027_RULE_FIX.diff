@@ -1,0 +1,164 @@
+--- app/routers/receivables.py.bak	2026-09-01 08:56:04.577249906 +0000
++++ app/routers/receivables.py	2026-09-01 08:56:05.429439484 +0000
+@@ -70,6 +70,11 @@
+ )
+ NON_RECEIVABLE_REPAIR_KEY = "receivables_nonreceivable_import_repair_20260831_v2"
+ FEE_REPAIR_KEY = "receivables_fixed_monthly_fee_repair_20260831_v1"
++# 2026년에는 기존 택배(차량번호에 "배") 관리비만 월 5,000원 자동부과한다.
++# 비택배 일반 관리비는 2027-01-01부터 시작한다.
++GENERAL_MANAGEMENT_START_DATE = date(2027, 1, 1)
++GENERAL_MANAGEMENT_START_KEY = "2027-01"
++MANAGEMENT_2027_REPAIR_KEY = "receivables_general_management_2027_start_repair_20260901_v1"
+ 
+ # receivables 전용 lazy schema guard.
+ # Railway healthcheck를 빠르게 통과시키기 위해 main.py의 전체 DB 유지보수는
+@@ -500,6 +505,27 @@
+     return "협회비" if is_association_member(getattr(member, "membership_date", None)) else "관리비"
+ 
+ 
++def _is_bae_vehicle(member) -> bool:
++    """2026년 기존 택배 관리비 대상 판정: 차량번호에 한글 '배'가 포함된 차량."""
++    return "배" in str(getattr(member, "vehicle_number", "") or "").replace(" ", "")
++
++
++def _management_first_charge_date(member) -> Optional[date]:
++    """관리비 첫 부과일.
++
++    - 2026년: 차량번호에 '배'가 있는 기존 택배 관리비만 기존 기준대로 부과 가능.
++    - 비택배 일반 관리비: 2027-01-01 이전에는 절대 자동부과하지 않음.
++    - 2027년 이후 신규 비가입자는 기존 자격증명발급일 기준 다음 달 부과 로직을 유지하되
++      일반 관리비 시작일(2027-01-01)보다 앞당겨지지 않게 한다.
++    """
++    first = _business_first_charge_date_raw(member, "관리비")
++    if _is_bae_vehicle(member):
++        return first
++    if first is None:
++        return None
++    return max(first, GENERAL_MANAGEMENT_START_DATE)
++
++
+ def _billing_basis_date(member, account_type: str) -> Optional[date]:
+     """업무 기준 부과기준일.
+ 
+@@ -516,11 +542,17 @@
+     return None
+ 
+ 
+-def _business_first_charge_date(member, account_type: str) -> Optional[date]:
++def _business_first_charge_date_raw(member, account_type: str) -> Optional[date]:
+     basis = _billing_basis_date(member, account_type)
+     return _first_of_next_month(basis) if basis else None
+ 
+ 
++def _business_first_charge_date(member, account_type: str) -> Optional[date]:
++    if account_type == "관리비":
++        return _management_first_charge_date(member)
++    return _business_first_charge_date_raw(member, account_type)
++
++
+ def _make_profile(member, seed=None) -> ReceivableProfile:
+     if seed:
+         # legacy_balance는 2026-08 원본 장부의 "현재 미수금(8월 미수금)" 그 자체다.
+@@ -842,6 +874,50 @@
+     return {"profiles_fixed": profiles_fixed, "charges_removed": charges_removed, "charges_created": charges_created}
+ 
+ 
++def _repair_general_management_2027_rule_once(db: Session) -> dict:
++    """2026년에 잘못 생성된 비택배 일반 관리비 자동부과를 1회 제거한다.
++
++    원본 2026 legacy 잔액/월별장부, 실제 입금, 수동조정은 건드리지 않는다.
++    source='auto'인 잘못된 부과만 삭제하고 비택배 관리비 첫 부과일을 2027-01 이후로 보정한다.
++    """
++    marker = db.query(ReceivableSystemState).filter(
++        ReceivableSystemState.key == MANAGEMENT_2027_REPAIR_KEY
++    ).first()
++    if marker is not None:
++        return {"profiles_fixed": 0, "charges_removed": 0}
++
++    rows = (
++        db.query(ReceivableProfile, models.LicenseHolder)
++        .join(models.LicenseHolder, models.LicenseHolder.id == ReceivableProfile.member_id)
++        .filter(ReceivableProfile.account_type == "관리비")
++        .all()
++    )
++    profiles_fixed = 0
++    for profile, member in rows:
++        if _is_bae_vehicle(member):
++            continue
++        first = _business_first_charge_date(member, "관리비")
++        target = first.isoformat() if first else None
++        if (profile.first_charge_date or None) != target:
++            profile.first_charge_date = target
++            profiles_fixed += 1
++    if profiles_fixed:
++        db.commit()
++
++    charges_removed = _repair_invalid_auto_charges(db)
++    db.add(ReceivableSystemState(
++        key=MANAGEMENT_2027_REPAIR_KEY,
++        value=json.dumps({
++            "rule": "2026 non-bae management fee disabled; general management starts 2027-01",
++            "profiles_fixed": profiles_fixed,
++            "charges_removed": charges_removed,
++            "applied_at": datetime.now(KST).isoformat(),
++        }, ensure_ascii=False),
++    ))
++    db.commit()
++    return {"profiles_fixed": profiles_fixed, "charges_removed": charges_removed}
++
++
+ def _ensure_db_ledger_ready(db: Session) -> int:
+     """DB 공식원장 준비.
+ 
+@@ -855,6 +931,8 @@
+     _repair_non_receivable_import_payments_once(db)
+     # 협회비 10,000 / 관리비·70세 5,000 외의 잘못된 자동부과도 1회 정리한다.
+     _repair_fixed_monthly_fees_once(db)
++    # 2026 비택배 일반 관리비 오부과를 제거하고 2027-01 시작 규칙을 고정한다.
++    _repair_general_management_2027_rule_once(db)
+ 
+     marker = _baseline_marker(db)
+     if marker is not None:
+@@ -1096,6 +1174,21 @@
+     return fixed
+ 
+ 
++def _auto_charge_allowed_for_month(profile, member, billing_month: str) -> bool:
++    """계정/차량/시행연도 기준 자동부과 허용 여부.
++
++    핵심 업무규칙:
++    - 2026-12까지 관리비는 차량번호에 '배'가 포함된 기존 택배 관리비만 허용.
++    - 비택배 일반 관리비는 2027-01부터 허용.
++    - 협회비/70세는 이 함수에서 추가 제한하지 않음.
++    """
++    if str(getattr(profile, "account_type", "") or "") != "관리비":
++        return True
++    if str(billing_month or "") < GENERAL_MANAGEMENT_START_KEY:
++        return _is_bae_vehicle(member)
++    return True
++
++
+ def _valid_auto_charge(profile, member, closure, charge, today: Optional[date] = None) -> bool:
+     """현재 미수금에 포함해도 되는 자동부과만 판정한다.
+ 
+@@ -1109,6 +1202,8 @@
+         return False
+     if _has_legacy_evidence(member, profile) and month <= LEGACY_DATA_THROUGH_KEY:
+         return False
++    if not _auto_charge_allowed_for_month(profile, member, month):
++        return False
+     if closure is not None:
+         close_d = _parse_date(getattr(closure, "closure_date", None))
+         if close_d and month > _month_key(close_d):
+@@ -1174,7 +1269,10 @@
+         if date(start.year, start.month, 1) > date(end.year, end.month, 1):
+             continue
+         for month_start in _month_iter(start, end):
+-            key = (p.member_id, month_start.strftime("%Y-%m"))
++            month_key = month_start.strftime("%Y-%m")
++            if not _auto_charge_allowed_for_month(p, member, month_key):
++                continue
++            key = (p.member_id, month_key)
+             if key in existing:
+                 continue
+             db.add(

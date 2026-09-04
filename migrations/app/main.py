@@ -23,10 +23,6 @@ import app.models as _models
 from app.routers import receivables
 import app.receivables_models as _receivables_models
 
-# === CERTIFICATE LEDGER ADD-ONLY ===
-from app.routers import certificate_ledger
-import app.certificate_ledger_models as _certificate_ledger_models
-
 # DB 테이블 생성/마이그레이션은 Railway healthcheck를 막지 않도록 startup 이후 백그라운드에서 실행한다.
 
 # 컬럼 마이그레이션: 새 컬럼이 없으면 추가
@@ -327,8 +323,16 @@ app.include_router(admin.router,          prefix="/api/admin",          tags=["�
 # === RECEIVABLES MODULE ROUTER ===
 app.include_router(receivables.router)
 
-# 자격증명 발급대장: 신규 API만 추가
-app.include_router(certificate_ledger.router)
+# === CERTIFICATE LEDGER ROUTER ===
+# 자격증명발급대장 모듈 오류가 전체 앱/Railway healthcheck를 죽이지 않도록
+# 라우터만 격리해서 등록한다. 정상일 때는 기존과 동일하게 API가 활성화된다.
+try:
+    from app.routers import certificate_ledger as _certificate_ledger_router
+    import app.certificate_ledger_models as _certificate_ledger_models
+    app.include_router(_certificate_ledger_router.router)
+    logger.info("자격증명발급대장 API 라우터 등록 완료")
+except Exception as _cert_router_error:
+    logger.exception(f"자격증명발급대장 API 라우터 등록 실패 (앱 기동은 계속): {_cert_router_error}")
 
 # 기한관리
 from app.routers import deadlines

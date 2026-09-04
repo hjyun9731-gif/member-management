@@ -1,0 +1,9 @@
+V25 검증 결과
+
+[PASS] Python 문법검사: python -m py_compile app/routers/receivables.py
+[PASS] 2026 관리비 + '배' 차량: 허용
+[PASS] 2026 관리비 + 비'배' 차량: 차단
+[PASS] 2027-01 관리비 + 비'배' 차량: 허용
+[PASS] 협회비 규칙: 영향 없음
+[PASS] 기존 잘못된 2026 비'배' 관리비 auto charge는 1회 repair 대상
+[PASS] legacy 원장/실입금/수동조정 삭제 없음
