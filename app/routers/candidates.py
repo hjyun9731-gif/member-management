@@ -111,6 +111,14 @@ async def register_as_member(cid: int, body: RegisterBody,
         raise HTTPException(400, str(e))
     except Exception as e:
         raise HTTPException(500, f"예정자 등록 처리 중 오류가 발생했습니다: {e}")
+
+    # 자격증명 발급대장 연결: 기존 회원등록 결과에는 영향 없음
+    try:
+        from app.services.certificate_ledger_service import mark_candidate_approved
+        mark_candidate_approved(db, cid, member.id, body.approval_date, _)
+    except Exception:
+        # 연결 실패가 기존 예정자 등록을 취소하거나 500 오류로 바꾸지 않게 분리
+        pass
     return {"ok": True, "management_number": mgmt, "member_id": member.id,
             "category": member.category,
             "transfer_ledger_created": bool(member.transfer_ledger_id)}
