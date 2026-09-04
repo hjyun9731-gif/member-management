@@ -1,0 +1,21 @@
+Speed fix 2026-09-05
+
+Changed files:
+- app/routers/receivables.py
+- SPEED_FIX_20260905.txt (this note)
+
+Preserved from the previous Railway startup fix:
+- app/railway_entry.py startup/healthcheck stabilization remains unchanged.
+
+What changed:
+- Repeated GET calls to these endpoints no longer rerun the full receivables ledger reconciliation on every navigation:
+  * /api/receivables/summary
+  * /api/receivables/dashboard
+  * /api/receivables/monthly-analysis
+- The existing full ledger guard is cached for 10 minutes per running process and serialized with a lock.
+- Current-month billing safety call remains in place.
+- No member/receivable data deletion logic was added.
+- No DROP / DELETE / TRUNCATE was added by this patch.
+
+Goal:
+- Prevent repeated menu navigation from rerunning expensive full-member reconciliation and causing multi-second loading/queueing.

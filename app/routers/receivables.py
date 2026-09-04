@@ -1410,6 +1410,31 @@ def _ensure_db_ledger_ready(db: Session) -> int:
     return _apply_legacy_baseline_once(db)
 
 
+
+# Read-heavy dashboard endpoints are opened repeatedly while navigating the UI.
+# The full ledger guard performs one-time reconciliation/repair work and is intentionally
+# expensive, so do not rerun it on every GET.  Keep a short in-process TTL and serialize
+# the occasional refresh.  This changes *when* the existing guard runs, not what data it
+# writes; no DELETE/DROP/TRUNCATE behavior is added here.
+_db_ledger_guard_cache_lock = threading.Lock()
+_db_ledger_guard_last_ok = 0.0
+DB_LEDGER_GUARD_MIN_INTERVAL_SECONDS = 600
+
+
+def _ensure_db_ledger_ready_cached(db: Session, *, force: bool = False) -> int:
+    global _db_ledger_guard_last_ok
+    now = time.monotonic()
+    if not force and _db_ledger_guard_last_ok and (now - _db_ledger_guard_last_ok) < DB_LEDGER_GUARD_MIN_INTERVAL_SECONDS:
+        return 0
+
+    with _db_ledger_guard_cache_lock:
+        now = time.monotonic()
+        if not force and _db_ledger_guard_last_ok and (now - _db_ledger_guard_last_ok) < DB_LEDGER_GUARD_MIN_INTERVAL_SECONDS:
+            return 0
+        result = _ensure_db_ledger_ready(db)
+        _db_ledger_guard_last_ok = time.monotonic()
+        return result
+
 def _repair_account_types(db: Session) -> int:
     """legacy/수동계정은 보존하고, 나머지만 가입일자 기준으로 정합성 보정."""
     rows = (
@@ -2251,7 +2276,7 @@ def summary(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    _ensure_db_ledger_ready(db)
+    _ensure_db_ledger_ready_cached(db)
     _ensure_current_month_billing(db)
     charges_sq, payments_sq = _charge_payment_subqueries(db)
     balance_expr = (
@@ -2344,7 +2369,7 @@ def receivables_dashboard(
     기존 원장/부과/수납 데이터를 변경하지 않고 현재 잔액, 지역/계정 분포,
     최신 연락기록, 고액 미수 순위를 한 번에 반환한다.
     """
-    _ensure_db_ledger_ready(db)
+    _ensure_db_ledger_ready_cached(db)
     _ensure_current_month_billing(db)
     charges_sq, payments_sq = _charge_payment_subqueries(db)
     latest_contact_sq = _latest_contact_subquery(db)
@@ -2541,7 +2566,7 @@ def monthly_analysis(
     랭킹이 아니라 월말 원장 스냅샷과 월별 현금흐름을 중심으로 읽기 전용 집계를
     반환한다. 기존 수납/부과/폐업 저장 로직은 변경하지 않는다.
     """
-    _ensure_db_ledger_ready(db)
+    _ensure_db_ledger_ready_cached(db)
     _ensure_current_month_billing(db)
 
     today_d = datetime.now(KST).date()
