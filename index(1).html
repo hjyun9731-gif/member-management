@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>강원특별자치도개인소형화물협회 업무관리 시스템</title>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#5E6AD2">
+  <link rel="icon" href="/static/icons/favicon-32.png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="협회 업무관리">
+  <link rel="stylesheet" href="/static/styles.css?v=20260822pbrange">
+
+  <!-- RECEIVABLES TOP NAV STYLE -->
+  <style id="receivablesTopNavStyle">
+    .receivables-top-link{display:inline-flex;align-items:center;justify-content:center;padding:8px 14px;border-radius:7px;color:#495164;text-decoration:none;font-size:13px;font-weight:700;white-space:nowrap;transition:.15s ease;background:#eef4ff;border:1px solid #dce7ff;margin-left:2px}
+    .receivables-top-link:hover{background:#dfeaff;color:#3158c8}
+    @media(max-width:1100px){.receivables-top-link{padding:6px 10px;font-size:12px}}
+  </style>
+  <link rel="stylesheet" href="/static/design-dashboard-v19-20260830.css?v=20260830v19">
+</head>
+<body>
+<header class="hdr">
+  <div class="hdr-brand">
+    <span class="hdr-icon">🚛</span>
+    <div>
+      <div class="hdr-title">강원특별자치도개인소형화물협회</div>
+      <div class="hdr-sub">업무관리 시스템</div>
+    </div>
+  </div>
+
+  <nav class="cat-nav" id="catNav">
+    <button class="cat-btn" data-cat="members">회원관리</button>
+    <a class="receivables-top-link" href="/receivables" title="수납·미수금 통합관리">수납/미수금</a>
+    <button class="cat-btn" data-cat="permits">인허가/변경</button>
+    <button class="cat-btn" data-cat="reports">보고/집계</button>
+    <button class="cat-btn" data-cat="deadlines">기한관리</button>
+    <button class="cat-btn" data-cat="excel">엑셀 업로드</button>
+    <button class="cat-btn" data-cat="sms">명단추출</button>
+  </nav>
+
+  <div class="hdr-right">
+    <button class="btn-logout" id="pwaInstallBtn" style="display:none">앱 설치</button>
+    <span class="hdr-user" id="hUser"></span>
+    <button class="btn-logout" id="logoutBtn">로그아웃</button>
+  </div>
+</header>
+
+<div class="sub-bar" id="subBar"></div>
+
+<main class="content" id="content">
+  <div class="loading-box"><div class="spin"></div><p>로딩 중...</p></div>
+</main>
+
+<div class="modal-bg" id="modalBg" style="display:none">
+  <div class="modal" id="modal">
+    <div class="modal-hd"><h3 id="modalTitle"></h3><button class="modal-x" id="modalX">×</button></div>
+    <div class="modal-bd" id="modalBd"></div>
+    <div class="modal-ft" id="modalFt"></div>
+  </div>
+</div>
+
+<div class="toast-box" id="toastBox"></div>
+<script src="/static/app.js?v=20260822pbrange"></script>
+<script src="/static/design-dashboard-v19-20260830.js?v=20260830v19"></script>
+<script src="/static/certificate-ledger.js?v=20260904r2"></script>
+</body>
+</html>
