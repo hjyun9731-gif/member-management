@@ -559,7 +559,7 @@ window.showStatList=async(statType)=>{
     document.getElementById('statListBody').innerHTML=`
       <p style="font-size:12px;color:var(--c-text-3);margin-bottom:8px">총 ${d.total}명</p>
       <div class="tbl-wrap"><table>
-        <thead><tr><th>지역</th><th>차량번호</th><th>성명</th><th>구분</th><th>가입일자</th><th>자격증발급일자</th><th>자격증발급번호</th><th>인가일자</th></tr></thead>
+        <thead><tr><th>지역</th><th>차량번호</th><th>성명</th><th>구분</th><th>가입일자</th><th>자격증명발급일자</th><th>자격증명번호</th><th>인가일자</th></tr></thead>
         <tbody>${rows}</tbody>
       </table></div>`;
   }catch(e){document.getElementById('statListBody').innerHTML='오류 발생';}
@@ -609,7 +609,7 @@ window.viewMember=async(id)=>{
   const sections=[
     {title:'기본 정보',fields:[['관리번호',r.management_number],['지역',r.region],['차량번호',r.vehicle_number],['성명',r.name],['개인/택배',r.category],['가입여부',r.membership_status]]},
     {title:'연락처 / 주소',fields:[['전화번호',r.phone],['핸드폰',r.mobile],['주소',r.address,true],['공문주소',rawAddr,true],['대리인',rawAgent],['대리인 주민등록번호',rawAgentRes],['대리인 핸드폰',rawAgentMob]]},
-    {title:'인허가 정보',fields:[['인가일자',r.approval_date],['가입일자',r.membership_date],['재허가',rawReapproval],['자격증발급일자',r.certificate_issue_date],['자격증발급번호',r.certificate_number],['운전면허번호',r.driver_license_number],['주민등록번호',r.resident_number],['사업자번호',r.business_number]]},
+    {title:'인허가 정보',fields:[['인가일자',r.approval_date],['가입일자',r.membership_date],['재허가',rawReapproval],['자격증명발급일자',r.certificate_issue_date],['자격증명번호',r.certificate_number],['운전면허번호',r.driver_license_number],['주민등록번호',r.resident_number],['사업자번호',r.business_number]]},
     {title:'차량 정보',fields:[['차종',r.vehicle_type],['유종',r.fuel_type],['소속업체',r.affiliated_company],['구조변경',r.structure_change||rawStruct,true],['전속업체 변경',rawCompChg,true]]},
     ...(rehasa.length?[{title:'재허가 이력',fields:rehasa}]:[]),
     ...(edu.length?[{title:'교육 / 점검',fields:edu}]:[]),
@@ -705,7 +705,7 @@ window.viewTransfer=async(id)=>{
       ['구조변경',r.structure_change||raw['구조변경']||'',true],
     ]},
     {title:'양도자 / 양수자',fields:[['양도자',r.transferor],['양수자',r.transferee],['주민등록번호',r.resident_number],['전화번호',r.phone],['핸드폰',r.mobile],['주소',r.address,true],['공문주소',raw['공문주소']||raw['official_address']||'',true]]},
-    {title:'인허가 / 자격',fields:[['인가일자',r.approval_date],['가입여부',raw['가입여부']||raw['membership_status']||''],['가입일자',r.membership_date],['자격증발급일자',r.certificate_issue_date],['자격증발급번호',r.certificate_number],['운전면허번호',r.driver_license_number]]},
+    {title:'인허가 / 자격',fields:[['인가일자',r.approval_date],['가입여부',raw['가입여부']||raw['membership_status']||''],['가입일자',r.membership_date],['자격증명발급일자',r.certificate_issue_date],['자격증명번호',r.certificate_number],['운전면허번호',r.driver_license_number]]},
     {title:'소속 / 행정',fields:[['소속업체',r.affiliated_company||raw['소속업체']||raw['업체명']||''],['비고',r.memo,true]]},
     ...(rawExtra.length?[{title:'원본 엑셀 데이터',fields:rawExtra.map(([k,v])=>[k,v,false])}]:[]),
   ];
@@ -831,7 +831,7 @@ async function renderCandidateSection(){
         <div class="fi cs4"><label>주소</label><input class="fc" name="address"></div>
         `,'📞','pri')}
         ${sec('자격증·면허정보',`
-        ${fi('certificate_issue_date','자격증발급일자')} ${certNumField('certificate_number','자격증발급번호')}
+        ${fi('certificate_issue_date','자격증명발급일자')} ${certNumField('certificate_number','자격증명번호')}
         ${fi('driver_license_number','운전면허번호')}
         <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" placeholder="예: 22,포터Ⅱ내장탑차 / 봉고 / 냉동탑차"></div>
         ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),'')}
@@ -849,7 +849,7 @@ async function renderCandidateSection(){
     <div class="candidate-right-column">
       <div class="inner-tab-bar candidate-right-tabs" style="margin-bottom:10px">
         <button type="button" class="inner-tab ${rightView==='list'?'active':''}" id="candRightListTab">📂 예정자 목록</button>
-        <button type="button" class="inner-tab ${rightView==='ledger'?'active':''}" id="candRightLedgerTab">🪪 자격증명발급대장</button>
+        <button type="button" class="inner-tab ${rightView==='ledger'?'active':''}" id="candRightLedgerTab">🖨 자격증명발급대장</button>
       </div>
       <div id="candidateRightPane" class="candidate-right-pane"></div>
     </div>
@@ -859,7 +859,7 @@ async function renderCandidateSection(){
   setTimeout(()=>{_bindFmt('candForm');_bindCertIssueBtn(document.getElementById('candForm'),'/api/candidates/issue-certificate-number');},0);
 
   const sk='cand';
-  const hdrs=[{field:'region',label:'지역'},{field:'vehicle_number',label:'차량번호'},{field:'name',label:'성명'},{field:'resident_number',label:'주민등록번호'},{field:'mobile',label:'핸드폰'},{field:'vehicle_type',label:'차종'},{field:'certificate_number',label:'자격증번호'},{field:'affiliated_company',label:'소속업체'},{label:'관리',noSort:true}];
+  const hdrs=[{field:'region',label:'지역'},{field:'vehicle_number',label:'차량번호'},{field:'name',label:'성명'},{field:'resident_number',label:'주민등록번호'},{field:'mobile',label:'핸드폰'},{field:'vehicle_type',label:'차종'},{field:'certificate_number',label:'자격증명번호'},{field:'affiliated_company',label:'소속업체'},{label:'관리',noSort:true}];
   let doSearch=null;
 
   const setRightTabActive=(mode)=>{
@@ -957,7 +957,7 @@ window.editCandidate=async(id)=>{
     ${frn('resident_number','주민등록번호',r.resident_number||'')}
     ${fi('phone','전화번호',r.phone||'')} ${fph('mobile','핸드폰',r.mobile||'')}
     <div class="fi cs2"><label>주소</label><input class="fc" name="address" value="${e_(r.address||'')}"></div>
-    ${fi('certificate_issue_date','자격증발급일자',r.certificate_issue_date||'')} ${certNumField('certificate_number','자격증발급번호',r.certificate_number||'')}
+    ${fi('certificate_issue_date','자격증명발급일자',r.certificate_issue_date||'')} ${certNumField('certificate_number','자격증명번호',r.certificate_number||'')}
     ${fi('driver_license_number','운전면허번호',r.driver_license_number||'')}
     <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||'')}" placeholder="예: 22,포터Ⅱ내장탑차 / 봉고 / 냉동탑차"></div>
     ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),r.fuel_type||'')}
@@ -1030,7 +1030,7 @@ async function renderTransferSection(){
         <div class="fi cs4"><label>주소</label><input class="fc" name="address"></div>
         `,'📞','purple')}
         ${sec('자격증·면허정보',`
-        ${fi('certificate_issue_date','자격증발급일자','')} ${fi('certificate_number','자격증발급번호','')}
+        ${fi('certificate_issue_date','자격증명발급일자','')} ${fi('certificate_number','자격증명번호','')}
         ${fi('driver_license_number','운전면허번호','')}
         <div class="fi"><label>차종 (직접입력)</label><input class="fc" name="vehicle_type" placeholder="예: 22,포터Ⅱ내장탑차 / 1톤 냉동탑차"></div>
         ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),'')}
@@ -1232,7 +1232,7 @@ window.editMember=async(id,defaultCat='개인')=>{
     ${sec('가입정보',`
       ${fri('membership_status','가입여부',['가입','미가입'],r.membership_status||'가입')}
       ${fi('membership_date','가입일자',r.membership_date||'')} ${fi('approval_date','인가일자',r.approval_date||'')}
-      ${fi('certificate_issue_date','자격증발급일자',r.certificate_issue_date||'')} ${fi('certificate_number','자격증발급번호',r.certificate_number||'')}
+      ${fi('certificate_issue_date','자격증명발급일자',r.certificate_issue_date||'')} ${fi('certificate_number','자격증명번호',r.certificate_number||'')}
     `,'📋','purple')}
     ${sec('면허정보',`
       ${fi('driver_license_number','운전면허번호',r.driver_license_number||'')}

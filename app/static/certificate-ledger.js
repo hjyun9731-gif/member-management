@@ -30,7 +30,7 @@
       .cl-pending strong{color:#d97706}.cl-issued strong{color:#059669}.cl-wait strong{color:#6b7280}.cl-approved strong{color:#5e6ad2}
       .cl-badge{display:inline-flex;align-items:center;padding:3px 8px;border-radius:20px;font-size:10.5px;font-weight:800;white-space:nowrap}
       .cl-badge.pending{color:#b45309;background:#fff7ed}.cl-badge.issued{color:#047857;background:#ecfdf5}
-      .cl-badge.wait{color:#6b7280;background:#f3f4f6}.cl-badge.approved{color:#4f46e5;background:#eef2ff}
+      .cl-badge.wait{color:#6b7280;background:#f3f4f6}.cl-badge.approved{color:#4f46e5;background:#eef2ff}.cl-badge.cancelled{color:#6b7280;background:#f3f4f6}
       .cl-table th,.cl-table td{white-space:nowrap}.cl-table td{font-size:11.5px}.cl-table .cl-name{font-weight:700;color:var(--c-text)}
       .cl-actions{display:flex;gap:4px;justify-content:center;align-items:center}.cl-empty{padding:30px;text-align:center;color:var(--c-text-3)}
       .cl-history{display:grid;gap:8px}.cl-history-item{border-left:3px solid var(--c-pri);padding:7px 10px;background:var(--c-bg);border-radius:0 7px 7px 0}
@@ -64,6 +64,7 @@
   }
 
   function issuanceBadge(status) {
+    if (status === '취소') return `<span class="cl-badge cancelled">취소</span>`;
     const issued = status === '발급완료';
     return `<span class="cl-badge ${issued ? 'issued' : 'pending'}">${esc(status || '생성대기')}</span>`;
   }
@@ -112,7 +113,7 @@
       target.innerHTML = `
         <div class="cl-head"><div class="cl-help">신청서류 접수 → 예정자 입력 → 발급번호 확인 → 자격증명 생성·발급완료 → 이후 시청 인가일자 반영</div></div>
         <div class="cl-stats">
-          <div class="cl-stat"><span>전체</span><strong>${Number(stats.total || 0).toLocaleString()}</strong></div>
+          <div class="cl-stat"><span>누적 자격증명번호</span><strong>${esc(stats.last_certificate_number || stats.total || '-')}</strong></div>
           <div class="cl-stat cl-pending"><span>생성대기</span><strong>${Number(counts['생성대기'] || 0).toLocaleString()}</strong></div>
           <div class="cl-stat cl-issued"><span>발급완료</span><strong>${Number(counts['발급완료'] || 0).toLocaleString()}</strong></div>
           <div class="cl-stat cl-wait"><span>인가대기</span><strong>${Number(counts['인가대기'] || 0).toLocaleString()}</strong></div>
@@ -122,18 +123,18 @@
           <div class="frow">
             <select class="fsel" id="clStatus">
               <option value="">전체 상태</option>
-              ${['생성대기','발급완료','인가대기','인가완료'].map(s => `<option value="${s}" ${state.status === s ? 'selected' : ''}>${s}</option>`).join('')}
+              ${['생성대기','발급완료','취소','인가대기','인가완료'].map(s => `<option value="${s}" ${state.status === s ? 'selected' : ''}>${s}</option>`).join('')}
             </select>
-            <input class="srch" id="clSearch" value="${esc(state.search)}" placeholder="성명, 차량번호, 증명서 No., 자격증번호, 담당자">
+            <input class="srch" id="clSearch" value="${esc(state.search)}" placeholder="성명, 차량번호, 자격증명번호, 담당자">
             <button class="btn bp btn-sm" id="clSearchBtn">조회</button>
             <button class="btn bo btn-sm" id="clResetBtn">초기화</button>
-            <span class="cnt" style="margin-left:auto">${Number(data.total || 0).toLocaleString()}건</span>
+            <span class="cnt" style="margin-left:auto">대장 ${Number(data.total || 0).toLocaleString()}건</span>
           </div>
           ${data.items.length ? `<div class="tbl-wrap"><table class="cl-table"><thead><tr>
-            <th>증명서 No.</th><th>지역</th><th>차량번호</th><th>성명</th><th>자격증번호</th><th>자격증명 발급일</th><th>자격증명 상태</th><th>시청 인가</th><th>최근 담당자</th><th>관리</th>
+            <th>자격증명번호</th><th>지역</th><th>차량번호</th><th>성명</th><th>자격증명 발급일</th><th>자격증명 상태</th><th>시청 인가</th><th>최근 담당자</th><th>관리</th>
           </tr></thead><tbody>${data.items.map(row => `<tr>
             <td><strong>${esc(row.document_number || '-')}</strong></td><td>${esc(row.region || '-')}</td><td>${esc(row.vehicle_number || '-')}</td>
-            <td class="cl-name">${esc(row.name)}</td><td>${esc(row.qualification_number || '-')}</td><td>${esc(display(row.certificate_issue_date))}</td>
+            <td class="cl-name">${esc(row.name)}</td><td>${esc(display(row.certificate_issue_date))}</td>
             <td>${issuanceBadge(row.issuance_status)}</td><td>${approvalBadge(row.approval_status)}</td><td>${esc(row.latest_operator || '-')}</td>
             <td><div class="cl-actions">${actionButtons(row)}</div></td>
           </tr>`).join('')}</tbody></table></div>${pager(data)}` : '<div class="cl-empty">아직 자격증명 발급대장에 연결된 신규 예정자가 없습니다.</div>'}

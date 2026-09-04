@@ -368,9 +368,20 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
         if crud.check_mgmt_dup(db, models.LicenseHolder, str(new_mgmt).strip(), exclude_id=mid):
             raise HTTPException(400, f"관리번호 {new_mgmt}가 이미 존재합니다.")
 
+    old_cert_before = (m.certificate_number or "").strip()
     new_cert = data.get("certificate_number")
-    if new_cert is not None and str(new_cert).strip() and str(new_cert).strip() != (m.certificate_number or "").strip():
-        new_cert_clean = str(new_cert).strip()
+    new_cert_clean = ""
+    if new_cert is not None:
+        raw_cert = str(new_cert).strip()
+        normalized_cert = crud.normalize_certificate_number(raw_cert) if raw_cert else ""
+        # 번호처럼 인식되는 값은 DB에도 표준형(YY-N)으로 저장한다.
+        # 메모성 과거값은 기존 호환성을 위해 원문을 유지한다.
+        if normalized_cert:
+            data["certificate_number"] = normalized_cert
+            new_cert_clean = normalized_cert
+        else:
+            new_cert_clean = raw_cert
+    if new_cert is not None and new_cert_clean and new_cert_clean != (crud.normalize_certificate_number(old_cert_before) or old_cert_before):
         usage = crud._scan_certificate_number_usage(db, new_cert_clean)
         if usage:
             tname, lid, uname, uvehicle = usage
@@ -552,10 +563,12 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
         cert_val = (m.certificate_number or "").strip()
         if cert_val and crud._is_valid_certificate_number_format(cert_val):
             try:
-                crud.sync_certificate_number_usage(db, cert_val, "license_holders", m.id,
-                                                     m.name or "", m.vehicle_number or "")
+                crud.resync_certificate_number_change(
+                    db, old_cert_before, cert_val, "license_holders", m.id,
+                    m.name or "", m.vehicle_number or ""
+                )
             except Exception as ex:
-                logger.warning(f"자격증명발급이력 동기화 실패: {ex}")
+                logger.warning(f"자격증명번호/발급대장 재동기화 실패: {ex}")
 
     return _fmt(m)
 

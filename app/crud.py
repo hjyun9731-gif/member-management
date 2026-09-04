@@ -471,16 +471,39 @@ def backfill_transfer_certificate_sync(db: Session) -> dict:
 
 
 _CERT_NUMBER_RE = re.compile(r"^\d{2,4}-\d{1,6}$")
+_CERT_HYPHENS = ("‐", "‑", "‒", "–", "—", "−", "﹣", "－")
+
+
+def normalize_certificate_number(value: str) -> str:
+    """자격증명번호를 YY-N 표준형으로 정규화한다.
+
+    수기 수정 시 자주 생기는 전각문자/다른 하이픈/하이픈 주변 공백/번호 앞 0을
+    표준형으로 맞춰 같은 번호를 서로 다르게 인식하는 문제를 막는다.
+    예: ``26 – 0370`` -> ``26-370``, ``2026-370`` -> ``26-370``.
+    숫자형 자격증명번호가 아닌 기존 메모성 값은 빈 문자열을 반환하고 원본 필드는 건드리지 않는다.
+    """
+    if value is None:
+        return ""
+    import unicodedata
+    v = unicodedata.normalize("NFKC", str(value)).strip()
+    for ch in _CERT_HYPHENS:
+        v = v.replace(ch, "-")
+    v = re.sub(r"\s*-\s*", "-", v)
+    v = re.sub(r"\s+", "", v)
+    m = re.fullmatch(r"(\d{2}|\d{4})-(\d{1,6})", v)
+    if not m:
+        return ""
+    yy = m.group(1)[-2:]
+    try:
+        num = str(int(m.group(2)))
+    except Exception:
+        return ""
+    return f"{yy}-{num}"
 
 
 def _is_valid_certificate_number_format(value: str) -> bool:
-    """실제 채번 형식(예: 26-329)인지 확인. 아니면 발급이력(20자 제한+UNIQUE)에 넣지 않는다
-    - 수기 메모/긴 텍스트 등 형식이 아닌 값을 넣으려다 DB 제약 위반으로 전체 요청이
-    실패하는 것을 막기 위함."""
-    if not value:
-        return False
-    v = str(value).strip()
-    return bool(v) and len(v) <= 20 and bool(_CERT_NUMBER_RE.match(v))
+    """실제 채번 형식(예: 26-329)인지 확인."""
+    return bool(normalize_certificate_number(value))
 
 
 def reconcile_certificate_number_logs(db: Session) -> dict:
@@ -657,9 +680,14 @@ def get_next_certificate_number(db: Session, issued_by: str = None) -> str:
 
 
 def _scan_certificate_number_usage(db: Session, certificate_number: str):
-    """4개 테이블에서 해당 자격증명발급번호를 실제로 사용중인 레코드가 있는지 확인.
-    (table_name, id, name, vehicle_number) 또는 None
+    """4개 테이블에서 해당 자격증명번호를 실제로 사용중인 레코드가 있는지 확인.
+
+    표준형으로 먼저 조회하고, 과거 수기 입력값이 비표준 하이픈/공백을 포함한 경우에도
+    정규화 비교로 한 번 더 찾아낸다.
     """
+    cert = normalize_certificate_number(certificate_number)
+    if not cert:
+        return None
     tables = [
         (models.LicenseHolder, "license_holders"),
         (models.Candidate, "candidates"),
@@ -667,10 +695,14 @@ def _scan_certificate_number_usage(db: Session, certificate_number: str):
         (models.Closure, "closures"),
     ]
     for model, tname in tables:
-        row = db.query(model).filter(
-            model.certificate_number == certificate_number,
-            model.deleted_at.is_(None)
-        ).first()
+        q = db.query(model).filter(model.deleted_at.is_(None)) if hasattr(model, "deleted_at") else db.query(model)
+        row = q.filter(model.certificate_number == cert).first()
+        if not row:
+            # 기존 데이터에 26 – 370 / 26-0370처럼 저장된 경우까지 복구 인식.
+            for candidate in q.filter(model.certificate_number.isnot(None), model.certificate_number != "").all():
+                if normalize_certificate_number(getattr(candidate, "certificate_number", "")) == cert:
+                    row = candidate
+                    break
         if row:
             name = getattr(row, "name", None) or getattr(row, "transferee", None) or ""
             vehicle = getattr(row, "vehicle_number", None) or ""
@@ -682,9 +714,9 @@ def sync_certificate_number_usage(db: Session, certificate_number: str,
                                    linked_table: str, linked_id: int,
                                    target_name: str = "", vehicle_number: str = ""):
     """레코드 저장 시점에 발급이력과 실사용 여부를 연결. 로그가 없으면(수기 입력 등) 새로 만든다."""
-    if not certificate_number or not str(certificate_number).strip():
+    certificate_number = normalize_certificate_number(certificate_number)
+    if not certificate_number:
         return
-    certificate_number = str(certificate_number).strip()
     log = db.query(models.CertificateNumberLog).filter(
         models.CertificateNumberLog.certificate_number == certificate_number).first()
     if log:
@@ -707,6 +739,79 @@ def sync_certificate_number_usage(db: Session, certificate_number: str,
             memo="수동입력(발급이력 없음, 저장 시점에 자동 생성)",
         ))
     db.commit()
+
+
+def resync_certificate_number_change(db: Session, old_number: str, new_number: str,
+                                     linked_table: str, linked_id: int,
+                                     target_name: str = "", vehicle_number: str = ""):
+    """개인/택배회원에서 자격증명번호를 수기로 고쳤을 때 번호이력과 발급대장을 즉시 재연결한다.
+
+    새 번호는 현재 대상자에게 ``used``로 연결하고, 이전 번호가 더 이상 실제 데이터에서
+    사용되지 않으면 발급(미사용) 상태로 되돌려 잘못된 '사용중' 연결이 남지 않게 한다.
+    발급대장 행이 있으면 같은 번호와 인가일자도 함께 갱신한다.
+    """
+    old_cert = normalize_certificate_number(old_number)
+    new_cert = normalize_certificate_number(new_number)
+    if new_cert:
+        sync_certificate_number_usage(db, new_cert, linked_table, linked_id, target_name, vehicle_number)
+
+    if old_cert and old_cert != new_cert:
+        old_log = db.query(models.CertificateNumberLog).filter(
+            models.CertificateNumberLog.certificate_number == old_cert
+        ).first()
+        if old_log and old_log.status != "cancelled":
+            usage = _scan_certificate_number_usage(db, old_cert)
+            if usage:
+                tname, lid, name, vehicle = usage
+                old_log.status = "used"
+                old_log.linked_table = tname
+                old_log.linked_id = lid
+                old_log.target_name = name
+                old_log.vehicle_number = vehicle
+            else:
+                old_log.status = "issued"
+                old_log.linked_table = None
+                old_log.linked_id = None
+                old_log.target_name = None
+                old_log.vehicle_number = None
+                note = "회원정보 수기 수정으로 기존 연결 해제"
+                old_log.memo = f"{old_log.memo} / {note}" if old_log.memo else note
+
+    # 발급대장도 같은 회원/후보 연결을 따라가게 한다. 순환 import 방지를 위해 지역 import.
+    try:
+        from app import certificate_ledger_models as _ledger_models
+        q = db.query(_ledger_models.CertificateIssuanceLedger).filter(
+            _ledger_models.CertificateIssuanceLedger.deleted_at.is_(None)
+        )
+        if linked_table == "license_holders":
+            member = db.query(models.LicenseHolder).filter(models.LicenseHolder.id == linked_id).first()
+            conds = [_ledger_models.CertificateIssuanceLedger.member_id == linked_id]
+            if member and getattr(member, "candidate_id", None):
+                conds.append(_ledger_models.CertificateIssuanceLedger.candidate_id == member.candidate_id)
+            from sqlalchemy import or_
+            row = q.filter(or_(*conds)).first() if conds else None
+            if row and member:
+                if new_cert:
+                    dup = db.query(_ledger_models.CertificateIssuanceLedger.id).filter(
+                        _ledger_models.CertificateIssuanceLedger.document_number == new_cert,
+                        _ledger_models.CertificateIssuanceLedger.id != row.id,
+                        _ledger_models.CertificateIssuanceLedger.deleted_at.is_(None),
+                    ).first()
+                    if not dup:
+                        row.document_number = new_cert
+                row.member_id = member.id
+                row.approval_date = member.approval_date or row.approval_date or ""
+                row.certificate_issue_date = member.certificate_issue_date or row.certificate_issue_date or ""
+                row.name = member.name or row.name
+                row.vehicle_number = member.vehicle_number or row.vehicle_number
+                row.region = member.region or row.region
+        db.commit()
+    except Exception:
+        db.rollback()
+        # 번호이력 동기화 자체는 이미 완료되었으므로 발급대장 보조동기화 실패로 회원 저장을 깨지 않는다.
+        if new_cert:
+            sync_certificate_number_usage(db, new_cert, linked_table, linked_id, target_name, vehicle_number)
+    return new_cert
 
 
 def cancel_certificate_number(db: Session, certificate_number: str, memo: str = ""):
