@@ -222,11 +222,20 @@ def ensure_member_ledger(db: Session, member: models.LicenseHolder, user=None):
     # 삭제(soft-delete)된 과거 행까지 함께 찾는다.
     # 같은 번호의 삭제 행이 남아 있으면 document_number UNIQUE 제약 때문에
     # 새 행 INSERT가 실패할 수 있으므로 기존 행을 되살려 재사용한다.
-    rows = (db.query(ledger_models.CertificateIssuanceLedger)
-            .filter(ledger_models.CertificateIssuanceLedger.document_number.isnot(None),
-                    ledger_models.CertificateIssuanceLedger.document_number != "")
-            .all())
-    entry = next((r for r in rows if crud.normalize_certificate_number(r.document_number) == number), None)
+    # 전체 발급대장을 읽지 않는다. 26-085/26-85처럼 같은 번호가 될 수 있는
+    # 표기만 좁혀서 조회해 회원 수정/동기화 속도를 유지한다.
+    yy, no = number.split("-", 1)
+    try:
+        n = int(no)
+        variants = list(dict.fromkeys([
+            f"{yy}-{n}", f"{yy}-{n:02d}", f"{yy}-{n:03d}", f"{yy}-{n:04d}"
+        ]))
+    except Exception:
+        variants = [number]
+    entry = (db.query(ledger_models.CertificateIssuanceLedger)
+             .filter(ledger_models.CertificateIssuanceLedger.document_number.in_(variants))
+             .order_by(ledger_models.CertificateIssuanceLedger.id.desc())
+             .first())
 
     if entry is None:
         entry = ledger_models.CertificateIssuanceLedger(

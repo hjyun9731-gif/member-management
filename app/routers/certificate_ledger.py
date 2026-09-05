@@ -17,7 +17,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import and_, or_
+from sqlalchemy import Integer, and_, cast, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -54,43 +54,61 @@ def _invalidate_stats_cache():
 
 
 def _ensure_existing_member_ledgers_cached(db: Session, *, force: bool = False) -> int:
-    """이미 개인/택배회원에 수기로 들어간 발급번호를 발급대장에 보강한다.
+    """화면 조회에서는 가장 최근 자격증명번호 1건만 빠르게 확인한다.
 
-    5분에 한 번만 실행해 일반 화면 전환 속도는 유지한다. 기존 데이터를 삭제/변경하지 않고
-    발급대장에 없는 번호만 연결한다.
+    과거 방식처럼 개인/택배회원 전체를 순회하지 않는다. 회원 수정 시에는
+    members.py에서 ensure_member_ledger()가 즉시 호출되므로 신규 수기입력은 바로 반영된다.
+    이 함수는 박영민 26-370처럼 이미 DB에 들어가 있던 최신 누락번호를 보강하기 위한 안전망이다.
     """
     now = monotonic()
     if not force and (now - float(_MEMBER_LEDGER_SYNC.get("at") or 0)) < _MEMBER_LEDGER_SYNC_TTL:
         return 0
     _MEMBER_LEDGER_SYNC["at"] = now
 
-    existing_rows = (db.query(ledger_models.CertificateIssuanceLedger.document_number)
-                     .filter(ledger_models.CertificateIssuanceLedger.deleted_at.is_(None),
-                             ledger_models.CertificateIssuanceLedger.document_number.isnot(None),
-                             ledger_models.CertificateIssuanceLedger.document_number != "")
-                     .all())
-    existing = {crud.normalize_certificate_number(v) for (v,) in existing_rows if crud.normalize_certificate_number(v)}
+    cert = models.LicenseHolder.certificate_number
+    # PostgreSQL에서 26-370 / 26-085 같은 정상 형식만 대상으로 숫자 기준 최신 1건 조회.
+    member = (
+        db.query(models.LicenseHolder)
+        .filter(
+            models.LicenseHolder.deleted_at.is_(None),
+            cert.isnot(None),
+            cert != "",
+            models.LicenseHolder.category.in_(["개인", "택배"]),
+            cert.op("~")(r"^[0-9]{2}-0*[0-9]+$"),
+        )
+        .order_by(
+            cast(func.split_part(cert, "-", 1), Integer).desc(),
+            cast(func.split_part(cert, "-", 2), Integer).desc(),
+        )
+        .first()
+    )
+    if not member:
+        return 0
+    try:
+        before = (
+            db.query(ledger_models.CertificateIssuanceLedger.id)
+            .filter(ledger_models.CertificateIssuanceLedger.document_number.in_(_number_variants(member.certificate_number)))
+            .first()
+        )
+        ensure_member_ledger(db, member, None)
+        if before is None:
+            _invalidate_stats_cache()
+            return 1
+    except Exception:
+        db.rollback()
+    return 0
 
-    members = (db.query(models.LicenseHolder)
-               .filter(models.LicenseHolder.deleted_at.is_(None),
-                       models.LicenseHolder.certificate_number.isnot(None),
-                       models.LicenseHolder.certificate_number != "",
-                       models.LicenseHolder.category.in_(["개인", "택배"]))
-               .all())
-    changed = 0
-    for member in members:
-        number = crud.normalize_certificate_number(member.certificate_number)
-        if not number or number in existing:
-            continue
-        try:
-            if ensure_member_ledger(db, member, None):
-                existing.add(number)
-                changed += 1
-        except Exception:
-            db.rollback()
-    if changed:
-        _invalidate_stats_cache()
-    return changed
+
+def _number_variants(value: str):
+    cert = crud.normalize_certificate_number(value)
+    if not cert or "-" not in cert:
+        return [cert] if cert else []
+    yy, no = cert.split("-", 1)
+    try:
+        n = int(no)
+    except Exception:
+        return [cert]
+    return list(dict.fromkeys([f"{yy}-{n}", f"{yy}-{n:02d}", f"{yy}-{n:03d}", f"{yy}-{n:04d}"]))
 
 
 def _number_sort_key(row):
@@ -688,7 +706,6 @@ async def ledger_stats(db: Session = Depends(get_db), _=Depends(get_current_user
     if cached is not None and (now - float(_STATS_CACHE.get("at") or 0)) < _STATS_CACHE_TTL:
         return cached
     ensure_ledger_schema(db)
-    _ensure_existing_member_ledgers_cached(db)
     rows = (
         db.query(ledger_models.CertificateIssuanceLedger)
         .filter(ledger_models.CertificateIssuanceLedger.deleted_at.is_(None))
