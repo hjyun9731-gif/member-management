@@ -167,6 +167,16 @@ class IssueLedgerBody(BaseModel):
     document_number: Optional[str] = ""
 
 
+class UpdateLedgerBody(BaseModel):
+    """발급대장 자체 수정 전용 body.
+
+    예정자/회원의 이름·주민등록번호·차량번호·자격증명번호 등은 여기서 건드리지 않는다.
+    발급대장에서 실제로 관리하는 최소 항목(발급일자, 비고)만 받는다.
+    """
+    certificate_issue_date: Optional[str] = None
+    remark: Optional[str] = None
+
+
 def _dt(value):
     return value.isoformat() if value else None
 
@@ -196,16 +206,31 @@ def _norm_vehicle(value: str) -> str:
     return re.sub(r"[\s-]+", "", str(value or "")).strip()
 
 
+def _norm_rrn(value: str) -> str:
+    """주민등록번호 비교용: 숫자만 남긴다."""
+    import re
+    return re.sub(r"\D", "", str(value or ""))
+
+
 def _same_person_vehicle(candidate, member) -> bool:
+    """동명이인 오연결을 막기 위해 이름만으로는 동일인으로 보지 않는다.
+
+    주민등록번호가 둘 다 있으면 그것으로, 없으면 차량번호+이름이 모두 일치할 때만 동일인으로 본다.
+    """
     if not candidate or not member:
         return False
+    c_rrn = _norm_rrn(getattr(candidate, "resident_number", ""))
+    m_rrn = _norm_rrn(getattr(member, "resident_number", ""))
+    if c_rrn and m_rrn:
+        return c_rrn == m_rrn
+
     c_vehicle = _norm_vehicle(getattr(candidate, "vehicle_number", ""))
     m_vehicle = _norm_vehicle(getattr(member, "vehicle_number", ""))
     if not c_vehicle or not m_vehicle or c_vehicle != m_vehicle:
         return False
     c_name = (getattr(candidate, "name", "") or "").strip()
     m_name = (getattr(member, "name", "") or "").strip()
-    return (not c_name or not m_name or c_name == m_name)
+    return bool(c_name and m_name and c_name == m_name)
 
 
 def _member_means_approved(candidate, member) -> bool:
@@ -244,6 +269,18 @@ def _actual_details(db: Session, row):
             models.Candidate.id == row.candidate_id,
             models.Candidate.deleted_at.is_(None),
         ).first()
+        if not candidate and not member:
+            # 예정자가 회원 전환 후 삭제(soft-delete)되었더라도, 이미 연결돼 있던
+            # member_id만 읽어와 인가완료 상태/회원 연결이 끊기지 않게 한다.
+            # 삭제된 예정자를 되살리거나 예정자 API로 노출하지는 않는다.
+            deleted_candidate = db.query(models.Candidate).filter(
+                models.Candidate.id == row.candidate_id,
+            ).first()
+            if deleted_candidate and getattr(deleted_candidate, "member_id", None):
+                member = db.query(models.LicenseHolder).filter(
+                    models.LicenseHolder.id == deleted_candidate.member_id,
+                    models.LicenseHolder.deleted_at.is_(None),
+                ).first()
         if not member and candidate:
             mid = getattr(candidate, "member_id", None)
             if mid:
@@ -345,6 +382,7 @@ def _item(db: Session, row):
         "issuance_status": issuance_status,
         "latest_operator": latest_operator,
         "created_by": row.created_by or "",
+        "remark": row.remark or "",
         "approved_at": _dt(row.approved_at),
         "issued_at": _dt(row.issued_at),
         "created_at": _dt(row.created_at),
@@ -406,6 +444,19 @@ def _bulk_context(db: Session, rows):
         member_ids.add(getattr(t, "transferee_member_id", None) or getattr(t, "member_id", None))
     member_ids.discard(None)
 
+    # 예정자가 회원 전환 후 삭제(soft-delete)된 경우에도, 이미 연결돼 있던 member_id는
+    # 잃지 않아야 인가완료 상태가 계속 정상 표시된다. 삭제된 예정자를 되살리지 않고
+    # member_id만 조회 용도로 읽어온다.
+    missing_from_active = candidate_ids.difference(candidates.keys())
+    deleted_candidate_member = {}
+    if missing_from_active:
+        for cid, mid in db.query(models.Candidate.id, models.Candidate.member_id).filter(
+            models.Candidate.id.in_(missing_from_active),
+            models.Candidate.member_id.isnot(None),
+        ).all():
+            member_ids.add(mid)
+            deleted_candidate_member[cid] = mid
+
     members = {}
     member_q = db.query(models.LicenseHolder).filter(models.LicenseHolder.deleted_at.is_(None))
     clauses = []
@@ -433,6 +484,7 @@ def _bulk_context(db: Session, rows):
         "members": members,
         "members_by_candidate": members_by_candidate,
         "members_by_identity": members_by_identity,
+        "deleted_candidate_member": deleted_candidate_member,
         "transfers": transfers,
         "logs": logs,
     }
@@ -447,6 +499,9 @@ def _item_bulk(db: Session, row, ctx):
 
     member = members.get(row.member_id) if row.member_id else None
     candidate = candidates.get(row.candidate_id) if row.candidate_id else None
+    if not member and not candidate and row.candidate_id:
+        # 예정자가 회원 전환 후 삭제(soft-delete)됐지만 member_id 연결은 살아있는 경우.
+        member = members.get(ctx.get("deleted_candidate_member", {}).get(row.candidate_id))
     if not member and candidate:
         member = members.get(getattr(candidate, "member_id", None)) or ctx["members_by_candidate"].get(candidate.id)
         if not member:
@@ -508,6 +563,7 @@ def _item_bulk(db: Session, row, ctx):
         "issuance_status": issuance_status,
         "latest_operator": latest_operator,
         "created_by": row.created_by or "",
+        "remark": row.remark or "",
         "approved_at": _dt(row.approved_at),
         "issued_at": _dt(row.issued_at),
         "created_at": _dt(row.created_at),
@@ -1023,4 +1079,52 @@ async def get_ledger(
     candidate = _candidate_for_row(db, row)
     if candidate and (candidate.certificate_number or "").strip() and row.status != ISSUED:
         row = _sync_existing_number_from_candidate(db, row, operator_name(user))
+    return _item(db, row)
+
+
+@router.put("/{ledger_id}")
+async def update_ledger(
+    ledger_id: int,
+    body: UpdateLedgerBody,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """자격증명 발급대장 전용 수정 API.
+
+    예정자(candidates)나 회원(license_holders) API를 전혀 거치지 않는다. 예정자가
+    회원으로 전환되어 예정자 목록에서 사라지거나 삭제 처리되어도, 발급대장 행(ledger_id)
+    자체는 그대로 남아있으므로 이 API는 계속 동작한다. 여기서 수정하는 항목은 발급대장이
+    직접 소유한 필드(발급일자, 비고)뿐이며 개인/택배회원의 이름·주민등록번호·차량번호·
+    자격증명번호 등은 절대 변경하지 않는다.
+    """
+    row = _get_row(db, ledger_id)
+    actor = operator_name(user)
+    changed = False
+    notes = []
+
+    if body.certificate_issue_date is not None:
+        new_date = body.certificate_issue_date.strip()
+        if new_date != (row.certificate_issue_date or ""):
+            row.certificate_issue_date = new_date
+            notes.append(f"발급일자 → {new_date or '(비움)'}")
+            changed = True
+
+    if body.remark is not None:
+        new_remark = body.remark.strip()
+        if new_remark != (row.remark or ""):
+            row.remark = new_remark
+            notes.append("비고 수정")
+            changed = True
+
+    if changed:
+        row.latest_operator = actor
+        add_history(db, row.id, "정보수정", row.status, row.status, actor, " / ".join(notes))
+        try:
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            raise HTTPException(500, f"발급대장 저장 중 오류가 발생했습니다: {exc}") from exc
+        db.refresh(row)
+        _invalidate_stats_cache()
+
     return _item(db, row)

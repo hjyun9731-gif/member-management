@@ -33,6 +33,8 @@ class CertificateIssuanceLedger(Base):
     status = Column(String(20), default="인가대기", index=True, nullable=False)
     latest_operator = Column(String(100))
     created_by = Column(String(100))
+    # 발급대장 자체의 비고. 예정자가 회원으로 전환/삭제되어도 이 값은 별도로 보존된다.
+    remark = Column(Text, nullable=True)
 
     approved_at = Column(DateTime(timezone=True), nullable=True)
     issued_at = Column(DateTime(timezone=True), nullable=True)
