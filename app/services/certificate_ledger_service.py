@@ -14,7 +14,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 from app import certificate_ledger_models as ledger_models
-from app import models
+from app import models, crud
 
 
 WAITING = "인가대기"
@@ -193,6 +193,83 @@ def ensure_candidate_ledger(db: Session, candidate: models.Candidate, user=None)
         "예정자 저장과 연결되어 자동 생성"
         if initial_status == WAITING
         else "기존 등록완료 예정자와 연결되어 자동 생성",
+    )
+    db.commit()
+    db.refresh(entry)
+    return entry
+
+
+def ensure_member_ledger(db: Session, member: models.LicenseHolder, user=None):
+    """개인/택배회원에 직접 입력된 자격증명번호도 발급대장에 즉시 반영한다.
+
+    과거 인가가 먼저 끝난 회원(예: 2021 인가, 2026 자격증명 발급)이
+    회원 수정 화면에서 자격증명번호를 나중에 입력하는 실제 업무를 지원한다.
+    후보자(candidates) 행이 없어도 member_id 기반으로 발급대장 행을 만든다.
+    """
+    if member is None or getattr(member, "deleted_at", None) is not None:
+        return None
+    category = (getattr(member, "category", "") or "").strip()
+    if category and category not in {"개인", "택배"}:
+        return None
+    number = crud.normalize_certificate_number(getattr(member, "certificate_number", ""))
+    if not number:
+        return None
+
+    ensure_ledger_schema(db)
+    actor = operator_name(user)
+
+    # 같은 번호는 26-085/26-85처럼 표기가 달라도 한 건으로 취급한다.
+    rows = (db.query(ledger_models.CertificateIssuanceLedger)
+            .filter(ledger_models.CertificateIssuanceLedger.deleted_at.is_(None),
+                    ledger_models.CertificateIssuanceLedger.document_number.isnot(None),
+                    ledger_models.CertificateIssuanceLedger.document_number != "")
+            .all())
+    entry = next((r for r in rows if crud.normalize_certificate_number(r.document_number) == number), None)
+
+    if entry is None:
+        entry = ledger_models.CertificateIssuanceLedger(
+            candidate_id=getattr(member, "candidate_id", None),
+            member_id=member.id,
+            region=getattr(member, "region", "") or "",
+            vehicle_number=getattr(member, "vehicle_number", "") or "",
+            name=getattr(member, "name", "") or "",
+            qualification_number="",
+            document_number=number,
+            approval_date=getattr(member, "approval_date", "") or "",
+            certificate_issue_date=getattr(member, "certificate_issue_date", "") or "",
+            status=APPROVED,
+            latest_operator=actor,
+            created_by=actor,
+            approved_at=datetime.now(timezone.utc),
+            issued_at=datetime.now(timezone.utc),
+        )
+        db.add(entry)
+        db.flush()
+        add_history(db, entry.id, "회원수기발급", None, APPROVED, actor,
+                    "개인/택배회원 자격증명번호 수기입력에서 자동 연결")
+    else:
+        entry.member_id = member.id
+        if not entry.candidate_id:
+            entry.candidate_id = getattr(member, "candidate_id", None)
+        entry.region = getattr(member, "region", "") or entry.region or ""
+        entry.vehicle_number = getattr(member, "vehicle_number", "") or entry.vehicle_number or ""
+        entry.name = getattr(member, "name", "") or entry.name or ""
+        entry.document_number = number
+        entry.approval_date = getattr(member, "approval_date", "") or entry.approval_date or ""
+        entry.certificate_issue_date = getattr(member, "certificate_issue_date", "") or entry.certificate_issue_date or ""
+        entry.status = APPROVED
+        entry.latest_operator = actor
+        if not entry.approved_at:
+            entry.approved_at = datetime.now(timezone.utc)
+        if not entry.issued_at:
+            entry.issued_at = datetime.now(timezone.utc)
+
+    # 발급번호 이력도 즉시 사용중으로 연결한다.
+    crud.sync_certificate_number_usage(
+        db, number, "license_holders", member.id,
+        getattr(member, "name", "") or "",
+        getattr(member, "vehicle_number", "") or "",
+        issued_by=actor,
     )
     db.commit()
     db.refresh(entry)

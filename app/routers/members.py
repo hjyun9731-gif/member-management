@@ -11,6 +11,7 @@ from app.database import get_db
 from app.auth import get_current_user, require_admin
 from app import models, crud
 from app.excel_utils import records_to_excel, normalize_fuel, normalize_membership_status
+from app.services.certificate_ledger_service import ensure_member_ledger
 
 router = APIRouter()
 
@@ -567,6 +568,9 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
                     db, old_cert_before, cert_val, "license_holders", m.id,
                     m.name or "", m.vehicle_number or ""
                 )
+                # 과거 인가가 먼저 끝난 개인/택배회원도 회원 수정에서 번호를 넣는 즉시
+                # 자격증명발급대장에 생성/연결한다. (박영민 26-370 같은 케이스)
+                ensure_member_ledger(db, m, current_user)
             except Exception as ex:
                 logger.warning(f"자격증명번호/발급대장 재동기화 실패: {ex}")
 

@@ -31,6 +31,7 @@ from app.services.certificate_ledger_service import (
     WAITING,
     add_history,
     ensure_candidate_ledger,
+    ensure_member_ledger,
     ensure_ledger_schema,
     operator_name,
     reconcile_registered_candidates,
@@ -43,11 +44,60 @@ VALID_STATUSES = {WAITING, APPROVED, ISSUED}
 LEGACY_COMPLETED_THROUGH = {26: 370}
 _STATS_CACHE = {"at": 0.0, "value": None}
 _STATS_CACHE_TTL = 30.0
+_MEMBER_LEDGER_SYNC = {"at": 0.0}
+_MEMBER_LEDGER_SYNC_TTL = 300.0
 
 def _invalidate_stats_cache():
     _STATS_CACHE["at"] = 0.0
     _STATS_CACHE["value"] = None
 
+
+
+def _ensure_existing_member_ledgers_cached(db: Session, *, force: bool = False) -> int:
+    """이미 개인/택배회원에 수기로 들어간 발급번호를 발급대장에 보강한다.
+
+    5분에 한 번만 실행해 일반 화면 전환 속도는 유지한다. 기존 데이터를 삭제/변경하지 않고
+    발급대장에 없는 번호만 연결한다.
+    """
+    now = monotonic()
+    if not force and (now - float(_MEMBER_LEDGER_SYNC.get("at") or 0)) < _MEMBER_LEDGER_SYNC_TTL:
+        return 0
+    _MEMBER_LEDGER_SYNC["at"] = now
+
+    existing_rows = (db.query(ledger_models.CertificateIssuanceLedger.document_number)
+                     .filter(ledger_models.CertificateIssuanceLedger.deleted_at.is_(None),
+                             ledger_models.CertificateIssuanceLedger.document_number.isnot(None),
+                             ledger_models.CertificateIssuanceLedger.document_number != "")
+                     .all())
+    existing = {crud.normalize_certificate_number(v) for (v,) in existing_rows if crud.normalize_certificate_number(v)}
+
+    members = (db.query(models.LicenseHolder)
+               .filter(models.LicenseHolder.deleted_at.is_(None),
+                       models.LicenseHolder.certificate_number.isnot(None),
+                       models.LicenseHolder.certificate_number != "",
+                       models.LicenseHolder.category.in_(["개인", "택배"]))
+               .all())
+    changed = 0
+    for member in members:
+        number = crud.normalize_certificate_number(member.certificate_number)
+        if not number or number in existing:
+            continue
+        try:
+            if ensure_member_ledger(db, member, None):
+                existing.add(number)
+                changed += 1
+        except Exception:
+            db.rollback()
+    if changed:
+        _invalidate_stats_cache()
+    return changed
+
+
+def _number_sort_key(row):
+    parts = _number_parts(row.document_number)
+    if parts:
+        return (parts[0], parts[1], row.id or 0)
+    return (-1, -1, row.id or 0)
 
 
 class CreateLedgerBody(BaseModel):
@@ -638,6 +688,7 @@ async def ledger_stats(db: Session = Depends(get_db), _=Depends(get_current_user
     if cached is not None and (now - float(_STATS_CACHE.get("at") or 0)) < _STATS_CACHE_TTL:
         return cached
     ensure_ledger_schema(db)
+    _ensure_existing_member_ledgers_cached(db)
     rows = (
         db.query(ledger_models.CertificateIssuanceLedger)
         .filter(ledger_models.CertificateIssuanceLedger.deleted_at.is_(None))
@@ -688,36 +739,23 @@ async def list_ledger(
     # 기본 화면은 DB에서 먼저 50개만 잘라 가져와 즉시 표시한다.
     # 검색/상태 필터가 있을 때만 전체 대상에서 필터링하되 N+1 쿼리는 사용하지 않는다.
     ensure_ledger_schema(db)
+    _ensure_existing_member_ledgers_cached(db)
     base = (
         db.query(ledger_models.CertificateIssuanceLedger)
         .filter(ledger_models.CertificateIssuanceLedger.deleted_at.is_(None))
-        .order_by(ledger_models.CertificateIssuanceLedger.id.desc())
     )
 
-    has_filter = bool((search and search.strip()) or status)
-    if not has_filter:
-        total = base.count()
-        rows = base.offset((page - 1) * limit).limit(limit).all()
-        page_items = _items_bulk(db, rows)
-        return {
-            "items": page_items,
-            "total": total,
-            "page": page,
-            "pages": max(1, ceil(total / limit)),
-            "limit": limit,
-        }
-
+    # 발급번호 숫자 기준 최신순. 26-370이 26-369보다 항상 먼저 보인다.
+    # 26-085/26-85도 같은 숫자 85로 정렬된다.
     rows = base.all()
+    rows.sort(key=_number_sort_key, reverse=True)
     items = _items_bulk(db, rows)
 
     if status:
-        valid = {"생성대기", "발급완료", "취소", "인가대기", "인가완료"}
+        valid = {"인가대기", "인가완료"}
         if status not in valid:
             raise HTTPException(400, "처리상태 값이 올바르지 않습니다.")
-        if status in {"생성대기", "발급완료", "취소"}:
-            items = [x for x in items if x["issuance_status"] == status]
-        else:
-            items = [x for x in items if x["approval_status"] == status]
+        items = [x for x in items if x["approval_status"] == status]
 
     if search and search.strip():
         needle = search.strip().lower()
@@ -749,6 +787,7 @@ async def refresh_ledger(db: Session = Depends(get_db), _=Depends(get_current_us
     """
     ensure_ledger_schema(db)
     _invalidate_stats_cache()
+    changed_members = _ensure_existing_member_ledgers_cached(db, force=True)
     changed_candidates = reconcile_registered_candidates(db)
     changed_numbers = 0
     try:
@@ -761,6 +800,7 @@ async def refresh_ledger(db: Session = Depends(get_db), _=Depends(get_current_us
         db.rollback()
     return {
         "ok": True,
+        "member_ledger_changes": changed_members,
         "candidate_changes": changed_candidates,
         "number_log_changes": changed_numbers,
     }

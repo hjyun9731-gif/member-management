@@ -707,7 +707,25 @@ def get_next_certificate_number(db: Session, issued_by: str = None) -> str:
         # 매 시도마다 새로 조회해야 하며, DB UNIQUE 제약이 최종 방어선이므로
         # 여기서 걸러도 INSERT 단계에서 다시 확인한다.
         exists = certificate_number_exists(db, cert_number)
-        if exists:
+        actual_usage = _scan_certificate_number_usage(db, cert_number)
+        if exists or actual_usage:
+            # 발급이력 로그가 없어도 회원/예정자/양도양수/폐업 실제 데이터에서 사용 중이면
+            # 절대 재발급하지 않는다. (수기 입력이 늦게 반영된 번호 충돌 방지)
+            if actual_usage and not exists:
+                try:
+                    tname, lid, name, vehicle = actual_usage
+                    db.add(models.CertificateNumberLog(
+                        year=yy, number=next_n, certificate_number=cert_number, status="used",
+                        issued_by=None, linked_table=tname, linked_id=lid,
+                        target_name=name, vehicle_number=vehicle,
+                        memo="실사용 데이터에서 자동 인식하여 재발급 방지",
+                    ))
+                    db.flush()
+                except Exception:
+                    db.rollback()
+                    lock_certificate_number_sequence(db)
+                    counter = db.query(models.CertificateNumberCounter).filter(
+                        models.CertificateNumberCounter.year == yy).first()
             if tries > 500:
                 raise ValueError("자격증명발급번호 채번에 실패했습니다 (연속된 번호를 찾을 수 없음). 관리자에게 문의하세요.")
             continue
