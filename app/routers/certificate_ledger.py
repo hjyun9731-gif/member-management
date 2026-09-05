@@ -54,50 +54,87 @@ def _invalidate_stats_cache():
 
 
 def _ensure_existing_member_ledgers_cached(db: Session, *, force: bool = False) -> int:
-    """화면 조회에서는 가장 최근 자격증명번호 1건만 빠르게 확인한다.
+    """기존 개인/택배회원의 최신 자격증명번호 누락만 빠르게 보강한다.
 
-    과거 방식처럼 개인/택배회원 전체를 순회하지 않는다. 회원 수정 시에는
-    members.py에서 ensure_member_ledger()가 즉시 호출되므로 신규 수기입력은 바로 반영된다.
-    이 함수는 박영민 26-370처럼 이미 DB에 들어가 있던 최신 누락번호를 보강하기 위한 안전망이다.
+    전체 회원에 대해 발급대장을 하나씩 대조하지 않는다. 자격증명번호가 실제로
+    들어있는 회원의 ``id + 번호`` 두 컬럼만 한 번 읽고, 이미 대장에 있는 번호와
+    비교한 뒤 *누락된 최신 번호*만 ``ensure_member_ledger``로 연결한다.
+
+    따라서 박영민 26-370처럼 패치 전에 회원정보에 이미 저장돼 있던 번호도
+    발급대장에 자동으로 살아나지만, 380/381처럼 번호만 발급하고 실제 회원에게
+    사용하지 않은 번호는 대장에 만들지 않는다.
     """
     now = monotonic()
     if not force and (now - float(_MEMBER_LEDGER_SYNC.get("at") or 0)) < _MEMBER_LEDGER_SYNC_TTL:
         return 0
     _MEMBER_LEDGER_SYNC["at"] = now
 
-    cert = models.LicenseHolder.certificate_number
-    # PostgreSQL에서 26-370 / 26-085 같은 정상 형식만 대상으로 숫자 기준 최신 1건 조회.
-    member = (
-        db.query(models.LicenseHolder)
+    # 1) 실제 개인/택배회원 중 자격증명번호가 있는 행의 최소 컬럼만 조회.
+    #    회원 전체 객체 + 관계를 순회하던 예전 방식보다 훨씬 가볍다.
+    member_refs = (
+        db.query(models.LicenseHolder.id, models.LicenseHolder.certificate_number)
         .filter(
             models.LicenseHolder.deleted_at.is_(None),
-            cert.isnot(None),
-            cert != "",
+            models.LicenseHolder.certificate_number.isnot(None),
+            models.LicenseHolder.certificate_number != "",
             models.LicenseHolder.category.in_(["개인", "택배"]),
-            cert.op("~")(r"^[0-9]{2}-0*[0-9]+$"),
         )
-        .order_by(
-            cast(func.split_part(cert, "-", 1), Integer).desc(),
-            cast(func.split_part(cert, "-", 2), Integer).desc(),
-        )
-        .first()
+        .all()
     )
-    if not member:
+    if not member_refs:
         return 0
-    try:
-        before = (
-            db.query(ledger_models.CertificateIssuanceLedger.id)
-            .filter(ledger_models.CertificateIssuanceLedger.document_number.in_(_number_variants(member.certificate_number)))
-            .first()
-        )
-        ensure_member_ledger(db, member, None)
-        if before is None:
-            _invalidate_stats_cache()
-            return 1
-    except Exception:
-        db.rollback()
-    return 0
 
+    normalized_members = []
+    for member_id, raw_number in member_refs:
+        cert = crud.normalize_certificate_number(raw_number)
+        parts = _number_parts(cert) if cert else None
+        if parts:
+            normalized_members.append((parts[0], parts[1], int(member_id), cert))
+    if not normalized_members:
+        return 0
+
+    # 2) 현재 발급대장 번호들을 한 번만 읽어 set으로 만든다.
+    existing_rows = (
+        db.query(ledger_models.CertificateIssuanceLedger.document_number)
+        .filter(ledger_models.CertificateIssuanceLedger.deleted_at.is_(None))
+        .all()
+    )
+    existing_keys = set()
+    for (raw_number,) in existing_rows:
+        parts = _number_parts(raw_number)
+        if parts:
+            existing_keys.add(parts)
+
+    # 3) 누락된 번호 중 최신 번호부터 최대 10건만 보강.
+    #    보통 정상 운영에서는 0~1건이며, 박영민 26-370 같은 기존 누락을 살리는 안전망이다.
+    missing = [row for row in normalized_members if (row[0], row[1]) not in existing_keys]
+    if not missing:
+        return 0
+    missing.sort(key=lambda x: (x[0], x[1], x[2]), reverse=True)
+    missing = missing[:10]
+
+    ids = [row[2] for row in missing]
+    members = (
+        db.query(models.LicenseHolder)
+        .filter(models.LicenseHolder.id.in_(ids), models.LicenseHolder.deleted_at.is_(None))
+        .all()
+    )
+    by_id = {m.id: m for m in members}
+
+    changed = 0
+    for _, _, member_id, _ in missing:
+        member = by_id.get(member_id)
+        if not member:
+            continue
+        try:
+            ensure_member_ledger(db, member, None)
+            changed += 1
+        except Exception:
+            db.rollback()
+
+    if changed:
+        _invalidate_stats_cache()
+    return changed
 
 def _number_variants(value: str):
     cert = crud.normalize_certificate_number(value)
