@@ -2835,7 +2835,7 @@ async def list_certificate_number_logs(search: str = None, status: str = None,
                                                        page=page, limit=limit, sort=sort)
     return {
         "items": [{
-            "certificate_number": it.certificate_number,
+            "certificate_number": crud.normalize_certificate_number(it.certificate_number) or it.certificate_number,
             "issued_at": it.issued_at.isoformat() if it.issued_at else None,
             "issued_by": it.issued_by,
             "status": it.status,

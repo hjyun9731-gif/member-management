@@ -506,6 +506,60 @@ def _is_valid_certificate_number_format(value: str) -> bool:
     return bool(normalize_certificate_number(value))
 
 
+def _certificate_number_parts(value: str):
+    """26-085와 26-85처럼 앞자리 0만 다른 번호를 같은 번호로 비교하기 위한 키."""
+    cert = normalize_certificate_number(value)
+    if not cert:
+        return None
+    try:
+        yy, num = cert.split("-", 1)
+        return int(yy), int(num)
+    except Exception:
+        return None
+
+
+def get_certificate_number_log(db: Session, value: str):
+    """표기 방식과 무관하게 같은 자격증명 발급이력을 찾는다.
+
+    예: 26-085 / 26-85 / 2026-0085 는 모두 (26, 85)로 같은 번호다.
+    기존 DB의 표기는 삭제/변경하지 않고 year+number를 우선 키로 사용한다.
+    동일 키가 여러 건이면 실제 사용중(used) 이력을 우선한다.
+    """
+    parts = _certificate_number_parts(value)
+    if not parts:
+        return None
+    yy, num = parts
+    rows = (db.query(models.CertificateNumberLog)
+            .filter(models.CertificateNumberLog.year == yy,
+                    models.CertificateNumberLog.number == num)
+            .all())
+    if not rows:
+        canonical = f"{yy}-{num}"
+        rows = db.query(models.CertificateNumberLog).filter(
+            models.CertificateNumberLog.certificate_number == canonical
+        ).all()
+    if not rows:
+        return None
+    priority = {"used": 3, "cancelled": 2, "issued": 1}
+    rows.sort(key=lambda r: (priority.get(r.status or "", 0),
+                             r.updated_at or r.issued_at or datetime.min.replace(tzinfo=timezone.utc),
+                             r.id or 0), reverse=True)
+    return rows[0]
+
+
+def certificate_number_exists(db: Session, value: str, exclude_id: int = None) -> bool:
+    parts = _certificate_number_parts(value)
+    if not parts:
+        return False
+    yy, num = parts
+    q = db.query(models.CertificateNumberLog.id).filter(
+        models.CertificateNumberLog.year == yy, models.CertificateNumberLog.number == num
+    )
+    if exclude_id is not None:
+        q = q.filter(models.CertificateNumberLog.id != exclude_id)
+    return q.first() is not None
+
+
 def reconcile_certificate_number_logs(db: Session) -> dict:
     """자격증명발급번호 발급이력(certificate_number_logs)의 사용 상태를
     '발급 당시 대상자 연결 여부'가 아니라 '현재 데이터 기준 실사용 여부'로 재동기화한다.
@@ -547,8 +601,7 @@ def reconcile_certificate_number_logs(db: Session) -> dict:
             if not usage:
                 continue
             tname, lid, name, vehicle = usage
-            log = db.query(models.CertificateNumberLog).filter(
-                models.CertificateNumberLog.certificate_number == cert).first()
+            log = get_certificate_number_log(db, cert)
             if log:
                 if log.status == "cancelled":
                     continue
@@ -653,9 +706,7 @@ def get_next_certificate_number(db: Session, issued_by: str = None) -> str:
         # 이미 로그에 존재하는 번호면(카운터-로그 불일치) 건너뛰고 다음 번호 시도.
         # 매 시도마다 새로 조회해야 하며, DB UNIQUE 제약이 최종 방어선이므로
         # 여기서 걸러도 INSERT 단계에서 다시 확인한다.
-        exists = db.query(models.CertificateNumberLog.id).filter(
-            models.CertificateNumberLog.certificate_number == cert_number
-        ).first()
+        exists = certificate_number_exists(db, cert_number)
         if exists:
             if tries > 500:
                 raise ValueError("자격증명발급번호 채번에 실패했습니다 (연속된 번호를 찾을 수 없음). 관리자에게 문의하세요.")
@@ -717,8 +768,7 @@ def sync_certificate_number_usage(db: Session, certificate_number: str,
     certificate_number = normalize_certificate_number(certificate_number)
     if not certificate_number:
         return
-    log = db.query(models.CertificateNumberLog).filter(
-        models.CertificateNumberLog.certificate_number == certificate_number).first()
+    log = get_certificate_number_log(db, certificate_number)
     if log:
         log.status = "used"
         log.linked_table = linked_table
@@ -756,9 +806,7 @@ def resync_certificate_number_change(db: Session, old_number: str, new_number: s
         sync_certificate_number_usage(db, new_cert, linked_table, linked_id, target_name, vehicle_number)
 
     if old_cert and old_cert != new_cert:
-        old_log = db.query(models.CertificateNumberLog).filter(
-            models.CertificateNumberLog.certificate_number == old_cert
-        ).first()
+        old_log = get_certificate_number_log(db, old_cert)
         if old_log and old_log.status != "cancelled":
             usage = _scan_certificate_number_usage(db, old_cert)
             if usage:
@@ -821,8 +869,7 @@ def cancel_certificate_number(db: Session, certificate_number: str, memo: str = 
     usage = _scan_certificate_number_usage(db, certificate_number)
     if usage:
         raise ValueError(f"이미 {usage[0]}에서 사용 중인 번호입니다 (대상: {usage[2] or usage[1]}). 먼저 해당 자료를 확인하세요.")
-    log = db.query(models.CertificateNumberLog).filter(
-        models.CertificateNumberLog.certificate_number == certificate_number).first()
+    log = get_certificate_number_log(db, certificate_number)
     if not log:
         raise ValueError("발급 이력을 찾을 수 없는 번호입니다.")
     log.status = "cancelled"
@@ -834,8 +881,7 @@ def cancel_certificate_number(db: Session, certificate_number: str, memo: str = 
 
 def reactivate_certificate_number(db: Session, certificate_number: str):
     """취소 처리를 되돌려 '발급' 상태로 복구 (실수로 취소한 경우)."""
-    log = db.query(models.CertificateNumberLog).filter(
-        models.CertificateNumberLog.certificate_number == certificate_number).first()
+    log = get_certificate_number_log(db, certificate_number)
     if not log:
         raise ValueError("발급 이력을 찾을 수 없는 번호입니다.")
     log.status = "issued"
@@ -859,8 +905,7 @@ def update_certificate_number_log(db: Session, certificate_number: str, data: di
       번호를 바꾸는 경우 형식(YY-N)과 중복 여부(다른 발급이력, 실제 사용 중인 레코드
       양쪽 모두)를 확인한다.
     """
-    log = db.query(models.CertificateNumberLog).filter(
-        models.CertificateNumberLog.certificate_number == certificate_number).first()
+    log = get_certificate_number_log(db, certificate_number)
     if not log:
         raise ValueError("발급 이력을 찾을 수 없는 번호입니다.")
 
@@ -879,15 +924,11 @@ def update_certificate_number_log(db: Session, certificate_number: str, data: di
 
     new_num = data.get("certificate_number")
     if new_num is not None and str(new_num).strip() != (log.certificate_number or ""):
-        new_num_clean = str(new_num).strip()
+        new_num_clean = normalize_certificate_number(str(new_num).strip())
         if not new_num_clean:
-            raise ValueError("발급번호는 비워둘 수 없습니다.")
-        if not _is_valid_certificate_number_format(new_num_clean):
             raise ValueError("발급번호 형식이 올바르지 않습니다 (예: 26-329).")
-        dup = db.query(models.CertificateNumberLog).filter(
-            models.CertificateNumberLog.certificate_number == new_num_clean).first()
-        if dup:
-            raise ValueError(f"발급번호 {new_num_clean}는 이미 다른 발급이력으로 존재합니다.")
+        if certificate_number_exists(db, new_num_clean, exclude_id=log.id):
+            raise ValueError(f"발급번호 {new_num_clean}는 이미 같은 번호의 다른 발급이력으로 존재합니다.")
         usage = _scan_certificate_number_usage(db, new_num_clean)
         if usage:
             raise ValueError(
@@ -943,23 +984,55 @@ def backfill_certificate_number_logs(db: Session):
 
 def list_certificate_number_logs(db: Session, search: str = None, status: str = None,
                                   page: int = 1, limit: int = 50, sort: str = "desc"):
+    """발급이력 목록. 26-085와 26-85는 한 번호로 묶어 한 줄만 보여준다.
+
+    기존 DB 행은 삭제하지 않는다. 화면/조회 단계에서 (year, number) 기준으로만 합쳐 보여준다.
+    같은 번호가 중복 존재하면 used > cancelled > issued 순으로 실제 사용 이력을 우선 표시한다.
+    """
     q = db.query(models.CertificateNumberLog)
     if status and status != "all":
         q = q.filter(models.CertificateNumberLog.status == status)
     if search:
-        s = f"%{search.strip()}%"
-        q = q.filter(or_(
-            models.CertificateNumberLog.certificate_number.like(s),
-            models.CertificateNumberLog.target_name.like(s),
-            models.CertificateNumberLog.vehicle_number.like(s),
-        ))
-    total = q.count()
-    order = (models.CertificateNumberLog.year.asc(), models.CertificateNumberLog.number.asc()) \
-        if sort == "asc" else (models.CertificateNumberLog.year.desc(), models.CertificateNumberLog.number.desc())
-    items = (q.order_by(*order)
-             .offset((page - 1) * limit).limit(limit).all())
-    return items, total
+        raw = search.strip()
+        parts = _certificate_number_parts(raw)
+        if parts:
+            yy, num = parts
+            q = q.filter(or_(
+                (models.CertificateNumberLog.year == yy) & (models.CertificateNumberLog.number == num),
+                models.CertificateNumberLog.target_name.like(f"%{raw}%"),
+                models.CertificateNumberLog.vehicle_number.like(f"%{raw}%"),
+            ))
+        else:
+            ss = f"%{raw}%"
+            q = q.filter(or_(
+                models.CertificateNumberLog.certificate_number.like(ss),
+                models.CertificateNumberLog.target_name.like(ss),
+                models.CertificateNumberLog.vehicle_number.like(ss),
+            ))
 
+    rows = q.all()
+    priority = {"used": 3, "cancelled": 2, "issued": 1}
+    grouped = {}
+    for row in rows:
+        key = (row.year, row.number)
+        if key[0] is None or key[1] is None:
+            key = normalize_certificate_number(row.certificate_number) or f"id:{row.id}"
+        prev = grouped.get(key)
+        if prev is None:
+            grouped[key] = row
+            continue
+        cur_key = (priority.get(row.status or "", 0), row.updated_at or row.issued_at or datetime.min.replace(tzinfo=timezone.utc), row.id or 0)
+        prev_key = (priority.get(prev.status or "", 0), prev.updated_at or prev.issued_at or datetime.min.replace(tzinfo=timezone.utc), prev.id or 0)
+        if cur_key > prev_key:
+            grouped[key] = row
+
+    items = list(grouped.values())
+    items.sort(key=lambda r: ((r.year if r.year is not None else -1),
+                              (r.number if r.number is not None else -1),
+                              r.id or 0), reverse=(sort != "asc"))
+    total = len(items)
+    begin = max(0, (page - 1) * limit)
+    return items[begin:begin + limit], total
 
 
 

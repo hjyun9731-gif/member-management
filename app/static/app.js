@@ -2536,26 +2536,6 @@ async function renderUpload(){
         <div class="card-hd"><div class="card-hd-l"><span class="card-ico">📊</span><span class="card-ttl">최근 업로드 이력</span></div></div>
         <div id="upHist"><div class="loading-box"><div class="spin"></div></div></div>
       </div>
-      ${isAdmin()?`<div class="card" style="grid-column:1/-1">
-        <div class="card-hd"><div class="card-hd-l"><span class="card-ico">🔖</span><span class="card-ttl">자격증명발급번호 발급 이력 관리</span></div></div>
-        <div class="card-bd">
-          <div class="flex gap-8" style="margin-bottom:10px;flex-wrap:wrap">
-            <input class="srch" id="cnSrch" placeholder="발급번호, 대상자명, 차량번호 검색">
-            <select class="fc" id="cnSort" style="max-width:150px">
-              <option value="desc">관리번호 내림차순</option>
-              <option value="asc">관리번호 오름차순</option>
-            </select>
-            <select class="fc" id="cnStatusF" style="max-width:140px">
-              <option value="">전체 상태</option>
-              <option value="issued">발급(미사용)</option>
-              <option value="used">사용중</option>
-              <option value="cancelled">취소</option>
-            </select>
-            <button class="btn bp btn-sm" id="cnSrchBtn">조회</button>
-          </div>
-          <div id="cnTbl"><div class="loading-box"><div class="spin"></div></div></div>
-        </div>
-      </div>`:''}
     </div>
     <div id="prvWrap" style="margin-top:12px"></div>`;
 
@@ -2876,11 +2856,11 @@ document.addEventListener('DOMContentLoaded',()=>{
 // PLANB 원본은 여러 외부 캘린더를 묶는 앱이지만, 전체면허자시스템에서는
 // 하나의 "기한관리" 캘린더로 단순화한다. 기존 task_type 값은 데이터 호환용으로만 보존한다.
 const DL_DEFAULT_TYPE = '기한관리';
-const DL_ACCENT = '#5B6CF0';
+const DL_ACCENT = '#D8CCF4';
 const DL_EVENT_COLORS = [
-  {hex:'#5B9BE5',name:'바다'}, {hex:'#5AB98B',name:'숲'}, {hex:'#8A78E0',name:'라벤더'}, {hex:'#E87FA0',name:'장미'},
-  {hex:'#E0AE5A',name:'호박'}, {hex:'#E0686B',name:'토마토'}, {hex:'#4FB0C0',name:'공작'}, {hex:'#8A909E',name:'그래파이트'},
-  {hex:'#EA9A45',name:'귤'}, {hex:'#A6C255',name:'청포도'}, {hex:'#B96BAA',name:'자두'}, {hex:'#5468C0',name:'남색'},
+  {hex:'#C7DDF6',name:'파스텔 블루'}, {hex:'#C7E8D7',name:'파스텔 민트'}, {hex:'#D8CCF4',name:'연보라'}, {hex:'#F3CDD9',name:'파스텔 핑크'},
+  {hex:'#F3DFB8',name:'크림 옐로'}, {hex:'#F2C9CB',name:'소프트 코랄'}, {hex:'#C7E7EA',name:'파스텔 아쿠아'}, {hex:'#DDE0E7',name:'라이트 그레이'},
+  {hex:'#F5D6B8',name:'살구'}, {hex:'#DFEBC1',name:'연두'}, {hex:'#E5CBE0',name:'라일락 핑크'}, {hex:'#CCD4F3',name:'페일 인디고'},
 ];
 
 function _dlCleanTitle(t){
@@ -3071,7 +3051,7 @@ function _pbdMount(){
   const s=_pbdState(),items=window._pbdItems||[],visible=_pbdFiltered(items);
   ct.innerHTML=`<div class="pbd-shell">
     <div class="pbd-titlebar"><div class="pbd-brand">${_pbdLogo()}<strong>PlanB</strong><span>Calendar</span></div><div class="pbd-title-spacer"></div><div class="pbd-search-wrap"><div class="pbd-search"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="M21 21l-4.3-4.3"></path></svg><input id="pbdSearch" value="${e_(s.search||'')}" placeholder="일정 검색" oninput="pbdSearch(this.value)" onfocus="pbdSearchFocus()" onblur="pbdSearchBlur()" onkeydown="if(event.key==='Escape')pbdClearSearch()"><kbd>Ctrl F</kbd></div><div class="pbd-search-drop" id="pbdSearchDrop">${_pbdSearchDropHtml()}</div></div></div>
-    <div class="pbd-app ${s.sideOpen?'':'side-closed'}"><aside class="pbd-sidebar"><div class="pbd-side-scroll">${_pbdMiniCalendar(items)}${_pbdCalendarCard(items)}${_pbdTodoCard(items)}</div></aside><main class="pbd-main"><header class="pbd-toolbar"><button class="pbd-icon-btn" onclick="pbdToggleSide()" title="패널 접기/펼치기">${_pbdCalendarIcon()}</button><div class="pbd-nav"><button onclick="pbdMove(-1)">${_pbdChevron('left')}</button><button class="today" onclick="pbdGoToday()">오늘</button><button onclick="pbdMove(1)">${_pbdChevron('right')}</button></div><div class="pbd-title-wrap"><strong>${_pbdHeaderTitle()}</strong><span>${_pbdHeaderSub()}</span></div><div class="pbd-toolbar-space"></div><div class="pbd-view-switch">${['month','week','day'].map(v=>`<button class="${s.view===v?'active':''}" onclick="pbdSetView('${v}')" title="${v==='month'?'월간':v==='week'?'주간':'일일'} 뷰">${_pbdViewIcon(v)}</button>`).join('')}</div><button class="pbd-new-btn" onclick="openNewDeadlineForDate('${s.view==='day'?s.anchor:_pbdToday()}')"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>새 일정</button></header><div class="pbd-view" id="pbdMainView">${_pbdCurrentView(visible)}</div></main></div>
+    <div class="pbd-app ${s.sideOpen?'':'side-closed'}"><aside class="pbd-sidebar"><div class="pbd-side-scroll">${_pbdMiniCalendar(items)}${_pbdCalendarCard(items)}${_pbdTodoCard(items)}</div></aside><main class="pbd-main"><header class="pbd-toolbar"><button class="pbd-icon-btn" onclick="pbdToggleSide()" title="패널 접기/펼치기">${_pbdCalendarIcon()}</button><div class="pbd-nav"><button onclick="pbdMove(-1)">${_pbdChevron('left')}</button><button class="today" onclick="pbdGoToday()">오늘</button><button onclick="pbdMove(1)">${_pbdChevron('right')}</button></div><div class="pbd-title-wrap"><strong>${_pbdHeaderTitle()}</strong><span>${_pbdHeaderSub()}</span></div><div class="pbd-toolbar-space"></div><div class="pbd-view-switch">${['month','week','day'].map(v=>`<button class="${s.view===v?'active':''}" onclick="pbdSetView('${v}')" title="${v==='month'?'월간':v==='week'?'주간':'일일'} 뷰">${_pbdViewIcon(v)}</button>`).join('')}</div><button class="pbd-new-btn" onclick="openNewDeadlineForDate('${s.view==='day'?s.anchor:_pbdToday()}')"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>새 일정</button></header><div class="pbd-view" id="pbdMainView">${_pbdCurrentView(visible)}</div></main></div>
   </div>`;
   _pbdSaveState();
 }

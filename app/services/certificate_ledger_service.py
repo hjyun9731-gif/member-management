@@ -53,6 +53,26 @@ def operator_name(user) -> str:
     return full_name or username or str(user) or "시스템"
 
 
+def _norm_vehicle(value: str) -> str:
+    import re
+    return re.sub(r"[\s-]+", "", str(value or "")).strip()
+
+
+def _same_candidate_member(candidate, member) -> bool:
+    if not candidate or not member:
+        return False
+    category = (getattr(member, "category", "") or "").strip()
+    if category and category not in {"개인", "택배"}:
+        return False
+    if getattr(candidate, "member_id", None) == getattr(member, "id", None):
+        return True
+    if getattr(member, "candidate_id", None) == getattr(candidate, "id", None):
+        return True
+    cv, mv = _norm_vehicle(getattr(candidate, "vehicle_number", "")), _norm_vehicle(getattr(member, "vehicle_number", ""))
+    cn, mn = (getattr(candidate, "name", "") or "").strip(), (getattr(member, "name", "") or "").strip()
+    return bool(cv and mv and cv == mv and (not cn or not mn or cn == mn))
+
+
 def add_history(
     db: Session,
     ledger_id: int,
@@ -277,10 +297,11 @@ def mark_candidate_approved(
 
 
 def reconcile_registered_candidates(db: Session) -> int:
-    """등록 훅 누락/일시 오류를 목록 조회 시 자동 보정한다.
+    """예정자와 실제 개인/택배 회원을 대조해 인가상태를 보정한다.
 
-    발급완료가 먼저 된 행도 시청 인가 후 member_id/인가일자를 채워야 하므로
-    WAITING뿐 아니라 ISSUED 상태도 함께 점검한다.
+    기존 is_registered/member_id 연결이 정상인 경우뿐 아니라, 과거 자료처럼 연결키가 빠져 있어도
+    같은 성명+차량번호의 개인/택배 회원이 실제 존재하면 이미 인가허가 완료된 것으로 본다.
+    회원/예정자 데이터 자체는 삭제하거나 덮어쓰지 않고 발급대장의 인가상태만 보정한다.
     """
     ensure_ledger_schema(db)
     entries = (
@@ -295,43 +316,60 @@ def reconcile_registered_candidates(db: Session) -> int:
         return 0
 
     ids = [entry.candidate_id for entry in entries]
-    candidates = (
-        db.query(models.Candidate)
-        .filter(
-            models.Candidate.id.in_(ids),
-            models.Candidate.is_registered.is_(True),
-            models.Candidate.deleted_at.is_(None),
-        )
-        .all()
-    )
-    by_id = {candidate.id: candidate for candidate in candidates}
+    candidates = (db.query(models.Candidate)
+                  .filter(models.Candidate.id.in_(ids), models.Candidate.deleted_at.is_(None))
+                  .all())
+    by_id = {c.id: c for c in candidates}
     if not by_id:
         return 0
 
-    member_ids = [candidate.member_id for candidate in candidates if candidate.member_id]
-    members = (
-        db.query(models.LicenseHolder)
-        .filter(models.LicenseHolder.id.in_(member_ids))
-        .all()
-        if member_ids
-        else []
-    )
-    by_member_id = {member.id: member for member in members}
+    member_ids = {c.member_id for c in candidates if c.member_id}
+    candidate_ids = {c.id for c in candidates}
+    names = {(c.name or "").strip() for c in candidates if (c.name or "").strip()}
+    vehicles = {(c.vehicle_number or "").strip() for c in candidates if (c.vehicle_number or "").strip()}
+
+    from sqlalchemy import or_
+    clauses = []
+    if member_ids:
+        clauses.append(models.LicenseHolder.id.in_(member_ids))
+    if candidate_ids:
+        clauses.append(models.LicenseHolder.candidate_id.in_(candidate_ids))
+    if names:
+        clauses.append(models.LicenseHolder.name.in_(names))
+    if vehicles:
+        clauses.append(models.LicenseHolder.vehicle_number.in_(vehicles))
+    members = (db.query(models.LicenseHolder)
+               .filter(models.LicenseHolder.deleted_at.is_(None), or_(*clauses))
+               .all()) if clauses else []
+    by_member_id = {m.id: m for m in members}
+    by_candidate_id = {m.candidate_id: m for m in members if getattr(m, "candidate_id", None)}
+    by_identity = {}
+    for m in members:
+        key = ((m.name or "").strip(), _norm_vehicle(m.vehicle_number))
+        if key[0] and key[1] and key not in by_identity:
+            by_identity[key] = m
 
     changed = 0
     for entry in entries:
         candidate = by_id.get(entry.candidate_id)
         if not candidate:
             continue
-        member = by_member_id.get(candidate.member_id)
-        approval_date = getattr(member, "approval_date", None) if member else None
+        member = None
+        if candidate.member_id:
+            member = by_member_id.get(candidate.member_id)
+        if not member:
+            member = by_candidate_id.get(candidate.id)
+        if not member:
+            member = by_identity.get(((candidate.name or "").strip(), _norm_vehicle(candidate.vehicle_number)))
+            if member and not _same_candidate_member(candidate, member):
+                member = None
+        if not member:
+            continue
+        # 실제 개인/택배 회원에 존재하면 approval_date가 비어 있어도 인가완료로 본다.
+        approval_date = getattr(member, "approval_date", None) or entry.approval_date or None
         if _approve_entry(
-            db,
-            entry,
-            candidate.member_id,
-            approval_date,
-            "시스템 자동연동",
-            "등록 상태 자동 점검으로 인가정보 반영",
+            db, entry, member.id, approval_date, "시스템 자동연동",
+            "예정자/신규회원과 실제 개인·택배 회원 대조로 인가완료 확인",
         ):
             changed += 1
     if changed:
