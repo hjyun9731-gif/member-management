@@ -2,7 +2,7 @@ import re
 from typing import Type, List, Optional, Tuple, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from app import models
 from app.excel_utils import is_association_member, has_value
@@ -676,6 +676,33 @@ def get_next_certificate_number(db: Session, issued_by: str = None) -> str:
     yy = datetime.now().year % 100
     lock_certificate_number_sequence(db)
 
+    # 같은 사용자가 "발급번호 부여" 버튼을 반복 클릭하거나(중복 클릭), 모달을 저장하지
+    # 않고 닫았다가 다시 열어 재요청하는 경우, 아직 아무 데도 사용되지 않은 직전
+    # 예약 번호가 있으면 새 번호를 소진하지 않고 그 번호를 그대로 돌려준다.
+    # (24시간 이내 + 같은 발급자 + 실제로 어디에도 연결되지 않은 경우에만 재사용)
+    if issued_by:
+        recent_cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+        candidates_unused = (
+            db.query(models.CertificateNumberLog)
+            .filter(
+                models.CertificateNumberLog.year == yy,
+                models.CertificateNumberLog.status == "issued",
+                models.CertificateNumberLog.issued_by == issued_by,
+                models.CertificateNumberLog.linked_table.is_(None),
+                models.CertificateNumberLog.issued_at >= recent_cutoff,
+            )
+            .order_by(models.CertificateNumberLog.issued_at.desc())
+            .limit(5)
+            .all()
+        )
+        for cand_log in candidates_unused:
+            cert_number = cand_log.certificate_number
+            if not cert_number:
+                continue
+            if _scan_certificate_number_usage(db, cert_number):
+                continue  # 이미 다른 곳에서 실사용됨 - 재사용 불가
+            return cert_number
+
     counter = db.query(models.CertificateNumberCounter).filter(
         models.CertificateNumberCounter.year == yy).first()
 
@@ -781,8 +808,12 @@ def _scan_certificate_number_usage(db: Session, certificate_number: str):
 
 def sync_certificate_number_usage(db: Session, certificate_number: str,
                                    linked_table: str, linked_id: int,
-                                   target_name: str = "", vehicle_number: str = ""):
-    """레코드 저장 시점에 발급이력과 실사용 여부를 연결. 로그가 없으면(수기 입력 등) 새로 만든다."""
+                                   target_name: str = "", vehicle_number: str = "",
+                                   issued_by: str = None):
+    """레코드 저장 시점에 발급이력과 실사용 여부를 연결. 로그가 없으면(수기 입력 등) 새로 만든다.
+
+    issued_by는 로그가 새로 생성될 때만(수기입력으로 이력이 없던 경우) 참고용으로 기록한다.
+    """
     certificate_number = normalize_certificate_number(certificate_number)
     if not certificate_number:
         return
@@ -801,7 +832,7 @@ def sync_certificate_number_usage(db: Session, certificate_number: str,
             yy_i, n_i = None, None
         db.add(models.CertificateNumberLog(
             year=yy_i, number=n_i, certificate_number=certificate_number,
-            status="used", issued_by=None,
+            status="used", issued_by=issued_by,
             linked_table=linked_table, linked_id=linked_id,
             target_name=target_name, vehicle_number=vehicle_number,
             memo="수동입력(발급이력 없음, 저장 시점에 자동 생성)",

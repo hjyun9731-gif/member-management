@@ -572,6 +572,7 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
                 # 자격증명발급대장에 생성/연결한다. (박영민 26-370 같은 케이스)
                 ensure_member_ledger(db, m, current_user)
             except Exception as ex:
+                db.rollback()
                 logger.warning(f"자격증명번호/발급대장 재동기화 실패: {ex}")
 
     return _fmt(m)
