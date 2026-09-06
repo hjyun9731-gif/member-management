@@ -1,0 +1,15 @@
+수납/미수금 계속 '불러오는 중' 경량화 수정
+
+핵심 변경
+1. /api/receivables/summary, dashboard, monthly-analysis, members, meta GET에서
+   전체 3천명 프로필 동기화/authoritative 재대조/동명이인 보정/폐업보완/월부과를 실행하지 않음.
+2. GET은 receivables 테이블 존재 확인 후 바로 DB 조회.
+3. 배포 직후 maintenance worker는 90초 유예하여 첫 화면 로딩과 DB 경합 방지.
+4. maintenance는 백그라운드에서 최초 1회만 full guard, 이후 15분마다 신규 프로필 최대 100명 + 월부과만 확인.
+5. 기존 데이터 삭제, DROP, TRUNCATE 없음.
+6. 기존 동명이인 매칭/폐업보완/비고검색 기능은 유지.
+
+배포
+- ZIP을 풀어서 기존 GitHub 프로젝트에 덮어쓰기
+- Commit -> Push origin
+- Railway Active 확인

@@ -1471,6 +1471,18 @@ def _apply_closure_supplement_once(db: Session) -> dict:
     return info
 
 
+def _ensure_receivables_read_ready(db: Session) -> None:
+    """Read-path guard: keep GET endpoints fast.
+
+    Only ensure the receivables tables exist.  Expensive full-profile sync,
+    authoritative reconciliation, duplicate-name repair, closure supplement,
+    and monthly billing are maintenance/write work and must never block an
+    ordinary page load.  If the DB is truly empty, the explicit /sync path or
+    the delayed maintenance worker will initialize it.
+    """
+    _ensure_receivables_schema_ready()
+
+
 def _ensure_db_ledger_ready(db: Session) -> int:
     """DB 공식원장 준비.
 
@@ -1987,21 +1999,24 @@ def _schedule_background_sync(background_tasks: BackgroundTasks):
     return None
 
 def _monthly_billing_worker():
-    """Railway 서비스가 살아 있는 동안 월 변경을 자동 감지해 월 부과를 생성한다.
+    """월 부과/신규 프로필 보정 worker.
 
-    직원이 화면을 열지 않아도 동작한다. 동일 회원/동일 월은 DB UNIQUE 제약과
-    ReceivableSystemState marker가 이중부과를 차단한다.
+    웹 요청과 DB 경합하지 않도록 배포 직후 90초 유예한다. 최초 1회에만
+    marker 기반 maintenance를 수행하고, 이후에는 신규 프로필과 월 부과만
+    가볍게 확인한다. 일반 GET 요청에서는 이 작업을 절대 실행하지 않는다.
     """
+    time.sleep(90)
+    first_pass = True
     while True:
         db = SessionLocal()
         try:
             _ensure_receivables_schema_ready()
-            _ensure_db_ledger_ready(db)
-            # 프로필이 없는 신규회원만 빠르게 연결하고, 비legacy 회원의 계정/첫부과 기준일만 정합성 보정한다.
-            created = _sync_missing_profiles_fast(db, limit=500, allow_legacy_seed=True)
-            repaired = _repair_account_types(db)
+            if first_pass:
+                _ensure_db_ledger_ready_cached(db, force=True)
+                first_pass = False
+            created = _sync_missing_profiles_fast(db, limit=100, allow_legacy_seed=True)
             _ensure_current_month_billing(db)
-            if created or repaired:
+            if created:
                 _sync_charges(db)
         except Exception as exc:
             print(f"[receivables monthly scheduler] {type(exc).__name__}: {exc}")
@@ -2011,7 +2026,6 @@ def _monthly_billing_worker():
                 pass
         finally:
             db.close()
-        # 월 경계 누락 방지를 위해 15분 간격 확인. 실제 전수 부과는 월 1회만 실행된다.
         time.sleep(900)
 
 
@@ -2277,8 +2291,8 @@ def _ensure_profile_for_member(db: Session, member_id: int):
         return None
     if (member.status or "active") == "pending":
         return None
-    _ensure_db_ledger_ready(db)
-    p = _make_profile(member, None)
+    _ensure_receivables_read_ready(db)
+    p = _make_profile(member, _match_seed(member))
     db.add(p)
     try:
         db.commit()
@@ -2299,7 +2313,7 @@ def meta(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    _ensure_db_ledger_ready(db)
+    _ensure_receivables_read_ready(db)
     regions = [
         r[0]
         for r in db.query(models.LicenseHolder.region)
@@ -2431,8 +2445,7 @@ def summary(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    _ensure_db_ledger_ready_cached(db)
-    _ensure_current_month_billing(db)
+    _ensure_receivables_read_ready(db)
     charges_sq, payments_sq = _charge_payment_subqueries(db)
     balance_expr = (
         func.coalesce(ReceivableProfile.legacy_balance, 0)
@@ -2524,8 +2537,7 @@ def receivables_dashboard(
     기존 원장/부과/수납 데이터를 변경하지 않고 현재 잔액, 지역/계정 분포,
     최신 연락기록, 고액 미수 순위를 한 번에 반환한다.
     """
-    _ensure_db_ledger_ready_cached(db)
-    _ensure_current_month_billing(db)
+    _ensure_receivables_read_ready(db)
     charges_sq, payments_sq = _charge_payment_subqueries(db)
     latest_contact_sq = _latest_contact_subquery(db)
     balance_expr = (
@@ -2721,8 +2733,7 @@ def monthly_analysis(
     랭킹이 아니라 월말 원장 스냅샷과 월별 현금흐름을 중심으로 읽기 전용 집계를
     반환한다. 기존 수납/부과/폐업 저장 로직은 변경하지 않는다.
     """
-    _ensure_db_ledger_ready_cached(db)
-    _ensure_current_month_billing(db)
+    _ensure_receivables_read_ready(db)
 
     today_d = datetime.now(KST).date()
     current_key = f"{today_d.year:04d}-{today_d.month:02d}"
@@ -3349,13 +3360,9 @@ def list_members(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    # 최신 Excel은 최초 1회만 DB로 이관된다. 이후 신규회원만 빠르게 연결한다.
-    _ensure_db_ledger_ready(db)
-    created_profiles = _sync_missing_profiles_fast(db, limit=100, allow_legacy_seed=True)
-    repaired_profiles = _repair_account_types(db)
-    _ensure_current_month_billing(db)
-    if created_profiles or repaired_profiles:
-        _sync_charges(db)
+    # GET 목록은 읽기 전용으로 즉시 반환한다.
+    # 전수동기화/원장대조/폐업보완/월부과는 /sync 또는 지연 maintenance worker가 담당한다.
+    _ensure_receivables_read_ready(db)
 
     # 폐업관리는 반드시 인허가/변경 > 폐업현황(closures) 원장을 직접 기준으로 한다.
     # member_id가 없는 과거 자료도 관리번호/구분과 함께 그대로 보여야 한다.
