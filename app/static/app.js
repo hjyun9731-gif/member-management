@@ -849,7 +849,7 @@ async function renderCandidateSection(){
     <div class="candidate-right-column">
       <div class="inner-tab-bar candidate-right-tabs" style="margin-bottom:10px">
         <button type="button" class="inner-tab ${rightView==='list'?'active':''}" id="candRightListTab">📂 예정자 목록</button>
-        <button type="button" class="inner-tab ${rightView==='ledger'?'active':''}" id="candRightLedgerTab">🖨 자격증명발급대장</button>
+        <button type="button" class="inner-tab ${rightView==='ledger'?'active':''}" id="candRightLedgerTab"><span class="emoji-ic">🖨️</span> 자격증명발급대장</button>
       </div>
       <div id="candidateRightPane" class="candidate-right-pane"></div>
     </div>
@@ -2127,7 +2127,7 @@ async function renderMonthlyReport(){
   const inner=ST.inner['monthly-report']||'print';
   document.getElementById('content').innerHTML=`
     <div class="inner-tab-bar mrp-no-print">
-      <button class="inner-tab ${inner==='print'?'active':''}" id="mrTabPrint">🖨 인쇄용 보고서</button>
+      <button class="inner-tab ${inner==='print'?'active':''}" id="mrTabPrint"><span class="emoji-ic">🖨️</span> 인쇄용 보고서</button>
       <button class="inner-tab ${inner==='detail'?'active':''}" id="mrTabDetail">📊 상세 자동집계</button>
     </div>
     <div id="mrInnerBody"></div>`;

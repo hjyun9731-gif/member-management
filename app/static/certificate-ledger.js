@@ -94,9 +94,44 @@
   }
 
   function actionButtons(row) {
-    if (row.candidate_id) return `<button class="btn bp btn-xs" data-cl-edit-candidate="${row.candidate_id}">수정</button>`;
-    if (row.member_id) return `<button class="btn bp btn-xs" data-cl-edit-member="${row.member_id}">수정</button>`;
-    return '<span style="font-size:10.5px;color:var(--c-text-3)">-</span>';
+    // 예정자/회원 API가 아니라 발급대장 전용 API(ledger_id)를 사용한다.
+    // 예정자가 회원으로 전환되어 예정자 목록에서 사라지거나 삭제 처리되어도
+    // 발급대장 행 자체(row.id)는 남아 있으므로 항상 수정할 수 있다.
+    return `<button class="btn bp btn-xs" data-cl-edit-ledger="${row.id}">수정</button>`;
+  }
+
+  function remarkText(row) {
+    const memo = (row.remark || '').trim();
+    if (!memo) return '-';
+    const text = esc(memo);
+    return memo.length > 12 ? `<span title="${text}">${text.slice(0, 12)}…</span>` : text;
+  }
+
+  async function editLedgerEntry(id, target) {
+    const row = await request('GET', `/api/certificate-ledger/${id}`).catch(() => null);
+    if (!row) return;
+    if (typeof window.openModal !== 'function') return;
+    window.openModal('🖨️ 자격증명발급대장 수정', `<form id="clEditForm"><div class="fg">
+      <div class="fi"><label>발급번호</label><input class="fc" value="${esc(row.document_number || '-')}" disabled></div>
+      <div class="fi"><label>성명</label><input class="fc" value="${esc(row.name || '-')}" disabled></div>
+      <div class="fi"><label>차량번호</label><input class="fc" value="${esc(row.vehicle_number || '-')}" disabled></div>
+      <div class="fi"><label>자격증명 발급일자</label><input class="fc" name="certificate_issue_date" value="${esc(row.certificate_issue_date || '')}" placeholder="YYYY-MM-DD"></div>
+      <div class="fi cs4"><label>비고</label><textarea class="fc" name="remark" rows="3">${esc(row.remark || '')}</textarea></div>
+    </div></form>`,
+    `<button class="btn bg btn-sm" id="_clSave">저장</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`, 'mlg');
+
+    const saveBtn = document.getElementById('_clSave');
+    if (!saveBtn) return;
+    saveBtn.onclick = async () => {
+      const form = document.getElementById('clEditForm');
+      const data = Object.fromEntries(new FormData(form));
+      const res = await request('PUT', `/api/certificate-ledger/${id}`, data).catch(() => null);
+      if (res) {
+        if (typeof toast === 'function') toast('저장되었습니다.');
+        if (typeof window.closeModal === 'function') window.closeModal();
+        refreshInto(target);
+      }
+    };
   }
 
   async function getStats(force = false) {
@@ -144,7 +179,7 @@
           </tr></thead><tbody>${data.items.map(row => `<tr>
             <td><strong>${esc(row.document_number || '-')}</strong></td><td>${esc(row.region || '-')}</td><td>${esc(row.vehicle_number || '-')}</td>
             <td class="cl-name">${esc(row.name || '-')}</td><td>${esc(display(row.certificate_issue_date))}</td>
-            <td>${approvalBadge(row.approval_status)}</td><td>${row.created_by ? '수기/기존이력' : '-'}</td>
+            <td>${approvalBadge(row.approval_status)}</td><td>${remarkText(row)}</td>
             <td><div class="cl-actions">${actionButtons(row)}</div></td>
           </tr>`).join('')}</tbody></table></div>${pager(data)}` : '<div class="cl-empty">자격증명 발급대장 기록이 없습니다.</div>'}
         </div>`;
@@ -163,11 +198,8 @@
       target.querySelectorAll('[data-cl-page]:not([disabled])').forEach(button => {
         button.onclick = () => render(Number(button.dataset.clPage), target);
       });
-      target.querySelectorAll('[data-cl-edit-candidate]').forEach(button => {
-        button.onclick = () => window.editCandidate?.(Number(button.dataset.clEditCandidate));
-      });
-      target.querySelectorAll('[data-cl-edit-member]').forEach(button => {
-        button.onclick = () => window.editMember?.(Number(button.dataset.clEditMember));
+      target.querySelectorAll('[data-cl-edit-ledger]').forEach(button => {
+        button.onclick = () => editLedgerEntry(Number(button.dataset.clEditLedger), target);
       });
 
       // 통계 때문에 표가 늦게 뜨지 않도록 별도 비동기 갱신.

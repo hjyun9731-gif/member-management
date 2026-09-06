@@ -113,6 +113,8 @@ a{text-decoration:none;color:inherit}
 }
 .inner-tab.active{background:var(--c-pri);color:#fff;border-color:var(--c-pri)}
 .inner-tab:hover:not(.active){background:var(--c-pri-bg);color:var(--c-pri);border-color:var(--c-pri)}
+/* Windows/Chrome 등에서 일부 이모지(🖨️ 등)가 네모/깨진 문자로 보이는 것을 막기 위한 호환 글꼴 */
+.emoji-ic{font-family:"Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif;display:inline-block;vertical-align:middle;line-height:1}
 
 /* ── CONTENT ── */
 .content{padding:20px 24px;min-height:calc(100vh - 94px)}
