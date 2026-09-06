@@ -54,87 +54,140 @@ def _invalidate_stats_cache():
 
 
 def _ensure_existing_member_ledgers_cached(db: Session, *, force: bool = False) -> int:
-    """기존 개인/택배회원의 최신 자격증명번호 누락만 빠르게 보강한다.
+    """개인/택배회원에 이미 적힌 최신 자격증명번호를 빠르게 발급대장에 보강한다.
 
-    전체 회원에 대해 발급대장을 하나씩 대조하지 않는다. 자격증명번호가 실제로
-    들어있는 회원의 ``id + 번호`` 두 컬럼만 한 번 읽고, 이미 대장에 있는 번호와
-    비교한 뒤 *누락된 최신 번호*만 ``ensure_member_ledger``로 연결한다.
-
-    따라서 박영민 26-370처럼 패치 전에 회원정보에 이미 저장돼 있던 번호도
-    발급대장에 자동으로 살아나지만, 380/381처럼 번호만 발급하고 실제 회원에게
-    사용하지 않은 번호는 대장에 만들지 않는다.
+    핵심: 화면을 열 때 무거운 전체 대조/이력 재계산은 하지 않는다.
+    license_holders에서 id와 자격증명번호만 읽고, 대장에 없는 최신 번호만 직접
+    생성/복구한다. 발급번호 이력 동기화가 실패해도 대장 표시 자체는 막히지 않는다.
     """
     now = monotonic()
     if not force and (now - float(_MEMBER_LEDGER_SYNC.get("at") or 0)) < _MEMBER_LEDGER_SYNC_TTL:
         return 0
-    _MEMBER_LEDGER_SYNC["at"] = now
 
-    # 1) 실제 개인/택배회원 중 자격증명번호가 있는 행의 최소 컬럼만 조회.
-    #    회원 전체 객체 + 관계를 순회하던 예전 방식보다 훨씬 가볍다.
+    # 성공했을 때만 캐시 시간을 갱신한다. 실패를 5분 동안 숨기지 않는다.
     member_refs = (
         db.query(models.LicenseHolder.id, models.LicenseHolder.certificate_number)
         .filter(
             models.LicenseHolder.deleted_at.is_(None),
             models.LicenseHolder.certificate_number.isnot(None),
-            models.LicenseHolder.certificate_number != "",
+            func.trim(models.LicenseHolder.certificate_number) != "",
             models.LicenseHolder.category.in_(["개인", "택배"]),
         )
         .all()
     )
     if not member_refs:
+        _MEMBER_LEDGER_SYNC["at"] = now
         return 0
 
-    normalized_members = []
-    for member_id, raw_number in member_refs:
-        cert = crud.normalize_certificate_number(raw_number)
+    normalized = []
+    for member_id, raw in member_refs:
+        cert = crud.normalize_certificate_number(raw)
         parts = _number_parts(cert) if cert else None
         if parts:
-            normalized_members.append((parts[0], parts[1], int(member_id), cert))
-    if not normalized_members:
+            normalized.append((parts[0], parts[1], int(member_id), cert))
+    if not normalized:
+        _MEMBER_LEDGER_SYNC["at"] = now
         return 0
 
-    # 2) 현재 발급대장 번호들을 한 번만 읽어 set으로 만든다.
-    existing_rows = (
-        db.query(ledger_models.CertificateIssuanceLedger.document_number)
-        .filter(ledger_models.CertificateIssuanceLedger.deleted_at.is_(None))
-        .all()
-    )
-    existing_keys = set()
-    for (raw_number,) in existing_rows:
-        parts = _number_parts(raw_number)
-        if parts:
-            existing_keys.add(parts)
+    # 현재 대장 번호는 번호 컬럼만 읽는다.
+    ledger_refs = db.query(
+        ledger_models.CertificateIssuanceLedger.id,
+        ledger_models.CertificateIssuanceLedger.document_number,
+        ledger_models.CertificateIssuanceLedger.deleted_at,
+    ).all()
+    active_keys = set()
+    by_key = {}
+    for ledger_id, raw, deleted_at in ledger_refs:
+        parts = _number_parts(raw)
+        if not parts:
+            continue
+        by_key.setdefault(parts, []).append((ledger_id, deleted_at))
+        if deleted_at is None:
+            active_keys.add(parts)
 
-    # 3) 누락된 번호 중 최신 번호부터 최대 10건만 보강.
-    #    보통 정상 운영에서는 0~1건이며, 박영민 26-370 같은 기존 누락을 살리는 안전망이다.
-    missing = [row for row in normalized_members if (row[0], row[1]) not in existing_keys]
+    missing = [r for r in normalized if (r[0], r[1]) not in active_keys]
     if not missing:
+        _MEMBER_LEDGER_SYNC["at"] = now
         return 0
-    missing.sort(key=lambda x: (x[0], x[1], x[2]), reverse=True)
-    missing = missing[:10]
 
-    ids = [row[2] for row in missing]
-    members = (
-        db.query(models.LicenseHolder)
-        .filter(models.LicenseHolder.id.in_(ids), models.LicenseHolder.deleted_at.is_(None))
-        .all()
-    )
-    by_id = {m.id: m for m in members}
+    # 최신 번호부터 최대 20건만 보강.
+    missing.sort(key=lambda x: (x[0], x[1], x[2]), reverse=True)
+    missing = missing[:20]
+    ids = [r[2] for r in missing]
+    members = db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.id.in_(ids),
+        models.LicenseHolder.deleted_at.is_(None),
+    ).all()
+    members_by_id = {m.id: m for m in members}
 
     changed = 0
-    for _, _, member_id, _ in missing:
-        member = by_id.get(member_id)
+    for yy, no, member_id, cert in missing:
+        member = members_by_id.get(member_id)
         if not member:
             continue
+        key = (yy, no)
         try:
-            ensure_member_ledger(db, member, None)
+            # 같은 번호의 삭제된 행이 있으면 새 INSERT 대신 되살린다.
+            row = None
+            for ledger_id, _deleted in by_key.get(key, []):
+                row = db.query(ledger_models.CertificateIssuanceLedger).filter(
+                    ledger_models.CertificateIssuanceLedger.id == ledger_id
+                ).first()
+                if row:
+                    break
+
+            if row is None:
+                row = ledger_models.CertificateIssuanceLedger(
+                    member_id=member.id,
+                    candidate_id=getattr(member, "candidate_id", None),
+                    region=(member.region or ""),
+                    vehicle_number=(member.vehicle_number or ""),
+                    name=(member.name or ""),
+                    qualification_number="",
+                    document_number=cert,
+                    approval_date=(member.approval_date or ""),
+                    certificate_issue_date=(member.certificate_issue_date or ""),
+                    status=APPROVED,
+                    latest_operator="자동연결",
+                    created_by="자동연결",
+                    approved_at=datetime.now(timezone.utc),
+                    issued_at=datetime.now(timezone.utc),
+                )
+                db.add(row)
+            else:
+                row.deleted_at = None
+                row.member_id = member.id
+                row.candidate_id = row.candidate_id or getattr(member, "candidate_id", None)
+                row.region = member.region or row.region or ""
+                row.vehicle_number = member.vehicle_number or row.vehicle_number or ""
+                row.name = member.name or row.name or ""
+                row.document_number = cert
+                row.approval_date = member.approval_date or row.approval_date or ""
+                row.certificate_issue_date = member.certificate_issue_date or row.certificate_issue_date or ""
+                row.status = APPROVED
+                row.latest_operator = row.latest_operator or "자동연결"
+                row.approved_at = row.approved_at or datetime.now(timezone.utc)
+                row.issued_at = row.issued_at or datetime.now(timezone.utc)
+            db.flush()
             changed += 1
         except Exception:
             db.rollback()
+            # 한 건 실패가 다른 누락번호 보강을 막지 않게 다음 건으로 진행
+            continue
 
+    if changed:
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+            changed = 0
+
+    if changed or not missing:
+        _MEMBER_LEDGER_SYNC["at"] = monotonic()
     if changed:
         _invalidate_stats_cache()
     return changed
+
 
 def _number_variants(value: str):
     cert = crud.normalize_certificate_number(value)
@@ -167,16 +220,6 @@ class IssueLedgerBody(BaseModel):
     document_number: Optional[str] = ""
 
 
-class UpdateLedgerBody(BaseModel):
-    """발급대장 자체 수정 전용 body.
-
-    예정자/회원의 이름·주민등록번호·차량번호·자격증명번호 등은 여기서 건드리지 않는다.
-    발급대장에서 실제로 관리하는 최소 항목(발급일자, 비고)만 받는다.
-    """
-    certificate_issue_date: Optional[str] = None
-    remark: Optional[str] = None
-
-
 def _dt(value):
     return value.isoformat() if value else None
 
@@ -206,31 +249,16 @@ def _norm_vehicle(value: str) -> str:
     return re.sub(r"[\s-]+", "", str(value or "")).strip()
 
 
-def _norm_rrn(value: str) -> str:
-    """주민등록번호 비교용: 숫자만 남긴다."""
-    import re
-    return re.sub(r"\D", "", str(value or ""))
-
-
 def _same_person_vehicle(candidate, member) -> bool:
-    """동명이인 오연결을 막기 위해 이름만으로는 동일인으로 보지 않는다.
-
-    주민등록번호가 둘 다 있으면 그것으로, 없으면 차량번호+이름이 모두 일치할 때만 동일인으로 본다.
-    """
     if not candidate or not member:
         return False
-    c_rrn = _norm_rrn(getattr(candidate, "resident_number", ""))
-    m_rrn = _norm_rrn(getattr(member, "resident_number", ""))
-    if c_rrn and m_rrn:
-        return c_rrn == m_rrn
-
     c_vehicle = _norm_vehicle(getattr(candidate, "vehicle_number", ""))
     m_vehicle = _norm_vehicle(getattr(member, "vehicle_number", ""))
     if not c_vehicle or not m_vehicle or c_vehicle != m_vehicle:
         return False
     c_name = (getattr(candidate, "name", "") or "").strip()
     m_name = (getattr(member, "name", "") or "").strip()
-    return bool(c_name and m_name and c_name == m_name)
+    return (not c_name or not m_name or c_name == m_name)
 
 
 def _member_means_approved(candidate, member) -> bool:
@@ -269,18 +297,6 @@ def _actual_details(db: Session, row):
             models.Candidate.id == row.candidate_id,
             models.Candidate.deleted_at.is_(None),
         ).first()
-        if not candidate and not member:
-            # 예정자가 회원 전환 후 삭제(soft-delete)되었더라도, 이미 연결돼 있던
-            # member_id만 읽어와 인가완료 상태/회원 연결이 끊기지 않게 한다.
-            # 삭제된 예정자를 되살리거나 예정자 API로 노출하지는 않는다.
-            deleted_candidate = db.query(models.Candidate).filter(
-                models.Candidate.id == row.candidate_id,
-            ).first()
-            if deleted_candidate and getattr(deleted_candidate, "member_id", None):
-                member = db.query(models.LicenseHolder).filter(
-                    models.LicenseHolder.id == deleted_candidate.member_id,
-                    models.LicenseHolder.deleted_at.is_(None),
-                ).first()
         if not member and candidate:
             mid = getattr(candidate, "member_id", None)
             if mid:
@@ -382,7 +398,6 @@ def _item(db: Session, row):
         "issuance_status": issuance_status,
         "latest_operator": latest_operator,
         "created_by": row.created_by or "",
-        "remark": row.remark or "",
         "approved_at": _dt(row.approved_at),
         "issued_at": _dt(row.issued_at),
         "created_at": _dt(row.created_at),
@@ -444,19 +459,6 @@ def _bulk_context(db: Session, rows):
         member_ids.add(getattr(t, "transferee_member_id", None) or getattr(t, "member_id", None))
     member_ids.discard(None)
 
-    # 예정자가 회원 전환 후 삭제(soft-delete)된 경우에도, 이미 연결돼 있던 member_id는
-    # 잃지 않아야 인가완료 상태가 계속 정상 표시된다. 삭제된 예정자를 되살리지 않고
-    # member_id만 조회 용도로 읽어온다.
-    missing_from_active = candidate_ids.difference(candidates.keys())
-    deleted_candidate_member = {}
-    if missing_from_active:
-        for cid, mid in db.query(models.Candidate.id, models.Candidate.member_id).filter(
-            models.Candidate.id.in_(missing_from_active),
-            models.Candidate.member_id.isnot(None),
-        ).all():
-            member_ids.add(mid)
-            deleted_candidate_member[cid] = mid
-
     members = {}
     member_q = db.query(models.LicenseHolder).filter(models.LicenseHolder.deleted_at.is_(None))
     clauses = []
@@ -484,7 +486,6 @@ def _bulk_context(db: Session, rows):
         "members": members,
         "members_by_candidate": members_by_candidate,
         "members_by_identity": members_by_identity,
-        "deleted_candidate_member": deleted_candidate_member,
         "transfers": transfers,
         "logs": logs,
     }
@@ -499,9 +500,6 @@ def _item_bulk(db: Session, row, ctx):
 
     member = members.get(row.member_id) if row.member_id else None
     candidate = candidates.get(row.candidate_id) if row.candidate_id else None
-    if not member and not candidate and row.candidate_id:
-        # 예정자가 회원 전환 후 삭제(soft-delete)됐지만 member_id 연결은 살아있는 경우.
-        member = members.get(ctx.get("deleted_candidate_member", {}).get(row.candidate_id))
     if not member and candidate:
         member = members.get(getattr(candidate, "member_id", None)) or ctx["members_by_candidate"].get(candidate.id)
         if not member:
@@ -563,7 +561,6 @@ def _item_bulk(db: Session, row, ctx):
         "issuance_status": issuance_status,
         "latest_operator": latest_operator,
         "created_by": row.created_by or "",
-        "remark": row.remark or "",
         "approved_at": _dt(row.approved_at),
         "issued_at": _dt(row.issued_at),
         "created_at": _dt(row.created_at),
@@ -1079,52 +1076,4 @@ async def get_ledger(
     candidate = _candidate_for_row(db, row)
     if candidate and (candidate.certificate_number or "").strip() and row.status != ISSUED:
         row = _sync_existing_number_from_candidate(db, row, operator_name(user))
-    return _item(db, row)
-
-
-@router.put("/{ledger_id}")
-async def update_ledger(
-    ledger_id: int,
-    body: UpdateLedgerBody,
-    db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-):
-    """자격증명 발급대장 전용 수정 API.
-
-    예정자(candidates)나 회원(license_holders) API를 전혀 거치지 않는다. 예정자가
-    회원으로 전환되어 예정자 목록에서 사라지거나 삭제 처리되어도, 발급대장 행(ledger_id)
-    자체는 그대로 남아있으므로 이 API는 계속 동작한다. 여기서 수정하는 항목은 발급대장이
-    직접 소유한 필드(발급일자, 비고)뿐이며 개인/택배회원의 이름·주민등록번호·차량번호·
-    자격증명번호 등은 절대 변경하지 않는다.
-    """
-    row = _get_row(db, ledger_id)
-    actor = operator_name(user)
-    changed = False
-    notes = []
-
-    if body.certificate_issue_date is not None:
-        new_date = body.certificate_issue_date.strip()
-        if new_date != (row.certificate_issue_date or ""):
-            row.certificate_issue_date = new_date
-            notes.append(f"발급일자 → {new_date or '(비움)'}")
-            changed = True
-
-    if body.remark is not None:
-        new_remark = body.remark.strip()
-        if new_remark != (row.remark or ""):
-            row.remark = new_remark
-            notes.append("비고 수정")
-            changed = True
-
-    if changed:
-        row.latest_operator = actor
-        add_history(db, row.id, "정보수정", row.status, row.status, actor, " / ".join(notes))
-        try:
-            db.commit()
-        except Exception as exc:
-            db.rollback()
-            raise HTTPException(500, f"발급대장 저장 중 오류가 발생했습니다: {exc}") from exc
-        db.refresh(row)
-        _invalidate_stats_cache()
-
     return _item(db, row)

@@ -76,6 +76,10 @@ GENERAL_MANAGEMENT_START_DATE = date(2027, 1, 1)
 GENERAL_MANAGEMENT_START_KEY = "2027-01"
 MANAGEMENT_2027_REPAIR_KEY = "receivables_general_management_2027_start_repair_20260901_v1"
 AUTHORITATIVE_BASELINE_RECONCILE_KEY = "receivables_authoritative_baseline_reconcile_20260902_v35_all_members"
+DUPLICATE_NAME_IDENTITY_REPAIR_KEY = "receivables_duplicate_name_identity_repair_20260905_v1"
+CLOSURE_SUPPLEMENT_FILE = Path(__file__).resolve().parent.parent / "data" / "receivables_closure_supplement_20260906.json"
+CLOSURE_SUPPLEMENT_KEY = "receivables_closure_supplement_20260906_v2"
+CLOSURE_SUPPLEMENT_TAG = "[RECEIVABLES-CURRENT-20260906]"
 
 # receivables 전용 lazy schema guard.
 # Railway healthcheck를 빠르게 통과시키기 위해 main.py의 전체 DB 유지보수는
@@ -438,20 +442,9 @@ def _match_seed(member):
         if len(name_matches) == 1:
             return name_matches[0]
 
-    if nr:
-        nonplate_candidates = _seed_by_region_nonplate.get(nr, [])
-        name_matches = [r for r in nonplate_candidates if _names_safely_equivalent(member.name, r.get("name"))]
-        if len(name_matches) == 1:
-            return name_matches[0]
-
-    nr_candidates = _seed_by_name_region.get((nn, nr), [])
-    # 차량번호가 이후 변경되었거나 원장에는 끝4자리만 있는 기존회원도
-    # 성명+지역 조합이 원장에서 단 1명일 때만 마지막 안전 fallback으로 연결한다.
-    if len(nr_candidates) == 1:
-        return nr_candidates[0]
-    blank_vehicle_candidates = [r for r in nr_candidates if not _norm(r.get("vehicle_number"))]
-    if len(blank_vehicle_candidates) == 1:
-        return blank_vehicle_candidates[0]
+    # 중요: 미수금은 금전 원장이므로 이름(+지역)만으로는 절대 자동연결하지 않는다.
+    # 동명이인(예: 같은 지역의 김정훈)이 다른 차량의 과거 미수금을 상속받는 사고를 막는다.
+    # seed 차량번호가 비어 있거나 차량 식별자가 맞지 않으면 수동 확인 대상으로 남긴다.
     return None
 
 
@@ -1076,74 +1069,9 @@ def _build_authoritative_assignments(db: Session):
         assignments[member_id] = (profile, member, seed, score, reason)
         used_sources.add(sr)
 
-    # 1차 매칭 후 남은 seed는 성명+지역이 양쪽에서 모두 유일한 경우에만 복구한다.
-    unassigned_pairs = [(p, m) for p, m in pairs if int(m.id) not in assignments]
-    by_name_region = {}
-    by_name_global = {}
-    for profile, member in unassigned_pairs:
-        nn = _norm(getattr(member, "name", "")); nr = _region_key(getattr(member, "region", ""))
-        if nn:
-            by_name_global.setdefault(nn, []).append((profile, member))
-        if nn and nr:
-            by_name_region.setdefault((nn, nr), []).append((profile, member))
-
-    seed_name_region_counts = {}
-    seed_name_counts = {}
-    for seed in (_seed_cache or []):
-        try:
-            sr = int(seed.get("source_row"))
-        except Exception:
-            continue
-        if sr in used_sources:
-            continue
-        nn = _norm(seed.get("name")); nr = _region_key(seed.get("region"))
-        if nn:
-            seed_name_counts[nn] = seed_name_counts.get(nn, 0) + 1
-        if nn and nr:
-            seed_name_region_counts[(nn, nr)] = seed_name_region_counts.get((nn, nr), 0) + 1
-
-    # exact 성명+지역이 DB와 seed 모두 1개뿐인 경우
-    for seed in (_seed_cache or []):
-        try:
-            sr = int(seed.get("source_row"))
-        except Exception:
-            continue
-        if sr in used_sources:
-            continue
-        nn = _norm(seed.get("name")); nr = _region_key(seed.get("region"))
-        candidates = by_name_region.get((nn, nr), []) if nn and nr else []
-        if len(candidates) == 1 and seed_name_region_counts.get((nn, nr), 0) == 1:
-            profile, member = candidates[0]
-            mid = int(member.id)
-            if mid in assignments:
-                continue
-            assignments[mid] = (profile, member, seed, 70, "unique_name_region")
-            used_sources.add(sr)
-
-    # 지역이 DB에서 변경/누락된 경우: exact 성명이 전체 DB와 seed에서 모두 1명일 때만 최후 fallback.
-    # 동명이인이 하나라도 있으면 절대 자동연결하지 않는다.
-    remaining_pairs = [(p, m) for p, m in pairs if int(m.id) not in assignments]
-    by_name_global = {}
-    for profile, member in remaining_pairs:
-        nn = _norm(getattr(member, "name", ""))
-        if nn:
-            by_name_global.setdefault(nn, []).append((profile, member))
-    for seed in (_seed_cache or []):
-        try:
-            sr = int(seed.get("source_row"))
-        except Exception:
-            continue
-        if sr in used_sources:
-            continue
-        nn = _norm(seed.get("name"))
-        candidates = by_name_global.get(nn, []) if nn else []
-        if len(candidates) == 1 and seed_name_counts.get(nn, 0) == 1:
-            profile, member = candidates[0]
-            mid = int(member.id)
-            if mid in assignments:
-                continue
-            assignments[mid] = (profile, member, seed, 55, "unique_name_global")
-            used_sources.add(sr)
+    # 금전 원장은 동명이인 오연결 방지를 최우선한다.
+    # 강한 차량 식별이 없는 성명+지역 / 성명 단독 fallback은 사용하지 않는다.
+    # 이름이 같더라도 차량번호가 다르면 서로 다른 회원으로 유지한다.
 
     # 최신 원장에 성명이 공란인 행도 삭제하지 않는다.
     # 지역+차량 끝4자리가 DB 미배정회원 중 정확히 1명일 때만 연결한다.
@@ -1320,6 +1248,229 @@ def _reconcile_authoritative_legacy_profiles_once(db: Session) -> dict:
     }
 
 
+def _repair_duplicate_name_seed_mislinks_once(db: Session) -> dict:
+    """동명이인에게 잘못 붙은 legacy 미수금 baseline을 안전하게 교정한다.
+
+    자동 교정은 증거가 매우 강한 경우에만 수행한다:
+    - 현재 profile의 legacy source_row가 가리키는 원장 seed에 차량번호+성명이 있고
+    - 현재 회원의 차량번호와 seed 차량번호가 서로 다르며
+    - DB 안에 seed의 성명+차량번호와 정확히 일치하는 *다른* 회원이 유일하게 존재할 때
+
+    이 경우 원장 baseline은 그 정확일치 회원에게 귀속시키고, 잘못 연결된 회원에서는
+    legacy baseline 필드만 분리한다. 실제 수납/연락/수동조정 행은 삭제/이동하지 않는다.
+    """
+    if db.query(ReceivableSystemState).filter(ReceivableSystemState.key == DUPLICATE_NAME_IDENTITY_REPAIR_KEY).first():
+        return {"fixed": 0, "skipped": "already_applied"}
+
+    _load_seed()
+    profiles = (
+        db.query(ReceivableProfile, models.LicenseHolder)
+        .join(models.LicenseHolder, models.LicenseHolder.id == ReceivableProfile.member_id)
+        .filter(ReceivableProfile.legacy_source_row.isnot(None))
+        .all()
+    )
+    profile_by_member = {int(m.id): p for p, m in profiles}
+    fixed = 0
+    audit = []
+
+    for wrong_profile, wrong_member in profiles:
+        seed = _seed_for_profile(wrong_profile)
+        if not seed:
+            continue
+        seed_name = _norm(seed.get("name"))
+        seed_vehicle = _norm_vehicle_key(seed.get("vehicle_number"))
+        member_name = _norm(getattr(wrong_member, "name", ""))
+        member_vehicle = _norm_vehicle_key(getattr(wrong_member, "vehicle_number", ""))
+        if not seed_name or not seed_vehicle or not member_name or not member_vehicle:
+            continue
+        if seed_name != member_name or seed_vehicle == member_vehicle:
+            continue
+
+        # seed의 이름+차량과 정확히 맞는 회원을 DB 전체에서 찾는다. 이름만 같은 후보는 제외.
+        candidates = (
+            db.query(models.LicenseHolder)
+            .filter(models.LicenseHolder.deleted_at.is_(None))
+            .all()
+        )
+        exact = [
+            m for m in candidates
+            if _norm(getattr(m, "name", "")) == seed_name
+            and _norm_vehicle_key(getattr(m, "vehicle_number", "")) == seed_vehicle
+        ]
+        if len(exact) != 1 or int(exact[0].id) == int(wrong_member.id):
+            continue
+        right_member = exact[0]
+        right_profile = profile_by_member.get(int(right_member.id))
+        if right_profile is None:
+            right_profile = _make_profile(right_member, None)
+            db.add(right_profile)
+            db.flush()
+            profile_by_member[int(right_member.id)] = right_profile
+
+        # 다른 legacy source가 이미 정확 회원에게 붙어 있다면 자동 덮어쓰지 않는다.
+        existing_sr = getattr(right_profile, "legacy_source_row", None)
+        seed_sr = int(seed.get("source_row")) if seed.get("source_row") is not None else None
+        if existing_sr is not None and int(existing_sr) != int(seed_sr):
+            continue
+
+        # 정확 회원에게 baseline 귀속. 실제 결제/연락 이력은 member_id 기반 별도 테이블이라 건드리지 않는다.
+        right_profile.legacy_source_row = seed_sr
+        right_profile.legacy_balance = int(seed.get("current_arrears") or 0)
+        right_profile.legacy_months = seed.get("months") or []
+        right_profile.legacy_note = seed.get("legacy_note") or None
+        right_profile.vehicle_count = 1
+        if int(getattr(right_profile, "account_manual_override", 0) or 0) != 1:
+            acct = seed.get("account_type") or _infer_account(right_member)
+            right_profile.account_type = acct
+            right_profile.unit_fee = ACCOUNT_FEES.get(acct, 5000)
+        right_profile.first_charge_date = _legacy_next_charge_date(right_member, right_profile.account_type).isoformat()
+
+        # 잘못 연결된 회원은 legacy baseline만 분리하고 자기 실제 부과기준으로 되돌린다.
+        wrong_profile.legacy_source_row = None
+        wrong_profile.legacy_balance = 0
+        wrong_profile.legacy_months = []
+        wrong_profile.legacy_note = None
+        if int(getattr(wrong_profile, "account_manual_override", 0) or 0) != 1:
+            acct = _infer_account(wrong_member)
+            wrong_profile.account_type = acct
+            wrong_profile.unit_fee = ACCOUNT_FEES.get(acct, 5000)
+        first = _business_first_charge_date(wrong_member, wrong_profile.account_type)
+        wrong_profile.first_charge_date = first.isoformat() if first else None
+
+        fixed += 1
+        audit.append({
+            "source_row": seed_sr,
+            "from_member_id": int(wrong_member.id),
+            "to_member_id": int(right_member.id),
+            "name": getattr(wrong_member, "name", ""),
+            "wrong_vehicle": getattr(wrong_member, "vehicle_number", ""),
+            "seed_vehicle": seed.get("vehicle_number", ""),
+        })
+
+    # 잘못된 legacy 연결 때문에 생긴 자동부과만 기존 검증함수로 제거한다.
+    # 수동수납/수동조정은 삭제하지 않는다.
+    db.flush()
+    charges_removed = _repair_invalid_auto_charges(db) if fixed else 0
+    db.add(ReceivableSystemState(
+        key=DUPLICATE_NAME_IDENTITY_REPAIR_KEY,
+        value=json.dumps({
+            "fixed": fixed,
+            "charges_removed": charges_removed,
+            "audit": audit[:100],
+            "applied_at": datetime.now(KST).isoformat(),
+            "rule": "never match receivables by name alone; reassign only when seed name+vehicle exactly identifies another unique member",
+        }, ensure_ascii=False),
+    ))
+    db.commit()
+    return {"fixed": fixed, "charges_removed": charges_removed}
+
+
+
+def _apply_closure_supplement_once(db: Session) -> dict:
+    """폐업관리 누락 보완용 1회성 안전 패치.
+
+    - 기존 Closure/회원/수납 기록은 삭제하지 않는다.
+    - 성명+차량번호(끝4자리 포함)가 같은 Closure가 있으면 그 행을 재사용한다.
+    - 없을 때만 Closure 보조행을 만든다.
+    - LicenseHolder.status / closure_id는 자동 변경하지 않는다.
+      즉 현재 활성회원을 임의로 폐업처리하는 위험을 피한다.
+    - 보조행은 memo 태그로만 현재 폐업관리 화면에 포함한다.
+    """
+    marker = db.query(ReceivableSystemState).filter(ReceivableSystemState.key == CLOSURE_SUPPLEMENT_KEY).first()
+    if marker:
+        try:
+            return {"already_applied": True, **(json.loads(marker.value or "{}"))}
+        except Exception:
+            return {"already_applied": True}
+    if not CLOSURE_SUPPLEMENT_FILE.exists():
+        return {"applied": False, "reason": "supplement_file_missing"}
+
+    payload = json.loads(CLOSURE_SUPPLEMENT_FILE.read_text(encoding="utf-8"))
+    created = reused = tagged = skipped = 0
+    for row in payload.get("rows", []):
+        name = str(row.get("name") or "").strip()
+        vehicle = str(row.get("vehicle_number") or "").strip()
+        management = str(row.get("management_number") or "").strip()
+        if not name or not vehicle:
+            skipped += 1
+            continue
+
+        candidates = []
+        if management:
+            candidates = db.query(models.Closure).filter(
+                models.Closure.deleted_at.is_(None),
+                models.Closure.management_number == management,
+            ).all()
+        if not candidates:
+            # DB 쿼리는 성명으로 좁히고 차량표기는 Python에서 정규화한다.
+            by_name = db.query(models.Closure).filter(
+                models.Closure.deleted_at.is_(None),
+                models.Closure.name == name,
+            ).all()
+            vt = _vehicle_tail4(vehicle)
+            candidates = [c for c in by_name if vt and _vehicle_tail4(getattr(c, "vehicle_number", "")) == vt]
+
+        c = None
+        if len(candidates) == 1:
+            c = candidates[0]
+            reused += 1
+        elif len(candidates) > 1:
+            # 같은 관리번호가 있으면 그것만 사용. 그렇지 않으면 자동선택하지 않는다.
+            exact_mgmt = [x for x in candidates if management and (x.management_number or "") == management]
+            if len(exact_mgmt) == 1:
+                c = exact_mgmt[0]; reused += 1
+            else:
+                skipped += 1
+                continue
+        else:
+            c = models.Closure(
+                management_number=management or None,
+                closure_type=str(row.get("closure_type") or "폐업"),
+                data_type="신규자료",
+                region=str(row.get("region") or ""),
+                vehicle_number=vehicle,
+                name=name,
+                closure_date=str(row.get("closure_date") or ""),
+                receipt_date=str(row.get("receipt_date") or ""),
+                reason=str(row.get("reason") or ""),
+                mobile=str(row.get("mobile") or ""),
+                phone=str(row.get("phone") or ""),
+                transferee=str(row.get("transferee") or ""),
+                transfer_region=str(row.get("transfer_region") or ""),
+                original_management_number=str(row.get("original_management_number") or "") or None,
+                memo=CLOSURE_SUPPLEMENT_TAG,
+                raw_data={"receivables_supplement": CLOSURE_SUPPLEMENT_KEY, "source": row.get("source", "")},
+            )
+            db.add(c)
+            created += 1
+
+        # 기존 값은 덮어쓰지 않고 빈 칸만 보강한다.
+        for attr, key in (
+            ("management_number","management_number"),("closure_type","closure_type"),("region","region"),
+            ("vehicle_number","vehicle_number"),("name","name"),("closure_date","closure_date"),
+            ("receipt_date","receipt_date"),("reason","reason"),("mobile","mobile"),("phone","phone"),
+            ("transferee","transferee"),("transfer_region","transfer_region"),
+            ("original_management_number","original_management_number"),
+        ):
+            if not getattr(c, attr, None) and row.get(key):
+                setattr(c, attr, str(row.get(key)))
+        memo = str(getattr(c, "memo", None) or "")
+        if CLOSURE_SUPPLEMENT_TAG not in memo:
+            c.memo = (memo + " " + CLOSURE_SUPPLEMENT_TAG).strip()
+            tagged += 1
+
+    db.flush()
+    info = {
+        "applied": True, "source_rows": len(payload.get("rows", [])),
+        "created": created, "reused": reused, "tagged": tagged, "skipped": skipped,
+        "applied_at": datetime.now(KST).isoformat(),
+        "safety": "no LicenseHolder.status/closure_id mutation; no delete",
+    }
+    db.add(ReceivableSystemState(key=CLOSURE_SUPPLEMENT_KEY, value=json.dumps(info, ensure_ascii=False)))
+    db.commit()
+    return info
+
+
 def _ensure_db_ledger_ready(db: Session) -> int:
     """DB 공식원장 준비.
 
@@ -1341,6 +1492,10 @@ def _ensure_db_ledger_ready(db: Session) -> int:
     # V35: 최신 [사용] 원장을 전체 프로필에 1:1 재대조한다.
     # 한인교처럼 legacy 연결 누락 + 1~8월 auto 누적 상태를 source_row 단위로 제거한다.
     _reconcile_authoritative_legacy_profiles_once(db)
+    # 동명이인 이름만으로 과거 미수금이 잘못 붙은 기존 DB도 1회 안전 교정한다.
+    _repair_duplicate_name_seed_mislinks_once(db)
+    # 폐업관리 누락 보완: 회원 status는 건드리지 않고 Closure 보조행만 안전하게 추가/표시한다.
+    _apply_closure_supplement_once(db)
 
     marker = _baseline_marker(db)
     if marker is not None:
@@ -3091,11 +3246,16 @@ def _list_closure_records(
         # Closure 과거 이력만 존재하는 현재활동 회원은 여기서 완전히 제외된다.
         base = (
             db.query(models.Closure)
-            .join(models.LicenseHolder, models.LicenseHolder.closure_id == models.Closure.id)
+            .outerjoin(models.LicenseHolder, models.LicenseHolder.closure_id == models.Closure.id)
             .filter(
                 models.Closure.deleted_at.is_(None),
-                models.LicenseHolder.status == "closed",
-                models.LicenseHolder.closure_id.isnot(None),
+                or_(
+                    and_(
+                        models.LicenseHolder.status == "closed",
+                        models.LicenseHolder.closure_id.isnot(None),
+                    ),
+                    models.Closure.memo.ilike(f"%{CLOSURE_SUPPLEMENT_TAG}%"),
+                ),
             )
         )
     base = base.filter(or_(
@@ -3107,9 +3267,13 @@ def _list_closure_records(
     raw_q = (q or "").strip()
     if raw_q:
         pat = f"%{raw_q}%"
+        compact_q = re.sub(r"\s+", "", raw_q)
+        compact_pat = f"%{compact_q}%"
+        compact_closure_name = func.regexp_replace(func.coalesce(models.Closure.name, ""), r"\s+", "", "g")
         base = base.filter(or_(
             models.Closure.management_number.ilike(pat),
             models.Closure.name.ilike(pat),
+            compact_closure_name.ilike(compact_pat),
             models.Closure.vehicle_number.ilike(pat),
             models.Closure.region.ilike(pat),
             models.Closure.mobile.ilike(pat),
@@ -3277,12 +3441,22 @@ def list_members(
     raw_q = (q or "").strip()
     if raw_q:
         pat = f"%{raw_q}%"
+        # 2026 미수금 원장의 비고(legacy_note)에 적힌 이체자/대납자 이름도 검색한다.
+        # 예: 비고가 "한 순 례"여도 사용자가 "한순례"로 검색하면 찾을 수 있도록
+        # 공백을 제거한 값도 함께 비교한다.
+        compact_q = re.sub(r"\s+", "", raw_q)
+        compact_pat = f"%{compact_q}%"
+        compact_legacy_note = func.regexp_replace(
+            func.coalesce(ReceivableProfile.legacy_note, ""), r"\s+", "", "g"
+        )
         query = query.filter(
             or_(
                 models.LicenseHolder.name.ilike(pat),
                 models.LicenseHolder.vehicle_number.ilike(pat),
                 models.LicenseHolder.management_number.ilike(pat),
                 models.LicenseHolder.mobile.ilike(pat),
+                ReceivableProfile.legacy_note.ilike(pat),
+                compact_legacy_note.ilike(compact_pat),
                 current_closure_sq.c.management_number.ilike(pat),
                 current_closure_sq.c.closure_type.ilike(pat),
                 current_closure_sq.c.transferee.ilike(pat),
