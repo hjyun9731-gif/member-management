@@ -103,6 +103,8 @@ def _run_migrations():
         # 폐업현황 관리번호 구조 분리: 회원 원래 관리번호와 폐업/이관 번호를 별도 보존
         ("original_management_number", "closures", "VARCHAR(50)"),
         ("original_mgmt_match_status", "closures", "VARCHAR(20)"),
+        # 수납/미수금: 활성 대상 제외 플래그. 기존 행은 전부 1(활성)로 채워 회귀 없음.
+        ("receivable_active", "receivable_profiles", "INTEGER DEFAULT 1"),
     ]
 
     for col_name, table_name, col_type in new_cols:

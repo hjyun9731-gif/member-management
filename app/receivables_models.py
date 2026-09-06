@@ -16,6 +16,9 @@ class ReceivableProfile(Base):
     legacy_source_row = Column(Integer, nullable=True)
     legacy_note = Column(Text, nullable=True)
     account_manual_override = Column(Integer, nullable=False, default=0)
+    # 1=활성 수납/미수금 대상(기본값), 0=활성 목록/합계/자동부과에서 제외.
+    # 데이터(legacy_balance, 수납/연락 이력 등)는 그대로 보존하고 화면 노출만 막는 용도.
+    receivable_active = Column(Integer, nullable=False, default=1)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

@@ -614,6 +614,7 @@ def _make_profile(member, seed=None) -> ReceivableProfile:
             legacy_months=seed.get("months") or [],
             legacy_source_row=seed.get("source_row"),
             legacy_note=seed.get("legacy_note") or None,
+            receivable_active=0 if seed.get("active_exclude") else 1,
         )
 
     acct = _infer_account(member)
@@ -735,6 +736,7 @@ def _apply_legacy_baseline_once(db: Session) -> int:
             profile.legacy_months = seed.get("months") or []
             profile.legacy_note = seed.get("legacy_note") or None
             profile.vehicle_count = 1
+            profile.receivable_active = 0 if seed.get("active_exclude") else 1
 
             # 기존 원장 계정은 원장 기준. 수동지정 계정만 보존한다.
             if int(getattr(profile, "account_manual_override", 0) or 0) != 1:
@@ -822,6 +824,7 @@ def _refresh_legacy_baseline_if_seed_changed(db: Session, marker) -> int:
         profile.legacy_months = seed.get("months") or []
         profile.legacy_note = seed.get("legacy_note") or None
         profile.vehicle_count = 1
+        profile.receivable_active = 0 if seed.get("active_exclude") else 1
         if int(getattr(profile, "account_manual_override", 0) or 0) != 1:
             account = seed.get("account_type") or _infer_account(member)
             profile.account_type = account
@@ -1158,6 +1161,7 @@ def _reconcile_authoritative_legacy_profiles_once(db: Session) -> dict:
         profile.legacy_months = seed.get("months") or []
         profile.legacy_note = seed.get("legacy_note") or None
         profile.vehicle_count = 1
+        profile.receivable_active = 0 if seed.get("active_exclude") else 1
         if int(getattr(profile, "account_manual_override", 0) or 0) != 1:
             account = seed.get("account_type") or _infer_account(member)
             profile.account_type = account
@@ -1871,7 +1875,7 @@ def _sync_charges(db: Session) -> int:
         for mid, month in db.query(ReceivableCharge.member_id, ReceivableCharge.billing_month).all()
     }
     added = 0
-    for p in db.query(ReceivableProfile).all():
+    for p in db.query(ReceivableProfile).filter(ReceivableProfile.receivable_active == 1).all():
         member = members.get(p.member_id)
         if not member or not p.first_charge_date:
             continue
@@ -2477,6 +2481,7 @@ def summary(
         .outerjoin(charges_sq, charges_sq.c.member_id == ReceivableProfile.member_id)
         .outerjoin(payments_sq, payments_sq.c.member_id == ReceivableProfile.member_id)
         .outerjoin(current_closure_sq, current_closure_sq.c.closure_id == models.LicenseHolder.closure_id)
+        .filter(ReceivableProfile.receivable_active == 1)
         .one()
     )
 
@@ -2504,6 +2509,7 @@ def summary(
         .outerjoin(current_closure_sq, current_closure_sq.c.closure_id == models.LicenseHolder.closure_id)
         .filter(ReceivableProfile.first_charge_date == pending_date_iso)
         .filter(_receivable_active_sql(current_closure_sq))
+        .filter(ReceivableProfile.receivable_active == 1)
         .scalar()
         or 0
     )
@@ -2564,6 +2570,7 @@ def receivables_dashboard(
         .outerjoin(payments_sq, payments_sq.c.member_id == ReceivableProfile.member_id)
         .outerjoin(latest_contact_sq, latest_contact_sq.c.member_id == models.LicenseHolder.id)
         .filter(models.LicenseHolder.deleted_at.is_(None))
+        .filter(ReceivableProfile.receivable_active == 1)
         .all()
     )
 
@@ -2763,7 +2770,7 @@ def monthly_analysis(
     if selected_from > selected_to:
         raise HTTPException(status_code=400, detail="기준월은 비교월보다 앞선 월이어야 합니다.")
 
-    profiles = db.query(ReceivableProfile).all()
+    profiles = db.query(ReceivableProfile).filter(ReceivableProfile.receivable_active == 1).all()
     profile_by_member = {int(p.member_id): p for p in profiles}
     member_ids = set(profile_by_member)
 
@@ -3405,6 +3412,7 @@ def list_members(
         .outerjoin(payments_sq, payments_sq.c.member_id == ReceivableProfile.member_id)
         .outerjoin(latest_contact_sq, latest_contact_sq.c.member_id == models.LicenseHolder.id)
         .outerjoin(current_closure_sq, current_closure_sq.c.closure_id == models.LicenseHolder.closure_id)
+        .filter(ReceivableProfile.receivable_active == 1)
     )
 
     if scope == "active":
@@ -4376,8 +4384,13 @@ def member_detail(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    _ensure_db_ledger_ready(db)
-    _ensure_current_month_billing(db)
+    # 목록/summary/dashboard와 동일한 read-only 정책. _ensure_db_ledger_ready_cached는
+    # TTL(10분) 만료 시 요청 스레드에서 그대로 전체 reconcile을 실행하므로 GET에서는
+    # 절대 호출하지 않는다. _ensure_current_month_billing도 (월 최초 1회는) 전체
+    # 프로필에 대한 계정/폐업 보정과 자동부과를 수행하므로 GET에서 제거한다.
+    # 전체 재대조·월 자동부과는 배포 후 1회 + 15분 주기 백그라운드 워커
+    # (_schedule_background_sync → _monthly_billing_worker)에서만 수행한다.
+    _ensure_receivables_read_ready(db)
     member = db.query(models.LicenseHolder).filter(models.LicenseHolder.id == member_id).first()
     if not member:
         raise HTTPException(404, "회원을 찾을 수 없습니다.")
