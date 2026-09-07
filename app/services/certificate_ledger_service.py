@@ -44,14 +44,6 @@ def ensure_ledger_schema(db: Session) -> None:
             ))
             db.commit()
 
-        # 발급대장 자체 비고 컬럼. 기존 운영 DB에 없으면 추가만 하고 기존 데이터는 건드리지 않는다.
-        has_remark = any(col.get("name") == "remark" for col in columns)
-        if not has_remark:
-            db.execute(text(
-                "ALTER TABLE certificate_issuance_ledger ADD COLUMN IF NOT EXISTS remark TEXT"
-            ))
-            db.commit()
-
 
 def operator_name(user) -> str:
     if user is None:
@@ -66,19 +58,7 @@ def _norm_vehicle(value: str) -> str:
     return re.sub(r"[\s-]+", "", str(value or "")).strip()
 
 
-def _norm_rrn(value: str) -> str:
-    """주민등록번호 비교용: 숫자만 남긴다 (하이픈/공백 표기 차이 무시)."""
-    import re
-    return re.sub(r"\D", "", str(value or ""))
-
-
 def _same_candidate_member(candidate, member) -> bool:
-    """예정자와 회원이 동일인인지 판단한다.
-
-    이름만으로는 동명이인을 잘못 연결할 수 있으므로, 이미 연결키(member_id/candidate_id)가
-    있는 경우가 아니라면 주민등록번호가 같거나(둘 다 있을 때), 차량번호+이름이 모두 같을 때만
-    동일인으로 본다.
-    """
     if not candidate or not member:
         return False
     category = (getattr(member, "category", "") or "").strip()
@@ -88,14 +68,9 @@ def _same_candidate_member(candidate, member) -> bool:
         return True
     if getattr(member, "candidate_id", None) == getattr(candidate, "id", None):
         return True
-
-    cr, mr = _norm_rrn(getattr(candidate, "resident_number", "")), _norm_rrn(getattr(member, "resident_number", ""))
-    if cr and mr:
-        return cr == mr
-
     cv, mv = _norm_vehicle(getattr(candidate, "vehicle_number", "")), _norm_vehicle(getattr(member, "vehicle_number", ""))
     cn, mn = (getattr(candidate, "name", "") or "").strip(), (getattr(member, "name", "") or "").strip()
-    return bool(cv and mv and cv == mv and cn and mn and cn == mn)
+    return bool(cv and mv and cv == mv and (not cn or not mn or cn == mn))
 
 
 def add_history(
@@ -152,6 +127,37 @@ def ensure_candidate_ledger(db: Session, candidate: models.Candidate, user=None)
         .first()
     )
 
+    # 발급번호를 예정자 저장 전에 예약한 경우 candidate_id 없는 대장 행이 먼저 존재할 수 있다.
+    # 같은 번호 + 같은 성명/차량의 예약행이면 새 행을 만들지 말고 현재 예정자에 연결한다.
+    if entry is None and existing_number:
+        yy, no = existing_number.split("-", 1) if "-" in existing_number else ("", "")
+        try:
+            n = int(no)
+            variants = list(dict.fromkeys([f"{yy}-{n}", f"{yy}-{n:02d}", f"{yy}-{n:03d}", f"{yy}-{n:04d}"]))
+        except Exception:
+            variants = [existing_number]
+        reserved = (
+            db.query(ledger_models.CertificateIssuanceLedger)
+            .filter(ledger_models.CertificateIssuanceLedger.document_number.in_(variants))
+            .order_by(ledger_models.CertificateIssuanceLedger.id.desc())
+            .first()
+        )
+        if reserved and not reserved.candidate_id and not reserved.member_id:
+            same_vehicle = _norm_vehicle(reserved.vehicle_number or "") == _norm_vehicle(candidate.vehicle_number or "")
+            same_name = (reserved.name or "").strip() == (candidate.name or "").strip()
+            if same_vehicle and same_name:
+                reserved.deleted_at = None
+                reserved.candidate_id = candidate.id
+                reserved.region = candidate.region or reserved.region or ""
+                reserved.vehicle_number = candidate.vehicle_number or reserved.vehicle_number or ""
+                reserved.name = candidate.name or reserved.name or ""
+                reserved.document_number = existing_number
+                reserved.status = APPROVED if candidate.is_registered else WAITING
+                reserved.latest_operator = actor
+                db.commit()
+                db.refresh(reserved)
+                entry = reserved
+
     if entry:
         changed = False
         for field, value in (
@@ -182,13 +188,6 @@ def ensure_candidate_ledger(db: Session, candidate: models.Candidate, user=None)
             entry.member_id = candidate.member_id
             changed = True
 
-        # 예정자 단계에서 작성한 비고는, 발급대장에 아직 비고가 없을 때만 최초 1회 옮겨온다.
-        # 이후 발급대장 화면에서 직접 수정한 비고는 덮어쓰지 않는다.
-        candidate_memo = (getattr(candidate, "memo", None) or "").strip()
-        if candidate_memo and not (entry.remark or "").strip():
-            entry.remark = candidate_memo
-            changed = True
-
         if changed:
             entry.latest_operator = actor
             db.commit()
@@ -212,7 +211,6 @@ def ensure_candidate_ledger(db: Session, candidate: models.Candidate, user=None)
         latest_operator=actor,
         created_by=actor,
         approved_at=now if initial_status == APPROVED else None,
-        remark=(getattr(candidate, "memo", None) or "").strip() or None,
     )
     db.add(entry)
     db.flush()

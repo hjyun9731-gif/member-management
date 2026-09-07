@@ -318,7 +318,22 @@ function _bindCertIssueBtn(form, apiPath){
     btn.disabled=true; // 요청 중 중복클릭 방지
     btn.textContent='발급 중...';
     try{
-      const res=await api('POST',apiPath,{});
+      const nameInp=form.querySelector('[name="name"]')||form.querySelector('[name="transferee_name"]');
+      const vehicleInp=form.querySelector('[name="vehicle_number"]')||form.querySelector('[name="transferee_vehicle_number"]');
+      const payload={
+        current_number:(inp.value||'').trim(),
+        name:(nameInp?.value||'').trim(),
+        vehicle_number:(vehicleInp?.value||'').trim()
+      };
+      if(form.id==='cEditForm'&&form.dataset?.candidateId) payload.candidate_id=Number(form.dataset.candidateId);
+      // 신규 빈 폼에서는 번호를 절대 소비하지 않는다. 성명+차량번호가 있어야 최초 채번 가능.
+      if(!payload.candidate_id && (!payload.name || !payload.vehicle_number)){
+        toast('성명과 차량번호를 먼저 입력한 뒤 발급번호를 부여하세요.','err');
+        btn.disabled=false;
+        btn.textContent='발급번호 부여';
+        return;
+      }
+      const res=await api('POST',apiPath,payload);
       if(res && res.certificate_number){
         inp.value=res.certificate_number;
         toast(`발급번호 ${res.certificate_number} 부여됨`);
@@ -849,7 +864,7 @@ async function renderCandidateSection(){
     <div class="candidate-right-column">
       <div class="inner-tab-bar candidate-right-tabs" style="margin-bottom:10px">
         <button type="button" class="inner-tab ${rightView==='list'?'active':''}" id="candRightListTab">📂 예정자 목록</button>
-        <button type="button" class="inner-tab ${rightView==='ledger'?'active':''}" id="candRightLedgerTab"><span class="emoji-ic">🖨️</span> 자격증명발급대장</button>
+        <button type="button" class="inner-tab ${rightView==='ledger'?'active':''}" id="candRightLedgerTab">🖨 자격증명발급대장</button>
       </div>
       <div id="candidateRightPane" class="candidate-right-pane"></div>
     </div>
@@ -966,7 +981,7 @@ window.editCandidate=async(id)=>{
     ${fta('memo','비고',r.memo||'','cs4')}
   </div></form>`,
   `<button class="btn bg btn-sm" id="_ceSave">저장</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
-  setTimeout(()=>{_bindFmt(document.getElementById('cEditForm'));_bindCertIssueBtn(document.getElementById('cEditForm'),'/api/candidates/issue-certificate-number');},0);
+  setTimeout(()=>{const f=document.getElementById('cEditForm');if(f)f.dataset.candidateId=String(id);_bindFmt(f);_bindCertIssueBtn(f,'/api/candidates/issue-certificate-number');},0);
   document.getElementById('_ceSave').onclick=async()=>{
     const form=document.getElementById('cEditForm');
     if(!_validateFmt(form))return;
@@ -2127,7 +2142,7 @@ async function renderMonthlyReport(){
   const inner=ST.inner['monthly-report']||'print';
   document.getElementById('content').innerHTML=`
     <div class="inner-tab-bar mrp-no-print">
-      <button class="inner-tab ${inner==='print'?'active':''}" id="mrTabPrint"><span class="emoji-ic">🖨️</span> 인쇄용 보고서</button>
+      <button class="inner-tab ${inner==='print'?'active':''}" id="mrTabPrint">🖨 인쇄용 보고서</button>
       <button class="inner-tab ${inner==='detail'?'active':''}" id="mrTabDetail">📊 상세 자동집계</button>
     </div>
     <div id="mrInnerBody"></div>`;

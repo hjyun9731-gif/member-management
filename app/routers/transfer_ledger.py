@@ -10,6 +10,7 @@ import logging
 from app.database import get_db
 from app.auth import get_current_user, require_admin
 from app import models, crud
+from app.services.certificate_number_reservation import get_or_reserve_certificate_number
 from app.excel_utils import records_to_excel, parse_date_sort, is_association_member
 
 logger = logging.getLogger(__name__)
@@ -417,13 +418,24 @@ class DupCheckBody(BaseModel):
     exclude_member_id: Optional[int] = None
 
 
+class IssueCertificateNumberBody(BaseModel):
+    current_number: Optional[str] = ""
+    name: Optional[str] = ""
+    vehicle_number: Optional[str] = ""
+
+
 @router.post("/issue-certificate-number")
-async def issue_certificate_number(db: Session = Depends(get_db), user=Depends(get_current_user)):
-    """자격증명발급번호 자동 채번 (YY-N). 예정자/도내양도 등록 화면 공통 사용."""
+async def issue_certificate_number(body: IssueCertificateNumberBody,
+                                   db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """같은 양수자 입력폼은 최초 1회만 채번하고 이후에는 기존 예약번호를 반환한다."""
     try:
-        return {"certificate_number": crud.get_next_certificate_number(db, issued_by=user.username)}
+        number = get_or_reserve_certificate_number(
+            db, issued_by=user.username, current_number=body.current_number or "",
+            name=body.name or "", vehicle_number=body.vehicle_number or "",
+        )
+        return {"certificate_number": number}
     except ValueError as e:
-        raise HTTPException(500, str(e))
+        raise HTTPException(400, str(e))
 
 
 @router.post("/check-transferee-duplicate")
