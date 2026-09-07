@@ -110,15 +110,43 @@ def _ensure_receivables_schema_ready() -> None:
         ReceivableProfile.metadata.create_all(bind=engine, tables=tables, checkfirst=True)
 
         # create_all은 기존 테이블의 누락 컬럼을 ALTER하지 않으므로,
-        # 과거 receivable_profiles가 이미 존재하는 경우 이 컬럼만 안전하게 보강한다.
+        # 과거 receivable_profiles가 이미 존재하는 경우 이 컬럼들만 안전하게 보강한다.
+        # 컬럼별로 독립된 try/except를 둬서 하나가 실패해도 다른 하나는 계속 시도한다.
         try:
             cols = {c['name'] for c in inspect(engine).get_columns('receivable_profiles')}
+        except Exception:
+            cols = set()
+
+        is_sqlite_db = 'sqlite' in str(engine.url)
+
+        try:
             if 'account_manual_override' not in cols:
                 with engine.begin() as conn:
                     conn.execute(text(
                         'ALTER TABLE receivable_profiles '
                         'ADD COLUMN account_manual_override INTEGER DEFAULT 0'
                     ))
+        except Exception:
+            # main.py의 기존 migration도 동일 컬럼을 보강하므로 동시 실행 경쟁은 무시 가능.
+            pass
+
+        try:
+            if 'receivable_active' not in cols:
+                # main.py 백그라운드 마이그레이션보다 이 함수(요청 경로)가 먼저 실행돼도
+                # summary/list/dashboard/monthly-analysis/_sync_charges가 컬럼 생성 전에
+                # 쿼리를 날리는 일이 없도록, 여기서 동기적으로 컬럼을 보강한다.
+                # (idempotent: 사전 존재확인 + IF NOT EXISTS 이중 방어)
+                with engine.begin() as conn:
+                    if is_sqlite_db:
+                        conn.execute(text(
+                            'ALTER TABLE receivable_profiles '
+                            'ADD COLUMN receivable_active INTEGER NOT NULL DEFAULT 1'
+                        ))
+                    else:
+                        conn.execute(text(
+                            'ALTER TABLE receivable_profiles '
+                            'ADD COLUMN IF NOT EXISTS receivable_active INTEGER NOT NULL DEFAULT 1'
+                        ))
         except Exception:
             # main.py의 기존 migration도 동일 컬럼을 보강하므로 동시 실행 경쟁은 무시 가능.
             pass

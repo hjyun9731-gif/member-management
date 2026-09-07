@@ -104,7 +104,9 @@ def _run_migrations():
         ("original_management_number", "closures", "VARCHAR(50)"),
         ("original_mgmt_match_status", "closures", "VARCHAR(20)"),
         # 수납/미수금: 활성 대상 제외 플래그. 기존 행은 전부 1(활성)로 채워 회귀 없음.
-        ("receivable_active", "receivable_profiles", "INTEGER DEFAULT 1"),
+        # (receivables.py의 _ensure_receivables_schema_ready에도 동일 컬럼의 동기 보강이 있음 —
+        #  요청 경로가 이 백그라운드 마이그레이션보다 먼저 실행되는 경쟁을 대비한 이중 방어)
+        ("receivable_active", "receivable_profiles", "INTEGER NOT NULL DEFAULT 1"),
     ]
 
     for col_name, table_name, col_type in new_cols:
