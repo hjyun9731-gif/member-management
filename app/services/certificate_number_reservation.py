@@ -81,6 +81,28 @@ def _ensure_waiting_ledger_for_reservation(
             issued_at=None,
         )
     )
+    try:
+        db.flush()
+    except Exception:
+        # 번호 채번 자체는 advisory lock으로 이미 안전하게 하나만 나갔지만,
+        # 그 다음 단계인 이 발급대장 placeholder 행 생성은 잠금 밖에서 이뤄지므로
+        # 두 요청이 "같은 번호를 막 새로 받은" 순간에는 서로 아직 상대방의 행을
+        # 보지 못한 채 동시에 INSERT를 시도할 수 있다. UNIQUE 제약 충돌이면
+        # 상대방이 이미 만든 것이므로 롤백 후 그 행을 찾아 갱신한다(새로 만들지 않음).
+        db.rollback()
+        row = (
+            db.query(ledger_models.CertificateIssuanceLedger)
+            .filter(ledger_models.CertificateIssuanceLedger.document_number.in_(variants))
+            .order_by(ledger_models.CertificateIssuanceLedger.id.desc())
+            .first()
+        )
+        if row and not row.candidate_id and not row.member_id:
+            row.deleted_at = None
+            row.document_number = cert
+            row.name = (name or "").strip()
+            row.vehicle_number = vehicle_number or ""
+            row.status = "인가대기"
+            row.latest_operator = actor or row.latest_operator
 
 
 def get_or_reserve_certificate_number(
@@ -103,6 +125,14 @@ def get_or_reserve_certificate_number(
     if not candidate_id and not crud.normalize_certificate_number(current_number or ""):
         if not name or not _norm_vehicle(vehicle_number):
             raise ValueError("성명과 차량번호를 먼저 입력한 뒤 발급번호를 부여하세요.")
+
+    # "이미 예약된 번호가 있는지 확인 -> 없으면 새로 채번"을 하나의 잠금 범위로 묶는다.
+    # advisory lock을 여기서 먼저 잡지 않으면, 완전히 새로운 대상에 대해 두 요청이
+    # 동시에 들어왔을 때 둘 다 "기존 예약 없음"을 보고 각자 새 번호를 채번해버리는
+    # 경쟁이 있었다(예: 동시 클릭 시 26-375/26-376처럼 서로 다른 번호 두 개 발급).
+    # get_next_certificate_number 내부에서도 같은 잠금을 다시 거는데, Postgres
+    # advisory xact lock은 같은 세션(트랜잭션) 안에서는 재진입 가능하므로 안전하다.
+    crud.lock_certificate_number_sequence(db)
 
     # 수정 화면은 DB에 이미 저장된 예정자의 번호를 최우선으로 재사용한다.
     if candidate_id:
@@ -136,6 +166,7 @@ def get_or_reserve_certificate_number(
                 if not log.target_name and not log.vehicle_number:
                     log.target_name = name
                     log.vehicle_number = vehicle_number
+                    db.commit()  # 아래 ledger insert 충돌로 롤백해도 이 변경은 보존되게 먼저 커밋
                 elif not _same_subject(log.target_name or "", log.vehicle_number or "", name, vehicle_number):
                     raise ValueError(f"자격증명발급번호 {current}는 다른 대상자에게 예약되어 있습니다.")
                 _ensure_waiting_ledger_for_reservation(db, current, name, vehicle_number, actor)
@@ -166,13 +197,14 @@ def get_or_reserve_certificate_number(
                     return cert
 
     # 진짜 최초 요청일 때만 기존의 동시성 안전 채번 함수를 호출한다.
-    cert = crud.get_next_certificate_number(db, issued_by=actor or None)
-    log = crud.get_certificate_number_log(db, cert)
-    if log and name and vehicle_number:
-        log.target_name = name
-        log.vehicle_number = vehicle_number
-        memo = "대상자 입력폼에서 예약"
-        log.memo = f"{log.memo} / {memo}" if log.memo else memo
+    # target_name/vehicle_number를 채번과 같은 트랜잭션에 함께 저장해야, 바로 위
+    # "이미 예약된 번호가 있는지" 조회가 그 사이(커밋~커밋)의 좁은 틈에서 아직 비어있는
+    # target_name을 보고 놓치는 일 없이, 동시 요청이 같은 대상에게 서로 다른 번호를
+    # 발급하는 경쟁을 확실히 막는다.
+    cert = crud.get_next_certificate_number(
+        db, issued_by=actor or None, target_name=name or "", vehicle_number=vehicle_number or "",
+    )
+    if name and vehicle_number:
         _ensure_waiting_ledger_for_reservation(db, cert, name, vehicle_number, actor)
         db.commit()
     return cert
