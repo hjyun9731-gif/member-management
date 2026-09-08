@@ -411,14 +411,22 @@ async def startup():
 @app.get("/health")
 async def health(): return {"status": "ok"}
 
+_NO_CACHE_HEADERS = {"Cache-Control": "no-cache"}
+# index.html/login.html은 <script src="...?v=...">로 실제 JS 버전을 고정한다.
+# 이 HTML 자체가 브라우저에 오래 캐시되면, 서버 코드를 배포해도 사용자 화면은
+# 예전 버전 문자열이 박힌 옛 HTML을 계속 쓰게 되어 "코드는 고쳤는데 운영에는
+# 반영이 안 된 것처럼 보이는" 문제가 생긴다(예: 자격증명발급대장 캐시 문제).
+# no-cache로 매번 서버에 재검증시켜 최신 <script> 태그를 보장한다.
+
+
 @app.get("/login")
 def login_page():
-    return FileResponse(os.path.join(static_dir, "login.html"))
+    return FileResponse(os.path.join(static_dir, "login.html"), headers=_NO_CACHE_HEADERS)
 
 
 @app.get("/")
 def index():
-    return FileResponse(os.path.join(static_dir, "index.html"))
+    return FileResponse(os.path.join(static_dir, "index.html"), headers=_NO_CACHE_HEADERS)
 
 
 @app.get("/{p:path}")
@@ -426,4 +434,4 @@ def catch_all(p: str):
     if p.startswith(("api/", "static/")):
         from fastapi import HTTPException
         raise HTTPException(404)
-    return FileResponse(os.path.join(static_dir, "index.html"))
+    return FileResponse(os.path.join(static_dir, "index.html"), headers=_NO_CACHE_HEADERS)
