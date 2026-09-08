@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from app import certificate_ledger_models as ledger_models
 from app import crud, models
-from app.auth import get_current_user
+from app.auth import get_current_user, require_admin
 from app.database import get_db
 from app.services.certificate_ledger_service import (
     APPROVED,
@@ -211,7 +211,11 @@ def _ensure_existing_member_ledgers_cached(db: Session, *, force: bool = False) 
             models.LicenseHolder.deleted_at.is_(None),
             models.LicenseHolder.certificate_number.isnot(None),
             func.trim(models.LicenseHolder.certificate_number) != "",
-            models.LicenseHolder.category.in_(["개인", "택배"]),
+            # 엑셀 업로드 경로는 category를 "개인"/"택배"로 정규화하지만, 회원수정
+            # 화면 등 다른 경로로 들어온 값에 공백이 섞여 있으면(예: "개인 ") 여기서
+            # 걸러져 원장에 있는 번호가 발급대장에서 영영 안 보이는 문제가 있었다
+            # (예: 박자영 26-373). trim해서 비교한다.
+            func.trim(models.LicenseHolder.category).in_(["개인", "택배"]),
         )
         .all()
     )
@@ -1331,3 +1335,87 @@ async def update_ledger(
         _invalidate_stats_cache()
 
     return _item(db, row)
+
+
+@router.get("/debug/{number}")
+def debug_number(
+    number: str,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(require_admin),
+):
+    """운영에서 특정 발급번호(예: 26-373)가 대장에 왜 안 보이는지 즉시 진단한다.
+
+    개인정보 노출 범위를 줄이기 위해 admin만 호출 가능하다. 데이터를 바꾸지 않는
+    순수 조회 API이며, 이 번호와 관련된 회원/예정자/번호로그/대장 행을 그대로
+    보여준다. 화면 로직을 다시 추측하지 않고 실제 값을 바로 확인하기 위한 용도.
+    """
+    cert = crud.normalize_certificate_number(number)
+    variants = sorted(_number_variants(cert)) if cert else []
+
+    members = (
+        db.query(models.LicenseHolder)
+        .filter(models.LicenseHolder.certificate_number.isnot(None))
+        .filter(func.trim(models.LicenseHolder.certificate_number) != "")
+        .all()
+    )
+    matched_members = [
+        m for m in members if _number_parts(crud.normalize_certificate_number(m.certificate_number)) == _number_parts(cert)
+    ]
+
+    candidates = (
+        db.query(models.Candidate)
+        .filter(models.Candidate.certificate_number.isnot(None))
+        .filter(func.trim(models.Candidate.certificate_number) != "")
+        .all()
+    )
+    matched_candidates = [
+        c for c in candidates if _number_parts(crud.normalize_certificate_number(c.certificate_number)) == _number_parts(cert)
+    ]
+
+    logs = db.query(models.CertificateNumberLog).all()
+    matched_logs = [
+        l for l in logs if _number_parts(crud.normalize_certificate_number(l.certificate_number or "")) == _number_parts(cert)
+    ]
+
+    ledger_rows = db.query(ledger_models.CertificateIssuanceLedger).all()
+    matched_ledger = [
+        r for r in ledger_rows if _number_parts(r.document_number or "") == _number_parts(cert)
+    ]
+
+    def _m(m):
+        return {
+            "id": m.id, "name": m.name, "category": repr(m.category),
+            "certificate_number": repr(m.certificate_number),
+            "deleted_at": str(m.deleted_at) if m.deleted_at else None,
+        }
+
+    def _c(c):
+        return {
+            "id": c.id, "name": c.name,
+            "certificate_number": repr(c.certificate_number),
+            "deleted_at": str(c.deleted_at) if c.deleted_at else None,
+        }
+
+    def _l(l):
+        return {
+            "id": l.id, "certificate_number": repr(l.certificate_number),
+            "status": l.status, "linked_table": l.linked_table, "linked_id": l.linked_id,
+            "target_name": l.target_name, "vehicle_number": l.vehicle_number,
+        }
+
+    def _r(r):
+        return {
+            "id": r.id, "document_number": repr(r.document_number), "name": r.name,
+            "status": r.status, "member_id": r.member_id, "candidate_id": r.candidate_id,
+            "deleted_at": str(r.deleted_at) if r.deleted_at else None,
+        }
+
+    return {
+        "input": number,
+        "normalized": cert,
+        "canonical_variants_checked": variants,
+        "license_holders": [_m(m) for m in matched_members],
+        "candidates": [_c(c) for c in matched_candidates],
+        "certificate_number_logs": [_l(l) for l in matched_logs],
+        "certificate_issuance_ledger_rows": [_r(r) for r in matched_ledger],
+    }
