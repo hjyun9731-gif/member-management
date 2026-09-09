@@ -874,7 +874,7 @@ async function renderCandidateSection(){
   setTimeout(()=>{_bindFmt('candForm');_bindCertIssueBtn(document.getElementById('candForm'),'/api/candidates/issue-certificate-number');},0);
 
   const sk='cand';
-  const hdrs=[{field:'region',label:'지역'},{field:'vehicle_number',label:'차량번호'},{field:'name',label:'성명'},{field:'resident_number',label:'주민등록번호'},{field:'mobile',label:'핸드폰'},{field:'vehicle_type',label:'차종'},{field:'certificate_number',label:'자격증명번호'},{field:'affiliated_company',label:'소속업체'},{label:'관리',noSort:true}];
+  const hdrs=[{field:'region',label:'지역'},{field:'vehicle_number',label:'차량번호'},{field:'name',label:'성명'},{field:'resident_number',label:'주민등록번호'},{field:'mobile',label:'핸드폰'},{field:'vehicle_type',label:'차종'},{field:'certificate_number',label:'자격증명번호'},{field:'certificate_issue_date',label:'자격증명발급일자'},{field:'affiliated_company',label:'소속업체'},{label:'관리',noSort:true}];
   let doSearch=null;
 
   const setRightTabActive=(mode)=>{
@@ -917,7 +917,7 @@ async function renderCandidateSection(){
           <td style="font-size:11px">${fv(r.resident_number)}</td>
           <td>${fv(r.mobile)}</td>
           <td>${fv(r.vehicle_type)}</td>
-          <td>${fv(r.certificate_number)}</td><td>${fv(r.affiliated_company)}</td>
+          <td>${fv(r.certificate_number)}</td><td>${fv(r.certificate_issue_date)}</td><td>${fv(r.affiliated_company)}</td>
           <td class="td-act">
             <button class="btn bp btn-xs" onclick="editCandidate(${r.id})">수정</button>
             <button class="btn-check" onclick="registerCandidate(${r.id},'${e_(r.vehicle_number)}','${e_(r.name)}')">✅ 등록</button>
