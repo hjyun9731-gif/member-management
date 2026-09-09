@@ -315,8 +315,9 @@
       <div class="sms-card-head"><div><strong>U+ CRM Pro 문자</strong><span id="smsRecipient">-</span></div><button id="smsCloseBtn" type="button">×</button></div>
       <label>내용<textarea id="smsText" rows="7" placeholder="문자 내용을 입력하세요."></textarea></label>
       <div id="uplusBridgeStatus" class="uplus-bridge-status">U+ CRM Pro PC 연동상태 확인 중...</div>
-      <div class="sms-help">이 PC의 LG U+ CRM Pro와 로컬 브리지를 통해 수신번호와 내용을 전달합니다. 자동전송을 확인할 수 없으면 작성창까지만 열고 직접 전송을 확인합니다.</div>
-      <div class="sms-actions uplus-actions"><button id="uplusCopyBtn" class="ghost-btn" type="button">번호·내용 복사</button><button id="uplusCheckBtn" class="ghost-btn" type="button">연결확인</button><button id="smsCancelBtn" class="ghost-btn" type="button">취소</button><button id="smsSendBtn" class="primary-btn" type="button">U+로 전송</button></div>
+      <div id="uplusStatusLines" class="uplus-status-lines"></div>
+      <div class="sms-help">이 PC의 LG U+ 통화매니저(CRM Pro)와 로컬 브리지를 통해 수신번호와 내용만 자동입력합니다. 실제 전송은 U+ 통화매니저에서 사용자가 '지금 전송'을 직접 눌러야 합니다.</div>
+      <div class="sms-actions uplus-actions"><button id="uplusOpenCrmBtn" class="ghost-btn hidden" type="button">U+ 통화매니저 실행</button><button id="uplusCopyBtn" class="ghost-btn" type="button">번호·내용 복사</button><button id="uplusCheckBtn" class="ghost-btn" type="button">연결확인</button><button id="smsCancelBtn" class="ghost-btn" type="button">취소</button><button id="smsSendBtn" class="primary-btn" type="button">U+로 전송</button></div>
       <div id="uplusSetupBox" class="uplus-setup hidden"><b>PC 연동 프로그램이 실행되지 않았습니다.</b><span>아래 파일을 내려받아 같은 폴더에서 ‘U+_CRMPro_연동설치.bat’를 한 번 실행하세요.</span><div><a href="/static/uplus/U+_CRMPro_연동설치.bat" download>설치 BAT</a><a href="/static/uplus/CRMProBridge.ps1" download>Bridge PS1</a><a href="/static/uplus/U+_CRMPro_연동제거.bat" download>제거 BAT</a></div></div>
     </div>
   </div>
