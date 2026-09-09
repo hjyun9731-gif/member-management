@@ -317,19 +317,19 @@ def _ensure_existing_member_ledgers_cached(db: Session, *, force: bool = False) 
                 row.latest_operator = row.latest_operator or "자동연결"
                 row.approved_at = row.approved_at or datetime.now(timezone.utc)
                 row.issued_at = row.issued_at or datetime.now(timezone.utc)
-            db.flush()
+            db.commit()
             changed += 1
         except Exception:
             db.rollback()
-            # 한 건 실패가 다른 누락번호 보강을 막지 않게 다음 건으로 진행
+            # 여기서 db.rollback()은 세션 전체를 되돌린다. 예전에는 이 루프 안에서
+            # flush()만 하고 커밋은 루프 밖에서 한 번에 했는데, 그러면 뒤에서
+            # 한 건이라도 실패해 rollback되면 그 실패 이전에 이미 flush했지만
+            # 아직 commit 안 된 앞쪽 건들까지 전부 통째로 사라지면서도 changed
+            # 카운트는 이미 올라간 상태라 "성공했다"고 잘못 보고되는 문제가 있었다
+            # (예: 박자영 26-373 - 본인 데이터는 멀쩡한데 같은 배치의 다른 번호
+            # 하나가 실패하면서 같이 날아감). 건별로 즉시 commit해서 한 건의
+            # 실패가 이미 성공한 다른 건에 전혀 영향을 못 주게 한다.
             continue
-
-    if changed:
-        try:
-            db.commit()
-        except Exception:
-            db.rollback()
-            changed = 0
 
     if changed or not missing:
         _MEMBER_LEDGER_SYNC["at"] = monotonic()
