@@ -35,6 +35,7 @@
       .cl-badge.pending{color:#b45309;background:#fff7ed}.cl-badge.issued{color:#047857;background:#ecfdf5}
       .cl-badge.wait{color:#6b7280;background:#f3f4f6}.cl-badge.approved{color:#4f46e5;background:#eef2ff}.cl-badge.cancelled{color:#6b7280;background:#f3f4f6}
       .cl-table th,.cl-table td{white-space:nowrap}.cl-table td{font-size:11.5px}.cl-table .cl-name{font-weight:700;color:var(--c-text)}
+      .cl-remark-cell{max-width:140px;overflow:hidden;text-overflow:ellipsis}
       .cl-actions{display:flex;gap:4px;justify-content:center;align-items:center}.cl-empty{padding:30px;text-align:center;color:var(--c-text-3)}
       .cl-history{display:grid;gap:8px}.cl-history-item{border-left:3px solid var(--c-pri);padding:7px 10px;background:var(--c-bg);border-radius:0 7px 7px 0}
       .cl-history-item strong{font-size:12px}.cl-history-item div{font-size:11px;color:var(--c-text-3);margin-top:2px}
@@ -94,16 +95,51 @@
   }
 
   function actionButtons(row) {
-    if (row.candidate_id) return `<button class="btn bp btn-xs" data-cl-edit-candidate="${row.candidate_id}">수정</button>`;
-    if (row.member_id) return `<button class="btn bp btn-xs" data-cl-edit-member="${row.member_id}">수정</button>`;
-    // 대상 없이 과거에 잘못 소비된 예약번호는 발급대장에서 직접 취소/취소해제할 수 있게 한다.
-    if (row.document_number) {
+    const parts = [];
+    if (row.candidate_id) parts.push(`<button class="btn bp btn-xs" data-cl-edit-candidate="${row.candidate_id}">수정</button>`);
+    else if (row.member_id) parts.push(`<button class="btn bp btn-xs" data-cl-edit-member="${row.member_id}">수정</button>`);
+    // 예정자가 삭제되거나(회원 미전환) 원본 회원 연결이 없어도, 발급대장 자체가 소유한
+    // 비고는 항상 이 버튼으로 수정 가능해야 한다. row.id(발급대장 행 id)만 있으면 되고
+    // 예정자/회원의 생존 여부와 무관하게 동작한다(PUT /api/certificate-ledger/{id}).
+    if (row.id) parts.push(`<button class="btn bo btn-xs" data-cl-edit-remark="${row.id}" title="비고 수정">비고</button>`);
+    if (!row.candidate_id && !row.member_id && row.document_number) {
+      // 대상 없이 과거에 잘못 소비된 예약번호는 발급대장에서 직접 취소/취소해제할 수 있게 한다.
       if (row.issuance_status === '취소') {
-        return `<button class="btn bo btn-xs" data-cl-reactivate-number="${esc(row.document_number)}">취소해제</button>`;
+        parts.push(`<button class="btn bo btn-xs" data-cl-reactivate-number="${esc(row.document_number)}">취소해제</button>`);
+      } else {
+        parts.push(`<button class="btn br btn-xs" data-cl-cancel-number="${esc(row.document_number)}">취소</button>`);
       }
-      return `<button class="btn br btn-xs" data-cl-cancel-number="${esc(row.document_number)}">취소</button>`;
     }
-    return '<span style="font-size:10.5px;color:var(--c-text-3)">-</span>';
+    return parts.length ? parts.join('') : '<span style="font-size:10.5px;color:var(--c-text-3)">-</span>';
+  }
+
+  function openRemarkEdit(ledgerId, target) {
+    const row = (state.lastRows || []).find(r => Number(r.id) === Number(ledgerId));
+    const current = row ? row.remark || '' : '';
+    const label = row ? `${esc(row.document_number || '')} ${esc(row.name || '')}`.trim() : `#${ledgerId}`;
+    if (typeof window.openModal !== 'function') return;
+    window.openModal(
+      '비고 수정',
+      `<div style="font-size:12px;color:var(--c-text-3);margin-bottom:8px">${label}</div>
+       <textarea id="clRemarkInput" rows="4" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid var(--c-border);border-radius:8px;font:inherit" placeholder="비고">${esc(current)}</textarea>`,
+      `<button class="btn" onclick="closeModal()">취소</button>
+       <button class="btn bp" id="clRemarkSaveBtn">저장</button>`
+    );
+    const saveBtn = document.getElementById('clRemarkSaveBtn');
+    if (saveBtn) {
+      saveBtn.onclick = async () => {
+        saveBtn.disabled = true;
+        try {
+          const value = document.getElementById('clRemarkInput').value;
+          await request('PUT', `/api/certificate-ledger/${ledgerId}`, { remark: value });
+          if (typeof window.closeModal === 'function') window.closeModal();
+          statsCache = null; statsCacheAt = 0;
+          await render(state.page || 1, target);
+        } catch (_) {
+          saveBtn.disabled = false;
+        }
+      };
+    }
   }
 
   async function getStats(force = false) {
@@ -128,6 +164,7 @@
       // 목록을 먼저 보여주고 통계는 뒤에서 갱신해 체감 속도를 높인다.
       const data = await request('GET', `/api/certificate-ledger?${params}`);
       if (!document.documentElement.contains(target) || currentTarget !== target) return;
+      state.lastRows = data.items || [];
 
       target.innerHTML = `
         <div class="cl-stats">
@@ -151,7 +188,7 @@
           </tr></thead><tbody>${data.items.map(row => `<tr>
             <td><strong>${esc(row.document_number || '-')}</strong></td><td>${esc(row.region || '-')}</td><td>${esc(row.vehicle_number || '-')}</td>
             <td class="cl-name">${esc(row.name || '-')}</td><td>${esc(display(row.certificate_issue_date))}</td>
-            <td>${approvalBadge(row.approval_status)}</td><td>${row.created_by ? '수기/기존이력' : '-'}</td>
+            <td>${approvalBadge(row.approval_status)}</td><td class="cl-remark-cell" title="${esc(row.remark || '')}">${row.remark ? esc(row.remark) : (row.created_by ? '수기/기존이력' : '-')}</td>
             <td><div class="cl-actions">${actionButtons(row)}</div></td>
           </tr>`).join('')}</tbody></table></div>${pager(data)}` : '<div class="cl-empty">자격증명 발급대장 기록이 없습니다.</div>'}
         </div>`;
@@ -175,6 +212,9 @@
       });
       target.querySelectorAll('[data-cl-edit-member]').forEach(button => {
         button.onclick = () => window.editMember?.(Number(button.dataset.clEditMember));
+      });
+      target.querySelectorAll('[data-cl-edit-remark]').forEach(button => {
+        button.onclick = () => openRemarkEdit(Number(button.dataset.clEditRemark), target);
       });
       target.querySelectorAll('[data-cl-cancel-number]').forEach(button => {
         button.onclick = async () => {
