@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>수납·미수금 | 회원관리시스템</title>
-  <link rel="stylesheet" href="/static/receivables.css?v=20260902-v30-audited-phone-layout" />
+  <link rel="stylesheet" href="/static/receivables.css?v=20260909-uplus-modal-clean-v1" />
 </head>
 <body>
   <div id="appShell" class="app-shell">
@@ -312,13 +312,39 @@
 
   <div id="smsOverlay" class="sms-overlay hidden" aria-hidden="true">
     <div class="sms-card">
-      <div class="sms-card-head"><div><strong>U+ CRM Pro 문자</strong><span id="smsRecipient">-</span></div><button id="smsCloseBtn" type="button">×</button></div>
-      <label>내용<textarea id="smsText" rows="7" placeholder="문자 내용을 입력하세요."></textarea></label>
-      <div id="uplusBridgeStatus" class="uplus-bridge-status">U+ CRM Pro PC 연동상태 확인 중...</div>
-      <div id="uplusStatusLines" class="uplus-status-lines"></div>
-      <div class="sms-help">이 PC의 LG U+ 통화매니저(CRM Pro)와 로컬 브리지를 통해 수신번호와 내용만 자동입력합니다. 실제 전송은 U+ 통화매니저에서 사용자가 '지금 전송'을 직접 눌러야 합니다.</div>
-      <div class="sms-actions uplus-actions"><button id="uplusOpenCrmBtn" class="ghost-btn hidden" type="button">U+ 통화매니저 실행</button><button id="uplusCopyBtn" class="ghost-btn" type="button">번호·내용 복사</button><button id="uplusCheckBtn" class="ghost-btn" type="button">연결확인</button><button id="smsCancelBtn" class="ghost-btn" type="button">취소</button><button id="smsSendBtn" class="primary-btn" type="button">U+로 전송</button></div>
-      <div id="uplusSetupBox" class="uplus-setup hidden"><b>PC 연동 프로그램이 실행되지 않았습니다.</b><span>아래 파일을 내려받아 같은 폴더에서 ‘U+_CRMPro_연동설치.bat’를 한 번 실행하세요.</span><div><a href="/static/uplus/U+_CRMPro_연동설치.bat" download>설치 BAT</a><a href="/static/uplus/CRMProBridge.ps1" download>Bridge PS1</a><a href="/static/uplus/U+_CRMPro_연동제거.bat" download>제거 BAT</a></div></div>
+      <div class="sms-card-head">
+        <div><strong>U+ CRM Pro 문자</strong><span id="smsRecipient">-</span></div>
+        <button id="smsCloseBtn" type="button" aria-label="닫기">×</button>
+      </div>
+
+      <label class="sms-message-field">내용
+        <textarea id="smsText" rows="7" placeholder="문자 내용을 입력하세요."></textarea>
+      </label>
+
+      <div class="uplus-status-row">
+        <div id="uplusBridgeStatus" class="uplus-bridge-status checking">● U+ 연동 확인 중</div>
+        <div class="uplus-status-actions">
+          <button id="uplusOpenCrmBtn" class="uplus-mini-btn hidden" type="button">U+ 실행</button>
+          <button id="uplusCheckBtn" class="uplus-mini-btn" type="button">연결확인</button>
+        </div>
+      </div>
+
+      <div class="sms-actions uplus-actions">
+        <button id="uplusCopyPhoneBtn" class="uplus-action-btn" type="button">번호 복사</button>
+        <button id="uplusCopyTextBtn" class="uplus-action-btn" type="button">내용 복사</button>
+        <button id="smsCancelBtn" class="uplus-action-btn" type="button">취소</button>
+        <button id="smsSendBtn" class="uplus-send-btn" type="button">U+로 전송</button>
+      </div>
+
+      <div id="uplusSetupBox" class="uplus-setup hidden">
+        <b>U+ PC 연동이 필요합니다.</b>
+        <span>최초 1회 설치 후 ‘연결확인’을 눌러주세요.</span>
+        <div>
+          <a href="/static/uplus/U+_CRMPro_연동설치.bat" download>설치 BAT</a>
+          <a href="/static/uplus/CRMProBridge.ps1" download>Bridge PS1</a>
+          <a href="/static/uplus/U+_CRMPro_연동제거.bat" download>제거 BAT</a>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -331,6 +357,6 @@
       <button class="primary-btn" type="submit">로그인</button><div id="loginError" class="login-error"></div>
     </form>
   </div>
-  <script src="/static/receivables.js?v=20260902-v30-audited-phone-layout" defer></script>
+  <script src="/static/receivables.js?v=20260909-uplus-modal-clean-v1" defer></script>
 </body>
 </html>

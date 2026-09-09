@@ -257,7 +257,134 @@
 }
 
 /* 2026-08-29 final compact/contact/U+ additions */
-.info-grid .wide-info{grid-column:span 2;min-width:0}.member-main{font-weight:800;color:#182235}.member-main.small{font-weight:700}.member-sub{display:block;margin-top:2px;font-size:11px;color:#8a94a6;line-height:1.25}.addr-clip{max-width:230px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.phone-line{display:flex;align-items:center;gap:7px;white-space:nowrap}.row-sms-btn{border:1px solid #c9bfff;background:#f7f4ff;color:#6548d7;border-radius:8px;padding:4px 7px;font-size:11px;font-weight:800;cursor:pointer}.work-btn.sms{border-color:#c9bfff;background:#f7f4ff;color:#6548d7}.member-table td.num{white-space:nowrap;min-width:112px}.member-table th.num{min-width:112px}.sms-overlay{position:fixed;inset:0;background:rgba(22,30,48,.28);display:flex;align-items:center;justify-content:center;z-index:1200;padding:20px}.sms-card{width:min(620px,96vw);background:white;border:1px solid #e5e9f2;border-radius:18px;box-shadow:0 24px 60px rgba(28,38,60,.18);padding:18px}.sms-card-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.sms-card-head>div{display:flex;flex-direction:column;gap:3px}.sms-card-head strong{font-size:18px}.sms-card-head span{font-size:12px;color:#7c879a}.sms-card-head button{border:0;background:transparent;font-size:24px;cursor:pointer}.sms-card label{display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:700;color:#5c6677}.sms-card textarea{width:100%;resize:vertical;border:1px solid #dfe4ee;border-radius:10px;padding:11px;font:inherit;line-height:1.55}.uplus-bridge-status{margin-top:10px;padding:8px 10px;border-radius:9px;background:#f4f6f9;color:#667085;font-size:12px}.uplus-bridge-status.ok{background:#edf9f2;color:#18734a}.uplus-bridge-status.bad{background:#fff3f0;color:#b5473a}.uplus-status-lines{margin-top:6px;display:flex;flex-direction:column;gap:3px}.uplus-status-line{font-size:11px;font-weight:700;color:#8a94a6}.uplus-status-line.ok{color:#18734a}.uplus-status-line.bad{color:#b5473a}.sms-help{margin-top:8px;font-size:11px;color:#7d8796;line-height:1.45}.sms-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}.uplus-setup{margin-top:12px;padding:12px;border:1px solid #f2d2ca;background:#fff8f6;border-radius:10px;display:flex;flex-direction:column;gap:6px;font-size:12px}.uplus-setup>div{display:flex;gap:8px;flex-wrap:wrap}.uplus-setup a{color:#5d49c9;font-weight:800;text-decoration:none}.hidden{display:none!important}
+.info-grid .wide-info{grid-column:span 2;min-width:0}.member-main{font-weight:800;color:#182235}.member-main.small{font-weight:700}.member-sub{display:block;margin-top:2px;font-size:11px;color:#8a94a6;line-height:1.25}.addr-clip{max-width:230px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.phone-line{display:flex;align-items:center;gap:7px;white-space:nowrap}.row-sms-btn{border:1px solid #c9bfff;background:#f7f4ff;color:#6548d7;border-radius:8px;padding:4px 7px;font-size:11px;font-weight:800;cursor:pointer}.work-btn.sms{border-color:#c9bfff;background:#f7f4ff;color:#6548d7}.member-table td.num{white-space:nowrap;min-width:112px}.member-table th.num{min-width:112px}
+
+/* 2026-09-09 U+ CRM Pro modal clean UI */
+.sms-overlay{
+  position:fixed;inset:0;z-index:1200;
+  display:flex;align-items:center;justify-content:center;
+  padding:20px;background:rgba(22,30,48,.30);
+  backdrop-filter:blur(1.5px);
+}
+.sms-card{
+  width:min(650px,96vw);
+  background:#fff;
+  border:1px solid #e5e9f2;
+  border-radius:18px;
+  box-shadow:0 24px 60px rgba(28,38,60,.18);
+  padding:20px;
+}
+.sms-card-head{
+  display:flex;align-items:flex-start;justify-content:space-between;
+  gap:16px;margin-bottom:14px;
+}
+.sms-card-head>div{display:flex;flex-direction:column;gap:4px;min-width:0}
+.sms-card-head strong{font-size:19px;line-height:1.25;color:#202632}
+.sms-card-head span{
+  font-size:12px;color:#7c879a;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.sms-card-head button{
+  width:34px;height:34px;flex:0 0 34px;
+  display:grid;place-items:center;
+  border:0;border-radius:10px;background:transparent;
+  color:#5f6978;font-size:25px;line-height:1;cursor:pointer;
+}
+.sms-card-head button:hover{background:#f5f7fa}
+
+.sms-message-field{
+  display:flex;flex-direction:column;gap:7px;
+  color:#596475;font-size:12px;font-weight:800;
+}
+.sms-card textarea{
+  width:100%;min-height:178px;resize:vertical;
+  border:1px solid #dfe4ee;border-radius:12px;
+  padding:13px 14px;
+  background:#fff;color:#202632;
+  font:inherit;font-size:13px;line-height:1.62;
+  white-space:pre-wrap;word-break:keep-all;
+  outline:none;
+}
+.sms-card textarea:focus{
+  border-color:#bfcfff;
+  box-shadow:0 0 0 3px #eef3ff;
+}
+
+.uplus-status-row{
+  margin-top:12px;
+  min-height:48px;
+  padding:8px 9px 8px 12px;
+  display:flex;align-items:center;justify-content:space-between;
+  gap:12px;
+  border:1px solid #e4e8ef;
+  border-radius:12px;
+  background:#f8fafc;
+}
+.uplus-bridge-status{
+  margin:0;padding:0;background:transparent;
+  color:#697386;font-size:12px;font-weight:900;
+  line-height:1.35;white-space:nowrap;
+}
+.uplus-bridge-status.checking{color:#697386}
+.uplus-bridge-status.ok{background:transparent;color:#18734a}
+.uplus-bridge-status.bad{background:transparent;color:#b5473a}
+.uplus-status-actions{
+  display:flex;align-items:center;gap:6px;flex:0 0 auto;
+}
+.uplus-mini-btn{
+  height:32px;padding:0 11px;
+  border:1px solid #dde3ec;border-radius:9px;
+  background:#fff;color:#596475;
+  font-size:11px;font-weight:800;
+  white-space:nowrap;word-break:keep-all;
+}
+.uplus-mini-btn:hover{background:#f5f7fa}
+
+.sms-actions{
+  display:grid;
+  grid-template-columns:auto auto auto minmax(180px,1fr);
+  gap:8px;margin-top:14px;
+}
+.uplus-action-btn,.uplus-send-btn{
+  height:42px;
+  display:inline-flex;align-items:center;justify-content:center;
+  border-radius:11px;
+  padding:0 14px;
+  font-size:12px;font-weight:900;
+  white-space:nowrap;word-break:keep-all;
+  line-height:1;
+}
+.uplus-action-btn{
+  min-width:82px;
+  border:1px solid #dfe4ee;background:#fff;color:#596475;
+}
+.uplus-action-btn:hover{background:#f7f9fb}
+.uplus-send-btn{
+  min-width:180px;
+  border:0;background:#e3edff;color:#3558aa;
+}
+.uplus-send-btn:hover{background:#d7e5ff}
+
+.uplus-setup{
+  margin-top:12px;padding:12px 13px;
+  border:1px solid #f2d2ca;background:#fff8f6;
+  border-radius:11px;
+  display:flex;flex-direction:column;gap:5px;
+  color:#6d5d59;font-size:12px;line-height:1.45;
+}
+.uplus-setup>b{color:#a04d40}
+.uplus-setup>div{display:flex;gap:10px;flex-wrap:wrap;margin-top:2px}
+.uplus-setup a{color:#5d49c9;font-weight:900;text-decoration:none;white-space:nowrap}
+.uplus-setup a:hover{text-decoration:underline}
+.hidden{display:none!important}
+
+@media(max-width:680px){
+  .sms-card{padding:16px}
+  .sms-actions{grid-template-columns:1fr 1fr}
+  .uplus-send-btn{grid-column:1/-1}
+  .uplus-status-row{align-items:flex-start;flex-direction:column}
+  .uplus-status-actions{width:100%;justify-content:flex-end}
+}
 
 
 /* 2026-08-29 UI readability fix v2
