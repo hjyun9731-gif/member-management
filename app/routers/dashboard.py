@@ -98,6 +98,31 @@ def _ext_month(s: str) -> Optional[int]:
     return None
 
 
+def _parse_ym_generic(date_str) -> tuple:
+    """날짜 문자열에서 (연도, 월) 추출. 실패 시 (None, None).
+    monthly-report-auto의 _ym()과 동일한 파싱 규칙 (대시보드 시점 재구성에서도 사용)."""
+    if not date_str:
+        return None, None
+    s = str(date_str).strip()
+    m = re.search(r'(19[0-9]{2}|20[0-9]{2})\s*[\.\-/]\s*(\d{1,2})', s)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    m = re.match(r'^(\d{2})\s*[\.\-/]\s*(\d{1,2})', s)
+    if m:
+        yy = int(m.group(1))
+        return (2000 + yy if yy <= 30 else 1900 + yy), int(m.group(2))
+    return None, None
+
+
+def _le_cutoff(date_str, target_year: int, target_month: int) -> Optional[bool]:
+    """date_str이 (target_year, target_month) 말일 이전/동일이면 True, 이후면 False,
+    날짜를 알 수 없으면 None을 반환한다."""
+    y, m = _parse_ym_generic(date_str)
+    if y is None:
+        return None
+    return (y, m) <= (target_year, target_month)
+
+
 def classify_vt(vt: str, fuel: str = "") -> str:
     """차종 분류 - 구조/형태 기준. 유종(전기/EV) 절대 반환 금지.
     우선순위: 냉동>윙>사다리>렉카>픽업/덮개>밴/특수밴>탑차/내장탑>카고>기타특수>미분류
@@ -229,14 +254,60 @@ async def regional(db: Session = Depends(get_db), _=Depends(get_current_user)):
 
 
 @router.get("/full-stats")
-async def full_stats(db: Session = Depends(get_db), _=Depends(get_current_user)):
-    """대시보드 전체 자동 계산 통계"""
-    lh_q = db.query(models.LicenseHolder).filter(
-        models.LicenseHolder.deleted_at.is_(None),
-        models.LicenseHolder.status == "active",
-    )
-    total = lh_q.count()
-    all_lh = lh_q.all()
+async def full_stats(
+    year: Optional[int] = Query(None),
+    month: Optional[int] = Query(None),
+    db: Session = Depends(get_db), _=Depends(get_current_user),
+):
+    """대시보드 전체 자동 계산 통계.
+
+    year/month를 지정하지 않으면 기존과 동일하게 '현재' 활동 중인 회원 기준으로 계산한다.
+    year/month를 지정하면 해당 월 말 시점 기준으로 재구성해서 계산한다 (근사치).
+
+    시점 재구성 규칙:
+    - 신규(등록) 판정: 인가일자(approval_date) 기준. 인가일자가 선택한 달 이후면 그 시점엔
+      아직 존재하지 않았던 것으로 보고 제외한다. 인가일자를 알 수 없는 과거 데이터는
+      항상 존재했던 것으로 간주해 포함한다.
+    - 폐업/제외 판정: 폐업현황(Closure)의 처리일자(closure_date) 기준. 처리일자가 선택한 달
+      이후면 그 시점엔 아직 활동 중이었던 것으로 보고 포함한다. 처리일자를 알 수 없으면
+      보수적으로 제외한다.
+    - 지역/차종/유종 등 속성값 자체는 별도의 이력 저장소가 없어 현재(또는 폐업 시점) 값을
+      그대로 사용한다 - 선택한 달 당시 값과 다를 수 있는 근사치다.
+    """
+    now = datetime.now()
+    target_year = year or now.year
+    target_month = month or now.month
+    is_current = year is None and month is None
+
+    base_q = db.query(models.LicenseHolder).filter(models.LicenseHolder.deleted_at.is_(None))
+
+    if is_current:
+        all_lh = base_q.filter(models.LicenseHolder.status == "active").all()
+    else:
+        all_raw = base_q.all()
+        closure_by_member: dict = {}
+        for c in db.query(models.Closure).filter(
+            models.Closure.deleted_at.is_(None),
+            models.Closure.member_id.isnot(None),
+        ).all():
+            closure_by_member.setdefault(c.member_id, c)
+
+        all_lh = []
+        for m in all_raw:
+            reg_ok = _le_cutoff(m.approval_date, target_year, target_month)
+            if reg_ok is False:
+                continue  # 선택한 달 이후 신규등록 -> 그 시점엔 없었음
+            if m.status == "closed":
+                cl = closure_by_member.get(m.id)
+                cl_ok = _le_cutoff(cl.closure_date if cl else None, target_year, target_month)
+                if cl_ok is None:
+                    continue  # 폐업 처리일자 불명 -> 보수적으로 제외
+                if cl_ok:
+                    continue  # 선택한 달 이전에 이미 폐업 -> 제외
+                # cl_ok is False: 선택한 달 이후 폐업 -> 그 시점엔 활동 중이었음 -> 포함
+            all_lh.append(m)
+
+    total = len(all_lh)
 
     # 가입: membership_date(가입일자) 기준 - 공통 판정 함수 사용 (is_association_member)
     joined     = sum(1 for m in all_lh if _is_association_member(m.membership_date))
@@ -260,9 +331,9 @@ async def full_stats(db: Session = Depends(get_db), _=Depends(get_current_user))
         if fc and fc != '미분류':
             fuel_counts[fc] = fuel_counts.get(fc, 0) + 1
 
-    # 연령대별 (주민등록번호 기반)
+    # 연령대별 (주민등록번호 기반) - 생년월일 기반이라 시점에 따라 달라지지 않음
     age_groups = {"29이하": 0, "30~39": 0, "40~49": 0, "50~59": 0, "60~64": 0, "65~69": 0, "70이상": 0, "불명": 0}
-    for m in lh_q.all():
+    for m in all_lh:
         age = calc_age_from_resident(m.resident_number or "")
         if age is None:
             age_groups["불명"] += 1
@@ -274,15 +345,15 @@ async def full_stats(db: Session = Depends(get_db), _=Depends(get_current_user))
         elif age <= 69: age_groups["65~69"] += 1
         else: age_groups["70이상"] += 1
 
-    # 연식별 (vehicle_type "18,포터II..." 형식) - 1년 단위 버킷, 현재 연도 동적 계산
+    # 연식별 (vehicle_type "18,포터II..." 형식) - 1년 단위 버킷, 조회 기준 연도로 계산
     _VEH_BUCKETS = ["1년 미만","2년 미만","3년 미만","4년 미만","5년 미만","6년 미만",
                     "7년 미만","8년 미만","9년 미만","10년 미만","11년 미만","12년 미만","12년 이상"]
     veh_year_raw: dict = {}
-    cur_year = datetime.now().year
-    for m in lh_q.all():
+    ref_year = target_year if not is_current else now.year
+    for m in all_lh:
         vy = ext_veh_year(m.vehicle_type or "")
         if vy:
-            age_y = cur_year - vy
+            age_y = ref_year - vy
             if age_y < 0: bkt = "1년 미만"
             elif age_y < 1: bkt = "1년 미만"
             elif age_y < 2: bkt = "2년 미만"
@@ -301,50 +372,60 @@ async def full_stats(db: Session = Depends(get_db), _=Depends(get_current_user))
     # 1년 미만 → 12년 이상 순으로 정렬된 dict
     veh_year_dist = {bkt: veh_year_raw[bkt] for bkt in _VEH_BUCKETS if bkt in veh_year_raw}
 
-    # 폐지/양도/이관 집계 ('폐지'는 '폐업'으로 통일)
-    cl_q = db.query(models.Closure).filter(models.Closure.deleted_at.is_(None))
-    closure_by_type = {}
-    for r in (cl_q.with_entities(models.Closure.closure_type, func.count())
-              .group_by(models.Closure.closure_type).all()):
-        ct = r[0] or "기타"
-        # 폐지 → 폐업으로 통일
+    # 폐지/양도/이관 집계 ('폐지'는 '폐업'으로 통일) - 선택한 달까지의 누계 (처리일자=closure_date 기준)
+    cl_all = db.query(models.Closure).filter(models.Closure.deleted_at.is_(None)).all()
+    closure_by_type: dict = {}
+    for c in cl_all:
+        if not is_current:
+            cl_ok = _le_cutoff(c.closure_date, target_year, target_month)
+            if cl_ok is not True:
+                continue  # 선택한 달 이후이거나 날짜 불명이면 누계에서 제외
+        ct = c.closure_type or "기타"
         if ct == '폐지':
             ct = '폐업'
-        closure_by_type[ct] = closure_by_type.get(ct, 0) + r[1]
+        closure_by_type[ct] = closure_by_type.get(ct, 0) + 1
 
-    # 부과대수 자동 계산
-    now = datetime.now()
-    # 70세 이상
+    # 부과대수 자동 계산 (year/month 지정 시 '선택한 달까지의 누계')
     over_70 = age_groups.get("70이상", 0)
-    # 신규등록 (기준: registration_type='신규')
-    # 신규등록 건수 - 관리번호 '신' 시작 기준
-    new_reg_count = db.query(models.LicenseHolder).filter(
+
+    # 신규등록 누계 - 관리번호 '신' 시작 + 인가일자 기준
+    new_reg_all = db.query(models.LicenseHolder).filter(
         models.LicenseHolder.deleted_at.is_(None),
         models.LicenseHolder.management_number.like("신%"),
-    ).count()
-    # 양도 건수 (양도양수대장 기준)
-    transfer_count = db.query(models.TransferLedger).filter(
-        models.TransferLedger.deleted_at.is_(None)).count()
-    # 폐지(폐업) 건수 - '폐지'로 저장된 데이터도 포함
+    ).all()
+    if is_current:
+        new_reg_count = len(new_reg_all)
+        delivery_new_count = sum(1 for m in new_reg_all if m.category == "택배")
+    else:
+        new_reg_count = sum(1 for m in new_reg_all
+                            if _le_cutoff(m.approval_date, target_year, target_month) is not False)
+        delivery_new_count = sum(1 for m in new_reg_all if m.category == "택배"
+                                 and _le_cutoff(m.approval_date, target_year, target_month) is not False)
+
+    # 양도 누계 (양도양수대장 기준, 접수일자 기준 - 미지정 시 전체)
+    transfer_all = db.query(models.TransferLedger).filter(models.TransferLedger.deleted_at.is_(None)).all()
+    if is_current:
+        transfer_count = len(transfer_all)
+    else:
+        transfer_count = sum(1 for t in transfer_all
+                             if _le_cutoff(t.receipt_date, target_year, target_month) is not False)
+
+    # 폐지(폐업) 누계 - '폐지'로 저장된 데이터도 포함, 처리일자 기준
     closed_count = closure_by_type.get("폐업", 0)
-    # 이관 건수
+    # 이관 누계
     transfer_out_count = closure_by_type.get("이관", 0)
 
     allocation = {
         "협회가입": joined,
-        "양도누계": transfer_count,       # 양도양수대장 누적 전체 건수 (과거 전체 누계, 현재 인원 아님)
-        "이관누계": transfer_out_count,   # 이관(폐업유형) 누적 건수
-        "폐업누계": closed_count,         # 폐업 누적 건수
+        "양도누계": transfer_count,       # 양도양수대장 누계 (선택한 달까지)
+        "이관누계": transfer_out_count,   # 이관(폐업유형) 누계 (선택한 달까지)
+        "폐업누계": closed_count,         # 폐업 누계 (선택한 달까지)
         "탈퇴": None,  # 데이터 없음
-        "택배신규": db.query(models.LicenseHolder).filter(
-            models.LicenseHolder.deleted_at.is_(None),
-            models.LicenseHolder.category == "택배",
-            models.LicenseHolder.management_number.like("신%"),
-        ).count(),
+        "택배신규": delivery_new_count,
         "관리비폐지": None,  # 데이터 없음
         "70세": over_70,
-        "협회기본대수": total,   # 현재 유효 사업자 기준 (폐업·양도·이관 제외)
-        "총부과대수": total,     # 현재 유효 사업자 기준 (폐업·양도·이관 제외)
+        "협회기본대수": total,   # 선택한 달(또는 현재) 유효 사업자 기준
+        "총부과대수": total,     # 선택한 달(또는 현재) 유효 사업자 기준
         "택배관리": delivery,
     }
 
@@ -355,11 +436,28 @@ async def full_stats(db: Session = Depends(get_db), _=Depends(get_current_user))
         "delivery_unemployed": delivery - delivery_employed,
         "delivery_not_employed": delivery - delivery_employed,  # 프론트 호환
     }
-    regional = crud.get_regional_stats(db)
+
+    if is_current:
+        regional = crud.get_regional_stats(db)
+    else:
+        regional = []
+        for region in crud.REGIONS:
+            rows = [m for m in all_lh if m.region == region]
+            r_total = len(rows)
+            r_joined = sum(1 for m in rows if _is_association_member(m.membership_date))
+            regional.append({
+                "region": region, "total": r_total, "joined": r_joined,
+                "not_joined": r_total - r_joined,
+                "individual": sum(1 for m in rows if m.category == "개인"),
+                "delivery": sum(1 for m in rows if m.category == "택배"),
+            })
+
     validation_issues = _validate_population_stats(summary, regional=regional, context="dashboard/full-stats")
 
     return {
+        "period": {"year": target_year, "month": target_month, "is_current": is_current},
         "summary": summary,
+        "regional": regional,
         "vehicle_types": [{"type": k, "count": v}
                           for k, v in sorted(vtype_counts.items(), key=lambda x: -x[1])
                           if k != "전기차"],
