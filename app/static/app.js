@@ -76,7 +76,6 @@ const ST = {
   user:{role:localStorage.getItem('userRole'),name:localStorage.getItem('userName'),full:localStorage.getItem('userFullName')},
   fl:{}, inner:{},
   reportYear:new Date().getFullYear(), reportMonth:new Date().getMonth()+1,
-  dashYear:new Date().getFullYear(), dashMonth:new Date().getMonth()+1,
   sort:{},   // {pageKey: {field, dir}}
 };
 
@@ -266,6 +265,25 @@ function ensurePermitLedgerLikeNewStyle(){
   document.head.appendChild(st);
 }
 ensurePermitLedgerLikeNewStyle();
+
+function ensureClosureLedgerToggleStyle(){
+  if(document.getElementById('closure-ledger-toggle-v1')) return;
+  const st=document.createElement('style');
+  st.id='closure-ledger-toggle-v1';
+  st.textContent=`
+    #closureLedgerCard .cl-transfer-col{display:none!important}
+    #closureLedgerCard.cl-show-transfer .cl-transfer-col{display:table-cell!important}
+    #closureLedgerCard .cl-reason-col{min-width:120px;max-width:240px}
+    #closureLedgerCard tbody td.cl-reason-col{
+      white-space:normal;
+      line-height:1.35;
+      word-break:keep-all;
+      overflow-wrap:anywhere;
+    }
+    #clTransferToggle{white-space:nowrap}
+  `;
+  document.head.appendChild(st);
+}
 
 function dtBadge(d){return d==='이전자료'?`<span class="badge b-purple">이전</span>`:`<span class="badge b-pri">신규</span>`;}
 function ctBadge(t){const m={'폐업':'b-danger','양도':'b-warn','이관':'b-purple','사망':'b-gray','말소':'b-gray'};return `<span class="badge ${m[t]||'b-gray'}">${t||'-'}</span>`;}
@@ -865,7 +883,7 @@ async function renderCandidateSection(){
     <div class="candidate-right-column">
       <div class="inner-tab-bar candidate-right-tabs" style="margin-bottom:10px">
         <button type="button" class="inner-tab ${rightView==='list'?'active':''}" id="candRightListTab">📂 예정자 목록</button>
-        <button type="button" class="inner-tab ${rightView==='ledger'?'active':''}" id="candRightLedgerTab">🖨️ 자격증명발급대장</button>
+        <button type="button" class="inner-tab ${rightView==='ledger'?'active':''}" id="candRightLedgerTab">🖨 자격증명발급대장</button>
       </div>
       <div id="candidateRightPane" class="candidate-right-pane"></div>
     </div>
@@ -875,7 +893,7 @@ async function renderCandidateSection(){
   setTimeout(()=>{_bindFmt('candForm');_bindCertIssueBtn(document.getElementById('candForm'),'/api/candidates/issue-certificate-number');},0);
 
   const sk='cand';
-  const hdrs=[{field:'region',label:'지역'},{field:'vehicle_number',label:'차량번호'},{field:'name',label:'성명'},{field:'resident_number',label:'주민등록번호'},{field:'mobile',label:'핸드폰'},{field:'vehicle_type',label:'차종'},{field:'certificate_number',label:'자격증명번호'},{field:'certificate_issue_date',label:'자격증명발급일자'},{field:'affiliated_company',label:'소속업체'},{label:'관리',noSort:true}];
+  const hdrs=[{field:'region',label:'지역'},{field:'vehicle_number',label:'차량번호'},{field:'name',label:'성명'},{field:'resident_number',label:'주민등록번호'},{field:'mobile',label:'핸드폰'},{field:'vehicle_type',label:'차종'},{field:'certificate_number',label:'자격증명번호'},{field:'affiliated_company',label:'소속업체'},{label:'관리',noSort:true}];
   let doSearch=null;
 
   const setRightTabActive=(mode)=>{
@@ -918,7 +936,7 @@ async function renderCandidateSection(){
           <td style="font-size:11px">${fv(r.resident_number)}</td>
           <td>${fv(r.mobile)}</td>
           <td>${fv(r.vehicle_type)}</td>
-          <td>${fv(r.certificate_number)}</td><td>${fv(r.certificate_issue_date)}</td><td>${fv(r.affiliated_company)}</td>
+          <td>${fv(r.certificate_number)}</td><td>${fv(r.affiliated_company)}</td>
           <td class="td-act">
             <button class="btn bp btn-xs" onclick="editCandidate(${r.id})">수정</button>
             <button class="btn-check" onclick="registerCandidate(${r.id},'${e_(r.vehicle_number)}','${e_(r.name)}')">✅ 등록</button>
@@ -1816,9 +1834,11 @@ window.deleteTransfer=async(id)=>{if(!await cfm('삭제?'))return;try{await api(
 // ===== CLOSURES =====
 async function renderClosures(){
   ensurePermitLedgerLikeNewStyle();
+  ensureClosureLedgerToggleStyle();
+  if(typeof ST.inner.clTransferVisible!=='boolean') ST.inner.clTransferVisible=false;
   const f=ST.fl.cl||{};
   document.getElementById('content').innerHTML=`
-    <div class="card permit-ledger-like-new" id="closureLedgerCard">
+    <div class="card permit-ledger-like-new ${ST.inner.clTransferVisible?'cl-show-transfer':''}" id="closureLedgerCard">
       <div class="card-hd">
         <div class="card-hd-l"><span class="card-ico">🚫</span><span class="card-ttl">폐업현황</span><span class="cnt" id="clCnt">0건</span>
           <span class="badge b-sky" style="font-size:10px;margin-left:6px">처리일자 기준</span></div>
@@ -1835,6 +1855,7 @@ async function renderClosures(){
         <input class="srch" id="clSrch" placeholder="관리번호, 성명, 차량번호" value="${e_(f.search||'')}">
         <button class="btn bp btn-sm" id="clSrchBtn">조회</button>
         <button class="btn bo btn-sm" id="clRstBtn">초기화</button>
+        <button class="btn bo btn-sm" id="clTransferToggle">${ST.inner.clTransferVisible?'양수인/이관지역 숨기기':'양수인/이관지역 보기'}</button>
       </div>
       <div id="clTbl"><div class="loading-box"><div class="spin"></div></div></div>
     </div>`;
@@ -1843,8 +1864,13 @@ async function renderClosures(){
   const hdrs=[
     {label:'기존관리번호'},{label:'폐업관리번호'},{label:'지역'},{label:'차량번호'},{label:'성명'},
     {label:'구분'},{label:'가입'},{label:'핸드폰'},{label:'접수일자'},{label:'처리일자'},{label:'가입일자'},
-    {label:'양수인'},{label:'이관지역'},{label:'차종'},{label:'유종'},{label:'주소'},{label:'비고'},{label:'관리',noSort:true}
+    {label:'폐업사유'},{label:'양수인'},{label:'이관지역'},{label:'차종'},{label:'유종'},{label:'주소'},{label:'비고'},{label:'관리',noSort:true}
   ];
+
+  const closureHeaders=plainHeaders(hdrs)
+    .replace('<th class="">폐업사유</th>','<th class="cl-reason-col">폐업사유</th>')
+    .replace('<th class="">양수인</th>','<th class="cl-transfer-col">양수인</th>')
+    .replace('<th class="">이관지역</th>','<th class="cl-transfer-col">이관지역</th>');
 
   const doSearch=async(pg=1)=>{
     ST.fl.cl={
@@ -1860,7 +1886,7 @@ async function renderClosures(){
     const tw=document.getElementById('clTbl');if(!tw)return;
     if(!d.items.length){tw.innerHTML=`<div class="empty-box"><div class="empty-ico">🚫</div><p class="empty-txt">데이터가 없습니다.</p></div>`;return;}
     tw.innerHTML=`<div class="tbl-wrap"><table>
-      <thead><tr>${plainHeaders(hdrs)}</tr></thead>
+      <thead><tr>${closureHeaders}</tr></thead>
       <tbody>${d.items.map(r=>{
         const memStatus=(r.membership_status||'').trim()||'미가입';
         const joinDate=memStatus==='가입'?(r.membership_date||''):'';
@@ -1876,8 +1902,9 @@ async function renderClosures(){
           <td>${fv(r.receipt_date)}</td>
           <td><span class="ledger-date">${fv(r.closure_date)}</span></td>
           <td>${fv(joinDate)}</td>
-          <td>${fv(r.transferee)}</td>
-          <td>${fv(r.transfer_region)}</td>
+          <td class="cl-reason-col" title="${e_(r.reason||'')}">${fv(r.reason)}</td>
+          <td class="cl-transfer-col">${fv(r.transferee)}</td>
+          <td class="cl-transfer-col">${fv(r.transfer_region)}</td>
           <td title="${e_(r.vehicle_type||'')}">${fv(r.vehicle_type)}</td>
           <td>${fv(r.fuel_type)}</td>
           <td title="${e_(r.address||'')}">${fv(r.address)}</td>
@@ -1892,6 +1919,13 @@ async function renderClosures(){
   document.getElementById('clSrchBtn').onclick=()=>doSearch(1);
   document.getElementById('clSrch').onkeydown=e=>{if(e.key==='Enter')doSearch(1);};
   document.getElementById('clRstBtn').onclick=()=>{ST.fl.cl={};renderClosures();};
+  document.getElementById('clTransferToggle').onclick=()=>{
+    ST.inner.clTransferVisible=!ST.inner.clTransferVisible;
+    const card=document.getElementById('closureLedgerCard');
+    const btn=document.getElementById('clTransferToggle');
+    card?.classList.toggle('cl-show-transfer',ST.inner.clTransferVisible);
+    if(btn) btn.textContent=ST.inner.clTransferVisible?'양수인/이관지역 숨기기':'양수인/이관지역 보기';
+  };
   document.getElementById('clAddBtn').onclick=()=>editClosure(null);
   document.getElementById('clXlBtn').onclick=()=>{
     const q=new URLSearchParams(Object.fromEntries(Object.entries(ST.fl.cl||{}).filter(([,v])=>v)));
@@ -2043,45 +2077,22 @@ window.deleteChange=async(id)=>{if(!await cfm('삭제?'))return;await api('DELET
 // ===== DASHBOARD =====
 async function renderDashboard(){
   document.getElementById('content').innerHTML=`<div class="loading-box"><div class="spin"></div><p>통계 자동 계산 중...</p></div>`;
-  const dy=ST.dashYear,dm=ST.dashMonth;
-  const [full,activity,byYear,recent,monthAuto]=await Promise.all([
-    api('GET',`/api/dashboard/full-stats?year=${dy}&month=${dm}`),
+  const [full,reg,activity,byYear,recent]=await Promise.all([
+    api('GET','/api/dashboard/full-stats'),
+    api('GET','/api/dashboard/regional'),
     api('GET','/api/dashboard/stats'),
     api('GET','/api/dashboard/activity-by-year'),
     api('GET','/api/dashboard/recent-by-type'),
-    api('GET',`/api/dashboard/monthly-report-auto?year=${dy}&month=${dm}`),
   ]).catch(()=>[null,null,null,null,null]);
-  if(!full)return;
-  const s=full.summary;const alloc=full.allocation||{};const reg=full.regional||[];
-  const isCur=full.period?.is_current;
+  if(!full||!reg)return;
+  const s=full.summary;const alloc=full.allocation||{};
   const vIssues=full.validation_issues||[];
   const vBanner=vIssues.length?`<div class="warn-box" style="margin-bottom:10px;font-size:12.5px">
     <strong>⚠ 집계 불일치 감지 (검증 필요)</strong><br>${vIssues.map(e_).join('<br>')}
   </div>`:'';
-  const ma=monthAuto?.month_activity||{};
 
   document.getElementById('content').innerHTML=`
     ${vBanner}
-    <div class="card" style="margin-bottom:12px">
-      <div class="rpt-nav">
-        <button class="btn bo btn-sm" onclick="ST.dashMonth--;if(ST.dashMonth<1){ST.dashMonth=12;ST.dashYear--;}renderDashboard()">◀ 이전</button>
-        <span class="rpt-period">${dy}년 ${dm}월${isCur?' (이번 달)':''}</span>
-        <button class="btn bo btn-sm" onclick="ST.dashMonth++;if(ST.dashMonth>12){ST.dashMonth=1;ST.dashYear++;}renderDashboard()">다음 ▶</button>
-        <span style="font-size:11px;color:var(--c-text-4);margin-left:8px">아래 전체 통계는 선택한 달 말 시점 기준 (지역/차종 등 속성값은 근사치)</span>
-        <button class="btn bxl btn-sm" style="margin-left:auto" onclick="ST.reportYear=${dy};ST.reportMonth=${dm};ST.inner['monthly-report']='detail';navigate('reports','monthly-report')">월례보고서 상세 보기</button>
-      </div>
-      <div class="card-bd">
-        <div style="font-size:11.5px;color:var(--c-text-4);margin-bottom:6px">이번 달 활동 (발생 건수)</div>
-        <div class="stat-grid">
-          <div class="stat-card" onclick="ST.reportYear=${dy};ST.reportMonth=${dm};ST.inner['monthly-report']='detail';navigate('reports','monthly-report')"><div class="stat-lbl">신규등록</div><div class="stat-val">${(ma.new_registrations||0).toLocaleString()}</div><div class="stat-sub">인가일자 기준</div></div>
-          <div class="stat-card sky" onclick="ST.reportYear=${dy};ST.reportMonth=${dm};ST.inner['monthly-report']='detail';navigate('reports','monthly-report')"><div class="stat-lbl">양도양수</div><div class="stat-val">${(ma.transfers||0).toLocaleString()}</div><div class="stat-sub">접수일자 기준</div></div>
-          <div class="stat-card pink" onclick="ST.reportYear=${dy};ST.reportMonth=${dm};ST.inner['monthly-report']='detail';navigate('reports','monthly-report')"><div class="stat-lbl">폐업</div><div class="stat-val">${(ma.closures||0).toLocaleString()}</div><div class="stat-sub">처리일자 기준</div></div>
-          <div class="stat-card gray" onclick="ST.reportYear=${dy};ST.reportMonth=${dm};ST.inner['monthly-report']='detail';navigate('reports','monthly-report')"><div class="stat-lbl">변경</div><div class="stat-val">${(ma.changes||0).toLocaleString()}</div><div class="stat-sub">처리일자 기준</div></div>
-        </div>
-      </div>
-    </div>
-
-    <div style="font-size:11.5px;color:var(--c-text-4);margin:2px 0 4px 2px">${dy}년 ${dm}월 말 시점 누계</div>
     <div class="stat-grid">
       <div class="stat-card" onclick="navigate('members','individual')"><div class="stat-lbl">총 사업자</div><div class="stat-val">${s.total.toLocaleString()}</div><div class="stat-sub">폐업·양도·이관 제외</div></div>
       <div class="stat-card sky" onclick="showStatList('joined')"><div class="stat-lbl">협회 가입</div><div class="stat-val">${s.joined.toLocaleString()}</div><div class="stat-sub">가입일자 기준</div></div>
@@ -2166,7 +2177,7 @@ async function renderMonthlyReport(){
   const inner=ST.inner['monthly-report']||'print';
   document.getElementById('content').innerHTML=`
     <div class="inner-tab-bar mrp-no-print">
-      <button class="inner-tab ${inner==='print'?'active':''}" id="mrTabPrint">🖨️ 인쇄용 보고서</button>
+      <button class="inner-tab ${inner==='print'?'active':''}" id="mrTabPrint">🖨 인쇄용 보고서</button>
       <button class="inner-tab ${inner==='detail'?'active':''}" id="mrTabDetail">📊 상세 자동집계</button>
     </div>
     <div id="mrInnerBody"></div>`;
