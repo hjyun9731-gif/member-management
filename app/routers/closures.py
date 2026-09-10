@@ -66,6 +66,19 @@ def _build_member_lookup(db, closures_list):
     (테이블 규모가 작아 요청당 1회 조회로 충분히 빠름).
     """
     ids = {c.member_id for c in closures_list if getattr(c, 'member_id', None)}
+    # 이미 폐업취소 처리되어 본문 필드가 비워진 과거 행은
+    # raw_data.cancelled_member_id를 통해 복원된 원회원과 다시 연결해 표시한다.
+    for c in closures_list:
+        if _is_cancelled_void(c):
+            raw = getattr(c, "raw_data", None) or {}
+            if isinstance(raw, dict):
+                cancelled_member_id = raw.get("cancelled_member_id")
+                if cancelled_member_id:
+                    try:
+                        ids.add(int(cancelled_member_id))
+                    except Exception:
+                        pass
+
     need_lookup = any(
         not getattr(c, 'member_id', None) and
         ((c.vehicle_number or '').strip() or (getattr(c, 'resident_number', '') or '').strip())
@@ -90,6 +103,18 @@ def _find_linked_member(c, by_id, by_vehicle, by_resident):
     mid = getattr(c, 'member_id', None)
     if mid and mid in by_id:
         return by_id[mid]
+
+    # 기존 버전에서 폐업취소하며 c.member_id를 비워버린 결번행 호환.
+    if _is_cancelled_void(c):
+        raw = getattr(c, "raw_data", None) or {}
+        if isinstance(raw, dict):
+            cancelled_member_id = raw.get("cancelled_member_id")
+            try:
+                cancelled_member_id = int(cancelled_member_id) if cancelled_member_id else None
+            except Exception:
+                cancelled_member_id = None
+            if cancelled_member_id and cancelled_member_id in by_id:
+                return by_id[cancelled_member_id]
 
     rn = (getattr(c, 'resident_number', '') or '').strip()
     if rn and rn in by_resident:
@@ -165,6 +190,29 @@ def _fmt(c, member=None):
                 if v:
                     result[f] = v
 
+        # 폐업취소 행은 '누구를 취소했는지' 반드시 보여야 한다.
+        # 새 취소 건은 폐업 당시 스냅샷을 그대로 보존하고,
+        # 구버전에서 이미 비워진 취소행만 복원된 원회원 정보로 빈 값을 보강한다.
+        if _is_cancelled_void(c):
+            for f in ("region", "vehicle_number", "name", "company_name"):
+                if not result.get(f):
+                    v = getattr(member, f, None)
+                    if v:
+                        result[f] = v
+
+    # 구버전에서 폐업취소 처리 시 closure_date까지 비워진 행은
+    # raw_data.cancelled_at의 날짜를 처리일자로 표시한다.
+    if _is_cancelled_void(c) and not (result.get("closure_date") or "").strip():
+        raw = result.get("raw_data") or {}
+        if isinstance(raw, dict):
+            cancelled_at = str(raw.get("cancelled_at") or "")
+            if cancelled_at:
+                result["closure_date"] = cancelled_at[:10]
+
+    # 구버전 취소행은 원래 폐업사유가 이미 지워졌으므로 빈칸 대신 상태를 명확히 표시.
+    if _is_cancelled_void(c) and not (result.get("reason") or "").strip():
+        result["reason"] = "폐업취소"
+
     # 폐업현황 목록 표시용 읽기 전용 보강값.
     # 기존 회원 관리번호는 폐업관리번호와 별개이므로 연결된 회원마스터에서만 가져온다.
     result["previous_management_number"] = (getattr(member, "management_number", "") or "") if member else ""
@@ -225,9 +273,25 @@ async def list_closures(
         all_items_raw.sort(key=lambda r: mgmt_sort_key(r[1] or ''), reverse=reverse)
     else:
         from app.excel_utils import parse_date_sort
-        all_items_raw = base_q.with_entities(models.Closure.id, models.Closure.closure_date).all()
+        all_items_raw = base_q.with_entities(
+            models.Closure.id,
+            models.Closure.closure_date,
+            models.Closure.closure_type,
+            models.Closure.raw_data,
+        ).all()
         reverse = date_order_v == "desc"
-        all_items_raw.sort(key=lambda r: parse_date_sort(r[1] or ""), reverse=reverse)
+
+        def _closure_sort_date(row):
+            date_v = row[1] or ""
+            if (row[2] or "").strip() == _CANCEL_TYPE and not str(date_v).strip():
+                raw = row[3] or {}
+                if isinstance(raw, dict):
+                    cancelled_at = str(raw.get("cancelled_at") or "")
+                    if cancelled_at:
+                        date_v = cancelled_at[:10]
+            return parse_date_sort(date_v or "")
+
+        all_items_raw.sort(key=_closure_sort_date, reverse=reverse)
     total = len(all_items_raw)
     page_ids = [r[0] for r in all_items_raw[(page - 1) * limit: page * limit]]
     if page_ids:
@@ -321,8 +385,11 @@ async def cancel_closure(cid: int, db: Session = Depends(get_db),
                          _=Depends(require_admin)):
     """잘못 처리한 '폐업'을 취소하고 원래 회원을 복원한다.
 
-    사용된 폐업관리번호는 결번으로 영구 보존하고, 폐업현황에는 관리번호와
-    폐업취소 비고만 남는 빈 행으로 표시한다. 양도/이관은 이 기능의 대상이 아니다.
+    - 원회원은 기존 관리번호/정보 그대로 active 상태로 복원
+    - 사용된 폐업관리번호는 결번으로 영구 보존
+    - 폐업현황의 취소행에는 누가 취소되었는지 확인할 수 있도록
+      폐업 당시 인적/차량정보를 삭제하지 않고 그대로 보존
+    - 집계에서는 제외하기 위해 deleted_at은 유지
     """
     c = db.query(models.Closure).filter(models.Closure.id == cid).first()
     if not c:
@@ -341,7 +408,8 @@ async def cancel_closure(cid: int, db: Session = Depends(get_db),
             models.LicenseHolder.deleted_at.is_(None),
         ).first()
 
-    # 구자료 호환: 직접 member_id가 없을 때는 저장된 원래 관리번호가 단 하나와 정확히 일치할 때만 복원.
+    # 구자료 호환: 직접 member_id가 없을 때 저장된 원래 관리번호가
+    # 단 하나의 회원과 정확히 일치할 때만 자동 복원한다.
     if member is None:
         original_mgmt = (getattr(c, "original_management_number", "") or "").strip()
         if original_mgmt:
@@ -373,40 +441,31 @@ async def cancel_closure(cid: int, db: Session = Depends(get_db),
     )
 
     try:
-        # 회원은 기존 행 그대로 활성화. 원래 관리번호와 모든 회원정보는 변경하지 않는다.
+        # 회원은 기존 행 그대로 복원한다. 기존 회원 관리번호도 그대로 유지.
         member.status = "active"
         member.closure_id = None
         member.memo = _append_memo(getattr(member, "memo", "") or "", note)
 
-        # 폐업행은 결번 표식으로 전환. 개인정보/처리정보는 화면상 빈 칸으로 만들고
-        # 감사용 최소 연결정보만 raw_data에 남긴다.
-        audit_raw = {
+        # 폐업행은 '폐업취소' 이력으로 남긴다.
+        # 누가 취소되었는지 확인해야 하므로 이름/차량/지역/사유 등 기존 스냅샷은 지우지 않는다.
+        audit_raw = dict(c.raw_data or {}) if isinstance(c.raw_data, dict) else {}
+        audit_raw.update({
             "cancelled_at": now_kr.isoformat(timespec="seconds"),
             "cancelled_member_id": member.id,
             "restored_management_number": restored_mgmt,
             "voided_closure_management_number": void_no,
-        }
+        })
+
         c.closure_type = _CANCEL_TYPE
-        c.data_type = "신규자료"
-        for field in (
-            "region", "vehicle_number", "name", "company_name", "closure_date", "receipt_date",
-            "approval_date", "reason", "transferee", "transfer_region", "vehicle_type", "fuel_type",
-            "structure_change", "phone", "mobile", "address", "official_address", "membership_status",
-            "membership_date", "certificate_issue_date", "certificate_number", "driver_license_number",
-            "resident_number", "affiliated_company", "agent_name", "agent_mobile",
-        ):
-            if hasattr(c, field):
-                setattr(c, field, "")
-        if hasattr(c, "transferee_member_id"):
-            c.transferee_member_id = None
-        if hasattr(c, "transfer_ledger_id"):
-            c.transfer_ledger_id = None
-        c.member_id = None
-        c.memo = note
+        c.member_id = member.id  # 감사용 원회원 연결은 유지
+        c.memo = _append_memo(c.memo or "", note)
         c.raw_data = audit_raw
+
         if hasattr(c, "original_mgmt_match_status"):
             c.original_mgmt_match_status = "cancelled"
-        # 집계 쿼리들은 deleted_at IS NULL만 세므로 폐업 건수에서 자동 제외된다.
+
+        # 기존 통계/집계에서 폐업 건으로 잡히지 않게 제외하되,
+        # _visible_closure_filter()가 폐업취소 행은 화면에 계속 보여준다.
         c.deleted_at = datetime.now(timezone.utc)
 
         db.commit()

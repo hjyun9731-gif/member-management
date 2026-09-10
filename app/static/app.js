@@ -285,6 +285,9 @@ function ensureClosureLedgerToggleStyle(){
     #closureLedgerCard tr.cl-void-row td{color:#8a6d3b}
     #closureLedgerCard .cl-void-note{font-weight:700;color:#9a6700;white-space:normal;min-width:260px}
     #closureLedgerCard .cl-cancel-btn{border-color:#d8a443;color:#9a6700;background:#fffaf0}
+    #closureLedgerCard .td-act{white-space:nowrap!important;min-width:150px!important}
+    #closureLedgerCard .td-act .btn{margin:0 1px!important;padding:4px 6px!important}
+    #closureLedgerCard tr.cl-void-row td{vertical-align:middle}
   `;
   document.head.appendChild(st);
 }
@@ -1869,7 +1872,7 @@ async function renderClosures(){
   const hdrs=[
     {label:'기존관리번호'},{label:'폐업관리번호'},{label:'지역'},{label:'차량번호'},{label:'성명'},
     {label:'구분'},{label:'가입'},{label:'핸드폰'},{label:'접수일자'},{label:'처리일자'},{label:'가입일자'},
-    {label:'폐업사유'},{label:'양수인'},{label:'이관지역'},{label:'차종'},{label:'유종'},{label:'주소'},{label:'비고'},{label:'관리',noSort:true}
+    {label:'폐업사유'},{label:'양수인'},{label:'이관지역'},{label:'차종'},{label:'주소'},{label:'비고'},{label:'관리',noSort:true}
   ];
 
   const closureHeaders=plainHeaders(hdrs)
@@ -1898,20 +1901,27 @@ async function renderClosures(){
         const isVoid=Boolean(r.cancelled_void)||r.closure_type==='폐업취소';
         if(isVoid){
           return `<tr class="cl-void-row">
-            <td>-</td>
+            <td><span class="ledger-mgmt">${fv(r.previous_management_number)}</span></td>
             <td><strong>${fv(r.management_number)}</strong></td>
-            <td>-</td><td>-</td><td>-</td>
+            <td>${fv(r.region)}</td>
+            <td>${fv(r.vehicle_number)}</td>
+            <td><strong>${fv(r.name)}</strong></td>
             <td><span class="badge b-yellow">폐업취소</span></td>
-            <td>-</td><td>-</td><td>-</td><td>-</td><td>-</td>
-            <td class="cl-reason-col">-</td>
-            <td class="cl-transfer-col">-</td>
-            <td class="cl-transfer-col">-</td>
-            <td>-</td><td>-</td><td>-</td>
+            <td>${memBadge(memStatus)}</td>
+            <td>${fv(r.mobile||r.phone)}</td>
+            <td>${fv(r.receipt_date)}</td>
+            <td><span class="ledger-date">${fv(r.closure_date)}</span></td>
+            <td>${fv(joinDate)}</td>
+            <td class="cl-reason-col" title="${e_(r.reason||'')}">${fv(r.reason||'폐업취소')}</td>
+            <td class="cl-transfer-col">${fv(r.transferee)}</td>
+            <td class="cl-transfer-col">${fv(r.transfer_region)}</td>
+            <td title="${e_(r.vehicle_type||'')}">${fv(r.vehicle_type)}</td>
+            <td title="${e_(r.address||'')}">${fv(r.address)}</td>
             <td class="cl-void-note" title="${e_(r.memo||'')}">${fv(r.memo)}</td>
-            <td class="td-act">-</td>
+            <td class="td-act"><span class="badge b-yellow">취소완료</span></td>
           </tr>`;
         }
-        const canCancel=isAdmin()&&r.closure_type==='폐업'&&Boolean(r.member_id);
+        const canCancel=isAdmin()&&r.closure_type==='폐업';
         return `<tr>
           <td><span class="ledger-mgmt">${fv(r.previous_management_number)}</span></td>
           <td><a class="tbl-link ledger-mgmt" onclick="viewClosure(${r.id});return false">${fv(r.management_number)}</a></td>
@@ -1928,7 +1938,6 @@ async function renderClosures(){
           <td class="cl-transfer-col">${fv(r.transferee)}</td>
           <td class="cl-transfer-col">${fv(r.transfer_region)}</td>
           <td title="${e_(r.vehicle_type||'')}">${fv(r.vehicle_type)}</td>
-          <td>${fv(r.fuel_type)}</td>
           <td title="${e_(r.address||'')}">${fv(r.address)}</td>
           <td title="${e_(r.memo||'')}">${fv(r.memo)}</td>
           <td class="td-act"><button class="btn bp btn-xs" onclick="editClosure(${r.id})">수정</button>${canCancel?`<button class="btn bo btn-xs cl-cancel-btn" onclick="cancelClosure(${r.id})">폐업취소</button>`:''}${isAdmin()?`<button class="btn br btn-xs" onclick="deleteClosure(${r.id})">삭제</button>`:''}</td>
