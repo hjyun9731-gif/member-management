@@ -1,0 +1,2278 @@
+import re
+from typing import Type, List, Optional, Tuple, Any
+from sqlalchemy.orm import Session
+from sqlalchemy import or_
+from datetime import datetime, timezone
+
+from app import models
+from app.excel_utils import is_association_member, has_value
+
+REGIONS = [
+    "춘천시","원주시","강릉시","동해시","태백시","속초시","삼척시",
+    "홍천군","횡성군","영월군","평창군","정선군","철원군","화천군",
+    "양구군","인제군","고성군","양양군",
+]
+
+# 시/군 없는 형태 → 정식명칭 매핑
+_REGION_NORM = {
+    "춘천":"춘천시","원주":"원주시","강릉":"강릉시","동해":"동해시",
+    "태백":"태백시","속초":"속초시","삼척":"삼척시","홍천":"홍천군",
+    "횡성":"횡성군","영월":"영월군","평창":"평창군","정선":"정선군",
+    "철원":"철원군","화천":"화천군","양구":"양구군","인제":"인제군",
+    "고성":"고성군","양양":"양양군",
+}
+
+
+def normalize_region(val: str) -> str:
+    """'춘천' → '춘천시', '춘천시' → '춘천시' (이미 정규화되어 있으면 그대로)"""
+    if not val:
+        return val
+    s = val.strip()
+    if s in REGIONS:
+        return s
+    if s in _REGION_NORM:
+        return _REGION_NORM[s]
+    # 앞부분 매칭 (예: '춘 천 시' → 공백 제거 후)
+    cleaned = s.replace(" ", "")
+    for r in REGIONS:
+        if cleaned == r or cleaned == r[:-1]:  # '춘천시' or '춘천'
+            return r
+    return s  # 알 수 없는 지역은 그대로
+
+
+def detect_category(vehicle_number: str) -> str:
+    """차량번호에 '배' 포함 → 택배, 아니면 → 개인"""
+    return "택배" if vehicle_number and "배" in vehicle_number else "개인"
+
+
+def get_list(db: Session, model: Type, *, skip=0, limit=50,
+             search=None, search_fields=None, filters=None,
+             sort_by: str = None, sort_dir: str = "asc",
+             nonempty_any: list = None) -> Tuple[List, int]:
+    query = db.query(model).filter(model.deleted_at.is_(None))
+    if search and search_fields:
+        conds = [getattr(model, f).ilike(f"%{search}%") for f in search_fields if hasattr(model, f)]
+        if conds:
+            query = query.filter(or_(*conds))
+    if filters:
+        for k, v in filters.items():
+            if v is None or v == "":
+                continue
+            if k == "management_number_prefix":
+                col = getattr(model, "management_number", None)
+                if col is not None:
+                    query = query.filter(col.like(f"{v}%"))
+                continue
+            col = getattr(model, k, None)
+            if col is not None:
+                query = query.filter(col == v)
+    # 하나 이상의 필드가 비어 있지 않은 행만 (빈 행 제거)
+    if nonempty_any:
+        from sqlalchemy import and_
+        pairs = []
+        for field in nonempty_any:
+            col = getattr(model, field, None)
+            if col is not None:
+                pairs.append(and_(col.isnot(None), col != ''))
+        if pairs:
+            query = query.filter(or_(*pairs))
+    total = query.count()
+    # 정렬: sort_by가 지정되면 해당 컬럼 사용, 아니면 지역 ASC + id ASC
+    if sort_by and hasattr(model, sort_by):
+        col = getattr(model, sort_by)
+        order = col.desc() if sort_dir == "desc" else col.asc()
+        query = query.order_by(order, model.id.asc())
+    else:
+        query = query.order_by(model.id.asc())
+    return query.offset(skip).limit(limit).all(), total
+
+
+def _apply_common_filters(query, model, search, search_fields, filters, nonempty_any):
+    """공통 필터 적용 헬퍼"""
+    from sqlalchemy import and_
+    if search and search_fields:
+        conds = [getattr(model, f).ilike(f"%{search}%") for f in search_fields if hasattr(model, f)]
+        if conds:
+            query = query.filter(or_(*conds))
+    if filters:
+        for k, v in filters.items():
+            if v is None or v == "":
+                continue
+            if k == "management_number_prefix":
+                col = getattr(model, "management_number", None)
+                if col is not None:
+                    query = query.filter(col.like(f"{v}%"))
+                continue
+            col = getattr(model, k, None)
+            if col is not None:
+                query = query.filter(col == v)
+    if nonempty_any:
+        pairs = []
+        for field in nonempty_any:
+            col = getattr(model, field, None)
+            if col is not None:
+                pairs.append(and_(col.isnot(None), col != ''))
+        if pairs:
+            query = query.filter(or_(*pairs))
+    return query
+
+
+def get_sorted_page(db: Session, model: Type, *, date_field: str,
+                    sort_dir: str = "desc", page: int = 1, limit: int = 50,
+                    search=None, search_fields=None, filters=None,
+                    nonempty_any=None) -> Tuple[List, int]:
+    """날짜 기반 정렬 + 페이지네이션 (PostgreSQL 최적화).
+    ① id + 날짜 + 빈행검사 필드를 경량 쿼리로 가져와 Python 정렬
+    ② 해당 50건 IDs만 full 로딩 (raw_data 지연)
+    nonempty_any는 SQL OR 없이 Python에서 필터 → PostgreSQL seq scan 방지."""
+    from app.excel_utils import parse_date_sort
+    from sqlalchemy.orm import defer as defer_col
+
+    date_col = getattr(model, date_field, None)
+
+    # ① 경량 SELECT: id + 날짜필드 + nonempty_any 필드 (OR 없는 단순 쿼리)
+    select_cols = [model.id, date_col if date_col is not None else model.id]
+    nonempty_cols = []
+    for field in (nonempty_any or []):
+        col = getattr(model, field, None)
+        if col is not None:
+            select_cols.append(col)
+            nonempty_cols.append(field)
+
+    light_q = db.query(*select_cols).filter(model.deleted_at.is_(None))
+    # search/filters만 적용 (nonempty OR 조건 제외)
+    light_q = _apply_common_filters(light_q, model, search, search_fields, filters, None)
+    all_rows = light_q.all()
+
+    # Python에서 빈 행 제거 (nonempty_any 필드 기준)
+    if nonempty_cols:
+        n_check = len(nonempty_cols)
+        # row: (id, date, check1, check2, ...) → check 컬럼은 인덱스 2부터
+        all_rows = [r for r in all_rows
+                    if any(r[2 + i] and str(r[2 + i]).strip() for i in range(n_check))]
+
+    # Python 날짜 파싱 정렬
+    reverse = (sort_dir == "desc")
+    all_rows.sort(key=lambda r: parse_date_sort(r[1] or ""), reverse=reverse)
+
+    total = len(all_rows)
+    page_ids = [r[0] for r in all_rows[(page - 1) * limit: page * limit]]
+
+    if not page_ids:
+        return [], total
+
+    # ② 해당 IDs만 full 로딩 (raw_data 지연)
+    items_q = db.query(model).filter(
+        model.id.in_(page_ids),
+        model.deleted_at.is_(None),
+    )
+    if hasattr(model, 'raw_data'):
+        items_q = items_q.options(defer_col(model.raw_data))
+
+    items = items_q.all()
+    items_by_id = {i.id: i for i in items}
+    return [items_by_id[pid] for pid in page_ids if pid in items_by_id], total
+
+
+def get_region_vehicle_page(db: Session, model: Type, *, page: int = 1, limit: int = 50,
+                             search=None, search_fields=None, filters=None,
+                             nonempty_any=None) -> Tuple[List, int]:
+    """지역(가나다) + 차량번호(자연정렬) 기반 페이지네이션.
+    ① id + region + vehicle_number 경량 쿼리 → Python 자연정렬
+    ② 50건 IDs full 로딩 (raw_data 지연)"""
+    from sqlalchemy.orm import defer as defer_col
+
+    def nat_key(s: str):
+        return [int(p) if p.isdigit() else p for p in re.split(r'(\d+)', s or '')]
+
+    region_col = getattr(model, 'region', None)
+    vehicle_col = getattr(model, 'vehicle_number', None)
+
+    if region_col is not None and vehicle_col is not None:
+        light_q = db.query(model.id, region_col, vehicle_col).filter(model.deleted_at.is_(None))
+    else:
+        light_q = db.query(model.id, model.id, model.id).filter(model.deleted_at.is_(None))
+
+    # search/filters 적용 (nonempty OR 없음)
+    light_q = _apply_common_filters(light_q, model, search, search_fields, filters, None)
+    all_rows = light_q.all()  # (id, region, vehicle_number)
+
+    # Python에서 빈 행 제거 (nonempty_any가 명시적으로 빈 리스트([])면 필터 건너뜀 - 예: 관리번호만
+    # 발급된 placeholder 회원을 조회할 때는 지역/차량번호가 비어있어도 보여야 함)
+    if nonempty_any != []:
+        all_rows = [r for r in all_rows if (r[2] and str(r[2]).strip()) or (r[1] and str(r[1]).strip())]
+
+    # 자연 정렬: 지역(가나다) → 차량번호(자연정렬)
+    all_rows.sort(key=lambda r: (r[1] or 'zzz', nat_key(r[2] or '')))
+
+    total = len(all_rows)
+    page_ids = [r[0] for r in all_rows[(page - 1) * limit: page * limit]]
+
+    if not page_ids:
+        return [], total
+
+    items_q = db.query(model).filter(
+        model.id.in_(page_ids),
+        model.deleted_at.is_(None),
+    )
+    if hasattr(model, 'raw_data'):
+        items_q = items_q.options(defer_col(model.raw_data))
+
+    items = items_q.all()
+    items_by_id = {i.id: i for i in items}
+    return [items_by_id[pid] for pid in page_ids if pid in items_by_id], total
+
+
+def get_sorted_page_mgmt(db: Session, model: Type, *, sort_dir: str = "desc",
+                          page: int = 1, limit: int = 50,
+                          search=None, search_fields=None, filters=None,
+                          nonempty_any=None, fallback_date_field: str = None
+                          ) -> Tuple[List, int]:
+    """관리번호 기준 자연정렬 (연도+번호 숫자 비교).
+    - 연도: 90~99=1990~1999, 00~현재=2000~현재
+    - 같은 연도면 뒤 번호를 숫자로 비교 (26-181 > 26-099)
+    - 개인/택배 구분 없이 동일 기준
+    """
+    from app.excel_utils import mgmt_sort_key
+    from sqlalchemy.orm import defer as defer_col
+
+    mgmt_col = getattr(model, 'management_number', None)
+    select_cols = [model.id, mgmt_col if mgmt_col is not None else model.id]
+    nonempty_cols = []
+    for field in (nonempty_any or []):
+        col = getattr(model, field, None)
+        if col is not None:
+            select_cols.append(col)
+            nonempty_cols.append(field)
+
+    light_q = db.query(*select_cols).filter(model.deleted_at.is_(None))
+    light_q = _apply_common_filters(light_q, model, search, search_fields, filters, None)
+    all_rows = light_q.all()
+
+    if nonempty_cols:
+        n_check = len(nonempty_cols)
+        all_rows = [r for r in all_rows
+                    if any(r[2 + i] and str(r[2 + i]).strip() for i in range(n_check))]
+
+    reverse = (sort_dir == "desc")
+    all_rows.sort(key=lambda r: mgmt_sort_key(str(r[1] or '')), reverse=reverse)
+
+    total = len(all_rows)
+    page_ids = [r[0] for r in all_rows[(page - 1) * limit: page * limit]]
+    if not page_ids:
+        return [], total
+
+    items_q = db.query(model).filter(
+        model.id.in_(page_ids),
+        model.deleted_at.is_(None),
+    )
+    if hasattr(model, 'raw_data'):
+        items_q = items_q.options(defer_col(model.raw_data))
+    items = items_q.all()
+    items_by_id = {i.id: i for i in items}
+    return [items_by_id[pid] for pid in page_ids if pid in items_by_id], total
+
+def get_by_id(db: Session, model: Type, item_id: int):
+    return db.query(model).filter(model.id == item_id, model.deleted_at.is_(None)).first()
+
+
+def create_item(db: Session, model: Type, data: dict):
+    allowed = {c.name for c in model.__table__.columns}
+    db_item = model(**{k: v for k, v in data.items() if k in allowed})
+    db.add(db_item)
+    db.commit()
+    db.refresh(db_item)
+    return db_item
+
+
+def update_item(db: Session, db_item, data: dict):
+    for k, v in data.items():
+        if hasattr(db_item, k):
+            setattr(db_item, k, v)
+    db_item.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(db_item)
+    return db_item
+
+
+def update_transfer_ledger_synced(db: Session, ledger: "models.TransferLedger", data: dict) -> "models.TransferLedger":
+    """양도양수대장 수정 - 자격증명발급번호(및 발급일자/운전면허번호)가 바뀌면
+    회원정보 ↔ 양도양수대장 ↔ 자격증명발급번호/관리번호 ↔ 보고집계가 서로 어긋나지
+    않도록 동일 대상자(양수자)의 회원(LicenseHolder) 또는 예정자(Candidate) 레코드에도
+    같은 값을 반영하고, 발급이력(CertificateNumberLog)을 최종 실사용 대상으로 연결한다.
+
+    - 이미 다른 대상이 사용 중인 번호로 변경하려는 경우 차단한다 (동일 대상자로의
+      변경/재저장은 허용).
+    - 문자열만 수정하는 것이 아니라, transferee_member_id/member_id (이미 회원 등록된 경우)
+      또는 management_number로 매칭되는 미등록 예정자(Candidate) 레코드까지 함께 갱신한다.
+    실패 시 예외를 던지며, 그 시점까지의 변경은 커밋하지 않는다(rollback).
+    """
+    try:
+        old_cert = (ledger.certificate_number or "").strip()
+        new_cert_raw = data.get("certificate_number", None)
+        cert_changing = new_cert_raw is not None and str(new_cert_raw).strip() != old_cert
+        new_cert = str(new_cert_raw).strip() if cert_changing else old_cert
+
+        if cert_changing and new_cert:
+            usage = _scan_certificate_number_usage(db, new_cert)
+            if usage:
+                tname, lid, uname, uvehicle = usage
+                same_target = (
+                    (tname == "transfer_ledger" and lid == ledger.id) or
+                    (tname == "license_holders" and ledger.member_id and lid == ledger.member_id) or
+                    (tname == "license_holders" and ledger.transferee_member_id and lid == ledger.transferee_member_id)
+                )
+                if not same_target:
+                    raise ValueError(
+                        f"자격증명발급번호 {new_cert}는 이미 {tname}에서 사용 중입니다"
+                        f"(대상: {uname or lid}). 다른 번호를 입력하거나 기존 자료를 먼저 확인하세요."
+                    )
+
+        for k, v in data.items():
+            if hasattr(ledger, k):
+                setattr(ledger, k, v)
+        ledger.updated_at = datetime.now(timezone.utc)
+        db.flush()
+
+        # ── 동일 대상자(양수자) 회원/예정자 레코드 찾기 ──
+        linked_member = None
+        if ledger.transferee_member_id:
+            linked_member = get_by_id(db, models.LicenseHolder, ledger.transferee_member_id)
+        elif ledger.member_id:
+            linked_member = get_by_id(db, models.LicenseHolder, ledger.member_id)
+
+        linked_candidate = None
+        if not linked_member and ledger.management_number:
+            linked_candidate = db.query(models.Candidate).filter(
+                models.Candidate.management_number == ledger.management_number,
+                models.Candidate.deleted_at.is_(None),
+                models.Candidate.is_registered == False,
+            ).first()
+
+        sync_fields = ["certificate_number", "certificate_issue_date", "driver_license_number"]
+        if linked_member:
+            for f in sync_fields:
+                if f in data:
+                    setattr(linked_member, f, data[f])
+            linked_member.updated_at = datetime.now(timezone.utc)
+        elif linked_candidate:
+            for f in sync_fields:
+                if f in data:
+                    setattr(linked_candidate, f, data[f])
+
+        db.commit()
+        db.refresh(ledger)
+
+        final_cert = (ledger.certificate_number or "").strip()
+        if final_cert and _is_valid_certificate_number_format(final_cert):
+            if linked_member:
+                target_table, target_id, target_name = "license_holders", linked_member.id, linked_member.name or ""
+            elif linked_candidate:
+                target_table, target_id, target_name = "candidates", linked_candidate.id, linked_candidate.name or ""
+            else:
+                target_table, target_id, target_name = "transfer_ledger", ledger.id, ledger.transferee or ""
+            sync_certificate_number_usage(db, final_cert, target_table, target_id,
+                                           target_name, ledger.vehicle_number or "")
+
+        return ledger
+    except Exception:
+        db.rollback()
+        raise
+
+
+def backfill_transfer_certificate_sync(db: Session) -> dict:
+    """기존 데이터 소급 반영: 이미 양도양수대장에 자격증명발급번호가 입력되어 있는데
+    연결된 회원(LicenseHolder)/예정자(Candidate) 레코드에는 반영되지 않은 건을 찾아
+    동기화한다 (문자열/이름이 아니라 transferee_member_id·management_number로 연결된
+    실제 레코드만 대상으로 하며, 값이 이미 채워져 있는 대상은 덮어쓰지 않는다).
+
+    운영 데이터에는 자격증명발급번호 칸에 "YY-N" 형식이 아닌 값(수기 메모, 긴 텍스트 등)이
+    섞여 있을 수 있는데, 그런 값을 발급이력(certificate_number_logs, 20자 제한+UNIQUE)에
+    그대로 넣으려 하면 DB 제약 위반으로 전체 요청이 500 에러로 죽는다. 이를 막기 위해:
+    - 실제 채번 형식(YY-N)이 아닌 값은 발급이력 동기화 대상에서만 제외한다(필드 값 자체는
+      그대로 보존/반영한다 - 회원/예정자 데이터를 지우거나 바꾸지 않음).
+    - 레코드 하나 처리 중 오류가 나도 그 건만 건너뛰고 나머지는 계속 처리한다(부분 실패 격리).
+    여러 번 실행해도 안전하다(멱등).
+    """
+    updated_members, updated_candidates, synced_logs, skipped, errors = 0, 0, 0, 0, []
+    ledgers = db.query(models.TransferLedger).filter(
+        models.TransferLedger.deleted_at.is_(None),
+        models.TransferLedger.certificate_number.isnot(None),
+        models.TransferLedger.certificate_number != "",
+    ).all()
+
+    for ledger in ledgers:
+        try:
+            cert = (ledger.certificate_number or "").strip()
+            if not cert:
+                continue
+            member = None
+            if ledger.transferee_member_id:
+                member = get_by_id(db, models.LicenseHolder, ledger.transferee_member_id)
+            elif ledger.member_id:
+                member = get_by_id(db, models.LicenseHolder, ledger.member_id)
+
+            if member:
+                changed = False
+                if not (member.certificate_number or "").strip():
+                    member.certificate_number = cert
+                    changed = True
+                if not (member.certificate_issue_date or "").strip() and ledger.certificate_issue_date:
+                    member.certificate_issue_date = ledger.certificate_issue_date
+                    changed = True
+                if not (member.driver_license_number or "").strip() and ledger.driver_license_number:
+                    member.driver_license_number = ledger.driver_license_number
+                    changed = True
+                if changed:
+                    updated_members += 1
+                    db.flush()
+                if _is_valid_certificate_number_format(member.certificate_number):
+                    sync_certificate_number_usage(db, member.certificate_number, "license_holders", member.id,
+                                                   member.name or "", member.vehicle_number or "")
+                    synced_logs += 1
+                if not changed:
+                    skipped += 1
+                continue
+
+            candidate = None
+            if ledger.management_number:
+                candidate = db.query(models.Candidate).filter(
+                    models.Candidate.management_number == ledger.management_number,
+                    models.Candidate.deleted_at.is_(None),
+                    models.Candidate.is_registered == False,
+                ).first()
+            if candidate:
+                changed = False
+                if not (candidate.certificate_number or "").strip():
+                    candidate.certificate_number = cert
+                    changed = True
+                if not (candidate.certificate_issue_date or "").strip() and ledger.certificate_issue_date:
+                    candidate.certificate_issue_date = ledger.certificate_issue_date
+                    changed = True
+                if changed:
+                    updated_candidates += 1
+                    db.flush()
+                if _is_valid_certificate_number_format(candidate.certificate_number):
+                    sync_certificate_number_usage(db, candidate.certificate_number, "candidates", candidate.id,
+                                                   candidate.name or "", candidate.vehicle_number or "")
+                    synced_logs += 1
+                if not changed:
+                    skipped += 1
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            errors.append({"transfer_ledger_id": ledger.id, "certificate_number": ledger.certificate_number,
+                            "error": str(e)[:200]})
+
+    db.commit()
+    return {"scanned": len(ledgers), "updated_members": updated_members,
+            "updated_candidates": updated_candidates, "synced_logs": synced_logs,
+            "skipped": skipped, "errors": errors}
+
+
+_CERT_NUMBER_RE = re.compile(r"^\d{2,4}-\d{1,6}$")
+_CERT_HYPHENS = ("‐", "‑", "‒", "–", "—", "−", "﹣", "－")
+
+
+def normalize_certificate_number(value: str) -> str:
+    """자격증명번호를 YY-N 표준형으로 정규화한다.
+
+    수기 수정 시 자주 생기는 전각문자/다른 하이픈/하이픈 주변 공백/번호 앞 0을
+    표준형으로 맞춰 같은 번호를 서로 다르게 인식하는 문제를 막는다.
+    예: ``26 – 0370`` -> ``26-370``, ``2026-370`` -> ``26-370``.
+    숫자형 자격증명번호가 아닌 기존 메모성 값은 빈 문자열을 반환하고 원본 필드는 건드리지 않는다.
+    """
+    if value is None:
+        return ""
+    import unicodedata
+    v = unicodedata.normalize("NFKC", str(value)).strip()
+    for ch in _CERT_HYPHENS:
+        v = v.replace(ch, "-")
+    v = re.sub(r"\s*-\s*", "-", v)
+    v = re.sub(r"\s+", "", v)
+    m = re.fullmatch(r"(\d{2}|\d{4})-(\d{1,6})", v)
+    if not m:
+        return ""
+    yy = m.group(1)[-2:]
+    try:
+        num = str(int(m.group(2)))
+    except Exception:
+        return ""
+    return f"{yy}-{num}"
+
+
+def _is_valid_certificate_number_format(value: str) -> bool:
+    """실제 채번 형식(예: 26-329)인지 확인."""
+    return bool(normalize_certificate_number(value))
+
+
+def _certificate_number_parts(value: str):
+    """26-085와 26-85처럼 앞자리 0만 다른 번호를 같은 번호로 비교하기 위한 키."""
+    cert = normalize_certificate_number(value)
+    if not cert:
+        return None
+    try:
+        yy, num = cert.split("-", 1)
+        return int(yy), int(num)
+    except Exception:
+        return None
+
+
+def get_certificate_number_log(db: Session, value: str):
+    """표기 방식과 무관하게 같은 자격증명 발급이력을 찾는다.
+
+    예: 26-085 / 26-85 / 2026-0085 는 모두 (26, 85)로 같은 번호다.
+    기존 DB의 표기는 삭제/변경하지 않고 year+number를 우선 키로 사용한다.
+    동일 키가 여러 건이면 실제 사용중(used) 이력을 우선한다.
+    """
+    parts = _certificate_number_parts(value)
+    if not parts:
+        return None
+    yy, num = parts
+    rows = (db.query(models.CertificateNumberLog)
+            .filter(models.CertificateNumberLog.year == yy,
+                    models.CertificateNumberLog.number == num)
+            .all())
+    if not rows:
+        canonical = f"{yy}-{num}"
+        rows = db.query(models.CertificateNumberLog).filter(
+            models.CertificateNumberLog.certificate_number == canonical
+        ).all()
+    if not rows:
+        return None
+    priority = {"used": 3, "cancelled": 2, "issued": 1}
+    rows.sort(key=lambda r: (priority.get(r.status or "", 0),
+                             r.updated_at or r.issued_at or datetime.min.replace(tzinfo=timezone.utc),
+                             r.id or 0), reverse=True)
+    return rows[0]
+
+
+def certificate_number_exists(db: Session, value: str, exclude_id: int = None) -> bool:
+    parts = _certificate_number_parts(value)
+    if not parts:
+        return False
+    yy, num = parts
+    q = db.query(models.CertificateNumberLog.id).filter(
+        models.CertificateNumberLog.year == yy, models.CertificateNumberLog.number == num
+    )
+    if exclude_id is not None:
+        q = q.filter(models.CertificateNumberLog.id != exclude_id)
+    return q.first() is not None
+
+
+def reconcile_certificate_number_logs(db: Session) -> dict:
+    """자격증명발급번호 발급이력(certificate_number_logs)의 사용 상태를
+    '발급 당시 대상자 연결 여부'가 아니라 '현재 데이터 기준 실사용 여부'로 재동기화한다.
+
+    원인: 번호를 처음 발급할 때 대상자 없이 발급(issued)만 되고, 그 이후에
+    양도양수대장/회원/예정자 쪽에서 별도로 값을 입력해 실제로 사용되기 시작해도,
+    그 시점에 로그를 다시 조회해서 갱신하는 경로가 없으면 로그는 계속 '발급(미사용)'으로
+    남는다. 이 함수는 4개 테이블(license_holders/candidates/transfer_ledger/closures)에
+    실제로 등장하는 모든 자격증명발급번호를 다시 스캔해서, 실사용 중인 번호는 상태를
+    'used'로, 연결 테이블/ID/대상자명을 최신 값으로 갱신한다.
+
+    - 로그가 아예 없는 번호(과거 수기 발급 등)는 새로 만든다.
+    - 'cancelled'(취소) 처리된 로그는 건드리지 않는다 (수동 취소 의사 존중).
+    - 아직 어느 대상자에게도 사용되지 않는 번호는 그대로 둔다(발급(미사용) 유지).
+    여러 번 실행해도 안전하다(멱등).
+    """
+    seen = set()
+    for model in (models.LicenseHolder, models.Candidate, models.TransferLedger, models.Closure):
+        q = db.query(model.certificate_number).filter(
+            model.certificate_number.isnot(None),
+            model.certificate_number != "",
+        )
+        if hasattr(model, "deleted_at"):
+            q = q.filter(model.deleted_at.is_(None))
+        for (cert,) in q.distinct().all():
+            c = (cert or "").strip()
+            if c:
+                seen.add(c)
+
+    updated, created, unchanged, skipped_invalid, errors = 0, 0, 0, 0, []
+    for cert in seen:
+        try:
+            if not _is_valid_certificate_number_format(cert):
+                # "YY-N" 형식이 아닌 값(수기 메모 등)은 발급이력(20자 제한+UNIQUE) 대상에서 제외.
+                # 회원/예정자/대장의 실제 필드 값은 건드리지 않는다(그대로 보존).
+                skipped_invalid += 1
+                continue
+            usage = _scan_certificate_number_usage(db, cert)
+            if not usage:
+                continue
+            tname, lid, name, vehicle = usage
+            log = get_certificate_number_log(db, cert)
+            if log:
+                if log.status == "cancelled":
+                    continue
+                if (log.status != "used" or log.linked_table != tname or log.linked_id != lid
+                        or (log.target_name or "") != (name or "")):
+                    log.status = "used"
+                    log.linked_table = tname
+                    log.linked_id = lid
+                    log.target_name = name
+                    log.vehicle_number = vehicle
+                    db.commit()
+                    updated += 1
+                else:
+                    unchanged += 1
+            else:
+                try:
+                    yy_s, n_s = cert.split("-", 1)
+                    yy_i, n_i = int(yy_s), int(n_s)
+                except Exception:
+                    yy_i, n_i = None, None
+                db.add(models.CertificateNumberLog(
+                    year=yy_i, number=n_i, certificate_number=cert,
+                    status="used", issued_by=None,
+                    linked_table=tname, linked_id=lid,
+                    target_name=name, vehicle_number=vehicle,
+                    memo="실사용 데이터 기준 자동 생성(발급자/일시 확인불가)",
+                ))
+                db.commit()
+                created += 1
+        except Exception as e:
+            db.rollback()
+            errors.append({"certificate_number": cert, "error": str(e)[:200]})
+
+    return {"scanned_numbers": len(seen), "updated": updated, "created": created,
+            "unchanged": unchanged, "skipped_invalid_format": skipped_invalid, "errors": errors}
+
+
+def soft_delete(db: Session, db_item):
+    db_item.deleted_at = datetime.now(timezone.utc)
+    db.commit()
+
+
+# ===== 자격증명발급번호 채번 (YY-N) =====
+
+def lock_certificate_number_sequence(db: Session):
+    """자격증명발급번호 동시발급 방지용 잠금 (관리번호 잠금과 동일한 방식)."""
+    try:
+        bind = db.get_bind()
+        if bind is not None and bind.dialect.name == "postgresql":
+            from sqlalchemy import text
+            db.execute(text("SELECT pg_advisory_xact_lock(hashtext('certificate_number_seq'))"))
+    except Exception:
+        pass
+
+
+def get_next_certificate_number(db: Session, issued_by: str = None) -> str:
+    """자격증명발급번호 자동 채번: 'YY-N' 형식 (예: 26-301).
+    - 연도별 카운터(certificate_number_counters)에 마지막 발급 번호를 영구 저장하여,
+      레코드가 삭제되거나 발급번호가 수정되어도 이미 나간 번호는 재사용하지 않는다.
+    - 카운터가 아직 없는 연도(최초 실행)라면, license_holders/candidates/
+      transfer_ledger/closures 4개 테이블에서 해당 연도 접두사(YY-)의 기존 최댓값을
+      찾아 그 값으로 카운터를 초기화한 뒤 +1을 발급한다 (기존 수기 발급 이력과 연속성 유지).
+    - advisory lock으로 동시 요청을 직렬화하여 중복 발급을 방지한다.
+    - 발급할 때마다 certificate_number_logs에 이력을 남긴다 (관리 화면/취소 처리용).
+      번호 자체는 취소되어도 재사용하지 않고 카운터는 그대로 유지된다.
+    - 카운터가 실제 사용된 최대값보다 뒤처져 있는 경우(예: 과거 데이터 정리/수동 편집으로
+      카운터와 로그가 어긋난 경우) 이미 사용 중인 번호와 충돌하면 500 에러로 죽지 않고
+      자동으로 다음 빈 번호까지 건너뛰어 스스로 복구한다.
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    yy = datetime.now().year % 100
+    lock_certificate_number_sequence(db)
+
+    counter = db.query(models.CertificateNumberCounter).filter(
+        models.CertificateNumberCounter.year == yy).first()
+
+    if not counter:
+        prefix = f"{yy}-"
+        max_n = 0
+        for model in (models.LicenseHolder, models.Candidate,
+                      models.TransferLedger, models.Closure):
+            for (val,) in db.query(model.certificate_number).filter(
+                    model.certificate_number.like(f"{prefix}%")).all():
+                try:
+                    n = int(str(val).split("-", 1)[1].strip())
+                    if n > max_n:
+                        max_n = n
+                except Exception:
+                    pass
+        counter = models.CertificateNumberCounter(year=yy, last_number=max_n)
+        db.add(counter)
+        db.flush()
+
+    tries = 0
+    while True:
+        tries += 1
+        counter.last_number += 1
+        next_n = counter.last_number
+        cert_number = f"{yy}-{next_n}"
+
+        # 이미 로그에 존재하는 번호면(카운터-로그 불일치) 건너뛰고 다음 번호 시도.
+        # 매 시도마다 새로 조회해야 하며, DB UNIQUE 제약이 최종 방어선이므로
+        # 여기서 걸러도 INSERT 단계에서 다시 확인한다.
+        exists = certificate_number_exists(db, cert_number)
+        actual_usage = _scan_certificate_number_usage(db, cert_number)
+        if exists or actual_usage:
+            # 발급이력 로그가 없어도 회원/예정자/양도양수/폐업 실제 데이터에서 사용 중이면
+            # 절대 재발급하지 않는다. (수기 입력이 늦게 반영된 번호 충돌 방지)
+            if actual_usage and not exists:
+                try:
+                    tname, lid, name, vehicle = actual_usage
+                    db.add(models.CertificateNumberLog(
+                        year=yy, number=next_n, certificate_number=cert_number, status="used",
+                        issued_by=None, linked_table=tname, linked_id=lid,
+                        target_name=name, vehicle_number=vehicle,
+                        memo="실사용 데이터에서 자동 인식하여 재발급 방지",
+                    ))
+                    db.flush()
+                except Exception:
+                    db.rollback()
+                    lock_certificate_number_sequence(db)
+                    counter = db.query(models.CertificateNumberCounter).filter(
+                        models.CertificateNumberCounter.year == yy).first()
+            if tries > 500:
+                raise ValueError("자격증명발급번호 채번에 실패했습니다 (연속된 번호를 찾을 수 없음). 관리자에게 문의하세요.")
+            continue
+
+        db.add(models.CertificateNumberLog(
+            year=yy, number=next_n, certificate_number=cert_number,
+            status="issued", issued_by=issued_by,
+        ))
+        try:
+            db.commit()
+            return cert_number
+        except IntegrityError:
+            # 동시 요청 등으로 방금 사이에 다른 트랜잭션이 같은 번호를 선점한 경우
+            # (advisory lock으로 대부분 방지되지만, 락이 지원되지 않는 환경 대비 최종 방어선)
+            db.rollback()
+            counter = db.query(models.CertificateNumberCounter).filter(
+                models.CertificateNumberCounter.year == yy).first()
+            if tries > 500:
+                raise ValueError("자격증명발급번호 채번에 실패했습니다 (중복 충돌 반복). 관리자에게 문의하세요.")
+            continue
+
+
+def _scan_certificate_number_usage(db: Session, certificate_number: str):
+    """4개 테이블에서 해당 자격증명번호를 실제로 사용중인 레코드가 있는지 확인.
+
+    표준형으로 먼저 조회하고, 과거 수기 입력값이 비표준 하이픈/공백을 포함한 경우에도
+    정규화 비교로 한 번 더 찾아낸다.
+    """
+    cert = normalize_certificate_number(certificate_number)
+    if not cert:
+        return None
+    tables = [
+        (models.LicenseHolder, "license_holders"),
+        (models.Candidate, "candidates"),
+        (models.TransferLedger, "transfer_ledger"),
+        (models.Closure, "closures"),
+    ]
+    for model, tname in tables:
+        q = db.query(model).filter(model.deleted_at.is_(None)) if hasattr(model, "deleted_at") else db.query(model)
+        row = q.filter(model.certificate_number == cert).first()
+        if not row:
+            # 기존 데이터에 26 – 370 / 26-0370처럼 저장된 경우까지 복구 인식.
+            for candidate in q.filter(model.certificate_number.isnot(None), model.certificate_number != "").all():
+                if normalize_certificate_number(getattr(candidate, "certificate_number", "")) == cert:
+                    row = candidate
+                    break
+        if row:
+            name = getattr(row, "name", None) or getattr(row, "transferee", None) or ""
+            vehicle = getattr(row, "vehicle_number", None) or ""
+            return (tname, row.id, name, vehicle)
+    return None
+
+
+def sync_certificate_number_usage(db: Session, certificate_number: str,
+                                   linked_table: str, linked_id: int,
+                                   target_name: str = "", vehicle_number: str = ""):
+    """레코드 저장 시점에 발급이력과 실사용 여부를 연결. 로그가 없으면(수기 입력 등) 새로 만든다."""
+    certificate_number = normalize_certificate_number(certificate_number)
+    if not certificate_number:
+        return
+    log = get_certificate_number_log(db, certificate_number)
+    if log:
+        log.status = "used"
+        log.linked_table = linked_table
+        log.linked_id = linked_id
+        log.target_name = target_name
+        log.vehicle_number = vehicle_number
+    else:
+        try:
+            yy, n = certificate_number.split("-", 1)
+            yy_i, n_i = int(yy), int(n)
+        except Exception:
+            yy_i, n_i = None, None
+        db.add(models.CertificateNumberLog(
+            year=yy_i, number=n_i, certificate_number=certificate_number,
+            status="used", issued_by=None,
+            linked_table=linked_table, linked_id=linked_id,
+            target_name=target_name, vehicle_number=vehicle_number,
+            memo="수동입력(발급이력 없음, 저장 시점에 자동 생성)",
+        ))
+    db.commit()
+
+
+def resync_certificate_number_change(db: Session, old_number: str, new_number: str,
+                                     linked_table: str, linked_id: int,
+                                     target_name: str = "", vehicle_number: str = ""):
+    """개인/택배회원에서 자격증명번호를 수기로 고쳤을 때 번호이력과 발급대장을 즉시 재연결한다.
+
+    새 번호는 현재 대상자에게 ``used``로 연결하고, 이전 번호가 더 이상 실제 데이터에서
+    사용되지 않으면 발급(미사용) 상태로 되돌려 잘못된 '사용중' 연결이 남지 않게 한다.
+    발급대장 행이 있으면 같은 번호와 인가일자도 함께 갱신한다.
+    """
+    old_cert = normalize_certificate_number(old_number)
+    new_cert = normalize_certificate_number(new_number)
+    if new_cert:
+        sync_certificate_number_usage(db, new_cert, linked_table, linked_id, target_name, vehicle_number)
+
+    if old_cert and old_cert != new_cert:
+        old_log = get_certificate_number_log(db, old_cert)
+        if old_log and old_log.status != "cancelled":
+            usage = _scan_certificate_number_usage(db, old_cert)
+            if usage:
+                tname, lid, name, vehicle = usage
+                old_log.status = "used"
+                old_log.linked_table = tname
+                old_log.linked_id = lid
+                old_log.target_name = name
+                old_log.vehicle_number = vehicle
+            else:
+                old_log.status = "issued"
+                old_log.linked_table = None
+                old_log.linked_id = None
+                old_log.target_name = None
+                old_log.vehicle_number = None
+                note = "회원정보 수기 수정으로 기존 연결 해제"
+                old_log.memo = f"{old_log.memo} / {note}" if old_log.memo else note
+
+    # 발급대장도 같은 회원/후보 연결을 따라가게 한다. 순환 import 방지를 위해 지역 import.
+    try:
+        from app import certificate_ledger_models as _ledger_models
+        q = db.query(_ledger_models.CertificateIssuanceLedger).filter(
+            _ledger_models.CertificateIssuanceLedger.deleted_at.is_(None)
+        )
+        if linked_table == "license_holders":
+            member = db.query(models.LicenseHolder).filter(models.LicenseHolder.id == linked_id).first()
+            conds = [_ledger_models.CertificateIssuanceLedger.member_id == linked_id]
+            if member and getattr(member, "candidate_id", None):
+                conds.append(_ledger_models.CertificateIssuanceLedger.candidate_id == member.candidate_id)
+            from sqlalchemy import or_
+            row = q.filter(or_(*conds)).first() if conds else None
+            if row and member:
+                if new_cert:
+                    dup = db.query(_ledger_models.CertificateIssuanceLedger.id).filter(
+                        _ledger_models.CertificateIssuanceLedger.document_number == new_cert,
+                        _ledger_models.CertificateIssuanceLedger.id != row.id,
+                        _ledger_models.CertificateIssuanceLedger.deleted_at.is_(None),
+                    ).first()
+                    if not dup:
+                        row.document_number = new_cert
+                row.member_id = member.id
+                row.approval_date = member.approval_date or row.approval_date or ""
+                row.certificate_issue_date = member.certificate_issue_date or row.certificate_issue_date or ""
+                row.name = member.name or row.name
+                row.vehicle_number = member.vehicle_number or row.vehicle_number
+                row.region = member.region or row.region
+        db.commit()
+    except Exception:
+        db.rollback()
+        # 번호이력 동기화 자체는 이미 완료되었으므로 발급대장 보조동기화 실패로 회원 저장을 깨지 않는다.
+        if new_cert:
+            sync_certificate_number_usage(db, new_cert, linked_table, linked_id, target_name, vehicle_number)
+    return new_cert
+
+
+def cancel_certificate_number(db: Session, certificate_number: str, memo: str = ""):
+    """잘못 발급된 자격증명발급번호를 '취소' 상태로 표시 (실제 삭제/재사용 안 함).
+    이미 실제 레코드에서 사용중인 번호는 취소할 수 없다.
+    """
+    usage = _scan_certificate_number_usage(db, certificate_number)
+    if usage:
+        raise ValueError(f"이미 {usage[0]}에서 사용 중인 번호입니다 (대상: {usage[2] or usage[1]}). 먼저 해당 자료를 확인하세요.")
+    log = get_certificate_number_log(db, certificate_number)
+    if not log:
+        raise ValueError("발급 이력을 찾을 수 없는 번호입니다.")
+    log.status = "cancelled"
+    if memo:
+        log.memo = memo
+    db.commit()
+    return log
+
+
+def reactivate_certificate_number(db: Session, certificate_number: str):
+    """취소 처리를 되돌려 '발급' 상태로 복구 (실수로 취소한 경우)."""
+    log = get_certificate_number_log(db, certificate_number)
+    if not log:
+        raise ValueError("발급 이력을 찾을 수 없는 번호입니다.")
+    log.status = "issued"
+    db.commit()
+    return log
+
+
+def update_certificate_number_log(db: Session, certificate_number: str, data: dict) -> "models.CertificateNumberLog":
+    """발급이력 1건 수정 (취소 처리만 가능했던 것을 보완 - 오타난 발급번호/대상자명/
+    차량번호/비고를 직접 고칠 수 있게 함).
+
+    - 발급번호(certificate_number) 자체는 상태와 무관하게 항상 형식/중복 검증을 거쳐 수정
+      가능하나, 'used'(실제 회원/대장 등에 연결되어 사용 중)인 항목은 그 번호가 실제
+      연결된 레코드의 certificate_number와 동일한 값으로 맞춰져 있어야 하므로, 여기서
+      번호만 바꾸면 실제 데이터와 어긋나게 된다 - 따라서 'used' 상태에서는 발급번호
+      자체는 잠그고, 대상자명·차량번호·비고는 자유롭게 수정 가능하게 한다(수기로 표시를
+      바로잡는 용도 - 실제 연결 레코드의 이름/차량번호가 바뀌어 재동기화되면 그 값으로
+      다시 덮어써질 수 있음).
+    - 'issued'(미사용)/'cancelled'(취소)인 항목은 아직 실제 레코드와 연결되지 않았으므로
+      발급번호(오타 수정 포함)·대상자명·차량번호·비고를 모두 자유롭게 수정 가능.
+      번호를 바꾸는 경우 형식(YY-N)과 중복 여부(다른 발급이력, 실제 사용 중인 레코드
+      양쪽 모두)를 확인한다.
+    """
+    log = get_certificate_number_log(db, certificate_number)
+    if not log:
+        raise ValueError("발급 이력을 찾을 수 없는 번호입니다.")
+
+    if "memo" in data:
+        log.memo = data["memo"]
+    if "target_name" in data:
+        log.target_name = data["target_name"]
+    if "vehicle_number" in data:
+        log.vehicle_number = data["vehicle_number"]
+
+    if log.status == "used":
+        # 사용중 상태는 발급번호(연결 키) 자체만 잠근다 - 대상자명/차량번호/비고는 위에서 이미 반영됨
+        db.commit()
+        db.refresh(log)
+        return log
+
+    new_num = data.get("certificate_number")
+    if new_num is not None and str(new_num).strip() != (log.certificate_number or ""):
+        new_num_clean = normalize_certificate_number(str(new_num).strip())
+        if not new_num_clean:
+            raise ValueError("발급번호 형식이 올바르지 않습니다 (예: 26-329).")
+        if certificate_number_exists(db, new_num_clean, exclude_id=log.id):
+            raise ValueError(f"발급번호 {new_num_clean}는 이미 같은 번호의 다른 발급이력으로 존재합니다.")
+        usage = _scan_certificate_number_usage(db, new_num_clean)
+        if usage:
+            raise ValueError(
+                f"발급번호 {new_num_clean}는 이미 {usage[0]}에서 실제 사용 중입니다"
+                f"(대상: {usage[2] or usage[1]})."
+            )
+        try:
+            yy_s, n_s = new_num_clean.split("-", 1)
+            log.year, log.number = int(yy_s), int(n_s)
+        except Exception:
+            pass
+        log.certificate_number = new_num_clean
+
+    db.commit()
+    db.refresh(log)
+    return log
+
+
+def backfill_certificate_number_logs(db: Session):
+    """운영 데이터에 이미 발급되어 있지만(카운터가 앞서 있음) 로그가 없는 번호들을
+    이력 화면에 노출되도록 자동으로 채워 넣는다 (최초 배포/기존 서비스 대상 1회성 처리,
+    이미 로그가 있는 번호는 건드리지 않음).
+    """
+    counters = db.query(models.CertificateNumberCounter).all()
+    for counter in counters:
+        yy = counter.year
+        existing_numbers = {
+            n for (n,) in db.query(models.CertificateNumberLog.number).filter(
+                models.CertificateNumberLog.year == yy).all()
+        }
+        for n in range(1, counter.last_number + 1):
+            if n in existing_numbers:
+                continue
+            cert_number = f"{yy}-{n}"
+            usage = _scan_certificate_number_usage(db, cert_number)
+            if usage:
+                tname, lid, name, vehicle = usage
+                db.add(models.CertificateNumberLog(
+                    year=yy, number=n, certificate_number=cert_number,
+                    status="used", issued_by=None,
+                    linked_table=tname, linked_id=lid,
+                    target_name=name, vehicle_number=vehicle,
+                    memo="기존 발급이력 자동 생성(발급자/일시 확인불가)",
+                ))
+            else:
+                db.add(models.CertificateNumberLog(
+                    year=yy, number=n, certificate_number=cert_number,
+                    status="issued", issued_by=None,
+                    memo="기존 발급이력 자동 생성(발급자/일시 확인불가, 실사용 여부 미확인)",
+                ))
+    db.commit()
+
+
+def list_certificate_number_logs(db: Session, search: str = None, status: str = None,
+                                  page: int = 1, limit: int = 50, sort: str = "desc"):
+    """발급이력 목록. 26-085와 26-85는 한 번호로 묶어 한 줄만 보여준다.
+
+    기존 DB 행은 삭제하지 않는다. 화면/조회 단계에서 (year, number) 기준으로만 합쳐 보여준다.
+    같은 번호가 중복 존재하면 used > cancelled > issued 순으로 실제 사용 이력을 우선 표시한다.
+    """
+    q = db.query(models.CertificateNumberLog)
+    if status and status != "all":
+        q = q.filter(models.CertificateNumberLog.status == status)
+    if search:
+        raw = search.strip()
+        parts = _certificate_number_parts(raw)
+        if parts:
+            yy, num = parts
+            q = q.filter(or_(
+                (models.CertificateNumberLog.year == yy) & (models.CertificateNumberLog.number == num),
+                models.CertificateNumberLog.target_name.like(f"%{raw}%"),
+                models.CertificateNumberLog.vehicle_number.like(f"%{raw}%"),
+            ))
+        else:
+            ss = f"%{raw}%"
+            q = q.filter(or_(
+                models.CertificateNumberLog.certificate_number.like(ss),
+                models.CertificateNumberLog.target_name.like(ss),
+                models.CertificateNumberLog.vehicle_number.like(ss),
+            ))
+
+    rows = q.all()
+    priority = {"used": 3, "cancelled": 2, "issued": 1}
+    grouped = {}
+    for row in rows:
+        key = (row.year, row.number)
+        if key[0] is None or key[1] is None:
+            key = normalize_certificate_number(row.certificate_number) or f"id:{row.id}"
+        prev = grouped.get(key)
+        if prev is None:
+            grouped[key] = row
+            continue
+        cur_key = (priority.get(row.status or "", 0), row.updated_at or row.issued_at or datetime.min.replace(tzinfo=timezone.utc), row.id or 0)
+        prev_key = (priority.get(prev.status or "", 0), prev.updated_at or prev.issued_at or datetime.min.replace(tzinfo=timezone.utc), prev.id or 0)
+        if cur_key > prev_key:
+            grouped[key] = row
+
+    items = list(grouped.values())
+    items.sort(key=lambda r: ((r.year if r.year is not None else -1),
+                              (r.number if r.number is not None else -1),
+                              r.id or 0), reverse=(sort != "asc"))
+    total = len(items)
+    begin = max(0, (page - 1) * limit)
+    return items[begin:begin + limit], total
+
+
+
+def _get_yy() -> str:
+    return str(datetime.now().year)[2:]
+
+
+def _max_suffix(items, prefix: str) -> int:
+    max_n = 0
+    for item in items:
+        try:
+            n = int(item.management_number.split("-")[1])
+            if n > max_n:
+                max_n = n
+        except Exception:
+            pass
+    return max_n
+
+
+def get_next_new_member_number(db: Session) -> str:
+    """신YY-N (신규등록 회원)"""
+    yy = _get_yy()
+    prefix = f"신{yy}-"
+    items = db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.management_number.like(f"{prefix}%"),
+        models.LicenseHolder.deleted_at.is_(None)
+    ).all()
+    return f"{prefix}{_max_suffix(items, prefix) + 1}"
+
+
+def get_next_transfer_member_number(db: Session) -> str:
+    """양YY-N (양도양수 회원).
+    LicenseHolder(정식 회원)와 Candidate(예정자) 양쪽 모두에서 이미 발급된
+    관리번호를 조회하여 최댓값 + 1을 반환한다. 예정자로 등록된 양수자도
+    관리번호를 실제로 점유하므로, 두 테이블을 모두 봐야 중복 발급을 막을 수 있다.
+    """
+    yy = _get_yy()
+    prefix = f"양{yy}-"
+    lh_items = db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.management_number.like(f"{prefix}%"),
+        models.LicenseHolder.deleted_at.is_(None)
+    ).all()
+    cand_items = db.query(models.Candidate).filter(
+        models.Candidate.management_number.like(f"{prefix}%"),
+        models.Candidate.deleted_at.is_(None)
+    ).all()
+    max_n = max(_max_suffix(lh_items, prefix), _max_suffix(cand_items, prefix))
+    return f"{prefix}{max_n + 1}"
+
+
+def _mgmt_number_in_use(db: Session, mgmt_num: str) -> bool:
+    """관리번호가 LicenseHolder 또는 Candidate 어느 쪽에서든 이미 사용 중인지 확인
+    (양도양수 관리번호는 두 테이블에 걸쳐 발급되므로 양쪽 다 체크해야 함)."""
+    if not mgmt_num:
+        return False
+    if check_mgmt_dup(db, models.LicenseHolder, mgmt_num):
+        return True
+    if db.query(models.Candidate).filter(
+        models.Candidate.management_number == mgmt_num,
+        models.Candidate.deleted_at.is_(None),
+    ).first() is not None:
+        return True
+    return False
+
+
+def lock_transfer_number_sequence(db: Session):
+    """관리번호 동시발급 방지용 잠금.
+    PostgreSQL: 트랜잭션 범위 advisory lock으로 동시 요청을 직렬화.
+    (같은 db 세션의 트랜잭션이 commit/rollback 될 때 자동 해제됨)
+    SQLite: 별도 처리 없이 통과 (단일 파일 기반이라 충돌 가능성 낮음, 개발환경 전용)
+    """
+    try:
+        bind = db.get_bind()
+        if bind is not None and bind.dialect.name == "postgresql":
+            from sqlalchemy import text
+            # 임의의 고정 키로 advisory lock (신규/양도양수 관리번호 발급 공통)
+            db.execute(text("SELECT pg_advisory_xact_lock(hashtext('transfer_member_number_seq'))"))
+    except Exception:
+        # 잠금 실패 시에도 진행 (완전 차단하지 않음) - 아래 중복 체크가 최종 방어선
+        pass
+
+
+def get_last_issued_management_number(db: Session, mgmt_type: str) -> Optional[str]:
+    """현재까지 발급된 마지막 관리번호 조회 (신규: 신YY-N, 양도양수: 양YY-N).
+    삭제되지 않은 레코드 기준 최댓값. 아직 발급된 적 없으면 None.
+    양도양수(양YY-N)는 LicenseHolder와 Candidate(예정자) 양쪽에서 발급되므로 함께 조회한다.
+    """
+    yy = _get_yy()
+    prefix = f"{'신' if mgmt_type == 'new' else '양'}{yy}-"
+    items = db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.management_number.like(f"{prefix}%"),
+        models.LicenseHolder.deleted_at.is_(None)
+    ).all()
+    n = _max_suffix(items, prefix)
+    if mgmt_type != 'new':
+        cand_items = db.query(models.Candidate).filter(
+            models.Candidate.management_number.like(f"{prefix}%"),
+            models.Candidate.deleted_at.is_(None)
+        ).all()
+        n = max(n, _max_suffix(cand_items, prefix))
+    return f"{prefix}{n}" if n > 0 else None
+
+
+def issue_management_number_only(db: Session, mgmt_type: str,
+                                  category: Optional[str] = None) -> "models.LicenseHolder":
+    """회원정보 입력 없이 관리번호만 먼저 발급.
+    이름/차량번호가 빈 placeholder 회원 레코드(status='pending')를 즉시 생성하여
+    번호를 그 자리에서 예약한다. 실제 DB 행이 번호를 점유하므로 다른 발급과 절대
+    중복되지 않고, 나중에 이 레코드를 그대로 수정(회원 수정 화면)하면 회원정보가
+    해당 관리번호와 자동으로 연결된다.
+    """
+    lock_transfer_number_sequence(db)
+    mgmt = get_next_new_member_number(db) if mgmt_type == 'new' else get_next_transfer_member_number(db)
+    # 방어적 재확인 (advisory lock이 동작하지 않는 환경 대비 최종 방어선)
+    tries = 0
+    prefix = f"{'신' if mgmt_type == 'new' else '양'}{_get_yy()}-"
+    _dup_check = check_mgmt_dup if mgmt_type == 'new' else (lambda db_, model_, m: _mgmt_number_in_use(db_, m))
+    while _dup_check(db, models.LicenseHolder, mgmt) and tries < 30:
+        try:
+            n = int(mgmt.split("-")[1]) + 1
+        except Exception:
+            n = 1
+        mgmt = f"{prefix}{n}"
+        tries += 1
+    placeholder = models.LicenseHolder(
+        management_number=mgmt,
+        registration_type="신규" if mgmt_type == 'new' else "양도양수",
+        status="pending",
+        category=category or None,
+        name="", vehicle_number="",
+    )
+    db.add(placeholder)
+    db.commit()
+    db.refresh(placeholder)
+    return placeholder
+
+
+
+
+def get_next_closure_number(db: Session, closure_type: str) -> str:
+    """폐-80, 양-28, 이-4 (연도 없음).
+
+    폐업/양도/이관 관리번호는 한번 사용된 번호를 영구 재사용하지 않는다.
+    폐업취소로 결번 처리된 행도 과거 사용번호이므로 삭제 여부/처리구분과 관계없이
+    동일 접두사의 전체 이력을 검사해 다음 번호를 발급한다.
+    """
+    if closure_type == '폐지':
+        closure_type = '폐업'
+    prefix_start = {"폐업": ("폐-", 80), "양도": ("양-", 28), "이관": ("이-", 4)}
+    prefix, start = prefix_start.get(closure_type, ("폐-", 1))
+    items = db.query(models.Closure).filter(
+        models.Closure.management_number.like(f"{prefix}%")
+    ).all()
+    max_n = start - 1
+    for item in items:
+        try:
+            n = int(item.management_number.split("-")[1])
+            if n > max_n:
+                max_n = n
+        except Exception:
+            pass
+    return f"{prefix}{max_n + 1}"
+
+
+def check_mgmt_dup(db: Session, model: Type, mgmt_num: str, exclude_id: int = None) -> bool:
+    if not mgmt_num:
+        return False
+    q = db.query(model).filter(model.management_number == mgmt_num)
+    # 폐업/양도/이관 번호는 취소/삭제된 과거 번호까지 영구 점유한다.
+    # 회원 등 다른 관리번호는 기존대로 활성 행만 중복검사한다.
+    if model is not models.Closure:
+        q = q.filter(model.deleted_at.is_(None))
+    if exclude_id:
+        q = q.filter(model.id != exclude_id)
+    return q.first() is not None
+
+
+# ===== CANDIDATE → MEMBER REGISTRATION =====
+
+def register_candidate_as_member(db: Session, candidate_id: int,
+                                  approval_date: str, management_number: str,
+                                  membership_date: str = "") -> models.LicenseHolder:
+    """예정자 → 회원 등록완료 처리.
+
+    관리번호 접두어에 따라 분기:
+    - '신YY-N' : 기존과 동일하게 회원 등록만 처리 (양도양수대장 생성 안 함)
+    - '양YY-N' : 회원 등록과 동시에 양도양수대장에도 한 건 자동 생성 (양수자=현재 예정자,
+                 양도자 정보는 없으므로 비워둠). 회원 등록 + 대장 등록을 하나의 트랜잭션으로 처리하며
+                 실패 시 전체 rollback한다.
+
+    새로운 UI/선택항목/구분필드는 추가하지 않는다 - 관리번호 문자열의 접두어만으로 판단한다.
+    """
+    try:
+        # 동시 중복등록 방지: PostgreSQL에서는 예정자 행을 잠그고 진행 (개발환경 SQLite는 통과)
+        q = db.query(models.Candidate).filter(models.Candidate.id == candidate_id)
+        try:
+            bind = db.get_bind()
+            if bind is not None and bind.dialect.name == "postgresql":
+                q = q.with_for_update()
+        except Exception:
+            pass
+        cand = q.first()
+        if not cand:
+            raise ValueError("예정자를 찾을 수 없습니다.")
+        if cand.is_registered:
+            raise ValueError("이미 등록 처리된 예정자입니다.")
+
+        cat = detect_category(cand.vehicle_number)
+        # 등록완료 모달 입력값 우선, 없으면 예정자 저장 시 입력한 가입일자 이어받기
+        final_membership_date = membership_date or getattr(cand, 'membership_date', '') or ''
+        # ★ 가입일자 기준으로만 판정: 없으면 무조건 미가입
+        from app.excel_utils import normalize_membership_status
+        ms = normalize_membership_status(final_membership_date)
+        member = models.LicenseHolder(
+            management_number=management_number,
+            registration_type="신규",
+            status="active",
+            category=cat,
+            region=cand.region,
+            vehicle_number=cand.vehicle_number,
+            name=cand.name,
+            resident_number=cand.resident_number,
+            address=cand.address,
+            phone=cand.phone,
+            mobile=cand.mobile,
+            approval_date=approval_date,
+            membership_date=final_membership_date or None,
+            membership_status=ms,       # 가입일자 기준 (없으면 미가입)
+            certificate_issue_date=cand.certificate_issue_date,
+            certificate_number=cand.certificate_number,
+            driver_license_number=cand.driver_license_number,
+            vehicle_type=cand.vehicle_type,
+            fuel_type=cand.fuel_type,
+            business_number=cand.business_number,
+            affiliated_company=cand.affiliated_company,
+            memo=cand.memo,
+            candidate_id=candidate_id,
+        )
+        db.add(member)
+        db.flush()
+
+        # ── 관리번호가 '양'으로 시작하면 양도양수대장 연결 ──
+        mgmt_clean = (management_number or "").strip()
+        if mgmt_clean.startswith("양"):
+            existing_ledger = db.query(models.TransferLedger).filter(
+                models.TransferLedger.management_number == mgmt_clean,
+                models.TransferLedger.deleted_at.is_(None),
+            ).first()
+            if existing_ledger:
+                # 도내 양도양수 등록 시 이미 생성된 대장 기록 (예정자 단계) - 새로 만들지 않고
+                # 회원 등록완료 정보로 갱신/연결만 한다. 한 거래당 대장 기록은 항상 1건이어야 함.
+                if existing_ledger.transferee_member_id and existing_ledger.transferee_member_id != member.id:
+                    raise ValueError(f"양도양수대장 관리번호 {mgmt_clean} 기록이 다른 회원과 이미 연결되어 있습니다.")
+                existing_ledger.transferee_member_id = member.id
+                existing_ledger.member_id = member.id
+                existing_ledger.transferee = cand.name or existing_ledger.transferee
+                existing_ledger.approval_date = approval_date or existing_ledger.approval_date
+                existing_ledger.membership_date = final_membership_date or existing_ledger.membership_date
+                db.flush()
+                member.transfer_ledger_id = existing_ledger.id
+                ledger = existing_ledger
+            else:
+                ledger = models.TransferLedger(
+                    management_number=mgmt_clean,
+                    receipt_date="",
+                    region=cand.region or "",
+                    vehicle_number=cand.vehicle_number or "",
+                    transferor="",                      # 양도자 정보 없음 - 빈칸
+                    transferee=cand.name or "",
+                    resident_number=cand.resident_number or "",
+                    address=cand.address or "",
+                    phone=cand.phone or "",
+                    mobile=cand.mobile or "",
+                    approval_date=approval_date or "",
+                    membership_date=final_membership_date or "",
+                    certificate_issue_date=cand.certificate_issue_date or "",
+                    certificate_number=cand.certificate_number or "",
+                    driver_license_number=cand.driver_license_number or "",
+                    memo=cand.memo or "",
+                    vehicle_type=cand.vehicle_type or "",
+                    fuel_type=cand.fuel_type or "",
+                    affiliated_company=cand.affiliated_company or "",
+                    transferor_member_id=None,           # 양도자 정보 없음 - null 허용
+                    transferee_member_id=member.id,
+                    member_id=member.id,
+                )
+                db.add(ledger)
+                db.flush()
+                member.transfer_ledger_id = ledger.id
+
+            # ── 폐업현황에도 '양도' 기록 생성 (양도자를 내부 회원으로 특정할 수 없으므로
+            #    member_id는 null, 양도자 성명 등도 확보된 정보가 없으므로 빈칸으로 둔다.
+            #    새로 등록되는 양수자는 절대 폐업/비활성 처리하지 않는다) ──
+            dup_closure = db.query(models.Closure).filter(
+                models.Closure.transfer_ledger_id == ledger.id,
+                models.Closure.deleted_at.is_(None),
+            ).first()
+            if not dup_closure:
+                import datetime as _dt
+                closure_mgmt = get_next_closure_number(db, "양도")
+                if check_mgmt_dup(db, models.Closure, closure_mgmt):
+                    raise ValueError(f"폐업현황 관리번호 {closure_mgmt}가 이미 존재합니다. 다시 시도해주세요.")
+                closure = models.Closure(
+                    management_number=closure_mgmt,
+                    closure_type="양도",
+                    data_type="신규자료",
+                    region=cand.region or "",
+                    vehicle_number=cand.vehicle_number or "",
+                    name="",                       # 양도자 성명 정보 없음 - 빈칸 유지
+                    closure_date=_dt.date.today().isoformat(),
+                    receipt_date="",
+                    approval_date=approval_date or "",
+                    transferee=cand.name or "",
+                    transfer_region=cand.region or "",
+                    transferee_member_id=member.id,
+                    transfer_ledger_id=ledger.id,
+                    member_id=None,                # 내부 양도자 특정 불가 - null 허용
+                    original_mgmt_match_status="unmatched",  # 양도자 정보 자체가 없어 매칭 대상 없음
+                )
+                db.add(closure)
+                db.flush()
+
+        cand.is_registered = True
+        cand.member_id = member.id
+        db.commit()
+        db.refresh(member)
+        return member
+    except Exception:
+        db.rollback()
+        raise
+
+
+def register_transfer_as_member(db: Session, transfer_id: int,
+                                  management_number: str) -> models.LicenseHolder:
+    tr = get_by_id(db, models.TransferLedger, transfer_id)
+    if not tr:
+        raise ValueError("양도양수 기록을 찾을 수 없습니다.")
+    cat = detect_category(tr.vehicle_number)
+    # 가입일자(membership_date)가 있으면 가입, 없으면 미가입
+    from app.excel_utils import normalize_membership_status
+    ms = normalize_membership_status(tr.membership_date or '')
+    member = models.LicenseHolder(
+        management_number=management_number,
+        registration_type="양도양수",
+        status="active",
+        category=cat,
+        region=tr.region,
+        vehicle_number=tr.vehicle_number,
+        name=tr.transferee,
+        resident_number=tr.resident_number,
+        address=tr.address,
+        phone=tr.phone,
+        mobile=tr.mobile,
+        approval_date=tr.approval_date,
+        membership_date=tr.membership_date,
+        certificate_issue_date=tr.certificate_issue_date,
+        certificate_number=tr.certificate_number,
+        driver_license_number=tr.driver_license_number,
+        memo=tr.memo,
+        transfer_ledger_id=transfer_id,
+        membership_status=ms,   # 가입일자 기준 자동 판정
+    )
+    db.add(member)
+    db.flush()
+    tr.management_number = management_number
+    tr.member_id = member.id
+    db.commit()
+    db.refresh(member)
+    return member
+
+
+def close_member_no_commit(db: Session, member_id: int, closure_type: str,
+                            closure_date: str, management_number: str, reason: str = "",
+                            transferee: str = "", transfer_region: str = "",
+                            receipt_date: str = "", transferee_member_id: int = None,
+                            transfer_ledger_id: int = None) -> models.Closure:
+    """폐업/양도/이관 처리 (커밋하지 않음 - 상위 트랜잭션에서 일괄 커밋).
+    실패 시 예외를 던지므로 호출측에서 반드시 try/except로 db.rollback() 처리해야 함."""
+    member = get_by_id(db, models.LicenseHolder, member_id)
+    if not member:
+        raise ValueError("회원을 찾을 수 없습니다.")
+    closure = models.Closure(
+        management_number=management_number,
+        closure_type=closure_type,
+        data_type="신규자료",
+        region=member.region,
+        vehicle_number=member.vehicle_number,
+        name=member.name,
+        company_name=getattr(member, 'company_name', '') or '',
+        closure_date=closure_date,
+        receipt_date=receipt_date or "",
+        approval_date=member.approval_date,
+        reason=reason,
+        transferee=transferee or "",
+        transfer_region=transfer_region or "",
+        transferee_member_id=transferee_member_id,
+        transfer_ledger_id=transfer_ledger_id,
+        # 회원 기존 정보 복사
+        vehicle_type=member.vehicle_type or "",
+        fuel_type=member.fuel_type or "",
+        structure_change=getattr(member, 'structure_change', '') or '',
+        phone=member.phone or "",
+        mobile=member.mobile or "",
+        address=member.address or "",
+        official_address=getattr(member, 'official_address', '') or '',
+        membership_status=member.membership_status or "",
+        membership_date=member.membership_date or "",
+        certificate_issue_date=member.certificate_issue_date or "",
+        certificate_number=member.certificate_number or "",
+        driver_license_number=getattr(member, 'driver_license_number', '') or '',
+        resident_number=getattr(member, 'resident_number', '') or '',
+        affiliated_company=getattr(member, 'affiliated_company', '') or '',
+        agent_name=getattr(member, 'agent_name', '') or '',
+        agent_mobile=getattr(member, 'agent_mobile', '') or '',
+        memo=getattr(member, 'memo', '') or '',
+        member_id=member_id,
+        # 회원의 '원래' 관리번호를 폐업번호와 별도로 보존 (member_id로 직접 연결되므로 확실함)
+        original_management_number=member.management_number or "",
+        original_mgmt_match_status="linked",
+    )
+    db.add(closure)
+    db.flush()
+    member.status = "closed"
+    member.closure_id = closure.id
+    return closure
+
+
+def close_member(db: Session, member_id: int, closure_type: str,
+                  closure_date: str, management_number: str, reason: str = "",
+                  transferee: str = "", transfer_region: str = "",
+                  receipt_date: str = "") -> models.Closure:
+    closure = close_member_no_commit(
+        db, member_id, closure_type, closure_date, management_number, reason,
+        transferee=transferee, transfer_region=transfer_region, receipt_date=receipt_date,
+    )
+    db.commit()
+    db.refresh(closure)
+    return closure
+
+
+def _norm_vehicle(v) -> str:
+    """차량번호 비교용 정규화 (closures.py _norm_vn과 동일 규칙)."""
+    import re as _re
+    v = str(v or '').strip()
+    v = _re.sub(r'\s+', '', v)
+    v = _re.sub(r'호$', '', v)
+    return v.lower()
+
+
+def _match_original_member_for_closure(c, by_resident, by_vehicle, by_name_phone, by_certificate):
+    """폐업현황 1건에 대해 원래 회원을 우선순위대로 매칭한다.
+    우선순위: 주민등록번호 완전일치 > 차량번호(정규화) > 성명+전화(핸드폰) 조합 > 자격증명발급번호.
+    후보가 2명 이상이면 임의로 고르지 않고 'ambiguous'로 반환한다."""
+    rn = (getattr(c, 'resident_number', '') or '').strip()
+    if rn:
+        cands = by_resident.get(rn, [])
+        if len(cands) == 1:
+            return cands[0], "matched_resident"
+        if len(cands) > 1:
+            return None, "ambiguous"
+
+    vn = _norm_vehicle(c.vehicle_number)
+    if vn:
+        cands = by_vehicle.get(vn, [])
+        if len(cands) == 1:
+            return cands[0], "matched_vehicle"
+        if len(cands) > 1:
+            name = (c.name or '').strip()
+            narrowed = [m for m in cands if name and (m.name or '').strip() == name]
+            if len(narrowed) == 1:
+                return narrowed[0], "matched_vehicle"
+            return None, "ambiguous"
+
+    name = (c.name or '').strip()
+    phone = (getattr(c, 'phone', '') or getattr(c, 'mobile', '') or '').strip()
+    if name and phone:
+        cands = by_name_phone.get((name, phone), [])
+        if len(cands) == 1:
+            return cands[0], "matched_name_phone"
+        if len(cands) > 1:
+            return None, "ambiguous"
+
+    cert = (getattr(c, 'certificate_number', '') or '').strip()
+    if cert:
+        cands = by_certificate.get(cert, [])
+        if len(cands) == 1:
+            return cands[0], "matched_certificate"
+        if len(cands) > 1:
+            return None, "ambiguous"
+
+    return None, "unmatched"
+
+
+def backfill_closure_original_management_numbers(db: Session) -> dict:
+    """과거(이전자료 포함) 폐업/이관 데이터 전수에 대해 회원의 '원래' 관리번호를 복구한다.
+
+    - original_management_number가 이미 채워진 건은 건드리지 않는다(멱등 - 여러 번
+      실행해도 안전. 서버 재기동마다 자동 실행되어도 무방).
+    - member_id가 있으면 그 회원을 그대로 사용(가장 확실함).
+    - 없으면 주민등록번호 > 차량번호 > 성명+전화 > 자격증명발급번호 순으로 매칭.
+    - 후보가 2명 이상(ambiguous)이거나 전혀 못 찾은 경우(unmatched)는 임의로 채우지
+      않고 상태만 기록한다 - '관리번호 확인필요' 목록(조회 API)에서 별도로 노출된다.
+    - 기존 회원 ID를 새로 만들지 않는다. member_id가 비어있었는데 매칭에 성공하면
+      그 매칭된 기존 회원 ID로 연결관계만 복구한다(회원 자체는 새로 생성하지 않음)."""
+    targets = db.query(models.Closure).filter(
+        models.Closure.original_management_number.is_(None),
+        models.Closure.deleted_at.is_(None),
+    ).all()
+    counts = {"processed": 0, "linked_by_id": 0, "matched": 0, "ambiguous": 0, "unmatched": 0}
+    if not targets:
+        return counts
+
+    all_members = db.query(models.LicenseHolder).filter(models.LicenseHolder.deleted_at.is_(None)).all()
+    by_id = {m.id: m for m in all_members}
+    by_resident, by_vehicle, by_name_phone, by_certificate = {}, {}, {}, {}
+    for m in all_members:
+        rn = (getattr(m, 'resident_number', '') or '').strip()
+        if rn:
+            by_resident.setdefault(rn, []).append(m)
+        vn = _norm_vehicle(m.vehicle_number)
+        if vn:
+            by_vehicle.setdefault(vn, []).append(m)
+        nm = (m.name or '').strip()
+        ph = (getattr(m, 'phone', '') or getattr(m, 'mobile', '') or '').strip()
+        if nm and ph:
+            by_name_phone.setdefault((nm, ph), []).append(m)
+        cert = (getattr(m, 'certificate_number', '') or '').strip()
+        if cert:
+            by_certificate.setdefault(cert, []).append(m)
+
+    for c in targets:
+        counts["processed"] += 1
+        mid = getattr(c, "member_id", None)
+        if mid and mid in by_id:
+            c.original_management_number = by_id[mid].management_number or ""
+            c.original_mgmt_match_status = "linked"
+            counts["linked_by_id"] += 1
+            continue
+        member, status = _match_original_member_for_closure(
+            c, by_resident, by_vehicle, by_name_phone, by_certificate)
+        if member:
+            c.original_management_number = member.management_number or ""
+            c.original_mgmt_match_status = status
+            if not mid:
+                c.member_id = member.id  # 새 회원ID 생성 없이, 매칭된 기존 회원과 연결관계만 복구
+            counts["matched"] += 1
+        else:
+            c.original_mgmt_match_status = status  # "ambiguous" 또는 "unmatched"
+            counts[status] = counts.get(status, 0) + 1
+    db.commit()
+    return counts
+
+
+# ===== 도내 양도양수 (거래 단위 일괄 처리) =====
+
+_DUP_STRONG_MSG = ("동일한 주민등록번호 또는 차량번호를 가진 회원/예정자가 이미 존재합니다. "
+                    "실수로 중복 등록되지 않도록 주의하세요.")
+_DUP_WEAK_MSG = ("동일하거나 유사한 회원정보가 이미 존재합니다. 기존 회원과 연결하시겠습니까?")
+
+
+def find_duplicate_transferee(db: Session, resident_number: str = "", vehicle_number: str = "",
+                               name: str = "", mobile: str = "",
+                               exclude_member_id: int = None) -> List[dict]:
+    """양수자 중복 확인: 주민등록번호/차량번호 완전일치 → strong,
+    성명+핸드폰 조합 일치 → weak. 회원(LicenseHolder)과 예정자(Candidate) 모두 조회.
+
+    exclude_member_id: 도내 양도양수에서 양도자 본인의 회원 ID.
+    도내 양도양수는 차량번호가 양도자→양수자 그대로 유지되므로, 차량번호 일치 검색을
+    exclude 없이 수행하면 아직 폐업 처리되지 않아 status='active'인 양도자 본인이
+    항상 '중복 후보'로 잡혀서 양수자가 양도자 자신과 연결되는 사고로 이어진다.
+    """
+    resident_number = (resident_number or "").strip()
+    vehicle_number = (vehicle_number or "").strip()
+    name = (name or "").strip()
+    mobile = (mobile or "").strip()
+
+    matches: List[dict] = []
+
+    def _add(kind, item, strength):
+        matches.append({
+            "type": kind,  # 'member' | 'candidate'
+            "id": item.id,
+            "name": getattr(item, "name", "") or "",
+            "vehicle_number": getattr(item, "vehicle_number", "") or "",
+            "management_number": getattr(item, "management_number", "") or "",
+            "region": getattr(item, "region", "") or "",
+            "mobile": getattr(item, "mobile", "") or "",
+            "strength": strength,
+        })
+
+    # 1) 주민등록번호 / 차량번호 완전일치 (strong)
+    if resident_number:
+        q = db.query(models.LicenseHolder).filter(
+            models.LicenseHolder.resident_number == resident_number,
+            models.LicenseHolder.deleted_at.is_(None),
+        )
+        if exclude_member_id:
+            q = q.filter(models.LicenseHolder.id != exclude_member_id)
+        for m in q.all():
+            _add("member", m, "strong")
+        q2 = db.query(models.Candidate).filter(
+            models.Candidate.resident_number == resident_number,
+            models.Candidate.deleted_at.is_(None),
+            models.Candidate.is_registered == False,
+        ).all()
+        for c in q2:
+            _add("candidate", c, "strong")
+
+    if vehicle_number:
+        q = db.query(models.LicenseHolder).filter(
+            models.LicenseHolder.vehicle_number == vehicle_number,
+            models.LicenseHolder.deleted_at.is_(None),
+            models.LicenseHolder.status == "active",
+        )
+        if exclude_member_id:
+            q = q.filter(models.LicenseHolder.id != exclude_member_id)
+        for m in q.all():
+            _add("member", m, "strong")
+        q2 = db.query(models.Candidate).filter(
+            models.Candidate.vehicle_number == vehicle_number,
+            models.Candidate.deleted_at.is_(None),
+            models.Candidate.is_registered == False,
+        ).all()
+        for c in q2:
+            _add("candidate", c, "strong")
+
+    # 2) 성명 + 핸드폰 조합 (weak)
+    if name and mobile:
+        q = db.query(models.LicenseHolder).filter(
+            models.LicenseHolder.name == name,
+            models.LicenseHolder.mobile == mobile,
+            models.LicenseHolder.deleted_at.is_(None),
+        )
+        if exclude_member_id:
+            q = q.filter(models.LicenseHolder.id != exclude_member_id)
+        for m in q.all():
+            _add("member", m, "weak")
+        q2 = db.query(models.Candidate).filter(
+            models.Candidate.name == name,
+            models.Candidate.mobile == mobile,
+            models.Candidate.deleted_at.is_(None),
+            models.Candidate.is_registered == False,
+        ).all()
+        for c in q2:
+            _add("candidate", c, "weak")
+
+    # id+type 기준 중복 제거 (strong 우선)
+    dedup = {}
+    for m in matches:
+        key = (m["type"], m["id"])
+        if key not in dedup or m["strength"] == "strong":
+            dedup[key] = m
+    return list(dedup.values())
+
+
+def process_domestic_transfer(db: Session, *, transferor_member_id: int,
+                               transfer_fields: dict, transferee_target: str,
+                               transferee_fields: dict, closure_date: str,
+                               closure_reason: str = "", receipt_date: str = "",
+                               management_number: str = None,
+                               link_existing_id: int = None,
+                               link_existing_type: str = None) -> dict:
+    """도내 양도양수 등록 - 하나의 트랜잭션으로 처리.
+    성공 시 db.commit(), 실패 시 db.rollback() 후 예외 재발생.
+
+    transferee_target: 'member' (즉시 회원 등록) | 'candidate' (예정자로 등록)
+    link_existing_id/type: 중복확인 후 기존 회원/예정자와 연결하는 경우
+    """
+    try:
+        transferor = get_by_id(db, models.LicenseHolder, transferor_member_id)
+        if not transferor:
+            raise ValueError("양도자 회원을 찾을 수 없습니다.")
+        if transferor.status == "closed":
+            raise ValueError("이미 폐업 처리된 회원입니다.")
+
+        closure_mgmt = get_next_closure_number(db, "양도")
+        if check_mgmt_dup(db, models.Closure, closure_mgmt):
+            raise ValueError(f"폐업현황 관리번호 {closure_mgmt}가 이미 존재합니다. 다시 시도해주세요.")
+
+        # ── 1) 양수자 결정: 기존 회원/예정자 연결 or 신규 생성 ──
+        transferee_member = None
+        transferee_candidate = None
+        mgmt = None  # 신규 생성 시에만 관리번호를 발급/점유한다 (기존 연결 시에는 새 번호를 쓰지 않음)
+
+        if link_existing_id and link_existing_type == "member":
+            if link_existing_id == transferor_member_id:
+                raise ValueError("양수자를 양도자 본인과 동일한 회원으로 연결할 수 없습니다.")
+            transferee_member = get_by_id(db, models.LicenseHolder, link_existing_id)
+            if not transferee_member:
+                raise ValueError("연결할 기존 회원을 찾을 수 없습니다.")
+            mgmt = transferee_member.management_number or None
+        elif link_existing_id and link_existing_type == "candidate":
+            transferee_candidate = get_by_id(db, models.Candidate, link_existing_id)
+            if not transferee_candidate:
+                raise ValueError("연결할 기존 예정자를 찾을 수 없습니다.")
+            mgmt = getattr(transferee_candidate, 'management_number', None) or None
+        else:
+            # 신규 생성 - 관리번호 발급 (동시성 잠금, 최댓값+1, 중복 재확인)
+            lock_transfer_number_sequence(db)
+            mgmt = management_number or get_next_transfer_member_number(db)
+            if _mgmt_number_in_use(db, mgmt):
+                raise ValueError(f"관리번호 {mgmt}가 이미 존재합니다. 다시 시도해주세요.")
+
+            name = (transferee_fields.get("name") or "").strip()
+            if not name:
+                raise ValueError("양수자 성명을 입력하세요.")
+            vehicle_number = transferee_fields.get("vehicle_number") or transferor.vehicle_number
+            if transferee_target == "candidate":
+                transferee_candidate = models.Candidate(
+                    region=transferee_fields.get("region") or transferor.region,
+                    vehicle_number=vehicle_number,
+                    name=name,
+                    resident_number=transferee_fields.get("resident_number") or "",
+                    address=transferee_fields.get("address") or "",  # 개인정보(주소) 자동복사 금지: 입력 없으면 빈칸 유지
+                    phone=transferee_fields.get("phone") or "",
+                    mobile=transferee_fields.get("mobile") or "",
+                    certificate_issue_date=transfer_fields.get("certificate_issue_date") or "",
+                    certificate_number=transfer_fields.get("certificate_number") or "",
+                    driver_license_number=transfer_fields.get("driver_license_number") or "",
+                    vehicle_type=transfer_fields.get("vehicle_type") or transferor.vehicle_type or "",
+                    fuel_type=transfer_fields.get("fuel_type") or transferor.fuel_type or "",
+                    affiliated_company=transfer_fields.get("affiliated_company") or transferor.affiliated_company or "",
+                    membership_date=transfer_fields.get("membership_date") or "",
+                    memo=transfer_fields.get("memo") or "",
+                    management_number=mgmt,
+                )
+                db.add(transferee_candidate)
+                db.flush()
+            else:
+                cat = detect_category(vehicle_number)
+                from app.excel_utils import normalize_membership_status
+                ms = normalize_membership_status(transfer_fields.get("membership_date") or "")
+                transferee_member = models.LicenseHolder(
+                    management_number=mgmt,
+                    registration_type="양도양수",
+                    status="active",
+                    category=cat,
+                    region=transferee_fields.get("region") or transferor.region,
+                    vehicle_number=vehicle_number,
+                    name=name,
+                    resident_number=transferee_fields.get("resident_number") or "",
+                    address=transferee_fields.get("address") or "",  # 개인정보(주소) 자동복사 금지: 입력 없으면 빈칸 유지
+                    phone=transferee_fields.get("phone") or "",
+                    mobile=transferee_fields.get("mobile") or "",
+                    approval_date=transfer_fields.get("approval_date") or "",
+                    membership_date=transfer_fields.get("membership_date") or "",
+                    membership_status=ms,
+                    certificate_issue_date=transfer_fields.get("certificate_issue_date") or "",
+                    certificate_number=transfer_fields.get("certificate_number") or "",
+                    driver_license_number=transfer_fields.get("driver_license_number") or "",
+                    vehicle_type=transfer_fields.get("vehicle_type") or transferor.vehicle_type or "",
+                    fuel_type=transfer_fields.get("fuel_type") or transferor.fuel_type or "",
+                    affiliated_company=transfer_fields.get("affiliated_company") or transferor.affiliated_company or "",
+                    memo=transfer_fields.get("memo") or "",
+                )
+                db.add(transferee_member)
+                db.flush()
+
+        transferee_name = (transferee_member.name if transferee_member
+                            else transferee_candidate.name if transferee_candidate
+                            else transferee_fields.get("name", ""))
+        transferee_member_id_val = transferee_member.id if transferee_member else None
+
+        # ── 2) 양도양수대장 등록 ──
+        ledger = models.TransferLedger(
+            management_number=mgmt or "",
+            receipt_date=receipt_date or "",
+            region=transferee_fields.get("region") or transferor.region,
+            vehicle_number=transferor.vehicle_number,
+            transferor=transferor.name,
+            transferee=transferee_name,
+            resident_number=transferee_fields.get("resident_number") or "",
+            address=transferee_fields.get("address") or "",
+            phone=transferee_fields.get("phone") or "",
+            mobile=transferee_fields.get("mobile") or "",
+            approval_date=transfer_fields.get("approval_date") or "",
+            membership_date=transfer_fields.get("membership_date") or "",
+            certificate_issue_date=transfer_fields.get("certificate_issue_date") or "",
+            certificate_number=transfer_fields.get("certificate_number") or "",
+            driver_license_number=transfer_fields.get("driver_license_number") or "",
+            memo=transfer_fields.get("memo") or "",
+            vehicle_type=transfer_fields.get("vehicle_type") or transferor.vehicle_type or "",
+            fuel_type=transfer_fields.get("fuel_type") or transferor.fuel_type or "",
+            structure_change=transfer_fields.get("structure_change") or "",
+            affiliated_company=transfer_fields.get("affiliated_company") or transferor.affiliated_company or "",
+            transferor_member_id=transferor_member_id,
+            transferee_member_id=transferee_member_id_val,
+            member_id=transferee_member_id_val,
+        )
+        db.add(ledger)
+        db.flush()
+
+        # 예정자 등록인 경우, 예정자에 transfer 참조 남김 (member_id는 실제 등록 시점에 채움)
+        if transferee_candidate:
+            transferee_candidate.member_id = transferee_candidate.member_id  # no-op, 명시적 유지
+
+        if transferee_member:
+            transferee_member.transfer_ledger_id = ledger.id
+
+        # ── 3) 양도자 폐업 처리 (closure_type='양도') ──
+        closure = close_member_no_commit(
+            db, transferor_member_id, "양도", closure_date, closure_mgmt,
+            reason=closure_reason,
+            transferee=transferee_name,
+            transfer_region=transferee_fields.get("region") or transferor.region,
+            receipt_date=receipt_date or "",
+            transferee_member_id=transferee_member_id_val,
+            transfer_ledger_id=ledger.id,
+        )
+
+        db.commit()
+        db.refresh(ledger)
+        db.refresh(closure)
+        if transferee_member:
+            db.refresh(transferee_member)
+        if transferee_candidate:
+            db.refresh(transferee_candidate)
+
+        cert_num = transfer_fields.get("certificate_number")
+        if cert_num:
+            sync_certificate_number_usage(db, cert_num, "transfer_ledger", ledger.id,
+                                           transferee_name or "", transferor.vehicle_number or "")
+
+        return {
+            "ok": True,
+            "management_number": mgmt or None,
+            "closure_management_number": closure_mgmt,
+            "transfer_ledger_id": ledger.id,
+            "closure_id": closure.id,
+            "transferee_member_id": transferee_member.id if transferee_member else None,
+            "transferee_candidate_id": transferee_candidate.id if transferee_candidate else None,
+            "transferee_type": "member" if transferee_member else "candidate",
+        }
+    except Exception:
+        db.rollback()
+        raise
+
+
+# ===== 양도양수대장 기존자료 연결관계 복구 =====
+
+def _mask_rn(rn: str) -> str:
+    """주민등록번호 표시용 마스킹 (앞 6자리만 노출)"""
+    rn = (rn or "").strip()
+    if len(rn) >= 7:
+        return rn[:6] + "-" + "*" * (len(rn) - 7)
+    return rn
+
+
+def _link_candidate_dict(member, matched_by: str) -> dict:
+    return {
+        "id": member.id,
+        "name": member.name or "",
+        "vehicle_number": member.vehicle_number or "",
+        "management_number": member.management_number or "",
+        "region": member.region or "",
+        "mobile": member.mobile or "",
+        "resident_number_masked": _mask_rn(member.resident_number or ""),
+        "matched_by": matched_by,   # resident_number / vehicle_number / name_mobile / name_region_date
+    }
+
+
+def find_link_candidates_for_ledger(db: Session, ledger: "models.TransferLedger", role: str,
+                                     exclude_member_id: int = None) -> List[dict]:
+    """양도양수대장 한 건에 대해 회원(LicenseHolder) 연결 후보를 찾는다.
+    role: 'transferor' | 'transferee'
+    우선순위: 주민등록번호 완전일치+성명일치 > 성명+핸드폰 완전일치 > 성명+지역 일치
+             > 성명 일치(차량번호는 후보가 여러 명일 때만 보조적으로 좁히는 용도).
+    차량번호 단독 일치만으로는 절대 자동 확정하지 않는다 (양도자·양수자가 같은 차량번호를
+    공유할 수 있으므로 성명이 다르면 그 차량번호 일치는 무시한다).
+    exclude_member_id: 반대쪽 역할에 이미 배정된(또는 배정하려는) 회원 ID - 자기 자신이
+    양도자·양수자로 동시에 연결되는 것을 막기 위해 결과에서 제외한다.
+    앞 단계에서 후보가 나오면(1명이든 여러 명이든) 그 단계에서 확정하고 다음 단계로 넘어가지 않는다.
+    기존 데이터는 조회만 하며 수정하지 않는다."""
+    name = ((ledger.transferee if role == "transferee" else ledger.transferor) or "").strip()
+    if not name:
+        return []
+
+    vehicle_number = (ledger.vehicle_number or "").strip()
+    region = (ledger.region or "").strip()
+    # transferee 쪽에만 주민등록번호/핸드폰 컬럼이 실질적으로 채워짐 (양도자는 이름 정보만 있는 경우가 많음)
+    resident_number = (ledger.resident_number or "").strip() if role == "transferee" else ""
+    mobile = (ledger.mobile or "").strip() if role == "transferee" else ""
+
+    def base_q():
+        q = db.query(models.LicenseHolder).filter(models.LicenseHolder.deleted_at.is_(None))
+        if exclude_member_id:
+            q = q.filter(models.LicenseHolder.id != exclude_member_id)
+        return q
+
+    # 1) 주민등록번호 완전일치 + 성명 일치
+    if resident_number:
+        rows = base_q().filter(models.LicenseHolder.resident_number == resident_number,
+                                models.LicenseHolder.name == name).all()
+        if rows:
+            return [_link_candidate_dict(r, "resident_number") for r in rows]
+
+    # 2) 성명 + 핸드폰 완전일치
+    if name and mobile:
+        rows = base_q().filter(models.LicenseHolder.name == name,
+                                models.LicenseHolder.mobile == mobile).all()
+        if rows:
+            return [_link_candidate_dict(r, "name_mobile") for r in rows]
+
+    # 3) 성명 + 지역 일치 (날짜 근접 확인은 후보가 여러 명일 때 화면에서 사용자가 최종 판단)
+    if name and region:
+        rows = base_q().filter(models.LicenseHolder.name == name,
+                                models.LicenseHolder.region == region).all()
+        if rows:
+            return [_link_candidate_dict(r, "name_region_date") for r in rows]
+
+    # 4) 성명 일치만 - 차량번호는 여러 명일 때 보조자료로만 사용해 좁힘 (단독 매칭 금지)
+    if name:
+        rows = base_q().filter(models.LicenseHolder.name == name).all()
+        if len(rows) > 1 and vehicle_number:
+            narrowed = [r for r in rows if (r.vehicle_number or "").strip() == vehicle_number]
+            if len(narrowed) == 1:
+                return [_link_candidate_dict(narrowed[0], "name_vehicle_number")]
+        if rows:
+            return [_link_candidate_dict(r, "name") for r in rows]
+
+    return []
+
+
+def link_transfer_member(db: Session, ledger_id: int, role: str, member_id: int) -> "models.TransferLedger":
+    """사용자가 후보 목록에서 직접 선택한 회원으로 연결 (양도자/양수자 각각 별도 연결 가능)."""
+    if role not in ("transferor", "transferee"):
+        raise ValueError("role은 transferor 또는 transferee만 가능합니다.")
+    ledger = get_by_id(db, models.TransferLedger, ledger_id)
+    if not ledger:
+        raise ValueError("양도양수 기록을 찾을 수 없습니다.")
+    member = get_by_id(db, models.LicenseHolder, member_id)
+    if not member:
+        raise ValueError("연결할 회원을 찾을 수 없습니다.")
+    # self-guard: 같은 회원을 양도자·양수자로 동시에 연결하지 않음
+    other_id = ledger.transferee_member_id if role == "transferor" else ledger.transferor_member_id
+    if other_id and other_id == member_id:
+        raise ValueError("동일한 회원을 양도자와 양수자로 동시에 연결할 수 없습니다.")
+    if role == "transferor":
+        ledger.transferor_member_id = member_id
+    else:
+        ledger.transferee_member_id = member_id
+    db.commit()
+    db.refresh(ledger)
+    return ledger
+
+
+def bulk_relink_transfer_ledger(db: Session) -> dict:
+    """기존 양도양수대장 자료 전체를 대상으로 연결 복구를 일괄 시도.
+    확실한 후보(1명)만 자동 연결하고, 애매한 자료(후보 여러 명/일치 없음)는 그대로 둔다.
+    같은 회원이 양도자·양수자로 동시에 연결되는 경우는 self_conflict로 분류하고 자동 연결하지 않는다.
+    기존 원문 데이터는 수정/삭제하지 않으며 *_member_id 필드만 채운다."""
+    ledgers = db.query(models.TransferLedger).filter(models.TransferLedger.deleted_at.is_(None)).all()
+
+    def _is_fully_linked(t):
+        ok_or = (not (t.transferor or "").strip()) or bool(t.transferor_member_id)
+        ok_ee = (not (t.transferee or "").strip()) or bool(t.transferee_member_id)
+        return ok_or and ok_ee
+
+    before_linked = sum(1 for t in ledgers if _is_fully_linked(t))
+
+    counts = {"auto_linked": 0, "multiple_candidates": 0, "no_match": 0,
+              "already_linked": 0, "self_conflict": 0}
+
+    for t in ledgers:
+        need_transferor = bool((t.transferor or "").strip()) and not t.transferor_member_id
+        need_transferee = bool((t.transferee or "").strip()) and not t.transferee_member_id
+
+        if not need_transferor and not need_transferee:
+            counts["already_linked"] += 1
+            continue
+
+        linked_any = False
+        saw_multi = False
+        saw_none = False
+        saw_conflict = False
+
+        transferor_candidate_id = None
+        if need_transferor:
+            cands = find_link_candidates_for_ledger(db, t, "transferor",
+                                                      exclude_member_id=t.transferee_member_id)
+            if len(cands) == 1:
+                transferor_candidate_id = cands[0]["id"]
+            elif len(cands) > 1:
+                saw_multi = True
+            else:
+                saw_none = True
+
+        transferee_candidate_id = None
+        if need_transferee:
+            cands = find_link_candidates_for_ledger(db, t, "transferee",
+                                                      exclude_member_id=t.transferor_member_id)
+            if len(cands) == 1:
+                transferee_candidate_id = cands[0]["id"]
+            elif len(cands) > 1:
+                saw_multi = True
+            else:
+                saw_none = True
+
+        # self-guard: 이번에 확정하려는 양도자 후보와 양수자 후보가 같은 사람이면 둘 다 보류
+        if (transferor_candidate_id and transferee_candidate_id
+                and transferor_candidate_id == transferee_candidate_id):
+            saw_conflict = True
+            transferor_candidate_id = None
+            transferee_candidate_id = None
+
+        if transferor_candidate_id:
+            t.transferor_member_id = transferor_candidate_id
+            linked_any = True
+        if transferee_candidate_id:
+            t.transferee_member_id = transferee_candidate_id
+            linked_any = True
+
+        if linked_any:
+            counts["auto_linked"] += 1
+        elif saw_conflict:
+            counts["self_conflict"] += 1
+        elif saw_multi:
+            counts["multiple_candidates"] += 1
+        elif saw_none:
+            counts["no_match"] += 1
+
+    db.commit()
+
+    after_linked = sum(1 for t in ledgers if _is_fully_linked(t))
+
+    return {
+        "total_records": len(ledgers),
+        "before_fully_linked": before_linked,
+        "after_fully_linked": after_linked,
+        **counts,
+    }
+
+
+def fix_self_referencing_transfer_ledger(db: Session) -> dict:
+    """양도자 회원 ID와 양수자 회원 ID가 동일하게 잘못 연결된 양도양수대장 레코드를 찾아 복구.
+
+    원인: 도내 양도양수 등록 시 양수자 중복확인이 양도자 본인(차량번호가 아직 동일하고
+    상태가 active인 시점)을 양수자의 '기존 회원'으로 잘못 제시했고, 이를 연결한 경우
+    transferor_member_id == transferee_member_id 가 되어 양도자/양수자 클릭 시
+    같은 회원정보가 조회되는 문제가 발생한다.
+
+    복구 방식: 양수자 쪽 연결(transferee_member_id)을 우선 비우고(양도자 정보는 신뢰도가
+    더 높으므로 유지), 성명 기준으로 양도자 본인을 제외한 안전한 재연결을 시도한다.
+    후보가 여러 명이거나 없으면 비운 채로 두어(잘못된 정보를 보여주는 것보다 안전) 화면에서
+    '연결 안 됨'으로 표시되게 한다. 원문 데이터(성명 등)는 전혀 수정하지 않는다.
+    """
+    ledgers = db.query(models.TransferLedger).filter(
+        models.TransferLedger.deleted_at.is_(None),
+        models.TransferLedger.transferor_member_id.isnot(None),
+        models.TransferLedger.transferee_member_id.isnot(None),
+        models.TransferLedger.transferor_member_id == models.TransferLedger.transferee_member_id,
+    ).all()
+
+    fixed, relinked, cleared_only = 0, 0, 0
+    for t in ledgers:
+        wrong_id = t.transferee_member_id
+        t.transferee_member_id = None
+        fixed += 1
+        cands = find_link_candidates_for_ledger(db, t, "transferee",
+                                                  exclude_member_id=t.transferor_member_id)
+        if len(cands) == 1 and cands[0]["id"] != t.transferor_member_id:
+            t.transferee_member_id = cands[0]["id"]
+            relinked += 1
+        else:
+            cleared_only += 1
+
+    db.commit()
+    return {
+        "found_self_referencing": fixed,
+        "relinked_to_correct_member": relinked,
+        "cleared_pending_manual_link": cleared_only,
+    }
+
+
+# ===== DASHBOARD =====
+
+def get_dashboard_stats(db: Session) -> dict:
+    """대시보드 상단 통계 - 항상 DB 현재 상태 기준 (캐시 없음)
+
+    기준:
+    - 총 사업자: status=active, deleted_at IS NULL
+    - 가입: membership_date 있음 (가입일자 기준)
+    - 미가입: membership_date 없음
+    - 취업신고: certificate_issue_date 있음 (자격증명발급일자 기준)
+    - 미신고: certificate_issue_date 없음
+    """
+    lh_all = db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.deleted_at.is_(None),
+        models.LicenseHolder.status == "active"
+    ).all()
+
+    total      = len(lh_all)
+    individual = sum(1 for m in lh_all if m.category == "개인")
+    delivery   = sum(1 for m in lh_all if m.category == "택배")
+
+    # 가입: membership_date(가입일자) 기준 - 공통 판정 함수 사용 (다른 화면과 동일 기준)
+    joined     = sum(1 for m in lh_all if is_association_member(m.membership_date))
+    not_joined = total - joined
+
+    # 취업신고: certificate_issue_date(자격증명발급일자) 값 있음
+    cert_all   = sum(1 for m in lh_all if has_value(m.certificate_issue_date))
+    cert_ind   = sum(1 for m in lh_all if m.category == "개인" and has_value(m.certificate_issue_date))
+    cert_del   = sum(1 for m in lh_all if m.category == "택배" and has_value(m.certificate_issue_date))
+
+    candidates = db.query(models.Candidate).filter(
+        models.Candidate.deleted_at.is_(None),
+        models.Candidate.is_registered == False
+    ).count()
+    closures  = db.query(models.Closure).filter(models.Closure.deleted_at.is_(None)).count()
+    transfers = db.query(models.TransferLedger).filter(models.TransferLedger.deleted_at.is_(None)).count()
+
+    return {
+        "total": total, "joined": joined, "not_joined": not_joined,
+        "individual": individual, "delivery": delivery,
+        # 취업신고/미신고 (자격증명발급일자 기준)
+        "employed": cert_all,                       # 전체 취업신고
+        "not_employed": total - cert_all,           # 전체 미신고
+        "individual_employed": cert_ind,
+        "individual_not_employed": individual - cert_ind,
+        "delivery_employed": cert_del,
+        "delivery_not_employed": delivery - cert_del,
+        "candidates": candidates, "closures": closures, "transfers": transfers,
+        "next_new_number": get_next_new_member_number(db),
+        "next_transfer_number": get_next_transfer_member_number(db),
+    }
+
+
+def get_regional_stats(db: Session) -> List[dict]:
+    result = []
+    for region in REGIONS:
+        base = db.query(models.LicenseHolder).filter(
+            models.LicenseHolder.deleted_at.is_(None),
+            models.LicenseHolder.status == "active",
+            models.LicenseHolder.region == region,
+        )
+        rows = base.all()
+        total = len(rows)
+        # 가입 판정: 공통 판정 함수 사용 (membership_status 필드는 과거 데이터와 어긋날 수 있어 신뢰하지 않음)
+        joined = sum(1 for m in rows if is_association_member(m.membership_date))
+        ind = sum(1 for m in rows if m.category == "개인")
+        dlv = sum(1 for m in rows if m.category == "택배")
+        cl = db.query(models.Closure).filter(
+            models.Closure.deleted_at.is_(None), models.Closure.region == region).count()
+        result.append({"region": region, "total": total, "joined": joined,
+                        "not_joined": total - joined, "individual": ind, "delivery": dlv, "closures": cl})
+    return result
+
+
+_TRANSFER_MGMT_RE = re.compile(r'^양\s*\d{2}\s*-')
+
+
+def find_members_missing_transfer_ledger(db: Session) -> List["models.LicenseHolder"]:
+    """관리번호가 '양YY-N' 형식인데 양도양수대장에 동일 관리번호 기록이 없는 회원 목록.
+    회원/대장 데이터는 조회만 하고 수정하지 않는다.
+    """
+    candidates = db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.deleted_at.is_(None),
+        models.LicenseHolder.management_number.like("양%"),
+    ).all()
+    missing = []
+    for m in candidates:
+        mgmt = (m.management_number or "").strip()
+        if not mgmt or not _TRANSFER_MGMT_RE.match(mgmt):
+            continue
+        exists = db.query(models.TransferLedger).filter(
+            models.TransferLedger.deleted_at.is_(None),
+            models.TransferLedger.management_number == mgmt,
+        ).first()
+        if not exists:
+            missing.append(m)
+    return missing
+
+
+def create_missing_transfer_ledger_for_member(db: Session, m: "models.LicenseHolder"):
+    """회원 1건에 대해 누락된 양도양수대장 기록을 생성 (없을 때만).
+    반환: (ledger, created: bool)
+    - 동일 관리번호가 이미 존재하면 새로 만들지 않고 기존 기록을 반환 (중복 생성 방지)
+    - 양도자 정보는 원본 자료가 없으므로 빈칸으로 저장
+    - 양수자는 현재 회원으로 연결 (transferee_member_id)
+    - 생성 후 회원.transfer_ledger_id를 자동 연결 (없을 때만)
+    - 기존 회원/대장 데이터는 수정하지 않는다 (연결 필드 보완 제외)
+    """
+    mgmt = (m.management_number or "").strip()
+    if not mgmt or not _TRANSFER_MGMT_RE.match(mgmt):
+        raise ValueError("관리번호가 '양YY-N' 형식이 아닙니다.")
+
+    existing = db.query(models.TransferLedger).filter(
+        models.TransferLedger.deleted_at.is_(None),
+        models.TransferLedger.management_number == mgmt,
+    ).first()
+    if existing:
+        if not m.transfer_ledger_id:
+            m.transfer_ledger_id = existing.id
+            db.commit()
+        return existing, False
+
+    ledger = models.TransferLedger(
+        management_number=mgmt,
+        region=m.region or "",
+        vehicle_number=m.vehicle_number or "",
+        transferor="",
+        transferor_member_id=None,
+        transferee=m.name or "",
+        transferee_member_id=m.id,
+        resident_number=m.resident_number or "",
+        address=m.address or "",
+        phone=m.phone or "",
+        mobile=m.mobile or "",
+        approval_date=m.approval_date or "",
+        membership_date=m.membership_date or "",
+        certificate_issue_date=m.certificate_issue_date or "",
+        certificate_number=m.certificate_number or "",
+        driver_license_number=m.driver_license_number or "",
+        vehicle_type=m.vehicle_type or "",
+        fuel_type=m.fuel_type or "",
+        structure_change=getattr(m, "structure_change", None) or "",
+        affiliated_company=m.affiliated_company or "",
+        memo="자동 생성: 회원 관리번호(양YY-N)에 대응하는 대장 기록 누락 보완",
+    )
+    db.add(ledger)
+    db.flush()
+    m.transfer_ledger_id = ledger.id
+    db.commit()
+    db.refresh(ledger)
+    return ledger, True
