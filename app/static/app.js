@@ -76,6 +76,7 @@ const ST = {
   user:{role:localStorage.getItem('userRole'),name:localStorage.getItem('userName'),full:localStorage.getItem('userFullName')},
   fl:{}, inner:{},
   reportYear:new Date().getFullYear(), reportMonth:new Date().getMonth()+1,
+  dashYear:new Date().getFullYear(), dashMonth:new Date().getMonth()+1,
   sort:{},   // {pageKey: {field, dir}}
 };
 
@@ -2042,22 +2043,43 @@ window.deleteChange=async(id)=>{if(!await cfm('삭제?'))return;await api('DELET
 // ===== DASHBOARD =====
 async function renderDashboard(){
   document.getElementById('content').innerHTML=`<div class="loading-box"><div class="spin"></div><p>통계 자동 계산 중...</p></div>`;
-  const [full,reg,activity,byYear,recent]=await Promise.all([
+  const dy=ST.dashYear,dm=ST.dashMonth;
+  const [full,reg,activity,byYear,recent,monthAuto]=await Promise.all([
     api('GET','/api/dashboard/full-stats'),
     api('GET','/api/dashboard/regional'),
     api('GET','/api/dashboard/stats'),
     api('GET','/api/dashboard/activity-by-year'),
     api('GET','/api/dashboard/recent-by-type'),
-  ]).catch(()=>[null,null,null,null,null]);
+    api('GET',`/api/dashboard/monthly-report-auto?year=${dy}&month=${dm}`),
+  ]).catch(()=>[null,null,null,null,null,null]);
   if(!full||!reg)return;
   const s=full.summary;const alloc=full.allocation||{};
   const vIssues=full.validation_issues||[];
   const vBanner=vIssues.length?`<div class="warn-box" style="margin-bottom:10px;font-size:12.5px">
     <strong>⚠ 집계 불일치 감지 (검증 필요)</strong><br>${vIssues.map(e_).join('<br>')}
   </div>`:'';
+  const ma=monthAuto?.month_activity||{};
 
   document.getElementById('content').innerHTML=`
     ${vBanner}
+    <div class="card" style="margin-bottom:12px">
+      <div class="rpt-nav">
+        <button class="btn bo btn-sm" onclick="ST.dashMonth--;if(ST.dashMonth<1){ST.dashMonth=12;ST.dashYear--;}renderDashboard()">◀ 이전</button>
+        <span class="rpt-period">${dy}년 ${dm}월 활동 현황</span>
+        <button class="btn bo btn-sm" onclick="ST.dashMonth++;if(ST.dashMonth>12){ST.dashMonth=1;ST.dashYear++;}renderDashboard()">다음 ▶</button>
+        <span style="font-size:11px;color:var(--c-text-4);margin-left:8px">아래 총계 카드는 현재 누적 기준이며, 이 영역만 선택한 월 기준입니다</span>
+        <button class="btn bxl btn-sm" style="margin-left:auto" onclick="ST.reportYear=${dy};ST.reportMonth=${dm};ST.inner['monthly-report']='detail';navigate('reports','monthly-report')">월례보고서 상세 보기</button>
+      </div>
+      <div class="card-bd">
+        <div class="stat-grid">
+          <div class="stat-card" onclick="ST.reportYear=${dy};ST.reportMonth=${dm};ST.inner['monthly-report']='detail';navigate('reports','monthly-report')"><div class="stat-lbl">신규등록</div><div class="stat-val">${(ma.new_registrations||0).toLocaleString()}</div><div class="stat-sub">인가일자 기준</div></div>
+          <div class="stat-card sky" onclick="ST.reportYear=${dy};ST.reportMonth=${dm};ST.inner['monthly-report']='detail';navigate('reports','monthly-report')"><div class="stat-lbl">양도양수</div><div class="stat-val">${(ma.transfers||0).toLocaleString()}</div><div class="stat-sub">접수일자 기준</div></div>
+          <div class="stat-card pink" onclick="ST.reportYear=${dy};ST.reportMonth=${dm};ST.inner['monthly-report']='detail';navigate('reports','monthly-report')"><div class="stat-lbl">폐업</div><div class="stat-val">${(ma.closures||0).toLocaleString()}</div><div class="stat-sub">접수일자(처리일자) 기준</div></div>
+          <div class="stat-card gray" onclick="ST.reportYear=${dy};ST.reportMonth=${dm};ST.inner['monthly-report']='detail';navigate('reports','monthly-report')"><div class="stat-lbl">변경</div><div class="stat-val">${(ma.changes||0).toLocaleString()}</div><div class="stat-sub">처리일자 기준</div></div>
+        </div>
+      </div>
+    </div>
+
     <div class="stat-grid">
       <div class="stat-card" onclick="navigate('members','individual')"><div class="stat-lbl">총 사업자</div><div class="stat-val">${s.total.toLocaleString()}</div><div class="stat-sub">폐업·양도·이관 제외</div></div>
       <div class="stat-card sky" onclick="showStatList('joined')"><div class="stat-lbl">협회 가입</div><div class="stat-val">${s.joined.toLocaleString()}</div><div class="stat-sub">가입일자 기준</div></div>
