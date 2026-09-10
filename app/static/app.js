@@ -281,6 +281,10 @@ function ensureClosureLedgerToggleStyle(){
       overflow-wrap:anywhere;
     }
     #clTransferToggle{white-space:nowrap}
+    #closureLedgerCard tr.cl-void-row{background:#fffaf0}
+    #closureLedgerCard tr.cl-void-row td{color:#8a6d3b}
+    #closureLedgerCard .cl-void-note{font-weight:700;color:#9a6700;white-space:normal;min-width:260px}
+    #closureLedgerCard .cl-cancel-btn{border-color:#d8a443;color:#9a6700;background:#fffaf0}
   `;
   document.head.appendChild(st);
 }
@@ -776,8 +780,9 @@ window.viewClosure=async(id)=>{
       ['비고',r.memo||'',true],
     ]},
   ];
+  const canCancel=isAdmin()&&r.closure_type==='폐업'&&Boolean(r.member_id);
   openModal('폐업현황 상세정보',buildDetailSections(sections),
-    `<button class="btn bp btn-sm" onclick="editClosure(${id});closeModal()">수정</button><button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
+    `<button class="btn bp btn-sm" onclick="editClosure(${id});closeModal()">수정</button>${canCancel?`<button class="btn bo btn-sm cl-cancel-btn" onclick="cancelClosure(${id})">폐업취소</button>`:''}<button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
 };
 
 window.viewChange=async(id)=>{
@@ -1890,6 +1895,23 @@ async function renderClosures(){
       <tbody>${d.items.map(r=>{
         const memStatus=(r.membership_status||'').trim()||'미가입';
         const joinDate=memStatus==='가입'?(r.membership_date||''):'';
+        const isVoid=Boolean(r.cancelled_void)||r.closure_type==='폐업취소';
+        if(isVoid){
+          return `<tr class="cl-void-row">
+            <td>-</td>
+            <td><strong>${fv(r.management_number)}</strong></td>
+            <td>-</td><td>-</td><td>-</td>
+            <td><span class="badge b-yellow">폐업취소</span></td>
+            <td>-</td><td>-</td><td>-</td><td>-</td><td>-</td>
+            <td class="cl-reason-col">-</td>
+            <td class="cl-transfer-col">-</td>
+            <td class="cl-transfer-col">-</td>
+            <td>-</td><td>-</td><td>-</td>
+            <td class="cl-void-note" title="${e_(r.memo||'')}">${fv(r.memo)}</td>
+            <td class="td-act">-</td>
+          </tr>`;
+        }
+        const canCancel=isAdmin()&&r.closure_type==='폐업'&&Boolean(r.member_id);
         return `<tr>
           <td><span class="ledger-mgmt">${fv(r.previous_management_number)}</span></td>
           <td><a class="tbl-link ledger-mgmt" onclick="viewClosure(${r.id});return false">${fv(r.management_number)}</a></td>
@@ -1909,7 +1931,7 @@ async function renderClosures(){
           <td>${fv(r.fuel_type)}</td>
           <td title="${e_(r.address||'')}">${fv(r.address)}</td>
           <td title="${e_(r.memo||'')}">${fv(r.memo)}</td>
-          <td class="td-act"><button class="btn bp btn-xs" onclick="editClosure(${r.id})">수정</button>${isAdmin()?`<button class="btn br btn-xs" onclick="deleteClosure(${r.id})">삭제</button>`:''}</td>
+          <td class="td-act"><button class="btn bp btn-xs" onclick="editClosure(${r.id})">수정</button>${canCancel?`<button class="btn bo btn-xs cl-cancel-btn" onclick="cancelClosure(${r.id})">폐업취소</button>`:''}${isAdmin()?`<button class="btn br btn-xs" onclick="deleteClosure(${r.id})">삭제</button>`:''}</td>
         </tr>`;
       }).join('')}</tbody>
     </table></div>${pgn(d,doSearch)}`;
@@ -1988,6 +2010,21 @@ window.editClosure=async(id)=>{
     if(res){toast(id?'수정':'등록');closeModal();renderClosures();}
   };
 };
+
+window.cancelClosure=async(id)=>{
+  const r=await api('GET',`/api/closures/${id}`).catch(()=>null);if(!r)return;
+  const name=e_(r.name||'해당 회원');
+  const mgmt=e_(r.management_number||'해당 번호');
+  const ok=await cfm(`<strong>${name}</strong>의 폐업처리를 취소하시겠습니까?<br><br>기존 회원정보로 다시 복원됩니다.<br>폐업관리번호 <strong>${mgmt}</strong>는 결번 처리되어 다시 사용하지 않습니다.<br>복원된 회원의 비고에도 폐업취소 기록이 남습니다.`);
+  if(!ok)return;
+  try{
+    const res=await api('POST',`/api/closures/${id}/cancel`);
+    toast(`폐업취소 완료 · ${res.restored_management_number||'기존 회원'} 복원 · ${res.voided_closure_management_number||'폐업번호'} 결번`);
+    closeModal();
+    renderClosures();
+  }catch(e){}
+};
+
 window.deleteClosure=async(id)=>{if(!await cfm('삭제?'))return;try{await api('DELETE',`/api/closures/${id}`);toast('삭제');renderClosures();}catch(e){};};
 
 // ===== CHANGE HISTORY =====

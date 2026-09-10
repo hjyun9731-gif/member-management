@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import Optional
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 import io
 
 from app.database import get_db
@@ -11,7 +13,28 @@ from app.excel_utils import records_to_excel, parse_date_sort, normalize_closure
 
 router = APIRouter()
 
+
 SEARCH = ["name", "vehicle_number", "management_number", "region", "reason", "company_name", "memo"]
+
+_CANCEL_TYPE = "폐업취소"
+
+
+def _is_cancelled_void(c) -> bool:
+    return (getattr(c, "closure_type", "") or "").strip() == _CANCEL_TYPE
+
+
+def _visible_closure_filter():
+    """정상 폐업현황과 폐업취소 결번행만 화면/엑셀에 노출. 일반 삭제행은 숨김."""
+    from sqlalchemy import or_, and_
+    return or_(
+        models.Closure.deleted_at.is_(None),
+        and_(models.Closure.deleted_at.isnot(None), models.Closure.closure_type == _CANCEL_TYPE),
+    )
+
+
+def _append_memo(existing: str, note: str) -> str:
+    base = (existing or "").rstrip()
+    return f"{base}\n{note}" if base else note
 
 # 폐업현황 상세정보 보강 시 회원정보로 채워넣을 필드 목록
 # (기존 이전자료 폐업현황에 값이 비어있어도 회원정보에서 조회되게 함)
@@ -130,6 +153,7 @@ def _fmt(c, member=None):
         "member_id": getattr(c, 'member_id', None),
         "raw_data": c.raw_data or {},
         "created_at": str(c.created_at)[:10] if c.created_at else "",
+        "cancelled_void": _is_cancelled_void(c),
     }
     # 기존/신규 자료 표시 통일: 폐업현황 자체 필드가 비어있으면 연결된 회원정보로 보강
     # (신규 자료는 close_member 처리 시 이미 회원정보가 복사되어 저장되므로 보강이 필요없고,
@@ -167,7 +191,7 @@ async def list_closures(
 ):
     # '폐업' 필터 시 DB에 '폐지'로 저장된 데이터도 포함 (or_ 방식)
     from sqlalchemy import or_
-    base_q = db.query(models.Closure).filter(models.Closure.deleted_at.is_(None))
+    base_q = db.query(models.Closure).filter(_visible_closure_filter())
     if region:
         base_q = base_q.filter(models.Closure.region == region)
     if closure_type:
@@ -187,6 +211,7 @@ async def list_closures(
     base_q = base_q.filter(or_(
         and_(models.Closure.vehicle_number.isnot(None), models.Closure.vehicle_number != ''),
         and_(models.Closure.name.isnot(None), models.Closure.name != ''),
+        models.Closure.closure_type == _CANCEL_TYPE,
     ))
 
     date_order_v = date_order or "desc"
@@ -230,8 +255,18 @@ async def export_excel(
     data_type: Optional[str] = Query(None),
     db: Session = Depends(get_db), _=Depends(get_current_user),
 ):
-    filters = {"region": region, "closure_type": closure_type, "data_type": data_type}
-    items, _ = crud.get_list(db, models.Closure, skip=0, limit=9999, filters=filters)
+    from sqlalchemy import or_
+    q = db.query(models.Closure).filter(_visible_closure_filter())
+    if region:
+        q = q.filter(models.Closure.region == region)
+    if closure_type:
+        if closure_type == '폐업':
+            q = q.filter(or_(models.Closure.closure_type == '폐업', models.Closure.closure_type == '폐지'))
+        else:
+            q = q.filter(models.Closure.closure_type == closure_type)
+    if data_type:
+        q = q.filter(models.Closure.data_type == data_type)
+    items = q.order_by(models.Closure.id.asc()).all()
     by_id, by_vehicle, by_resident = _build_member_lookup(db, items)
     content = records_to_excel(
         [_fmt(i, _find_linked_member(i, by_id, by_vehicle, by_resident)) for i in items], exclude=["id"])
@@ -279,6 +314,112 @@ async def update_closure(cid: int, data: dict, db: Session = Depends(get_db),
         if crud.check_mgmt_dup(db, models.Closure, new_mgmt, exclude_id=cid):
             raise HTTPException(400, f"관리번호 {new_mgmt}가 이미 존재합니다.")
     return _fmt(crud.update_item(db, c, data))
+
+
+@router.post("/{cid}/cancel")
+async def cancel_closure(cid: int, db: Session = Depends(get_db),
+                         _=Depends(require_admin)):
+    """잘못 처리한 '폐업'을 취소하고 원래 회원을 복원한다.
+
+    사용된 폐업관리번호는 결번으로 영구 보존하고, 폐업현황에는 관리번호와
+    폐업취소 비고만 남는 빈 행으로 표시한다. 양도/이관은 이 기능의 대상이 아니다.
+    """
+    c = db.query(models.Closure).filter(models.Closure.id == cid).first()
+    if not c:
+        raise HTTPException(404, "폐업 기록을 찾을 수 없습니다.")
+    if _is_cancelled_void(c):
+        raise HTTPException(400, "이미 폐업취소 처리된 관리번호입니다.")
+
+    ct = (c.closure_type or "").strip()
+    if ct not in ("폐업", "폐지"):
+        raise HTTPException(400, "폐업취소는 폐업 건에만 사용할 수 있습니다. 양도/이관은 별도 정정이 필요합니다.")
+
+    member = None
+    if getattr(c, "member_id", None):
+        member = db.query(models.LicenseHolder).filter(
+            models.LicenseHolder.id == c.member_id,
+            models.LicenseHolder.deleted_at.is_(None),
+        ).first()
+
+    # 구자료 호환: 직접 member_id가 없을 때는 저장된 원래 관리번호가 단 하나와 정확히 일치할 때만 복원.
+    if member is None:
+        original_mgmt = (getattr(c, "original_management_number", "") or "").strip()
+        if original_mgmt:
+            matches = db.query(models.LicenseHolder).filter(
+                models.LicenseHolder.management_number == original_mgmt,
+                models.LicenseHolder.deleted_at.is_(None),
+            ).all()
+            if len(matches) == 1:
+                member = matches[0]
+            elif len(matches) > 1:
+                raise HTTPException(400, "원래 관리번호에 연결된 회원이 2명 이상이라 자동 복원할 수 없습니다.")
+
+    if member is None:
+        raise HTTPException(400, "원래 회원과 직접 연결된 폐업건이 아니어서 자동 복원할 수 없습니다.")
+
+    current_closure_id = getattr(member, "closure_id", None)
+    if current_closure_id not in (None, c.id):
+        raise HTTPException(400, "회원이 다른 폐업기록과 연결되어 있어 자동 복원을 중단했습니다.")
+    if (member.status or "active") == "active" and current_closure_id is None:
+        raise HTTPException(400, "이미 활성 회원 상태입니다. 중복 폐업취소를 중단했습니다.")
+
+    void_no = (c.management_number or "").strip()
+    restored_mgmt = (member.management_number or "").strip()
+    now_kr = datetime.now(ZoneInfo("Asia/Seoul"))
+    cancel_date = now_kr.strftime("%Y-%m-%d")
+    note = (
+        f"폐업취소({cancel_date}): 잘못 처리된 폐업을 취소하여 기존 회원정보로 복원함. "
+        f"폐업관리번호 {void_no or '(번호없음)'}는 결번 처리하며 재사용하지 않음."
+    )
+
+    try:
+        # 회원은 기존 행 그대로 활성화. 원래 관리번호와 모든 회원정보는 변경하지 않는다.
+        member.status = "active"
+        member.closure_id = None
+        member.memo = _append_memo(getattr(member, "memo", "") or "", note)
+
+        # 폐업행은 결번 표식으로 전환. 개인정보/처리정보는 화면상 빈 칸으로 만들고
+        # 감사용 최소 연결정보만 raw_data에 남긴다.
+        audit_raw = {
+            "cancelled_at": now_kr.isoformat(timespec="seconds"),
+            "cancelled_member_id": member.id,
+            "restored_management_number": restored_mgmt,
+            "voided_closure_management_number": void_no,
+        }
+        c.closure_type = _CANCEL_TYPE
+        c.data_type = "신규자료"
+        for field in (
+            "region", "vehicle_number", "name", "company_name", "closure_date", "receipt_date",
+            "approval_date", "reason", "transferee", "transfer_region", "vehicle_type", "fuel_type",
+            "structure_change", "phone", "mobile", "address", "official_address", "membership_status",
+            "membership_date", "certificate_issue_date", "certificate_number", "driver_license_number",
+            "resident_number", "affiliated_company", "agent_name", "agent_mobile",
+        ):
+            if hasattr(c, field):
+                setattr(c, field, "")
+        if hasattr(c, "transferee_member_id"):
+            c.transferee_member_id = None
+        if hasattr(c, "transfer_ledger_id"):
+            c.transfer_ledger_id = None
+        c.member_id = None
+        c.memo = note
+        c.raw_data = audit_raw
+        if hasattr(c, "original_mgmt_match_status"):
+            c.original_mgmt_match_status = "cancelled"
+        # 집계 쿼리들은 deleted_at IS NULL만 세므로 폐업 건수에서 자동 제외된다.
+        c.deleted_at = datetime.now(timezone.utc)
+
+        db.commit()
+        return {
+            "ok": True,
+            "restored_member_id": member.id,
+            "restored_management_number": restored_mgmt,
+            "voided_closure_management_number": void_no,
+            "memo": note,
+        }
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(500, f"폐업취소 처리 중 오류가 발생했습니다: {exc}")
 
 
 @router.delete("/{cid}")
