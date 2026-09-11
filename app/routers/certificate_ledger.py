@@ -10,7 +10,7 @@
 번호 원본은 기존 candidates.certificate_number + certificate_number_logs이다.
 """
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from math import ceil
 from time import monotonic
 from typing import Optional
@@ -1014,6 +1014,15 @@ async def ledger_stats(db: Session = Depends(get_db), _=Depends(get_current_user
     cancelled = sum(1 for item in items if item["issuance_status"] == "취소")
     approved = sum(1 for item in items if item["approval_status"] == "인가완료")
 
+    # 인가대기 중에서도 접수(등록) 후 7일 넘게 방치된 건은 별도로 세어
+    # "놓친 건"을 바로 찾을 수 있게 한다.
+    overdue_cutoff = date.today() - timedelta(days=7)
+    overdue_pending = sum(
+        1
+        for row, item in zip(rows, items)
+        if item["approval_status"] == "인가대기" and row.created_at and row.created_at.date() <= overdue_cutoff
+    )
+
     yy = date.today().year % 100
     counter = db.query(models.CertificateNumberCounter).filter(
         models.CertificateNumberCounter.year == yy
@@ -1035,6 +1044,7 @@ async def ledger_stats(db: Session = Depends(get_db), _=Depends(get_current_user
             "취소": cancelled,
             "인가대기": len(items) - approved,
             "인가완료": approved,
+            "인가대기_7일이상": overdue_pending,
         },
     }
     _STATS_CACHE["value"] = result
@@ -1046,6 +1056,7 @@ async def ledger_stats(db: Session = Depends(get_db), _=Depends(get_current_user
 async def list_ledger(
     search: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
+    sort: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=200),
     db: Session = Depends(get_db),
@@ -1083,6 +1094,10 @@ async def list_ledger(
             )
             return any(needle in str(v or "").lower() for v in fields)
         items = [x for x in items if matched(x)]
+
+    if sort == "created_at_asc":
+        # 인가대기 중 오래 방치된 건을 위에서부터 보기 위한 정렬 (7일+ 지연 바로가기용).
+        items.sort(key=lambda x: x.get("created_at") or "9999-99-99")
 
     total = len(items)
     start_i = (page - 1) * limit

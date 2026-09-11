@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const state = { search: '', status: '', page: 1 };
+  const state = { search: '', status: '', page: 1, sort: '' };
   let statsCache = null;
   let statsCacheAt = 0;
   const STATS_TTL_MS = 60000;
@@ -27,10 +27,13 @@
       .candidate-right-pane .cl-head{margin:0 0 8px}
       .cl-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
       .cl-title{font-size:16px;font-weight:800;letter-spacing:-.4px}.cl-help{font-size:10.5px;color:var(--c-text-3);line-height:1.45}
-      .cl-stats{display:grid;grid-template-columns:repeat(2,minmax(140px,1fr));gap:8px;margin-bottom:8px}
+      .cl-stats{display:grid;grid-template-columns:repeat(3,minmax(120px,1fr));gap:8px;margin-bottom:8px}
       .cl-stat{background:#fff;border:1px solid var(--c-border);border-radius:8px;padding:8px 9px;box-shadow:var(--sh-xs)}
       .cl-stat span{display:block;font-size:10px;color:var(--c-text-3);white-space:nowrap}.cl-stat strong{display:block;font-size:17px;margin-top:2px}
       .cl-wait strong{color:#d97706}.cl-approved strong{color:#059669}
+      .cl-overdue{cursor:pointer;transition:box-shadow .12s}
+      .cl-overdue strong{color:#dc2626}
+      .cl-overdue:hover{box-shadow:0 0 0 2px #fecaca}
       .cl-badge{display:inline-flex;align-items:center;padding:3px 8px;border-radius:20px;font-size:10.5px;font-weight:800;white-space:nowrap}
       .cl-badge.pending{color:#b45309;background:#fff7ed}.cl-badge.issued{color:#047857;background:#ecfdf5}
       .cl-badge.wait{color:#6b7280;background:#f3f4f6}.cl-badge.approved{color:#4f46e5;background:#eef2ff}.cl-badge.cancelled{color:#6b7280;background:#f3f4f6}
@@ -39,7 +42,7 @@
       .cl-actions{display:flex;gap:4px;justify-content:center;align-items:center}.cl-empty{padding:30px;text-align:center;color:var(--c-text-3)}
       .cl-history{display:grid;gap:8px}.cl-history-item{border-left:3px solid var(--c-pri);padding:7px 10px;background:var(--c-bg);border-radius:0 7px 7px 0}
       .cl-history-item strong{font-size:12px}.cl-history-item div{font-size:11px;color:var(--c-text-3);margin-top:2px}
-      @media(max-width:1400px){.candidate-right-pane .cl-stats{grid-template-columns:repeat(2,1fr)}}
+      @media(max-width:1400px){.candidate-right-pane .cl-stats{grid-template-columns:repeat(3,1fr)}}
     `;
     document.head.appendChild(style);
   }
@@ -160,6 +163,7 @@
       const params = new URLSearchParams({ page: String(page), limit: '20' });
       if (state.search) params.set('search', state.search);
       if (state.status) params.set('status', state.status);
+      if (state.sort) params.set('sort', state.sort);
 
       // 목록을 먼저 보여주고 통계는 뒤에서 갱신해 체감 속도를 높인다.
       const data = await request('GET', `/api/certificate-ledger?${params}`);
@@ -170,6 +174,7 @@
         <div class="cl-stats">
           <div class="cl-stat cl-wait"><span>인가대기</span><strong id="clWaitCount">-</strong></div>
           <div class="cl-stat cl-approved"><span>인가완료</span><strong id="clApprovedCount">-</strong></div>
+          <div class="cl-stat cl-overdue" id="clOverdueBox" title="클릭하면 인가대기 중 오래 방치된 순서로 보여줍니다"><span>인가대기 중 7일+ 지연</span><strong id="clOverdueCount">-</strong></div>
         </div>
         <div class="card">
           <div class="frow">
@@ -181,6 +186,7 @@
             <button class="btn bp btn-sm" id="clSearchBtn">조회</button>
             <button class="btn bo btn-sm" id="clResetBtn">초기화</button>
             <button class="btn bo btn-sm" id="clRefreshBtn">새로고침</button>
+            ${state.sort === 'created_at_asc' ? '<span class="badge b-yellow" style="font-size:10px">오래된 순 정렬 중</span>' : ''}
             <span class="cnt" style="margin-left:auto">표시 20개</span>
           </div>
           ${data.items.length ? `<div class="tbl-wrap"><table class="cl-table"><thead><tr>
@@ -200,10 +206,10 @@
       const refreshBtn = target.querySelector('#clRefreshBtn');
 
       refreshBtn.onclick = () => { statsCache = null; statsCacheAt = 0; render(state.page || 1, target); };
-      searchBtn.onclick = () => { state.search = searchInput.value.trim(); state.status = statusSelect.value; render(1, target); };
+      searchBtn.onclick = () => { state.search = searchInput.value.trim(); state.status = statusSelect.value; state.sort = ''; render(1, target); };
       searchInput.onkeydown = event => { if (event.key === 'Enter') searchBtn.click(); };
       statusSelect.onchange = () => searchBtn.click();
-      resetBtn.onclick = () => { state.search = ''; state.status = ''; render(1, target); };
+      resetBtn.onclick = () => { state.search = ''; state.status = ''; state.sort = ''; render(1, target); };
       target.querySelectorAll('[data-cl-page]:not([disabled])').forEach(button => {
         button.onclick = () => render(Number(button.dataset.clPage), target);
       });
@@ -247,9 +253,14 @@
         const counts = stats?.counts || {};
         const w = target.querySelector('#clWaitCount');
         const a = target.querySelector('#clApprovedCount');
+        const o = target.querySelector('#clOverdueCount');
         if (w) w.textContent = Number(counts['인가대기'] || 0).toLocaleString() + '건';
         if (a) a.textContent = Number(counts['인가완료'] || 0).toLocaleString() + '건';
+        if (o) o.textContent = Number(counts['인가대기_7일이상'] || 0).toLocaleString() + '건';
       }).catch(() => {});
+
+      const overdueBox = target.querySelector('#clOverdueBox');
+      if (overdueBox) overdueBox.onclick = () => { state.status = '인가대기'; state.search = ''; state.sort = 'created_at_asc'; render(1, target); };
     } catch (error) {
       if (document.documentElement.contains(target)) target.innerHTML = `<div class="card"><div class="cl-empty">${esc(error.message)}</div></div>`;
     }
