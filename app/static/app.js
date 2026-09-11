@@ -904,7 +904,7 @@ async function renderCandidateSection(){
     <div class="candidate-right-column">
       <div class="inner-tab-bar candidate-right-tabs" style="margin-bottom:10px">
         <button type="button" class="inner-tab ${rightView==='list'?'active':''}" id="candRightListTab">📂 예정자 목록</button>
-        <button type="button" class="inner-tab ${rightView==='ledger'?'active':''}" id="candRightLedgerTab">🖨 자격증명발급대장</button>
+        <button type="button" class="inner-tab ${rightView==='ledger'?'active':''}" id="candRightLedgerTab">🖨️ 자격증명발급대장</button>
       </div>
       <div id="candidateRightPane" class="candidate-right-pane"></div>
     </div>
