@@ -288,6 +288,13 @@ function ensureClosureLedgerToggleStyle(){
     #closureLedgerCard .td-act{white-space:nowrap!important;min-width:150px!important}
     #closureLedgerCard .td-act .btn{margin:0 1px!important;padding:4px 6px!important}
     #closureLedgerCard tr.cl-void-row td{vertical-align:middle}
+
+    /* 2026-09-11: 관리(수정/폐업취소/삭제) 열을 오른쪽에 고정해 가로 스크롤해도 잘리지 않게 함 */
+    #closureLedgerCard .tbl-wrap{overflow-x:auto}
+    #closureLedgerCard th.td-act{position:sticky!important;right:0!important;z-index:3!important;background:#fbfcfe!important;box-shadow:-6px 0 8px -6px rgba(20,24,40,.18)}
+    #closureLedgerCard td.td-act{position:sticky!important;right:0!important;z-index:2!important;background:#fff!important;box-shadow:-6px 0 8px -6px rgba(20,24,40,.18)}
+    #closureLedgerCard tbody tr:hover td.td-act{background:#fafbff!important}
+    #closureLedgerCard tr.cl-void-row td.td-act{background:#fffaf0!important}
   `;
   document.head.appendChild(st);
 }
@@ -1891,7 +1898,8 @@ async function renderClosures(){
   const closureHeaders=plainHeaders(hdrs)
     .replace('<th class="">폐업사유</th>','<th class="cl-reason-col">폐업사유</th>')
     .replace('<th class="">양수인</th>','<th class="cl-transfer-col">양수인</th>')
-    .replace('<th class="">이관지역</th>','<th class="cl-transfer-col">이관지역</th>');
+    .replace('<th class="">이관지역</th>','<th class="cl-transfer-col">이관지역</th>')
+    .replace('<th class="no-sort">관리</th>','<th class="no-sort td-act">관리</th>');
 
   const doSearch=async(pg=1)=>{
     ST.fl.cl={
