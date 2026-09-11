@@ -273,24 +273,37 @@ function ensureClosureLedgerToggleStyle(){
   st.textContent=`
     #closureLedgerCard .cl-transfer-col{display:none!important}
     #closureLedgerCard.cl-show-transfer .cl-transfer-col{display:table-cell!important}
-    #closureLedgerCard .cl-reason-col{min-width:120px;max-width:240px}
+    #closureLedgerCard .cl-reason-col{width:190px;min-width:180px;max-width:200px}
     #closureLedgerCard tbody td.cl-reason-col{
-      white-space:normal;
-      line-height:1.35;
-      word-break:keep-all;
-      overflow-wrap:anywhere;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
     }
     #clTransferToggle{white-space:nowrap}
     #closureLedgerCard tr.cl-void-row{background:#fffaf0}
     #closureLedgerCard tr.cl-void-row td{color:#8a6d3b}
-    #closureLedgerCard .cl-void-note{font-weight:700;color:#9a6700;white-space:normal;min-width:260px}
+    #closureLedgerCard .cl-void-note{color:#9a6700;white-space:nowrap!important}
     #closureLedgerCard .cl-cancel-btn{border-color:#d8a443;color:#9a6700;background:#fffaf0}
+    #closureLedgerCard .cl-cancel-btn:disabled{opacity:.5;cursor:not-allowed}
     #closureLedgerCard .td-act{white-space:nowrap!important;min-width:150px!important}
     #closureLedgerCard .td-act .btn{margin:0 1px!important;padding:4px 6px!important}
     #closureLedgerCard tr.cl-void-row td{vertical-align:middle}
   `;
   document.head.appendChild(st);
 }
+
+function ensureCertLedgerTabStyle(){
+  if(document.getElementById('cert-ledger-tab-style-v1')) return;
+  const st=document.createElement('style');
+  st.id='cert-ledger-tab-style-v1';
+  st.textContent=`
+    #candRightLedgerTab{background:transparent!important;border:none!important;box-shadow:none!important;border-radius:0!important;padding:0 4px!important;height:auto!important;color:#686f79!important;font-weight:500!important}
+    #candRightLedgerTab.active{background:transparent!important;border:none!important;color:var(--c-pri,#5E6AD2)!important;font-weight:700!important}
+    #candRightLedgerTab:hover:not(.active){background:transparent!important;color:#4853b4!important;border:none!important}
+  `;
+  document.head.appendChild(st);
+}
+ensureCertLedgerTabStyle();
 
 function dtBadge(d){return d==='이전자료'?`<span class="badge b-purple">이전</span>`:`<span class="badge b-pri">신규</span>`;}
 function ctBadge(t){const m={'폐업':'b-danger','양도':'b-warn','이관':'b-purple','사망':'b-gray','말소':'b-gray'};return `<span class="badge ${m[t]||'b-gray'}">${t||'-'}</span>`;}
@@ -1917,8 +1930,8 @@ async function renderClosures(){
             <td class="cl-transfer-col">${fv(r.transfer_region)}</td>
             <td title="${e_(r.vehicle_type||'')}">${fv(r.vehicle_type)}</td>
             <td title="${e_(r.address||'')}">${fv(r.address)}</td>
-            <td class="cl-void-note" title="${e_(r.memo||'')}">${fv(r.memo)}</td>
-            <td class="td-act"><span class="badge b-yellow">취소완료</span></td>
+            <td class="cl-void-note" title="${e_(r.memo||'')}">-</td>
+            <td class="td-act"><button class="btn bp btn-xs" onclick="editClosure(${r.id})">수정</button>${isAdmin()?`<button class="btn bo btn-xs cl-cancel-btn" disabled>폐업취소</button>`:''}${isAdmin()?`<button class="btn br btn-xs" onclick="deleteClosure(${r.id})">삭제</button>`:''}</td>
           </tr>`;
         }
         const canCancel=isAdmin()&&r.closure_type==='폐업';
