@@ -1012,7 +1012,25 @@ async function renderCandidateSection(){
 }
 
 window.editCandidate=async(id)=>{
-  const r=await api('GET',`/api/candidates/${id}`).catch(()=>null);if(!r)return;
+  let r=null;
+  try{
+    const res=await fetch(`/api/candidates/${id}`,{headers:{Authorization:`Bearer ${localStorage.getItem('authToken')}`}});
+    if(res.status===410){
+      if(await cfm('이 예정자는 삭제된 상태입니다. 복원한 뒤 다시 열까요?')){
+        r=await api('POST',`/api/candidates/${id}/restore`).catch(()=>null);
+        if(r)toast('복원되었습니다.');
+      }
+      if(!r)return;
+    }else if(!res.ok){
+      let msg=res.statusText;
+      try{const j=await res.json();msg=j.detail||msg;}catch{}
+      toast(`${res.status} 오류: ${String(msg).slice(0,120)}`,'err');
+      return;
+    }else{
+      r=await res.json();
+    }
+  }catch(e){toast('서버 연결 오류','err');return;}
+  if(!r)return;
   openModal('예정자 수정',`<form id="cEditForm"><div class="fg">
     <div class="fi"><label>지역</label>${rsel('region',r.region||'')}</div>
     ${fi('vehicle_number','차량번호',r.vehicle_number||'')} ${fi('name','성명',r.name||'')}
@@ -1066,7 +1084,7 @@ window.registerCandidate=async(cid,vn,name)=>{
   };
 };
 window.deleteCandidate=async(cid)=>{
-  if(!await cfm('이 예정자를 삭제하시겠습니까?'))return;
+  if(!await cfm('이 예정자를 삭제하시겠습니까?\n※ 자격증명발급대장에 연결된 건이면 상세조회가 되지 않을 수 있습니다. (필요하면 나중에 복원 가능)'))return;
   try{await api('DELETE',`/api/candidates/${cid}`);toast('삭제');renderCandidateSection();}catch(e){}
 };
 

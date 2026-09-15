@@ -486,6 +486,10 @@ def normalize_certificate_number(value: str) -> str:
         return ""
     import unicodedata
     v = unicodedata.normalize("NFKC", str(value)).strip()
+    # 도내양도양수 등으로 '26-385(강동규)'처럼 이전 명의자 이름이 괄호로 함께
+    # 저장된 경우, 중복확인/사용이력 조회 시에는 괄호 주석을 떼고 순수 번호만
+    # 비교한다. 원본 필드 값 자체는 여기서 바꾸지 않는다(호출부가 반환값만 사용).
+    v = re.sub(r"\([^)]*\)\s*$", "", v).strip()
     for ch in _CERT_HYPHENS:
         v = v.replace(ch, "-")
     v = re.sub(r"\s*-\s*", "-", v)
