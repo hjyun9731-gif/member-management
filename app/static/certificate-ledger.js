@@ -105,6 +105,8 @@
     // 비고는 항상 이 버튼으로 수정 가능해야 한다. row.id(발급대장 행 id)만 있으면 되고
     // 예정자/회원의 생존 여부와 무관하게 동작한다(PUT /api/certificate-ledger/{id}).
     if (row.id) parts.push(`<button class="btn bo btn-xs" data-cl-edit-remark="${row.id}" title="비고 수정">비고</button>`);
+    if (row.id) parts.push(`<button class="btn bo btn-xs" data-cl-edit-number="${row.id}" title="발급번호 직접 수정">번호</button>`);
+    if (row.id) parts.push(`<button class="btn bo btn-xs" data-cl-relink="${row.id}" title="다른 예정자/회원으로 재연결">재연결</button>`);
     if (!row.candidate_id && !row.member_id && row.document_number) {
       // 대상 없이 과거에 잘못 소비된 예약번호는 발급대장에서 직접 취소/취소해제할 수 있게 한다.
       if (row.issuance_status === '취소') {
@@ -145,6 +147,95 @@
     }
   }
 
+  function openNumberEdit(ledgerId, target) {
+    const row = (state.lastRows || []).find(r => Number(r.id) === Number(ledgerId));
+    const current = row ? row.document_number || '' : '';
+    const label = row ? `${esc(row.name || '')} / ${esc(row.vehicle_number || '')}`.trim() : `#${ledgerId}`;
+    if (typeof window.openModal !== 'function') return;
+    window.openModal(
+      '발급번호 수정',
+      `<div style="font-size:12px;color:var(--c-text-3);margin-bottom:8px">${label}</div>
+       <input id="clNumberInput" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid var(--c-border);border-radius:8px;font:inherit" placeholder="예: 26-395 또는 26-395(운전자명)" value="${esc(current)}">
+       <div style="font-size:10.5px;color:var(--c-text-3);margin-top:6px">차주와 실제 운전자가 다른 경우 "26-385(강동규)"처럼 괄호로 운전자명을 함께 적을 수 있습니다. 이미 다른 대상이 쓰고 있는 번호는 저장할 수 없습니다.</div>`,
+      `<button class="btn" onclick="closeModal()">취소</button>
+       <button class="btn bp" id="clNumberSaveBtn">저장</button>`
+    );
+    const saveBtn = document.getElementById('clNumberSaveBtn');
+    if (saveBtn) {
+      saveBtn.onclick = async () => {
+        saveBtn.disabled = true;
+        try {
+          const value = document.getElementById('clNumberInput').value;
+          await request('PUT', `/api/certificate-ledger/${ledgerId}`, { document_number: value });
+          if (typeof window.closeModal === 'function') window.closeModal();
+          if (typeof toast === 'function') toast('발급번호가 수정되었습니다.');
+          statsCache = null; statsCacheAt = 0;
+          await render(state.page || 1, target);
+        } catch (_) {
+          saveBtn.disabled = false;
+        }
+      };
+    }
+  }
+
+  function openRelinkModal(ledgerId, target) {
+    const row = (state.lastRows || []).find(r => Number(r.id) === Number(ledgerId));
+    const label = row ? `${esc(row.document_number || '(번호없음)')} / ${esc(row.name || '')} / ${esc(row.vehicle_number || '')}`.trim() : `#${ledgerId}`;
+    if (typeof window.openModal !== 'function') return;
+    window.openModal(
+      '다른 예정자/회원으로 재연결',
+      `<div style="font-size:12px;color:var(--c-text-3);margin-bottom:8px">현재 연결: ${label}</div>
+       <div style="display:flex;gap:6px;margin-bottom:8px">
+         <input id="clRelinkSearch" style="flex:1;padding:8px;border:1px solid var(--c-border);border-radius:8px;font:inherit" placeholder="이름 또는 차량번호로 검색">
+         <button class="btn bp btn-sm" id="clRelinkSearchBtn">검색</button>
+       </div>
+       <div id="clRelinkResults" style="max-height:260px;overflow:auto"></div>`,
+      `<button class="btn" onclick="closeModal()">닫기</button>`
+    );
+    const input = document.getElementById('clRelinkSearch');
+    const searchBtn = document.getElementById('clRelinkSearchBtn');
+    const results = document.getElementById('clRelinkResults');
+    const doSearch = async () => {
+      const q = input.value.trim();
+      if (!q) { results.innerHTML = ''; return; }
+      results.innerHTML = '<div style="padding:8px;color:var(--c-text-3);font-size:12px">검색 중...</div>';
+      try {
+        const data = await request('GET', `/api/certificate-ledger/link-targets?q=${encodeURIComponent(q)}`);
+        const items = data.items || [];
+        if (!items.length) { results.innerHTML = '<div style="padding:8px;color:var(--c-text-3);font-size:12px">검색 결과가 없습니다.</div>'; return; }
+        results.innerHTML = items.map((it, idx) => `
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 8px;border:1px solid var(--c-border);border-radius:7px;margin-bottom:6px">
+            <div style="font-size:12px">
+              <span class="badge ${it.type === 'candidate' ? 'b-sky' : 'b-green'}" style="font-size:10px">${it.type === 'candidate' ? '예정자' : '회원'}</span>
+              <strong style="margin-left:4px">${esc(it.name)}</strong> · ${esc(it.vehicle_number)} · ${esc(it.region || '-')}
+              ${it.certificate_number ? ` · 발급번호 ${esc(it.certificate_number)}` : ''}
+            </div>
+            <button class="btn bp btn-xs" data-relink-pick="${idx}">이 대상으로 연결</button>
+          </div>`).join('');
+        results.querySelectorAll('[data-relink-pick]').forEach(btn => {
+          btn.onclick = async () => {
+            const item = items[Number(btn.dataset.relinkPick)];
+            if (!confirm(`"${item.name} / ${item.vehicle_number}"(으)로 재연결할까요?`)) return;
+            btn.disabled = true;
+            try {
+              await request('POST', `/api/certificate-ledger/${ledgerId}/relink`, { target_type: item.type, target_id: item.id });
+              if (typeof window.closeModal === 'function') window.closeModal();
+              if (typeof toast === 'function') toast('재연결되었습니다.');
+              statsCache = null; statsCacheAt = 0;
+              await render(state.page || 1, target);
+            } catch (_) {
+              btn.disabled = false;
+            }
+          };
+        });
+      } catch (_) {
+        results.innerHTML = '<div style="padding:8px;color:var(--c-text-3);font-size:12px">검색 중 오류가 발생했습니다.</div>';
+      }
+    };
+    searchBtn.onclick = doSearch;
+    input.onkeydown = e => { if (e.key === 'Enter') doSearch(); };
+    input.focus();
+  }
   async function getStats(force = false) {
     const now = Date.now();
     if (!force && statsCache && (now - statsCacheAt) < STATS_TTL_MS) return statsCache;
@@ -221,6 +312,12 @@
       });
       target.querySelectorAll('[data-cl-edit-remark]').forEach(button => {
         button.onclick = () => openRemarkEdit(Number(button.dataset.clEditRemark), target);
+      });
+      target.querySelectorAll('[data-cl-edit-number]').forEach(button => {
+        button.onclick = () => openNumberEdit(Number(button.dataset.clEditNumber), target);
+      });
+      target.querySelectorAll('[data-cl-relink]').forEach(button => {
+        button.onclick = () => openRelinkModal(Number(button.dataset.clRelink), target);
       });
       target.querySelectorAll('[data-cl-cancel-number]').forEach(button => {
         button.onclick = async () => {

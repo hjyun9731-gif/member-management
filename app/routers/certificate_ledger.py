@@ -372,11 +372,20 @@ class IssueLedgerBody(BaseModel):
 class UpdateLedgerBody(BaseModel):
     """발급대장 자체 수정 전용 body.
 
-    예정자/회원의 이름·주민등록번호·차량번호·자격증명번호 등은 여기서 건드리지 않는다.
-    발급대장에서 실제로 관리하는 최소 항목(발급일자, 비고)만 받는다.
+    예정자/회원의 이름·주민등록번호·차량번호 등은 여기서 건드리지 않는다.
+    발급대장에서 실제로 관리하는 항목(발급일자, 비고, 발급번호)만 받는다.
+    document_number는 26-385(강동규)처럼 괄호로 실제 운전자명이 붙은 표기도
+    그대로 저장할 수 있다(중복확인은 괄호를 뗀 순수 번호 기준으로 한다).
     """
     certificate_issue_date: Optional[str] = None
     remark: Optional[str] = None
+    document_number: Optional[str] = None
+
+
+class RelinkLedgerBody(BaseModel):
+    """발급대장 행이 잘못된 예정자/회원과 연결된 경우 다른 대상으로 바꿔 연결한다."""
+    target_type: str  # "candidate" | "member"
+    target_id: int
 
 
 def _dt(value):
@@ -795,6 +804,44 @@ def _get_row(db: Session, ledger_id: int):
     if not row:
         raise HTTPException(404, "발급대장 기록을 찾을 수 없습니다.")
     return row
+
+
+def _find_number_conflict(db: Session, norm_number: str, exclude_ledger_id: int = None,
+                           exclude_candidate_id: int = None, exclude_member_id: int = None):
+    """새 발급번호가 이 발급대장 행 본인 외에 이미 다른 대상에서 쓰이고 있는지 확인한다.
+
+    26-385(강동규)처럼 괄호 주석이 붙어 있어도 normalize_certificate_number가
+    순수 번호만 비교하므로 여기서도 그대로 잡아낸다.
+    """
+    for r in db.query(ledger_models.CertificateIssuanceLedger).filter(
+        ledger_models.CertificateIssuanceLedger.deleted_at.is_(None),
+        ledger_models.CertificateIssuanceLedger.id != (exclude_ledger_id or -1),
+    ).all():
+        if crud.normalize_certificate_number(r.document_number or "") == norm_number:
+            return f"발급대장 {r.name or ''}({r.vehicle_number or ''})".strip()
+
+    q = db.query(models.Candidate).filter(
+        models.Candidate.deleted_at.is_(None),
+        models.Candidate.certificate_number.isnot(None),
+        models.Candidate.certificate_number != "",
+    )
+    if exclude_candidate_id:
+        q = q.filter(models.Candidate.id != exclude_candidate_id)
+    for c in q.all():
+        if crud.normalize_certificate_number(c.certificate_number) == norm_number:
+            return f"예정자 {c.name or ''}({c.vehicle_number or ''})".strip()
+
+    q = db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.deleted_at.is_(None),
+        models.LicenseHolder.certificate_number.isnot(None),
+        models.LicenseHolder.certificate_number != "",
+    )
+    if exclude_member_id:
+        q = q.filter(models.LicenseHolder.id != exclude_member_id)
+    for m in q.all():
+        if crud.normalize_certificate_number(m.certificate_number) == norm_number:
+            return f"회원 {m.name or ''}({m.vehicle_number or ''})".strip()
+    return None
 
 
 def _same_number_subject(log: models.CertificateNumberLog, row) -> bool:
@@ -1315,14 +1362,66 @@ async def update_ledger(
 
     예정자(candidates)나 회원(license_holders) API를 전혀 거치지 않는다. 예정자가
     회원으로 전환되어 예정자 목록에서 사라지거나 삭제 처리되어도, 발급대장 행(ledger_id)
-    자체는 그대로 남아있으므로 이 API는 계속 동작한다. 여기서 수정하는 항목은 발급대장이
-    직접 소유한 필드(발급일자, 비고)뿐이며 개인/택배회원의 이름·주민등록번호·차량번호·
-    자격증명번호 등은 절대 변경하지 않는다.
+    자체는 그대로 남아있으므로 이 API는 계속 동작한다. 발급일자·비고는 발급대장만의
+    값이라 그대로 저장하고, 발급번호(document_number)를 바꾸는 경우에만 연결된 예정자/
+    회원의 certificate_number와 번호이력도 화면 간 불일치가 없도록 함께 맞춘다. 이름·
+    주민등록번호·차량번호 등 다른 항목은 여기서 절대 변경하지 않는다.
     """
     row = _get_row(db, ledger_id)
     actor = operator_name(user)
     changed = False
     notes = []
+
+    if body.document_number is not None:
+        new_raw = body.document_number.strip()
+        old_raw = (row.document_number or "").strip()
+        if new_raw != old_raw:
+            new_norm = ""
+            if new_raw:
+                new_norm = crud.normalize_certificate_number(new_raw)
+                if not new_norm:
+                    raise HTTPException(400, "자격증명발급번호 형식이 올바르지 않습니다. 예: 26-395 또는 26-395(운전자명)")
+                conflict = _find_number_conflict(
+                    db, new_norm, exclude_ledger_id=row.id,
+                    exclude_candidate_id=row.candidate_id, exclude_member_id=row.member_id,
+                )
+                if conflict:
+                    raise HTTPException(400, f"자격증명발급번호 {new_norm}는 이미 {conflict}에서 사용 중입니다.")
+
+            previous_status = row.status
+            row.document_number = new_raw
+            row.latest_operator = actor
+            add_history(db, row.id, "번호수정", previous_status, row.status, actor,
+                        f"발급번호 {old_raw or '(없음)'} → {new_raw or '(비움)'}")
+            try:
+                db.commit()
+            except IntegrityError as exc:
+                db.rollback()
+                raise HTTPException(400, f"자격증명발급번호 {new_norm or new_raw}는 이미 다른 발급대장 행에서 사용 중입니다.") from exc
+            except Exception as exc:
+                db.rollback()
+                raise HTTPException(500, f"발급대장 번호 저장 중 오류가 발생했습니다: {exc}") from exc
+            db.refresh(row)
+            _invalidate_stats_cache()
+
+            # 연결된 예정자/회원과 번호이력도 함께 맞춘다. 발급대장 번호 자체는 이미
+            # 저장이 끝났으므로, 이 보조 동기화가 실패해도 방금 저장한 값은 유지된다.
+            try:
+                target_name, target_vehicle = row.name or "", row.vehicle_number or ""
+                if row.member_id:
+                    crud.resync_certificate_number_change(
+                        db, old_raw, new_norm, "license_holders", row.member_id, target_name, target_vehicle,
+                    )
+                elif row.candidate_id:
+                    crud.resync_certificate_number_change(
+                        db, old_raw, new_norm, "candidates", row.candidate_id, target_name, target_vehicle,
+                    )
+                    cand = db.query(models.Candidate).filter(models.Candidate.id == row.candidate_id).first()
+                    if cand and (cand.certificate_number or "").strip() != new_raw:
+                        cand.certificate_number = new_raw
+                        db.commit()
+            except Exception:
+                db.rollback()
 
     if body.certificate_issue_date is not None:
         new_date = body.certificate_issue_date.strip()
@@ -1349,6 +1448,113 @@ async def update_ledger(
         db.refresh(row)
         _invalidate_stats_cache()
 
+    return _item(db, row)
+
+
+@router.get("/link-targets")
+async def search_link_targets(
+    q: str = Query(..., min_length=1),
+    db: Session = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """발급대장 행을 다른 예정자/회원으로 재연결할 때 이름/차량번호로 대상을 찾는다.
+
+    성명이 아니라 자격증명번호에 '26-385(강동규)'처럼 괄호로 실제 운전자명이
+    붙어 있는 경우도 있으므로, certificate_number 안의 텍스트도 함께 검색한다.
+    """
+    pattern = f"%{q.strip()}%"
+    items = []
+    for c in db.query(models.Candidate).filter(
+        models.Candidate.deleted_at.is_(None),
+        or_(
+            models.Candidate.name.ilike(pattern),
+            models.Candidate.vehicle_number.ilike(pattern),
+            models.Candidate.certificate_number.ilike(pattern),
+        ),
+    ).order_by(models.Candidate.id.desc()).limit(20).all():
+        items.append({
+            "type": "candidate", "id": c.id, "name": c.name or "", "vehicle_number": c.vehicle_number or "",
+            "region": c.region or "", "certificate_number": c.certificate_number or "",
+            "is_registered": bool(c.is_registered),
+        })
+    for m in db.query(models.LicenseHolder).filter(
+        models.LicenseHolder.deleted_at.is_(None),
+        or_(
+            models.LicenseHolder.name.ilike(pattern),
+            models.LicenseHolder.vehicle_number.ilike(pattern),
+            models.LicenseHolder.certificate_number.ilike(pattern),
+        ),
+    ).order_by(models.LicenseHolder.id.desc()).limit(20).all():
+        items.append({
+            "type": "member", "id": m.id, "name": m.name or "", "vehicle_number": m.vehicle_number or "",
+            "region": m.region or "", "certificate_number": m.certificate_number or "",
+            "category": getattr(m, "category", "") or "",
+        })
+    return {"items": items}
+
+
+@router.post("/{ledger_id}/relink")
+async def relink_ledger(
+    ledger_id: int,
+    body: RelinkLedgerBody,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """발급대장 행이 잘못된 예정자/회원과 연결됐을 때 다른 대상으로 바꿔 연결한다.
+
+    예정자가 삭제됐거나(soft-delete) 애초에 동명이인/오연결로 잘못 붙은 경우,
+    예정자를 지우거나 새로 만들 필요 없이 이 API로 연결 대상만 바꾼다.
+    발급번호(document_number) 자체는 여기서 바꾸지 않는다.
+    """
+    row = _get_row(db, ledger_id)
+    actor = operator_name(user)
+    previous_label = f"{row.name or ''}({row.vehicle_number or ''})".strip()
+
+    if body.target_type == "candidate":
+        target = db.query(models.Candidate).filter(
+            models.Candidate.id == body.target_id, models.Candidate.deleted_at.is_(None)
+        ).first()
+        if not target:
+            raise HTTPException(404, "연결할 예정자를 찾을 수 없습니다.")
+        dup = db.query(ledger_models.CertificateIssuanceLedger.id).filter(
+            ledger_models.CertificateIssuanceLedger.candidate_id == target.id,
+            ledger_models.CertificateIssuanceLedger.id != row.id,
+            ledger_models.CertificateIssuanceLedger.deleted_at.is_(None),
+        ).first()
+        if dup:
+            raise HTTPException(400, f"이 예정자는 이미 다른 발급대장(#{dup[0]})에 연결되어 있습니다.")
+        row.candidate_id = target.id
+        row.member_id = target.member_id
+        row.region = target.region or row.region
+        row.vehicle_number = target.vehicle_number or row.vehicle_number
+        row.name = target.name or row.name
+    elif body.target_type == "member":
+        target = db.query(models.LicenseHolder).filter(
+            models.LicenseHolder.id == body.target_id, models.LicenseHolder.deleted_at.is_(None)
+        ).first()
+        if not target:
+            raise HTTPException(404, "연결할 회원을 찾을 수 없습니다.")
+        row.member_id = target.id
+        row.candidate_id = getattr(target, "candidate_id", None)
+        row.region = target.region or row.region
+        row.vehicle_number = target.vehicle_number or row.vehicle_number
+        row.name = target.name or row.name
+    else:
+        raise HTTPException(400, "target_type은 candidate 또는 member여야 합니다.")
+
+    row.latest_operator = actor
+    add_history(db, row.id, "연결대상변경", row.status, row.status, actor,
+                f"{previous_label} → {row.name or ''}({row.vehicle_number or ''})로 재연결")
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(400, "이 대상은 이미 다른 발급대장과 연결되어 있습니다.") from exc
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(500, f"재연결 저장 중 오류가 발생했습니다: {exc}") from exc
+    db.refresh(row)
+    _invalidate_stats_cache()
     return _item(db, row)
 
 

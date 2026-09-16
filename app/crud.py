@@ -876,7 +876,11 @@ def resync_certificate_number_change(db: Session, old_number: str, new_number: s
                         _ledger_models.CertificateIssuanceLedger.deleted_at.is_(None),
                     ).first()
                     if not dup:
-                        row.document_number = new_cert
+                        # 26-385(강동규)처럼 괄호로 실제 운전자명이 붙은 원본 표기를 그대로
+                        # 대장에도 남겨야, 발급대장 검색(성명/차량번호/자격증명번호)에서
+                        # 괄호 안 이름으로도 찾을 수 있다. 정규화된 값(new_cert)은
+                        # 원본이 비어있을 때의 대체값으로만 쓴다.
+                        row.document_number = (member.certificate_number or "").strip() or new_cert
                 row.member_id = member.id
                 row.approval_date = member.approval_date or row.approval_date or ""
                 row.certificate_issue_date = member.certificate_issue_date or row.certificate_issue_date or ""
