@@ -416,6 +416,14 @@ async def startup():
 def receivables_reconcile_20260916_v4_status():
     return _receivables_reconcile_v4.get_receivables_reconcile_v4_status()
 
+@app.post("/api/receivables/reconcile-20260916-v4/apply")
+def receivables_reconcile_20260916_v4_apply():
+    try:
+        return _receivables_reconcile_v4.apply_receivables_reconcile_20260916_v4()
+    except Exception as exc:
+        logger.exception("Receivables V4 manual apply failed")
+        return {"status": "error", "detail": f"{type(exc).__name__}: {exc}"}
+
 @app.get("/health")
 async def health(): return {"status": "ok"}
 
