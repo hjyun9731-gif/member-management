@@ -1,5 +1,5 @@
 {
-  "patch_id": "receivables_hotfix_20260916_v1",
+  "patch_id": "receivables_hotfix_20260916_v2",
   "source": "[최종완료]2026미수금_미발급28명_2026년시트이동_20260916.xlsx",
   "base_export": "수납미수금_수납처리_20260916_1401.xlsx",
   "correction_count": 271,
@@ -2176,5 +2176,6 @@
       "disable_billing": false,
       "reason": "final_ledger_reconciliation"
     }
-  ]
+  ],
+  "guard_version": "certificate_billing_guard_v2"
 }
