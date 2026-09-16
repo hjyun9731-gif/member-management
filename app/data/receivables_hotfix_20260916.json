@@ -1,0 +1,2180 @@
+{
+  "patch_id": "receivables_hotfix_20260916_v1",
+  "source": "[최종완료]2026미수금_미발급28명_2026년시트이동_20260916.xlsx",
+  "base_export": "수납미수금_수납처리_20260916_1401.xlsx",
+  "correction_count": 271,
+  "billing_exclusion_count": 28,
+  "balance_delta_total": -5532000,
+  "corrections": [
+    {
+      "management_number": "양16-65",
+      "base_balance": 820000,
+      "target_balance": 620000,
+      "delta": -200000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신15-162",
+      "base_balance": 560000,
+      "target_balance": 0,
+      "delta": -560000,
+      "disable_billing": true,
+      "reason": "certificate_not_issued_excluded"
+    },
+    {
+      "management_number": "신14-17",
+      "base_balance": 560000,
+      "target_balance": 0,
+      "delta": -560000,
+      "disable_billing": true,
+      "reason": "certificate_not_issued_excluded"
+    },
+    {
+      "management_number": "신18-176",
+      "base_balance": 485000,
+      "target_balance": 0,
+      "delta": -485000,
+      "disable_billing": true,
+      "reason": "certificate_not_issued_excluded"
+    },
+    {
+      "management_number": "신18-263",
+      "base_balance": 440000,
+      "target_balance": 0,
+      "delta": -440000,
+      "disable_billing": true,
+      "reason": "certificate_not_issued_excluded"
+    },
+    {
+      "management_number": "신19-413",
+      "base_balance": 405000,
+      "target_balance": 0,
+      "delta": -405000,
+      "disable_billing": true,
+      "reason": "certificate_not_issued_excluded"
+    },
+    {
+      "management_number": "신20-32",
+      "base_balance": 400000,
+      "target_balance": 0,
+      "delta": -400000,
+      "disable_billing": true,
+      "reason": "certificate_not_issued_excluded"
+    },
+    {
+      "management_number": "신15-124",
+      "base_balance": 395000,
+      "target_balance": 735000,
+      "delta": 340000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양17-17",
+      "base_balance": 390000,
+      "target_balance": 710000,
+      "delta": 320000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신18-367",
+      "base_balance": 375000,
+      "target_balance": 0,
+      "delta": -375000,
+      "disable_billing": true,
+      "reason": "certificate_not_issued_excluded"
+    },
+    {
+      "management_number": "신13-169",
+      "base_balance": 360000,
+      "target_balance": 0,
+      "delta": -360000,
+      "disable_billing": true,
+      "reason": "certificate_not_issued_excluded"
+    },
+    {
+      "management_number": "신20-264",
+      "base_balance": 355000,
+      "target_balance": 0,
+      "delta": -355000,
+      "disable_billing": true,
+      "reason": "certificate_not_issued_excluded"
+    },
+    {
+      "management_number": "신21-44",
+      "base_balance": 330000,
+      "target_balance": 0,
+      "delta": -330000,
+      "disable_billing": true,
+      "reason": "certificate_not_issued_excluded"
+    },
+    {
+      "management_number": "신22-104",
+      "base_balance": 270000,
+      "target_balance": 505000,
+      "delta": 235000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신18-61",
+      "base_balance": 250000,
+      "target_balance": 350000,
+      "delta": 100000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신22-369",
+      "base_balance": 230000,
+      "target_balance": 0,
+      "delta": -230000,
+      "disable_billing": true,
+      "reason": "certificate_not_issued_excluded"
+    },
+    {
+      "management_number": "신23-43",
+      "base_balance": 220000,
+      "target_balance": 0,
+      "delta": -220000,
+      "disable_billing": true,
+      "reason": "certificate_not_issued_excluded"
+    },
+    {
+      "management_number": "신23-114",
+      "base_balance": 215000,
+      "target_balance": 0,
+      "delta": -215000,
+      "disable_billing": true,
+      "reason": "certificate_not_issued_excluded"
+    },
+    {
+      "management_number": "신23-109",
+      "base_balance": 205000,
+      "target_balance": 155000,
+      "delta": -50000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신20-263",
+      "base_balance": 200000,
+      "target_balance": 0,
+      "delta": -200000,
+      "disable_billing": true,
+      "reason": "certificate_not_issued_excluded"
+    },
+    {
+      "management_number": "신23-113",
+      "base_balance": 195000,
+      "target_balance": 0,
+      "delta": -195000,
+      "disable_billing": true,
+      "reason": "certificate_not_issued_excluded"
+    },
+    {
+      "management_number": "양20-64",
+      "base_balance": 190000,
+      "target_balance": 340000,
+      "delta": 150000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신24-63",
+      "base_balance": 155000,
+      "target_balance": 0,
+      "delta": -155000,
+      "disable_billing": true,
+      "reason": "certificate_not_issued_excluded"
+    },
+    {
+      "management_number": "신21-278",
+      "base_balance": 150000,
+      "target_balance": 280000,
+      "delta": 130000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신24-151",
+      "base_balance": 140000,
+      "target_balance": 0,
+      "delta": -140000,
+      "disable_billing": true,
+      "reason": "certificate_not_issued_excluded"
+    },
+    {
+      "management_number": "신24-259",
+      "base_balance": 125000,
+      "target_balance": 225000,
+      "delta": 100000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신24-282",
+      "base_balance": 125000,
+      "target_balance": 0,
+      "delta": -125000,
+      "disable_billing": true,
+      "reason": "certificate_not_issued_excluded"
+    },
+    {
+      "management_number": "신24-165",
+      "base_balance": 120000,
+      "target_balance": 0,
+      "delta": -120000,
+      "disable_billing": true,
+      "reason": "certificate_not_issued_excluded"
+    },
+    {
+      "management_number": "신24-362",
+      "base_balance": 110000,
+      "target_balance": 0,
+      "delta": -110000,
+      "disable_billing": true,
+      "reason": "certificate_not_issued_excluded"
+    },
+    {
+      "management_number": "신24-393",
+      "base_balance": 110000,
+      "target_balance": 0,
+      "delta": -110000,
+      "disable_billing": true,
+      "reason": "certificate_not_issued_excluded"
+    },
+    {
+      "management_number": "양14-87",
+      "base_balance": 90000,
+      "target_balance": 150000,
+      "delta": 60000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양15-112",
+      "base_balance": 90000,
+      "target_balance": 80000,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신24-354",
+      "base_balance": 90000,
+      "target_balance": 0,
+      "delta": -90000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신25-96",
+      "base_balance": 90000,
+      "target_balance": 125000,
+      "delta": 35000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신23-304",
+      "base_balance": 90000,
+      "target_balance": 0,
+      "delta": -90000,
+      "disable_billing": true,
+      "reason": "certificate_not_issued_excluded"
+    },
+    {
+      "management_number": "신25-116",
+      "base_balance": 85000,
+      "target_balance": 0,
+      "delta": -85000,
+      "disable_billing": true,
+      "reason": "certificate_not_issued_excluded"
+    },
+    {
+      "management_number": "신25-181",
+      "base_balance": 80000,
+      "target_balance": 0,
+      "delta": -80000,
+      "disable_billing": true,
+      "reason": "certificate_not_issued_excluded"
+    },
+    {
+      "management_number": "신19-386",
+      "base_balance": 75000,
+      "target_balance": 80000,
+      "delta": 5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신25-225",
+      "base_balance": 70000,
+      "target_balance": 0,
+      "delta": -70000,
+      "disable_billing": true,
+      "reason": "certificate_not_issued_excluded"
+    },
+    {
+      "management_number": "신25-202",
+      "base_balance": 70000,
+      "target_balance": 0,
+      "delta": -70000,
+      "disable_billing": true,
+      "reason": "certificate_not_issued_excluded"
+    },
+    {
+      "management_number": "신21-112",
+      "base_balance": 70000,
+      "target_balance": 65000,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양08-215",
+      "base_balance": 60000,
+      "target_balance": 80000,
+      "delta": 20000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양14-74",
+      "base_balance": 60000,
+      "target_balance": 30000,
+      "delta": -30000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신24-218",
+      "base_balance": 60000,
+      "target_balance": 65000,
+      "delta": 5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양10-189",
+      "base_balance": 50000,
+      "target_balance": 80000,
+      "delta": 30000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신20-267",
+      "base_balance": 45000,
+      "target_balance": 50000,
+      "delta": 5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신23-135",
+      "base_balance": 45000,
+      "target_balance": 40000,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신24-39",
+      "base_balance": 45000,
+      "target_balance": 0,
+      "delta": -45000,
+      "disable_billing": true,
+      "reason": "certificate_not_issued_excluded"
+    },
+    {
+      "management_number": "신24-310",
+      "base_balance": 45000,
+      "target_balance": 40000,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양25-185",
+      "base_balance": 45000,
+      "target_balance": 55000,
+      "delta": 10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신23-238",
+      "base_balance": 45000,
+      "target_balance": 0,
+      "delta": -45000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양18-189",
+      "base_balance": 40000,
+      "target_balance": 35000,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양18-155",
+      "base_balance": 30000,
+      "target_balance": 0,
+      "delta": -30000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양17-144",
+      "base_balance": 30000,
+      "target_balance": 40000,
+      "delta": 10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양26-23",
+      "base_balance": 30000,
+      "target_balance": 0,
+      "delta": -30000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양23-34",
+      "base_balance": 30000,
+      "target_balance": 90000,
+      "delta": 60000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양21-119",
+      "base_balance": 30000,
+      "target_balance": 40000,
+      "delta": 10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신25-147",
+      "base_balance": 30000,
+      "target_balance": -20000,
+      "delta": -50000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양24-112",
+      "base_balance": 30000,
+      "target_balance": 40000,
+      "delta": 10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양21-131",
+      "base_balance": 30000,
+      "target_balance": 0,
+      "delta": -30000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신25-136",
+      "base_balance": 25000,
+      "target_balance": 40000,
+      "delta": 15000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양24-147",
+      "base_balance": 20000,
+      "target_balance": 30000,
+      "delta": 10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신01-13",
+      "base_balance": 20000,
+      "target_balance": 30000,
+      "delta": 10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양17-150",
+      "base_balance": 20000,
+      "target_balance": 10000,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양19-110",
+      "base_balance": 20000,
+      "target_balance": 10000,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신26-160",
+      "base_balance": 20000,
+      "target_balance": 0,
+      "delta": -20000,
+      "disable_billing": true,
+      "reason": "certificate_not_issued_excluded"
+    },
+    {
+      "management_number": "양21-52",
+      "base_balance": 20000,
+      "target_balance": 30000,
+      "delta": 10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양16-112",
+      "base_balance": 20000,
+      "target_balance": 30000,
+      "delta": 10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신20-280",
+      "base_balance": 20000,
+      "target_balance": 10000,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신19-59",
+      "base_balance": 20000,
+      "target_balance": 10000,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양20-93",
+      "base_balance": 20000,
+      "target_balance": 15000,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신17-26",
+      "base_balance": 20000,
+      "target_balance": 10000,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신26-162",
+      "base_balance": 20000,
+      "target_balance": -15000,
+      "delta": -35000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양22-118",
+      "base_balance": 20000,
+      "target_balance": 30000,
+      "delta": 10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신24-177",
+      "base_balance": 20000,
+      "target_balance": 15000,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양20-127",
+      "base_balance": 20000,
+      "target_balance": 30000,
+      "delta": 10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양23-108",
+      "base_balance": 20000,
+      "target_balance": 10000,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신24-226",
+      "base_balance": 15000,
+      "target_balance": 20000,
+      "delta": 5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신19-322",
+      "base_balance": 15000,
+      "target_balance": 10000,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양15-91",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양12-17",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양06-22",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양22-52",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양11-9",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양15-169",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신18-120",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신25-216",
+      "base_balance": 10000,
+      "target_balance": 15000,
+      "delta": 5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양14-62",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신24-304",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양25-42",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "o",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양10-150",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양18-106",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양21-34",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신21-82",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신17-35",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신25-1",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양24-97",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양24-54",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신24-286",
+      "base_balance": 10000,
+      "target_balance": 20000,
+      "delta": 10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양21-98",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양25-8",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신21-248",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양25-156",
+      "base_balance": 10000,
+      "target_balance": 100000,
+      "delta": 90000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신20-255",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신22-188",
+      "base_balance": 10000,
+      "target_balance": 15000,
+      "delta": 5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양25-70",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양14-126",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation",
+      "fallback_name": "문용빈",
+      "fallback_vehicle": "85자6212"
+    },
+    {
+      "management_number": "양14-36",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양22-66",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양99-61",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신23-197",
+      "base_balance": 10000,
+      "target_balance": 5000,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양19-56",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양25-47",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양21-72",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신20-250",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신21-260",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양24-146",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양26-04",
+      "base_balance": 10000,
+      "target_balance": -10000,
+      "delta": -20000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신22-172",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양20-126",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양24-68",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신23-196",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양25-177",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양16-40",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신21-421",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신19-2",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양23-110",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양19-92",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신25-146",
+      "base_balance": 10000,
+      "target_balance": 5000,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신20-268",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양19-101",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신19-88",
+      "base_balance": 10000,
+      "target_balance": 5000,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양13-172",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양12-161",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양18-168",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양23-7",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양03-160",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신24-285",
+      "base_balance": 10000,
+      "target_balance": 15000,
+      "delta": 5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양17-78",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양22-46",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신19-264",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양18-160",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양25-44",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양23-151",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양17-134",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양05-2",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신20-204",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양18-117",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양06-125",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양26-15",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양10-87",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양05-6",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신25-64",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신24-119",
+      "base_balance": 10000,
+      "target_balance": 15000,
+      "delta": 5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신21-375",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양23-90",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양13-158",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양26-03",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양07-10",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양25-30",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양16-3",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신20-215",
+      "base_balance": 10000,
+      "target_balance": 5000,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양17-169",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신20-291",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신26-179",
+      "base_balance": 10000,
+      "target_balance": 5000,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신21-390",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양03-53",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양19-125",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양15-173",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양20-91",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양19-136",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신03-117",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신01-87",
+      "base_balance": 10000,
+      "target_balance": -20000,
+      "delta": -30000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양15-11",
+      "base_balance": 10000,
+      "target_balance": 0,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신25-213",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신24-13",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신25-152",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신26-47",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양25-158",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신26-238",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신18-39",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신26-146",
+      "base_balance": 5000,
+      "target_balance": -10000,
+      "delta": -15000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신19-278",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신16-53",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신20-318",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신24-117",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양25-37",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신21-103",
+      "base_balance": 5000,
+      "target_balance": 165000,
+      "delta": 160000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신20-100",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신22-276",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신24-248",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신21-251",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신26-05",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신26-147",
+      "base_balance": 5000,
+      "target_balance": -10000,
+      "delta": -15000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신23-24",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신26-66",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신24-211",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신20-346",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신19-119",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신24-252",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신20-51",
+      "base_balance": 5000,
+      "target_balance": 400000,
+      "delta": 395000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신24-121",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신26-10",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양19-154",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신21-347",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신13-10",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신18-382",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신24-74",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신18-350",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신26-161",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신24-137",
+      "base_balance": 5000,
+      "target_balance": 10000,
+      "delta": 5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신22-91",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신25-154",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신21-229",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신26-166",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신26-212",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신26-231",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신22-101",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신21-200",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신24-397",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신24-379",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신23-152",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신26-90",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신26-245",
+      "base_balance": 5000,
+      "target_balance": 35000,
+      "delta": 30000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신19-87",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신23-62",
+      "base_balance": 5000,
+      "target_balance": 10000,
+      "delta": 5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신25-56",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신18-380",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신25-255",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신22-81",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신25-166",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신22-293",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신26-197",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신20-98",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신21-94",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신19-89",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신25-212",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신26-43",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신26-137",
+      "base_balance": 5000,
+      "target_balance": 0,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신03-157",
+      "base_balance": 2000,
+      "target_balance": -16000,
+      "delta": -18000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양21-49",
+      "base_balance": 0,
+      "target_balance": 600000,
+      "delta": 600000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양26-77",
+      "base_balance": 0,
+      "target_balance": -10000,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양16-29",
+      "base_balance": 0,
+      "target_balance": 440000,
+      "delta": 440000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신25-35",
+      "base_balance": 0,
+      "target_balance": -10000,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신25-228",
+      "base_balance": 0,
+      "target_balance": -5000,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신26-63",
+      "base_balance": 0,
+      "target_balance": -10000,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양13-170",
+      "base_balance": 0,
+      "target_balance": 50000,
+      "delta": 50000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양21-148",
+      "base_balance": 0,
+      "target_balance": -20000,
+      "delta": -20000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신19-146",
+      "base_balance": 0,
+      "target_balance": -10000,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신25-81",
+      "base_balance": 0,
+      "target_balance": -5000,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신24-5",
+      "base_balance": 0,
+      "target_balance": -10000,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양25-179",
+      "base_balance": 0,
+      "target_balance": -10000,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신20-181",
+      "base_balance": 0,
+      "target_balance": -10000,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신23-314",
+      "base_balance": 0,
+      "target_balance": -5000,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신22-320",
+      "base_balance": 0,
+      "target_balance": -5000,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양24-89",
+      "base_balance": 0,
+      "target_balance": 10000,
+      "delta": 10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신25-292",
+      "base_balance": 0,
+      "target_balance": -5000,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신22-90",
+      "base_balance": 0,
+      "target_balance": -10000,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신18-234",
+      "base_balance": 0,
+      "target_balance": -10000,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신25-286",
+      "base_balance": 0,
+      "target_balance": -5000,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신18-311",
+      "base_balance": 0,
+      "target_balance": -20000,
+      "delta": -20000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신01-163",
+      "base_balance": -10000,
+      "target_balance": -40000,
+      "delta": -30000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양17-11",
+      "base_balance": -10000,
+      "target_balance": -40000,
+      "delta": -30000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신25-282",
+      "base_balance": -25000,
+      "target_balance": -35000,
+      "delta": -10000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신16-2",
+      "base_balance": -26000,
+      "target_balance": -70000,
+      "delta": -44000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신20-301",
+      "base_balance": -30000,
+      "target_balance": -35000,
+      "delta": -5000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "양18-131",
+      "base_balance": -40000,
+      "target_balance": -100000,
+      "delta": -60000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신15-139",
+      "base_balance": -90000,
+      "target_balance": -200000,
+      "delta": -110000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    },
+    {
+      "management_number": "신19-256",
+      "base_balance": -105000,
+      "target_balance": -220000,
+      "delta": -115000,
+      "disable_billing": false,
+      "reason": "final_ledger_reconciliation"
+    }
+  ]
+}
