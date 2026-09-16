@@ -273,24 +273,44 @@ function ensureClosureLedgerToggleStyle(){
   st.textContent=`
     #closureLedgerCard .cl-transfer-col{display:none!important}
     #closureLedgerCard.cl-show-transfer .cl-transfer-col{display:table-cell!important}
-    #closureLedgerCard .cl-reason-col{min-width:120px;max-width:240px}
+    #closureLedgerCard .cl-reason-col{width:190px;min-width:180px;max-width:200px}
     #closureLedgerCard tbody td.cl-reason-col{
-      white-space:normal;
-      line-height:1.35;
-      word-break:keep-all;
-      overflow-wrap:anywhere;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
     }
     #clTransferToggle{white-space:nowrap}
     #closureLedgerCard tr.cl-void-row{background:#fffaf0}
     #closureLedgerCard tr.cl-void-row td{color:#8a6d3b}
-    #closureLedgerCard .cl-void-note{font-weight:700;color:#9a6700;white-space:normal;min-width:260px}
+    #closureLedgerCard .cl-void-note{color:#9a6700;white-space:nowrap!important}
     #closureLedgerCard .cl-cancel-btn{border-color:#d8a443;color:#9a6700;background:#fffaf0}
+    #closureLedgerCard .cl-cancel-btn:disabled{opacity:.5;cursor:not-allowed}
     #closureLedgerCard .td-act{white-space:nowrap!important;min-width:150px!important}
     #closureLedgerCard .td-act .btn{margin:0 1px!important;padding:4px 6px!important}
     #closureLedgerCard tr.cl-void-row td{vertical-align:middle}
+
+    /* 2026-09-11: 관리(수정/폐업취소/삭제) 열을 오른쪽에 고정해 가로 스크롤해도 잘리지 않게 함 */
+    #closureLedgerCard .tbl-wrap{overflow-x:auto}
+    #closureLedgerCard th.td-act{position:sticky!important;right:0!important;z-index:3!important;background:#fbfcfe!important;box-shadow:-6px 0 8px -6px rgba(20,24,40,.18)}
+    #closureLedgerCard td.td-act{position:sticky!important;right:0!important;z-index:2!important;background:#fff!important;box-shadow:-6px 0 8px -6px rgba(20,24,40,.18)}
+    #closureLedgerCard tbody tr:hover td.td-act{background:#fafbff!important}
+    #closureLedgerCard tr.cl-void-row td.td-act{background:#fffaf0!important}
   `;
   document.head.appendChild(st);
 }
+
+function ensureCertLedgerTabStyle(){
+  if(document.getElementById('cert-ledger-tab-style-v1')) return;
+  const st=document.createElement('style');
+  st.id='cert-ledger-tab-style-v1';
+  st.textContent=`
+    #candRightLedgerTab{background:transparent!important;border:none!important;box-shadow:none!important;border-radius:0!important;padding:0 4px!important;height:auto!important;color:#686f79!important;font-weight:500!important}
+    #candRightLedgerTab.active{background:transparent!important;border:none!important;color:var(--c-pri,#5E6AD2)!important;font-weight:700!important}
+    #candRightLedgerTab:hover:not(.active){background:transparent!important;color:#4853b4!important;border:none!important}
+  `;
+  document.head.appendChild(st);
+}
+ensureCertLedgerTabStyle();
 
 function dtBadge(d){return d==='이전자료'?`<span class="badge b-purple">이전</span>`:`<span class="badge b-pri">신규</span>`;}
 function ctBadge(t){const m={'폐업':'b-danger','양도':'b-warn','이관':'b-purple','사망':'b-gray','말소':'b-gray'};return `<span class="badge ${m[t]||'b-gray'}">${t||'-'}</span>`;}
@@ -891,7 +911,7 @@ async function renderCandidateSection(){
     <div class="candidate-right-column">
       <div class="inner-tab-bar candidate-right-tabs" style="margin-bottom:10px">
         <button type="button" class="inner-tab ${rightView==='list'?'active':''}" id="candRightListTab">📂 예정자 목록</button>
-        <button type="button" class="inner-tab ${rightView==='ledger'?'active':''}" id="candRightLedgerTab">🖨 자격증명발급대장</button>
+        <button type="button" class="inner-tab ${rightView==='ledger'?'active':''}" id="candRightLedgerTab">🖨️ 자격증명발급대장</button>
       </div>
       <div id="candidateRightPane" class="candidate-right-pane"></div>
     </div>
@@ -992,7 +1012,25 @@ async function renderCandidateSection(){
 }
 
 window.editCandidate=async(id)=>{
-  const r=await api('GET',`/api/candidates/${id}`).catch(()=>null);if(!r)return;
+  let r=null;
+  try{
+    const res=await fetch(`/api/candidates/${id}`,{headers:{Authorization:`Bearer ${localStorage.getItem('authToken')}`}});
+    if(res.status===410){
+      if(await cfm('이 예정자는 삭제된 상태입니다. 복원한 뒤 다시 열까요?')){
+        r=await api('POST',`/api/candidates/${id}/restore`).catch(()=>null);
+        if(r)toast('복원되었습니다.');
+      }
+      if(!r)return;
+    }else if(!res.ok){
+      let msg=res.statusText;
+      try{const j=await res.json();msg=j.detail||msg;}catch{}
+      toast(`${res.status} 오류: ${String(msg).slice(0,120)}`,'err');
+      return;
+    }else{
+      r=await res.json();
+    }
+  }catch(e){toast('서버 연결 오류','err');return;}
+  if(!r)return;
   openModal('예정자 수정',`<form id="cEditForm"><div class="fg">
     <div class="fi"><label>지역</label>${rsel('region',r.region||'')}</div>
     ${fi('vehicle_number','차량번호',r.vehicle_number||'')} ${fi('name','성명',r.name||'')}
@@ -1046,7 +1084,7 @@ window.registerCandidate=async(cid,vn,name)=>{
   };
 };
 window.deleteCandidate=async(cid)=>{
-  if(!await cfm('이 예정자를 삭제하시겠습니까?'))return;
+  if(!await cfm('이 예정자를 삭제하시겠습니까?\n※ 자격증명발급대장에 연결된 건이면 상세조회가 되지 않을 수 있습니다. (필요하면 나중에 복원 가능)'))return;
   try{await api('DELETE',`/api/candidates/${cid}`);toast('삭제');renderCandidateSection();}catch(e){}
 };
 
@@ -1878,7 +1916,8 @@ async function renderClosures(){
   const closureHeaders=plainHeaders(hdrs)
     .replace('<th class="">폐업사유</th>','<th class="cl-reason-col">폐업사유</th>')
     .replace('<th class="">양수인</th>','<th class="cl-transfer-col">양수인</th>')
-    .replace('<th class="">이관지역</th>','<th class="cl-transfer-col">이관지역</th>');
+    .replace('<th class="">이관지역</th>','<th class="cl-transfer-col">이관지역</th>')
+    .replace('<th class="no-sort">관리</th>','<th class="no-sort td-act">관리</th>');
 
   const doSearch=async(pg=1)=>{
     ST.fl.cl={
@@ -1917,8 +1956,8 @@ async function renderClosures(){
             <td class="cl-transfer-col">${fv(r.transfer_region)}</td>
             <td title="${e_(r.vehicle_type||'')}">${fv(r.vehicle_type)}</td>
             <td title="${e_(r.address||'')}">${fv(r.address)}</td>
-            <td class="cl-void-note" title="${e_(r.memo||'')}">${fv(r.memo)}</td>
-            <td class="td-act"><span class="badge b-yellow">취소완료</span></td>
+            <td class="cl-void-note" title="${e_(r.memo||'')}">-</td>
+            <td class="td-act"><button class="btn bp btn-xs" onclick="editClosure(${r.id})">수정</button>${isAdmin()?`<button class="btn bo btn-xs cl-cancel-btn" disabled>폐업취소</button>`:''}${isAdmin()?`<button class="btn br btn-xs" onclick="deleteClosure(${r.id})">삭제</button>`:''}</td>
           </tr>`;
         }
         const canCancel=isAdmin()&&r.closure_type==='폐업';

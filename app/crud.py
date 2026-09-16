@@ -486,6 +486,10 @@ def normalize_certificate_number(value: str) -> str:
         return ""
     import unicodedata
     v = unicodedata.normalize("NFKC", str(value)).strip()
+    # 도내양도양수 등으로 '26-385(강동규)'처럼 이전 명의자 이름이 괄호로 함께
+    # 저장된 경우, 중복확인/사용이력 조회 시에는 괄호 주석을 떼고 순수 번호만
+    # 비교한다. 원본 필드 값 자체는 여기서 바꾸지 않는다(호출부가 반환값만 사용).
+    v = re.sub(r"\([^)]*\)\s*$", "", v).strip()
     for ch in _CERT_HYPHENS:
         v = v.replace(ch, "-")
     v = re.sub(r"\s*-\s*", "-", v)
@@ -657,7 +661,8 @@ def lock_certificate_number_sequence(db: Session):
         pass
 
 
-def get_next_certificate_number(db: Session, issued_by: str = None) -> str:
+def get_next_certificate_number(db: Session, issued_by: str = None,
+                                 target_name: str = "", vehicle_number: str = "") -> str:
     """자격증명발급번호 자동 채번: 'YY-N' 형식 (예: 26-301).
     - 연도별 카운터(certificate_number_counters)에 마지막 발급 번호를 영구 저장하여,
       레코드가 삭제되거나 발급번호가 수정되어도 이미 나간 번호는 재사용하지 않는다.
@@ -670,6 +675,12 @@ def get_next_certificate_number(db: Session, issued_by: str = None) -> str:
     - 카운터가 실제 사용된 최대값보다 뒤처져 있는 경우(예: 과거 데이터 정리/수동 편집으로
       카운터와 로그가 어긋난 경우) 이미 사용 중인 번호와 충돌하면 500 에러로 죽지 않고
       자동으로 다음 빈 번호까지 건너뛰어 스스로 복구한다.
+
+    target_name/vehicle_number가 주어지면, 채번과 같은 잠금·같은 커밋 안에서 바로
+    로그에 대상정보를 함께 저장한다. 채번 후 별도 트랜잭션으로 대상정보를 나중에
+    갱신하면, 그 사이(커밋~커밋)에 다른 요청이 끼어들어 "이미 이 대상에게 번호가
+    있는지" 확인 쿼리가 아직 비어있는 target_name을 보고 통과해버려 같은 대상에게
+    번호가 중복 발급되는 경쟁이 생긴다 - 그래서 반드시 여기서 함께 저장해야 한다.
     """
     from sqlalchemy.exc import IntegrityError
 
@@ -733,6 +744,7 @@ def get_next_certificate_number(db: Session, issued_by: str = None) -> str:
         db.add(models.CertificateNumberLog(
             year=yy, number=next_n, certificate_number=cert_number,
             status="issued", issued_by=issued_by,
+            target_name=(target_name or None), vehicle_number=(vehicle_number or None),
         ))
         try:
             db.commit()
@@ -864,7 +876,11 @@ def resync_certificate_number_change(db: Session, old_number: str, new_number: s
                         _ledger_models.CertificateIssuanceLedger.deleted_at.is_(None),
                     ).first()
                     if not dup:
-                        row.document_number = new_cert
+                        # 26-385(강동규)처럼 괄호로 실제 운전자명이 붙은 원본 표기를 그대로
+                        # 대장에도 남겨야, 발급대장 검색(성명/차량번호/자격증명번호)에서
+                        # 괄호 안 이름으로도 찾을 수 있다. 정규화된 값(new_cert)은
+                        # 원본이 비어있을 때의 대체값으로만 쓴다.
+                        row.document_number = (member.certificate_number or "").strip() or new_cert
                 row.member_id = member.id
                 row.approval_date = member.approval_date or row.approval_date or ""
                 row.certificate_issue_date = member.certificate_issue_date or row.certificate_issue_date or ""

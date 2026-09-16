@@ -73,7 +73,28 @@ def _fmt(c):
 async def get_candidate(cid: int, db: Session = Depends(get_db), _=Depends(get_current_user)):
     item = crud.get_by_id(db, models.Candidate, cid)
     if not item:
+        # 이미 삭제된(soft-delete) 예정자인지 구분해서 알려준다.
+        # 자격증명발급대장 등 다른 화면에서 candidate_id로 연결돼 있다가
+        # 삭제된 경우, 그냥 404로 막지 않고 복원 가능함을 알 수 있게 한다.
+        deleted = db.query(models.Candidate).filter(
+            models.Candidate.id == cid, models.Candidate.deleted_at.isnot(None)
+        ).first()
+        if deleted:
+            raise HTTPException(410, "삭제된 예정자입니다. 복원한 뒤 다시 열어주세요.")
         raise HTTPException(404, "예정자를 찾을 수 없습니다.")
+    return _fmt(item)
+
+
+@router.post("/{cid}/restore")
+async def restore_candidate(cid: int, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """실수로 삭제한 예정자를 되살린다. 데이터 자체는 soft-delete라 그대로 남아있다."""
+    item = db.query(models.Candidate).filter(models.Candidate.id == cid).first()
+    if not item:
+        raise HTTPException(404, "예정자를 찾을 수 없습니다.")
+    if item.deleted_at is not None:
+        item.deleted_at = None
+        db.commit()
+        db.refresh(item)
     return _fmt(item)
 
 

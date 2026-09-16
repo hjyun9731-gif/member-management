@@ -10,7 +10,7 @@
 
 from datetime import datetime, timezone
 
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect, or_ as sa_or_, text
 from sqlalchemy.orm import Session
 
 from app import certificate_ledger_models as ledger_models
@@ -275,9 +275,13 @@ def ensure_member_ledger(db: Session, member: models.LicenseHolder, user=None):
     category = (getattr(member, "category", "") or "").strip()
     if category and category not in {"개인", "택배"}:
         return None
-    number = crud.normalize_certificate_number(getattr(member, "certificate_number", ""))
+    raw_number = (getattr(member, "certificate_number", "") or "").strip()
+    number = crud.normalize_certificate_number(raw_number)
     if not number:
         return None
+    # 26-385(강동규)처럼 괄호로 실제 운전자명이 붙은 원본 표기가 있으면 그걸 그대로
+    # 발급대장에 남긴다. 중복확인/기존 행 검색은 계속 정규화된 number 기준으로 한다.
+    display_number = raw_number or number
 
     ensure_ledger_schema(db)
     actor = operator_name(user)
@@ -296,10 +300,22 @@ def ensure_member_ledger(db: Session, member: models.LicenseHolder, user=None):
         ]))
     except Exception:
         variants = [number]
-    entry = (db.query(ledger_models.CertificateIssuanceLedger)
-             .filter(ledger_models.CertificateIssuanceLedger.document_number.in_(variants))
-             .order_by(ledger_models.CertificateIssuanceLedger.id.desc())
-             .first())
+    # document_number에 26-385(강동규)처럼 괄호 주석이 붙어 있으면 위 variants와
+    # 정확히 일치하지 않으므로, 먼저 접두어로 넓게 후보를 가져온 뒤 정규화값이
+    # 실제로 같은 행만 파이썬에서 골라낸다(중복 행 생성을 막기 위함).
+    like_conds = [
+        ledger_models.CertificateIssuanceLedger.document_number.ilike(f"{v}%") for v in variants
+    ]
+    prefix_matches = (
+        db.query(ledger_models.CertificateIssuanceLedger)
+        .filter(sa_or_(*like_conds))
+        .order_by(ledger_models.CertificateIssuanceLedger.id.desc())
+        .all()
+    )
+    entry = next(
+        (r for r in prefix_matches if crud.normalize_certificate_number(r.document_number or "") == number),
+        None,
+    )
 
     if entry is None:
         entry = ledger_models.CertificateIssuanceLedger(
@@ -309,7 +325,7 @@ def ensure_member_ledger(db: Session, member: models.LicenseHolder, user=None):
             vehicle_number=getattr(member, "vehicle_number", "") or "",
             name=getattr(member, "name", "") or "",
             qualification_number="",
-            document_number=number,
+            document_number=display_number,
             approval_date=getattr(member, "approval_date", "") or "",
             certificate_issue_date=getattr(member, "certificate_issue_date", "") or "",
             status=APPROVED,
@@ -332,7 +348,7 @@ def ensure_member_ledger(db: Session, member: models.LicenseHolder, user=None):
         entry.region = getattr(member, "region", "") or entry.region or ""
         entry.vehicle_number = getattr(member, "vehicle_number", "") or entry.vehicle_number or ""
         entry.name = getattr(member, "name", "") or entry.name or ""
-        entry.document_number = number
+        entry.document_number = display_number
         entry.approval_date = getattr(member, "approval_date", "") or entry.approval_date or ""
         entry.certificate_issue_date = getattr(member, "certificate_issue_date", "") or entry.certificate_issue_date or ""
         entry.status = APPROVED
