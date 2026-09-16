@@ -22,6 +22,7 @@ import app.models as _models
 # === RECEIVABLES MODULE IMPORT ===
 from app.routers import receivables
 import app.receivables_models as _receivables_models
+from app import receivables_reconcile_20260916_v4 as _receivables_reconcile_v4
 
 # === CERTIFICATE LEDGER ADD-ONLY ===
 from app.routers import certificate_ledger
@@ -293,6 +294,7 @@ def _run_deferred_db_maintenance():
             ("DB 테이블 생성", lambda: _models.Base.metadata.create_all(bind=engine, checkfirst=True)),
             ("컬럼 마이그레이션", _run_migrations),
             ("수납/미수금 인덱스", _ensure_receivables_indexes),
+            ("Receivables 2026-09-16 V4 reconcile", _receivables_reconcile_v4.apply_receivables_reconcile_20260916_v4),
             ("변경이력 재정규화", _renormalize_change_types),
             ("양도양수 자기참조 복구", _fix_self_referencing_transfer_ledger),
             ("관리번호 UNIQUE 인덱스", _add_management_number_unique_index),
@@ -407,6 +409,12 @@ async def startup():
     # except Exception as e:
     #     logger.warning(f"예약문자 스케줄러 시작 실패 (무시): {e}")
 
+
+
+
+@app.get("/api/receivables/reconcile-20260916-v4")
+def receivables_reconcile_20260916_v4_status():
+    return _receivables_reconcile_v4.get_receivables_reconcile_v4_status()
 
 @app.get("/health")
 async def health(): return {"status": "ok"}
