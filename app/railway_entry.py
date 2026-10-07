@@ -44,8 +44,8 @@ def _load_real_app() -> None:
 
         # 2026-10-07 수납·미수금 보정 라우터는 기존 app.main을 덮어쓰지 않고
         # Railway 진입점에서 추가한다. 같은 경로가 이미 있으면 중복 등록하지 않는다.
-        receivables_patch = importlib.import_module("app.routers.receivables_patch_20261007")
-        patch_prefix = "/api/receivables/patch-20261007"
+        receivables_patch = importlib.import_module("app.routers.receivables_patch_20261007_v2")
+        patch_prefix = "/api/receivables/patch-20261007-v2"
         if not any(getattr(r, "path", "").startswith(patch_prefix) for r in getattr(candidate, "routes", [])):
             candidate.include_router(receivables_patch.router)
 
@@ -69,20 +69,20 @@ def _load_real_app() -> None:
                 try:
                     result = receivables_patch.apply_once(force=False)
                     _log(
-                        "receivables 20261007 patch: "
+                        "receivables 20261007 V2 patch: "
                         f"status={result.get('status')} "
                         f"giro={result.get('giro', {}).get('matched', 0)} "
                         f"closures={result.get('closures', {}).get('matched', 0)}"
                     )
                     return
                 except Exception as exc:
-                    _log(f"receivables 20261007 patch attempt {attempt}/6 failed: {type(exc).__name__}: {exc}")
+                    _log(f"receivables 20261007 V2 patch attempt {attempt}/6 failed: {type(exc).__name__}: {exc}")
                     if attempt < 6:
                         time.sleep(5)
 
         threading.Thread(
             target=_apply_receivables_patch,
-            name="receivables-patch-20261007",
+            name="receivables-patch-20261007-v2",
             daemon=True,
         ).start()
     except BaseException as exc:  # startup failure must fail the deployment

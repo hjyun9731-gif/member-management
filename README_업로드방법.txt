@@ -1,46 +1,34 @@
-[2026-10-07 수납·미수금 — 지로희망 표시 + 종료자 폐업관리 반영]
+[2026-10-07 수납·미수금 V2 — 지로희망 표시 + 종료자 폐업관리]
 
-이 ZIP은 GitHub 저장소 hjyun9731-gif/member-management 의 main에 같은 경로로 덮어올리는 용도입니다.
-원본 엑셀 자체는 GitHub에 올리지 않습니다.
+이 파일은 이전 V1 패치가 화면에 반영되지 않은 경우를 위한 교체본입니다.
+GitHub main에서 아래 7개 파일만 같은 경로로 업로드/덮어쓰기 하세요.
 
-업로드 파일 (6개)
-1) app/railway_entry.py
-2) app/routers/receivables_patch_20261007.py
-3) app/data/receivables_patch_20261007.json
-4) app/static/receivables.html
-5) app/static/receivables.js
-6) app/static/receivables.css
+1. app/database.py
+2. app/railway_entry.py
+3. app/routers/receivables_patch_20261007_v2.py
+4. app/data/receivables_patch_20261007.json
+5. app/static/receivables.html
+6. app/static/receivables.js
+7. app/static/receivables.css
 
-반영 내용
-- 2026년회비내역에서 '지로희망'으로 확인된 47건을 별도 표시 플래그로 관리합니다.
-- 지로희망은 회원상태/부과상태/미수금 계산을 바꾸지 않습니다.
-- 수납·미수금 회원 목록의 성명 옆과 상세 성명 옆에 '지로희망' 배지가 표시됩니다.
-- 2026년 시트의 종료자 203행 중 중복 1행(이우득)을 제거해 202건을 반영 대상으로 사용합니다.
-  · 폐업/폐지/페지 → 폐업 150건
-  · 양도 40건
-  · 이관 9건
-  · 탈퇴 3건
-- 종료자는 DB의 성명+차량번호를 정규화한 뒤 '정확 일치'하는 경우에만 처리합니다.
-- 정확 일치하지 않거나 동명이차량/중복으로 모호하면 자동으로 건너뜁니다.
-- 종료자로 처리된 회원은 status=closed가 되어 활성 미수/향후 부과대상에서 빠지고 폐업관리 이력이 생성/연결됩니다.
-- 종료월 이후 source=auto 자동부과만 제거합니다. 종료월 부과는 유지합니다.
-- 기존 입금, 연락기록, V4 보정, 수동 금액조정, 기존 잔액은 덮어쓰거나 삭제하지 않습니다.
-- 기존 폐업관리 이력이 정확히 존재하면 새로 중복 생성하지 않고 연결만 확인합니다.
+핵심 변경
+- database.py: Railway PostgreSQL URL을 현재 설치된 psycopg2 드라이버로 정규화합니다.
+- 지로희망: DB 플래그 테이블에 의존하지 않고 원장 명단(성명+차량번호)으로 바로 배지를 표시합니다.
+- 종료자: 성명+차량번호 정확일치만 처리합니다.
+- 종료자 1건이 오류나도 정상 처리된 다른 건은 롤백하지 않습니다.
+- 종료자는 활성회원에서 제외되고 폐업관리 이력을 생성/연결합니다.
+- 종료월 다음 달 이후 source=auto 자동부과만 삭제합니다.
+- 기존 입금/연락/V4 보정/수동 잔액은 수정하지 않습니다.
 
-배포
-1. ZIP을 풉니다.
-2. 위 6개 파일을 GitHub main의 동일 경로에 업로드/덮어쓰기합니다.
-3. Commit 합니다.
-4. Railway 자동배포가 끝나면 /receivables 화면을 새로고침합니다.
+배포 후 확인
+- Railway 로그에 "receivables 20261007 V2 patch:" 문구가 나오는지 확인
+- /receivables에서 Ctrl+F5 강력 새로고침
+- 지로희망 대상자의 이름 옆에 노란 "지로희망" 배지 확인
+- 폐업관리에서 종료자 확인
+- 종료자가 활성 수납목록에서 빠졌는지 확인
 
-확인할 것
-- 수납처리 목록의 지로희망자 이름 옆에 '지로희망' 배지가 보이는지
-- 폐업관리에서 종료자가 보이는지
-- 종료자가 수납처리의 활성회원 목록에서는 빠졌는지
-- 기존 입금/연락 이력이 그대로 남아 있는지
+상태 확인 API(로그인 상태에서 사용)
+GET /api/receivables/patch-20261007-v2/status
 
-안전 설계
-- app/main.py, app/models.py, app/crud.py를 덮어쓰지 않습니다.
-- raw Excel/CSV, .env, 비밀번호/키는 포함하지 않았습니다.
-- railway_entry.py는 기존 app.main을 그대로 불러온 뒤 이 패치 라우터만 추가합니다.
-- 패치 DB 작업은 멱등적이며 첫 배포 후 자동 적용됩니다.
+수동 재적용(관리자 토큰 필요)
+POST /api/receivables/patch-20261007-v2/apply
