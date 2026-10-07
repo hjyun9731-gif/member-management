@@ -4,9 +4,15 @@ import os
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./member_management.db")
 
-# Railway는 postgres:// 형식으로 제공 → postgresql:// 로 변환
+# Railway/PostgreSQL driver normalization.
+# The production image already installs psycopg2-binary, so explicitly use
+# SQLAlchemy's psycopg2 dialect even when DATABASE_URL was set to psycopg v3.
 if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg2://", 1)
+elif DATABASE_URL.startswith("postgresql+psycopg://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql+psycopg://", "postgresql+psycopg2://", 1)
+elif DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
 
 _is_sqlite = DATABASE_URL.startswith("sqlite")
 
@@ -16,13 +22,13 @@ if _is_sqlite:
         connect_args={"check_same_thread": False},
     )
 else:
-    # PostgreSQL: 동시 접속 대비 연결 풀 설정
+    # PostgreSQL: concurrent-user connection pool settings.
     engine = create_engine(
         DATABASE_URL,
-        pool_size=5,        # 기본 연결 수 (3명 동시 사용에 충분)
-        max_overflow=10,    # 최대 추가 연결
-        pool_pre_ping=True, # 끊긴 연결 자동 감지
-        pool_recycle=1800,  # 30분마다 연결 갱신
+        pool_size=5,
+        max_overflow=10,
+        pool_pre_ping=True,
+        pool_recycle=1800,
     )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
