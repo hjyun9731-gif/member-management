@@ -1,23 +1,24 @@
-자격증명 발급대장 추가 전용 검증 결과
+2026-10-07 패치 검증
 
-1. 신규 파일
-- app/certificate_ledger_models.py
-- app/services/certificate_ledger_service.py
-- app/routers/certificate_ledger.py
-- app/static/certificate-ledger.js
-- app/static/certificate-form.html
-- migrations/20260904_add_certificate_ledger.sql
+원장 데이터
+- 지로희망: 47건
+- 종료자 원본: 203행
+- 종료자 중복 제거 후: 202건
+- 폐업: 150건
+- 양도: 40건
+- 이관: 9건
+- 탈퇴: 3건
+- 종료일 미확인: 0건
 
-2. 기존 파일 연결 범위
-- app/main.py: 신규 모델 import 2줄, 신규 router include 1줄
-- app/routers/candidates.py: 등록 성공 후 상태 연동용 오류격리 훅 7줄
-- app/static/index.html: 독립 UI 스크립트 로더 1줄
-- 기존 줄 삭제: 0줄
+코드 안전범위
+- 잔액 직접 덮어쓰기: 없음
+- 기존 입금 수정/삭제: 없음
+- 기존 연락기록 수정/삭제: 없음
+- 수동 조정 수정/삭제: 없음
+- 종료월 이후 auto 부과만 삭제
+- 매칭: 성명+차량번호 정확 정규화 일치만
 
-3. 확인 완료
-- 설치기 기존 프로젝트 백업본 적용 성공
-- 설치기 2회 실행 시 중복 삽입 없음
-- Python py_compile 통과
-- certificate-ledger.js node --check 통과
-- 화면 상태값은 인가대기 / 인가완료 / 발급완료 세 개만 사용
-- 기존 테이블 ALTER / UPDATE / DELETE / DROP 없음
+구문검사
+- app/routers/receivables_patch_20261007.py: py_compile 통과
+- app/railway_entry.py: py_compile 통과
+- app/static/receivables.js: node --check 통과
