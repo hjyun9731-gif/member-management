@@ -22,6 +22,8 @@ import traceback
 from typing import Any, Optional
 
 _real_app: Optional[Any] = None
+_patch_app: Optional[Any] = None
+PATCH_PREFIX = "/api/receivables/reconcile-20261008"
 _ready = threading.Event()
 _failed = threading.Event()
 _error_summary = ""
@@ -35,7 +37,7 @@ def _log(message: str) -> None:
 
 def _load_real_app() -> None:
     """Import the existing application and run its startup hooks once."""
-    global _real_app, _error_summary
+    global _real_app, _patch_app, _error_summary
     try:
         started = time.monotonic()
         _log("loading app.main:app ...")
@@ -45,9 +47,16 @@ def _load_real_app() -> None:
         # 2026-10-07 수납·미수금 보정 라우터는 기존 app.main을 덮어쓰지 않고
         # Railway 진입점에서 추가한다. 같은 경로가 이미 있으면 중복 등록하지 않는다.
         receivables_reconcile = importlib.import_module("app.routers.receivables_reconcile_20261008")
-        patch_prefix = "/api/receivables/reconcile-20261008"
-        if not any(getattr(r, "path", "").startswith(patch_prefix) for r in getattr(candidate, "routes", [])):
-            candidate.include_router(receivables_reconcile.router)
+
+        # app.main already has a final catch-all route (/{p:path}).  FastAPI/Starlette
+        # evaluates routes in registration order, so adding this router to candidate
+        # here would place it *after* the catch-all and /api/... would be swallowed as
+        # a 404.  Keep a tiny dedicated FastAPI app for the reconcile endpoints and
+        # dispatch those paths from this ASGI entrypoint before delegating to app.main.
+        from fastapi import FastAPI
+        patch_app = FastAPI()
+        patch_app.include_router(receivables_reconcile.router)
+        _patch_app = patch_app
 
         # Because uvicorn owns this bootstrap ASGI app, the nested FastAPI app's
         # lifespan is not invoked automatically. Run the existing startup hooks
@@ -188,6 +197,14 @@ class RailwayEntryApp:
 
         # Any non-health request may ensure the real app loader has started.
         _ensure_loader_started()
+
+        # Route reconciliation API before app.main.  app.main contains a catch-all
+        # route registered during import; dispatching here prevents that catch-all
+        # from masking the dynamically-added reconcile endpoints as 404.
+        if path.startswith(PATCH_PREFIX):
+            if _ready.is_set() and _patch_app is not None:
+                await _patch_app(scope, receive, send)
+                return
 
         if _ready.is_set() and _real_app is not None:
             await _real_app(scope, receive, send)
