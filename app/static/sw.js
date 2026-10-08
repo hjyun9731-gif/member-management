@@ -3,7 +3,7 @@
 // 온라인 상태에서는 항상 최신 코드/데이터를 사용하고, 앱 셸(정적 파일)만
 // 오프라인·저속망 대비용으로 캐시에 보관한다. /api/ 요청은 절대 캐시하지 않는다.
 
-const CACHE_VERSION = 'assoc-shell-v1';
+const CACHE_VERSION = 'assoc-shell-v3-20261008';
 const SHELL_FILES = [
   '/',
   '/login',
@@ -46,6 +46,12 @@ self.addEventListener('fetch', (event) => {
 
   // API 요청은 캐시하지 않고 항상 네트워크로 (회원/통계/양도양수 등 실시간 데이터)
   if (url.pathname.startsWith('/api/')) {
+    return;
+  }
+
+  // 수납·미수금 화면은 배포가 잦으므로 브라우저 캐시에 절대 넣지 않는다.
+  if (url.pathname === '/receivables' || url.pathname.startsWith('/static/receivables')) {
+    event.respondWith(fetch(req, {cache: 'no-store'}));
     return;
   }
 
