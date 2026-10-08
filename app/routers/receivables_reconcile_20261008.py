@@ -25,6 +25,7 @@ from app.receivables_models import (
     ReceivableProfile,
     ReceivableCharge,
     ReceivablePayment,
+    ReceivableContactLog,
     ReceivableSystemState,
 )
 
@@ -668,6 +669,131 @@ def apply_once(force=False):
 def giro_targets(_=Depends(get_current_user)):
     p = _load()
     return {"count": len(p["giro_preferred"]), "items": p["giro_preferred"]}
+
+
+@router.get("/giro-members")
+def giro_members(
+    q: str = Query(""),
+    region: str = Query(""),
+    account_type: str = Query(""),
+    contact_status: str = Query(""),
+    contacted_only: bool = Query(False),
+    billing_status: str = Query(""),
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """Dedicated 지로희망 list.
+
+    지로희망은 이름/비고 검색어가 아니라 독립 플래그다.  The ordinary
+    `/members?q=지로` search can legitimately hit notes and therefore must not
+    be used as the 지로 filter.  This endpoint resolves only the authoritative
+    workbook giro targets to current active members and returns the same basic
+    row shape the receivables UI expects.
+    """
+    payload = _load()
+    idx = _index(db)
+    rows = []
+    seen = set()
+    qn = re.sub(r"[\s\-]+", "", str(q or "")).lower()
+    rgn = str(region or "").strip()
+    acct = str(account_type or "").strip()
+    cstat = str(contact_status or "").strip()
+    bstat = str(billing_status or "").strip()
+
+    for target in payload.get("giro_preferred", []):
+        m, _why = _pick(idx.get((target.get("match_name"), target.get("match_vehicle")), []))
+        if not m or m.id in seen or (m.status or "active") != "active":
+            continue
+        seen.add(m.id)
+        rec = _rec_for_member(payload, m)
+        prof = _profile(db, m.id)
+        if not rec or not prof:
+            continue
+
+        latest_contact = (
+            db.query(ReceivableContactLog)
+            .filter(ReceivableContactLog.member_id == m.id)
+            .order_by(ReceivableContactLog.contact_date.desc(), ReceivableContactLog.id.desc())
+            .first()
+        )
+        last_contact_date = latest_contact.contact_date if latest_contact else None
+        row_contact_status = latest_contact.status if latest_contact else "미연락"
+        if contacted_only and not latest_contact:
+            continue
+        if cstat and row_contact_status != cstat:
+            continue
+
+        row_account = rec.get("account_type") or prof.account_type or "관리비"
+        if rgn and (m.region or "") != rgn:
+            continue
+        if acct and row_account != acct:
+            continue
+
+        bal = int(_current_balance_from_rec(db, m.id, rec))
+        billing_state = "미수" if bal > 0 else "선납" if bal < 0 else "완납"
+        # Existing 2026 giro targets are established ledger members.  Keep the
+        # normal pending semantics only if a future first-charge date actually exists.
+        first_charge = prof.first_charge_date or ""
+        if first_charge and first_charge > datetime.now(timezone.utc).date().isoformat():
+            billing_state = "부과대기"
+        if bstat == "arrears" and not (bal > 0):
+            continue
+        if bstat == "settled" and not (bal == 0 and billing_state != "부과대기"):
+            continue
+        if bstat == "prepaid" and not (bal < 0):
+            continue
+        if bstat == "pending" and billing_state != "부과대기":
+            continue
+
+        hay = "|".join(
+            str(x or "")
+            for x in (
+                m.name,
+                m.vehicle_number,
+                m.management_number,
+                m.region,
+                m.mobile,
+                m.phone,
+            )
+        )
+        if qn and qn not in re.sub(r"[\s\-]+", "", hay).lower():
+            continue
+
+        rows.append({
+            "member_id": m.id,
+            "name": m.name or "",
+            "management_number": m.management_number or "",
+            "account_type": row_account,
+            "vehicle_number": m.vehicle_number or "",
+            "region": m.region or "",
+            "phone": m.phone or "",
+            "mobile": m.mobile or "",
+            "first_charge_date": first_charge,
+            "last_contact_date": last_contact_date,
+            "contact_status": row_contact_status,
+            "balance": bal,
+            "billing_state": billing_state,
+            "active": True,
+            "giro_preferred": True,
+        })
+
+    total = len(rows)
+    pages = max(1, (total + limit - 1) // limit)
+    if page > pages:
+        page = pages
+    start = (page - 1) * limit
+    items = rows[start:start + limit]
+    return {
+        "items": items,
+        "count": total,
+        "page": page,
+        "pages": pages,
+        "limit": limit,
+        "giro_source_count": len(payload.get("giro_preferred", [])),
+        "ledger_source": "20261008-monthly-v4",
+    }
 
 
 @router.get("/ledger/{member_id}")

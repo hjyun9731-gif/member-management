@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>수납·미수금 | 회원관리시스템</title>
-  <link rel="stylesheet" href="/static/receivables.css?v=20261008-ui-recovery-v1" />
+  <link rel="stylesheet" href="/static/receivables.css?v=20261008-giro-ui-v5" />
 </head>
 <body>
   <div id="appShell" class="app-shell">
@@ -147,6 +147,7 @@
             <div class="search-box"><span>⌕</span><input id="searchInput" placeholder="성명 · 차량번호 · 관리번호 · 핸드폰" autocomplete="off" /></div>
             <select id="regionFilter"><option value="">전체 지역</option></select>
             <select id="accountFilter"><option value="">전체 계정</option><option>협회비</option><option>관리비</option><option>70세</option></select>
+            <select id="giroFilter" class="giro-filter"><option value="">지로 전체</option><option value="preferred">지로희망만</option></select>
             <select id="billingFilter"><option value="">부과상태 전체</option><option value="pending">부과대기</option><option value="arrears">미수</option><option value="settled">완납</option><option value="prepaid">선납</option></select>
             <select id="contactFilter"><option value="">연락 전체</option><option>미연락</option><option>연락완료</option><option>부재</option><option>재연락 필요</option><option>문자발송</option></select>
           </div>
@@ -357,6 +358,6 @@
       <button class="primary-btn" type="submit">로그인</button><div id="loginError" class="login-error"></div>
     </form>
   </div>
-  <script src="/static/receivables.js?v=20261008-monthly-v4" defer></script>
+  <script src="/static/receivables.js?v=20261008-giro-ui-v5" defer></script>
 </body>
 </html>
