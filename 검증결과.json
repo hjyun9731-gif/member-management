@@ -1,0 +1,91 @@
+{
+  "source_file": "2026_미수금_최종_지로희망_종료자정리_재수정.xlsx",
+  "counts": {
+    "active_rows": 3237,
+    "active_unique": 3223,
+    "duplicate_source_keys": 7,
+    "giro_preferred": 47,
+    "closures": 204,
+    "certificate_holds": 28,
+    "exclusions": 2
+  },
+  "active_sep_balance_sum": 315084281,
+  "active_positive_sep_balance_sum": 321636519,
+  "active_positive_sep_members": 2473,
+  "manual_override_iminhaeng": [
+    {
+      "source_row": 1048,
+      "region": "양양군",
+      "account_type": "70세",
+      "note": "최종수정: 한인교 합동3 9월입금 중 이민행 60,000원 반영, 9월말 0원",
+      "vehicle_number": "97자 1025",
+      "name": "이민행",
+      "vehicle_count": 1,
+      "carryover": 15000,
+      "target_sep_balance": 0,
+      "match_name": "이민행",
+      "match_vehicle": "97자1025",
+      "giro_preferred": false,
+      "certificate_hold": false,
+      "manual_override": "2026-10-08 user confirmed: 2026-09-01 joint payment allocation 60,000"
+    }
+  ],
+  "duplicate_source_keys": [
+    {
+      "match_name": "김성태",
+      "match_vehicle": "82배1495",
+      "rows": [
+        74,
+        75
+      ]
+    },
+    {
+      "match_name": "이종찬",
+      "match_vehicle": "82배1245",
+      "rows": [
+        240,
+        241
+      ]
+    },
+    {
+      "match_name": "강성준",
+      "match_vehicle": "83배1007",
+      "rows": [
+        510,
+        511
+      ]
+    },
+    {
+      "match_name": "김경수",
+      "match_vehicle": "83배1237",
+      "rows": [
+        517,
+        518
+      ]
+    },
+    {
+      "match_name": "이상원",
+      "match_vehicle": "81배1974",
+      "rows": [
+        1562,
+        1563
+      ]
+    },
+    {
+      "match_name": "신현기",
+      "match_vehicle": "81자5492",
+      "rows": [
+        1955,
+        1956
+      ]
+    },
+    {
+      "match_name": "이정윤",
+      "match_vehicle": "80자5916",
+      "rows": [
+        3010,
+        3011
+      ]
+    }
+  ]
+}

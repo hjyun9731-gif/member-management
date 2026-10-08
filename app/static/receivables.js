@@ -59,7 +59,7 @@ function shortDate(s){return s&&s.length>=10?s.slice(5):s||''}
 function normGiroName(v){return String(v||'').replace(/\s+/g,'').trim()}
 function normGiroVehicle(v){return String(v||'').toLowerCase().replace(/강원/g,'').replace(/\s+/g,'').replace(/-/g,'').replace(/호$/,'')}
 function giroKey(name,vehicle){return `${normGiroName(name)}|${normGiroVehicle(vehicle)}`}
-async function loadGiroFlags(){try{const d=await api('/api/receivables/patch-20261007-v2/giro-targets');state.giroTargets=new Set((d.items||[]).map(x=>`${x.match_name}|${x.match_vehicle}`))}catch(e){state.giroTargets=new Set();console.error('지로희망 표시 API 연결 실패',e)}}
+async function loadGiroFlags(){try{const d=await api('/api/receivables/reconcile-20261008/giro-targets');state.giroTargets=new Set((d.items||[]).map(x=>`${x.match_name}|${x.match_vehicle}`))}catch(e){state.giroTargets=new Set();console.error('지로희망 표시 API 연결 실패',e)}}
 function isGiroPreferred(m){return state.giroTargets.has(giroKey(m?.name,m?.vehicle_number))}
 function giroBadge(m){return isGiroPreferred(m)?'<span class="giro-badge">지로희망</span>':''}
 async function loadMeta(){try{const d=await api('/api/receivables/meta');const sel=$('#regionFilter'),cur=sel.value;sel.innerHTML='<option value="">전체 지역</option>';(d.regions||[]).forEach(r=>{const o=document.createElement('option');o.value=o.textContent=r;sel.appendChild(o)});sel.value=cur}catch(e){}}

@@ -44,10 +44,10 @@ def _load_real_app() -> None:
 
         # 2026-10-07 수납·미수금 보정 라우터는 기존 app.main을 덮어쓰지 않고
         # Railway 진입점에서 추가한다. 같은 경로가 이미 있으면 중복 등록하지 않는다.
-        receivables_patch = importlib.import_module("app.routers.receivables_patch_20261007_v2")
-        patch_prefix = "/api/receivables/patch-20261007-v2"
+        receivables_reconcile = importlib.import_module("app.routers.receivables_reconcile_20261008")
+        patch_prefix = "/api/receivables/reconcile-20261008"
         if not any(getattr(r, "path", "").startswith(patch_prefix) for r in getattr(candidate, "routes", [])):
-            candidate.include_router(receivables_patch.router)
+            candidate.include_router(receivables_reconcile.router)
 
         # Because uvicorn owns this bootstrap ASGI app, the nested FastAPI app's
         # lifespan is not invoked automatically. Run the existing startup hooks
@@ -64,25 +64,25 @@ def _load_real_app() -> None:
 
         # DB 보정은 웹 서버 준비를 막지 않도록 별도 스레드에서 실행한다.
         # 실패 시 운영 앱은 계속 살아 있고 /api/receivables/patch-20261007/apply 에서 재실행 가능하다.
-        def _apply_receivables_patch():
+        def _apply_receivables_reconcile():
             for attempt in range(1, 7):
                 try:
-                    result = receivables_patch.apply_once(force=False)
+                    result = receivables_reconcile.apply_once(force=False)
                     _log(
-                        "receivables 20261007 V2 patch: "
+                        "receivables 20261008 FINAL reconcile: "
                         f"status={result.get('status')} "
-                        f"giro={result.get('giro', {}).get('matched', 0)} "
-                        f"closures={result.get('closures', {}).get('matched', 0)}"
+                        f"active={result.get('result', {}).get('active', {}).get('matched', 0)} "
+                        f"closures={result.get('result', {}).get('closures', {}).get('matched', 0)}"
                     )
                     return
                 except Exception as exc:
-                    _log(f"receivables 20261007 V2 patch attempt {attempt}/6 failed: {type(exc).__name__}: {exc}")
+                    _log(f"receivables 20261008 FINAL reconcile attempt {attempt}/6 failed: {type(exc).__name__}: {exc}")
                     if attempt < 6:
                         time.sleep(5)
 
         threading.Thread(
-            target=_apply_receivables_patch,
-            name="receivables-patch-20261007-v2",
+            target=_apply_receivables_reconcile,
+            name="receivables-reconcile-20261008-final",
             daemon=True,
         ).start()
     except BaseException as exc:  # startup failure must fail the deployment

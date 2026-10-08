@@ -1,34 +1,39 @@
-[2026-10-07 수납·미수금 V2 — 지로희망 표시 + 종료자 폐업관리]
+GITHUB 업로드용 2026-10-08 수납·미수금 전수정정 최종패치
 
-이 파일은 이전 V1 패치가 화면에 반영되지 않은 경우를 위한 교체본입니다.
-GitHub main에서 아래 7개 파일만 같은 경로로 업로드/덮어쓰기 하세요.
+[기준]
+- source: 2026_미수금_최종_지로희망_종료자정리_재수정.xlsx
+- 기준일: 2026-09-30
+- 활성 원장 행: 3237
+- 자동대조 가능한 고유 성명+차량번호: 3223
+- 원장 중복키(자동수정 제외): 7
+- 지로희망: 47
+- 종료자(폐업/폐지/양도/이관/탈퇴/사망): 204
+- 자격증명 미발급·부과제외: 28
+- 별도 미수금 제외: 2
 
-1. app/database.py
-2. app/railway_entry.py
-3. app/routers/receivables_patch_20261007_v2.py
-4. app/data/receivables_patch_20261007.json
-5. app/static/receivables.html
-6. app/static/receivables.js
-7. app/static/receivables.css
+[중요 최신 수기 정정]
+- 이민행 97자 1025: 2026-09-01 한인교 합동3 95,000원 중 60,000원 배분 확정. 9월말 미수 0원으로 패치 데이터에서 최종 오버라이드함.
 
-핵심 변경
-- database.py: Railway PostgreSQL URL을 현재 설치된 psycopg2 드라이버로 정규화합니다.
-- 지로희망: DB 플래그 테이블에 의존하지 않고 원장 명단(성명+차량번호)으로 바로 배지를 표시합니다.
-- 종료자: 성명+차량번호 정확일치만 처리합니다.
-- 종료자 1건이 오류나도 정상 처리된 다른 건은 롤백하지 않습니다.
-- 종료자는 활성회원에서 제외되고 폐업관리 이력을 생성/연결합니다.
-- 종료월 다음 달 이후 source=auto 자동부과만 삭제합니다.
-- 기존 입금/연락/V4 보정/수동 잔액은 수정하지 않습니다.
+[업로드]
+ZIP을 풀어서 안의 app 폴더 구조 그대로 GitHub member-management main에 업로드/덮어쓰기.
+삭제할 파일 없음. .env/DB 파일/pyc 없음.
+Railway가 app/railway_entry.py를 시작점으로 쓰는 현재 구조를 전제로 함.
 
-배포 후 확인
-- Railway 로그에 "receivables 20261007 V2 patch:" 문구가 나오는지 확인
-- /receivables에서 Ctrl+F5 강력 새로고침
-- 지로희망 대상자의 이름 옆에 노란 "지로희망" 배지 확인
-- 폐업관리에서 종료자 확인
-- 종료자가 활성 수납목록에서 빠졌는지 확인
+[패치 동작]
+- 운영 DB의 2026-09-30까지 계산잔액과 최종원장의 9월말 잔액을 전수 대조함.
+- 차이만 receivable_profiles.legacy_balance에 delta로 반영하므로 10월 이후 실제 수납/자동부과를 지우지 않음.
+- 기존 payment/contact 행은 삭제/추가하지 않음.
+- 최종원장 계정(협회비/관리비/70세) 및 대수를 반영하고 기존 10월 자동부과가 있으면 금액을 맞춤.
+- 종료자는 폐업관리 연결/생성 + 종료일 이후 auto charge 삭제.
+- 지로희망은 화면 배지로 표시.
+- 자격증명 미발급·부과제외는 10월 이후 auto charge 제거.
+- 성명+차량번호 원장 중복 7키는 안전상 자동수정하지 않고 status 결과에 남김.
 
-상태 확인 API(로그인 상태에서 사용)
-GET /api/receivables/patch-20261007-v2/status
+[확인 URL]
+- /api/receivables/reconcile-20261008/status
+- /api/receivables/reconcile-20261008/dry-run (관리자)
+- /receivables
 
-수동 재적용(관리자 토큰 필요)
-POST /api/receivables/patch-20261007-v2/apply
+배포 후 Railway 로그에서:
+receivables 20261008 FINAL reconcile:
+문구 확인.
