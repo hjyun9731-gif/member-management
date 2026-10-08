@@ -343,6 +343,15 @@ async function selectMember(id,closureId=null){
   const extra=closureId?`&closure_id=${encodeURIComponent(closureId)}`:'';
   try{
     const d=await api(`/api/receivables/members/${id}?year=2026${extra}`);
+    try{
+      const o=await api(`/api/receivables/reconcile-20261008/ledger/${id}`);
+      if(o&&Array.isArray(o.monthly)){
+        const by=new Map((d.monthly||[]).map(r=>[Number(r.month),r]));
+        for(const r of o.monthly)by.set(Number(r.month),r);
+        d.monthly=Array.from(by.values()).sort((a,b)=>Number(a.month)-Number(b.month));
+      }
+      if(o&&o.current_balance!==null&&o.current_balance!==undefined&&d.member)d.member.balance=Number(o.current_balance);
+    }catch(_e){}
     if(state.selected!==id||state.selectedClosure!==closureId)return;
     state.detail=d;
     syncWorkspaceDetailState();

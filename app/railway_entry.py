@@ -78,7 +78,7 @@ def _load_real_app() -> None:
                 try:
                     result = receivables_reconcile.apply_once(force=False)
                     _log(
-                        "receivables 20261008 FINAL reconcile: "
+                        "receivables 20261008 MONTHLY V2 reconcile: "
                         f"status={result.get('status')} "
                         f"active={result.get('result', {}).get('active', {}).get('matched', 0)} "
                         f"closures={result.get('result', {}).get('closures', {}).get('matched', 0)}"
@@ -91,7 +91,7 @@ def _load_real_app() -> None:
 
         threading.Thread(
             target=_apply_receivables_reconcile,
-            name="receivables-reconcile-20261008-final",
+            name="receivables-reconcile-20261008-monthly-v2",
             daemon=True,
         ).start()
     except BaseException as exc:  # startup failure must fail the deployment

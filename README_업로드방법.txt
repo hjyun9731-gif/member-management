@@ -1,39 +1,27 @@
-GITHUB 업로드용 2026-10-08 수납·미수금 전수정정 최종패치
+2026-10-08 월별장부 전수정정 V2
 
-[기준]
-- source: 2026_미수금_최종_지로희망_종료자정리_재수정.xlsx
-- 기준일: 2026-09-30
-- 활성 원장 행: 3237
-- 자동대조 가능한 고유 성명+차량번호: 3223
-- 원장 중복키(자동수정 제외): 7
-- 지로희망: 47
-- 종료자(폐업/폐지/양도/이관/탈퇴/사망): 204
-- 자격증명 미발급·부과제외: 28
-- 별도 미수금 제외: 2
+이전 패치 문제:
+- legacy_balance만 맞춰 왼쪽 현재잔액과 오른쪽 월별장부가 서로 달라질 수 있었음.
 
-[중요 최신 수기 정정]
-- 이민행 97자 1025: 2026-09-01 한인교 합동3 95,000원 중 60,000원 배분 확정. 9월말 미수 0원으로 패치 데이터에서 최종 오버라이드함.
+이번 V2:
+- 최종 엑셀의 2026년 1~9월 월별 부과/입금/입금일/월말잔액을 기준으로 legacy_months를 다시 구성
+- 9월말 잔액을 legacy_balance 기준점으로 재설정
+- 9월까지 기존 동적 charge/payment는 중복계산 방지를 위해 보존하되 중립화/취소(삭제하지 않음)
+- 10월 이후 실제 수납/부과는 보존
+- 이민행 97자1025는 9/1 합동입금 60,000원, 9월말 0원으로 명시 반영
+- 한인교 그룹의 격월 10,000원 납부 형태도 엑셀 그대로 표시
 
-[업로드]
-ZIP을 풀어서 안의 app 폴더 구조 그대로 GitHub member-management main에 업로드/덮어쓰기.
-삭제할 파일 없음. .env/DB 파일/pyc 없음.
-Railway가 app/railway_entry.py를 시작점으로 쓰는 현재 구조를 전제로 함.
+GitHub main에 아래 경로 그대로 덮어쓰기:
+app/railway_entry.py
+app/routers/receivables_reconcile_20261008.py
+app/data/receivables_reconcile_20261008_final.json
+app/static/receivables.js
+app/static/receivables.html
 
-[패치 동작]
-- 운영 DB의 2026-09-30까지 계산잔액과 최종원장의 9월말 잔액을 전수 대조함.
-- 차이만 receivable_profiles.legacy_balance에 delta로 반영하므로 10월 이후 실제 수납/자동부과를 지우지 않음.
-- 기존 payment/contact 행은 삭제/추가하지 않음.
-- 최종원장 계정(협회비/관리비/70세) 및 대수를 반영하고 기존 10월 자동부과가 있으면 금액을 맞춤.
-- 종료자는 폐업관리 연결/생성 + 종료일 이후 auto charge 삭제.
-- 지로희망은 화면 배지로 표시.
-- 자격증명 미발급·부과제외는 10월 이후 auto charge 제거.
-- 성명+차량번호 원장 중복 7키는 안전상 자동수정하지 않고 status 결과에 남김.
+정상 로그:
+[railway-entry] real app ready ...
+[railway-entry] receivables 20261008 MONTHLY V2 reconcile: status=...
 
-[확인 URL]
-- /api/receivables/reconcile-20261008/status
-- /api/receivables/reconcile-20261008/dry-run (관리자)
-- /receivables
-
-배포 후 Railway 로그에서:
-receivables 20261008 FINAL reconcile:
-문구 확인.
+확인:
+- 한인교 검색 후 박달원/신명한/정의진/한인교의 월별 장부가 격월 10,000원 납부로 표시되는지
+- 이민행 97자1025: 9월 입금 60,000원 / 9월말 0원 / 10월 현재 5,000원
