@@ -27,6 +27,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import models
+from app import bank_import_utils as bank_import
 from app.auth import get_current_user
 from app.database import SessionLocal, get_db, engine
 from app.excel_utils import is_association_member
@@ -3706,6 +3707,24 @@ def _extract_vehicle_from_text(text_value: str) -> str:
     return ""
 
 
+def _pick_payer_columns(cols):
+    """입금자명 후보 열(우선순위 순). 농협은 '거래기록사항'이 입금자명, '거래내용'은 입금 수단이다."""
+    primary, fallback = [], []
+    for alias in bank_import.PAYER_PRIMARY_ALIASES:
+        c = _pick_column(cols, [alias], prefer_exact=True)
+        if c is not None and c not in primary:
+            primary.append(c)
+    for alias in ("입금자", "거래기록사항"):  # '입금자(…)' 처럼 덧붙은 헤더 허용
+        c = _pick_column(cols, [alias], prefer_exact=False)
+        if c is not None and c not in primary:
+            primary.append(c)
+    for alias in bank_import.PAYER_FALLBACK_ALIASES:
+        c = _pick_column(cols, [alias], prefer_exact=True)
+        if c is not None and c not in primary and c not in fallback:
+            fallback.append(c)
+    return primary, fallback
+
+
 def _parse_import_rows(data: bytes, filename: str, source_type: str):
     parsed = []
     for sheet, df in _read_import_frames(data, filename):
@@ -3713,13 +3732,18 @@ def _parse_import_rows(data: bytes, filename: str, source_type: str):
             continue
         cols = list(df.columns)
         date_col = _pick_column(cols, _IMPORT_ALIASES["date"], prefer_exact=False)
-        amount_col = _pick_column(cols, _IMPORT_ALIASES["amount"], prefer_exact=False)
-        payer_col = _pick_column(cols, _IMPORT_ALIASES["payer"], prefer_exact=False)
+        amount_col = _pick_column(cols, bank_import.AMOUNT_ALIASES, prefer_exact=False)
+        payer_primary, payer_fallback = _pick_payer_columns(cols)
+        legacy_payer_col = _pick_column(cols, bank_import.LEGACY_PAYER_ALIASES, prefer_exact=False)
+        legacy_memo_col = _pick_column(cols, bank_import.LEGACY_MEMO_ALIASES, prefer_exact=False)
+        time_col = _pick_column(cols, bank_import.TIME_ALIASES, prefer_exact=True)
+        balance_col = _pick_column(cols, bank_import.BALANCE_ALIASES, prefer_exact=True)
+        branch_col = _pick_column(cols, bank_import.BRANCH_ALIASES, prefer_exact=True)
         vehicle_col = _pick_column(cols, _IMPORT_ALIASES["vehicle"], prefer_exact=False)
         mgmt_col = _pick_column(cols, _IMPORT_ALIASES["management"], prefer_exact=False)
         mobile_col = _pick_column(cols, _IMPORT_ALIASES["mobile"], prefer_exact=False)
         ext_col = _pick_column(cols, _IMPORT_ALIASES["external"], prefer_exact=False)
-        memo_col = _pick_column(cols, _IMPORT_ALIASES["memo"], prefer_exact=False)
+        memo_col = _pick_column(cols, bank_import.MEMO_ALIASES, prefer_exact=False)
         if amount_col is None:
             continue
         for local_idx, (_, row) in enumerate(df.iterrows(), start=1):
@@ -3734,19 +3758,57 @@ def _parse_import_rows(data: bytes, filename: str, source_type: str):
                     d = None if pd.isna(ts) else ts.date()
                 except Exception:
                     d = None
-            payer = _string_value(row.get(payer_col)) if payer_col else ""
+            # 입금자명: 직접 입금자 열 → (없을 때만) 약한 후보. 은행명/거래수단은 걷어낸다.
+            payer_raw, payer = "", ""
+            for pc in payer_primary:
+                rv = _string_value(row.get(pc))
+                if rv and not payer_raw:
+                    payer_raw = rv
+                cv = bank_import.clean_payer(rv)
+                if cv:
+                    payer = cv
+                    payer_raw = rv
+                    break
+            if not payer and not payer_primary:
+                for pc in payer_fallback:
+                    rv = _string_value(row.get(pc))
+                    if rv and not payer_raw:
+                        payer_raw = rv
+                    cv = bank_import.clean_payer(rv)
+                    if cv:
+                        payer = cv
+                        payer_raw = rv
+                        break
             memo = _string_value(row.get(memo_col)) if memo_col else ""
             vehicle = _string_value(row.get(vehicle_col)) if vehicle_col else ""
             if not vehicle:
-                vehicle = _extract_vehicle_from_text(" ".join([payer, memo]))
+                vehicle = _extract_vehicle_from_text(" ".join([payer_raw, memo]))
+            trade_time = bank_import.parse_time_text(raw_date, row.get(time_col) if time_col else None)
+            balance = bank_import.balance_int(row.get(balance_col)) if balance_col else None
+            branch = _string_value(row.get(branch_col)) if branch_col else ""
             management = _string_value(row.get(mgmt_col)) if mgmt_col else ""
             mobile = _string_value(row.get(mobile_col)) if mobile_col else ""
             external = _string_value(row.get(ext_col)) if ext_col else ""
             raw_dict = {str(k): _string_value(v) for k, v in row.to_dict().items() if _string_value(v)}
+            # v2 중복키: 시각·거래후잔액·거래점까지 포함해 같은 날 같은 금액의 "별도 입금"을 구분한다.
+            has_discriminator = bool(external or trade_time or balance is not None)
             fingerprint_base = (
                 f"{source_type}|id|{_norm_col(external)}" if external else
-                "|".join([source_type, d.isoformat() if d else "", str(amount), _norm_col(payer), _norm_col(vehicle), _norm_col(memo)])
+                "|".join([source_type, "v2", d.isoformat() if d else "", trade_time, str(amount),
+                          "" if balance is None else str(balance), _norm_col(payer_raw or payer),
+                          _norm_col(vehicle), _norm_col(memo), _norm_col(branch)])
             )
+            # 이전 버전 키(이미 반영된 거래와의 중복 판정용). 이전 열 선택 로직을 그대로 재현한다.
+            lp = _string_value(row.get(legacy_payer_col)) if legacy_payer_col else ""
+            lm = _string_value(row.get(legacy_memo_col)) if legacy_memo_col else ""
+            lv = _string_value(row.get(vehicle_col)) if vehicle_col else ""
+            if not lv:
+                lv = _extract_vehicle_from_text(" ".join([lp, lm]))
+            legacy_fp_base = (
+                f"{source_type}|id|{_norm_col(external)}" if external else
+                "|".join([source_type, d.isoformat() if d else "", str(amount), _norm_col(lp), _norm_col(lv), _norm_col(lm)])
+            )
+            legacy_fp = hashlib.sha256(legacy_fp_base.encode("utf-8")).hexdigest()
             parsed.append({
                 "sheet": sheet,
                 "source_row": local_idx,
@@ -3759,7 +3821,11 @@ def _parse_import_rows(data: bytes, filename: str, source_type: str):
                 "external_id": external,
                 "memo": memo,
                 "fingerprint": hashlib.sha256(fingerprint_base.encode("utf-8")).hexdigest(),
-                "raw_data": raw_dict,
+                "legacy_fingerprint": legacy_fp,
+                "has_discriminator": has_discriminator,
+                "transaction_time": trade_time,
+                "payer_raw": payer_raw,
+                "raw_data": {**raw_dict, "_payer_raw": payer_raw, "_trade_time": trade_time, "_legacy_fp": legacy_fp},
             })
     if not parsed:
         raise HTTPException(400, "입금액/결제금액이 있는 거래를 찾지 못했습니다. 파일의 열 이름을 확인해주세요.")
@@ -3916,7 +3982,7 @@ async def preview_payment_import(
     db.flush()
 
     maps = _member_match_maps(db)
-    fingerprints = [r["fingerprint"] for r in parsed]
+    fingerprints = list({fp for r in parsed for fp in (r["fingerprint"], r["legacy_fingerprint"])})
     posted = set()
     for i in range(0, len(fingerprints), 800):
         chunk = fingerprints[i:i + 800]
@@ -3928,11 +3994,18 @@ async def preview_payment_import(
 
     seen = set()
     for item in parsed:
-        duplicate = item["fingerprint"] in posted or item["fingerprint"] in seen
+        in_db = item["fingerprint"] in posted or item["legacy_fingerprint"] in posted
+        in_file = item["fingerprint"] in seen
         seen.add(item["fingerprint"])
+        # 파일 안에서만 반복되고 시각/거래후잔액/거래번호가 없으면 "별도 입금"일 수 있으므로 자동 중복처리하지 않는다.
+        file_suspect = in_file and not in_db and not item["has_discriminator"]
+        duplicate = in_db or (in_file and not file_suspect)
         non_receivable_reason = "" if duplicate else _non_receivable_import_reason(item)
         if duplicate:
             member, reason, status = None, "기존/파일내 중복", "duplicate"
+        elif file_suspect:
+            member, _mr = _auto_match_import(item, maps)
+            reason, status = "중복 의심(동일 일자·금액·입금자 반복, 시각/잔액 없음) · 확인 필요", "review"
         else:
             member, match_reason = _auto_match_import(item, maps)
             if non_receivable_reason:
@@ -4116,7 +4189,7 @@ def post_payment_import(
         if not row.matched_member_id:
             row.status = "review"
             continue
-        if row.fingerprint in posted_fingerprints:
+        if row.fingerprint in posted_fingerprints or str((row.raw_data or {}).get("_legacy_fp") or "") in posted_fingerprints:
             row.status = "duplicate"
             row.match_reason = "기존 반영 거래와 중복"
             continue
