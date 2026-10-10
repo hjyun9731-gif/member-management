@@ -146,3 +146,31 @@ FROM k;
 SELECT COUNT(*) AS 중복그룹수, COALESCE(SUM(c-1),0) AS 초과건수 FROM (
   SELECT COUNT(*) c FROM receivable_payments WHERE cancelled_at IS NULL
   GROUP BY member_id, payment_date, amount, COALESCE(method,'') HAVING COUNT(*)>1) t;
+
+-- [Q8-보조1] 자격증명 미발급 "부과 보류" 목록(receivable_billing_exclusions) 현황
+SELECT reason, patch_id, COUNT(*) AS 회원수 FROM receivable_billing_exclusions GROUP BY reason, patch_id ORDER BY 3 DESC;
+
+-- [Q8-보조2] 수납·미수금 테이블에 걸려 있는 DB 트리거(부과 0원 강제 등) 목록
+SELECT tgrelid::regclass::text AS 테이블, tgname AS 트리거, tgenabled AS 활성
+FROM pg_trigger WHERE NOT tgisinternal AND tgrelid::regclass::text LIKE 'receivable%' ORDER BY 1,2;
+
+-- [Q8-보조3] 미발급 택배 활성회원 중 "보류 목록에 없는데" 부과(>0)가 있는 회원 수와 금액 (진짜 오부과 후보)
+SELECT COUNT(DISTINCT l.id) AS 회원수, COALESCE(SUM(c.amount),0) AS 부과금액
+FROM license_holders l
+JOIN receivable_charges c ON c.member_id=l.id AND c.amount>0
+WHERE l.deleted_at IS NULL AND l.status='active'
+  AND (l.category='택배' OR l.vehicle_number LIKE '%배%')
+  AND (l.certificate_issue_date IS NULL OR btrim(l.certificate_issue_date)='')
+  AND NOT EXISTS (SELECT 1 FROM receivable_billing_exclusions e WHERE e.member_id=l.id);
+
+-- [Q15] 과거 업로드에서 "중복"으로 제외된 거래 중, 이미 반영된 거래와 시각·잔액이 다른 것(= 구버전 중복키가 정상 입금을 버렸을 가능성)
+--       한 행씩 확인 대상입니다. 건수와 금액합계만 먼저 보세요.
+WITH d AS (
+  SELECT r.id, r.transaction_date, r.amount, r.raw_data::text AS raw
+  FROM receivable_import_rows r WHERE r.status='duplicate' AND r.match_reason LIKE '기존/파일내 중복%'),
+p AS (
+  SELECT transaction_date, amount, raw_data::text AS raw FROM receivable_import_rows WHERE status='posted')
+SELECT COUNT(*) AS 중복제외건수,
+       COUNT(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM p WHERE p.transaction_date=d.transaction_date AND p.amount=d.amount AND p.raw=d.raw)) AS 반영건과_내용이_다른_의심건수,
+       COALESCE(SUM(amount) FILTER (WHERE NOT EXISTS (SELECT 1 FROM p WHERE p.transaction_date=d.transaction_date AND p.amount=d.amount AND p.raw=d.raw)),0) AS 의심금액합계
+FROM d;
