@@ -112,3 +112,71 @@ def balance_int(v) -> int | None:
         return int(round(float(s)))
     except Exception:
         return None
+
+
+# ───────────────────────── 입금자 텍스트 해석 v2 (실제 농협 거래내역 기준) ─────────────────────────
+# 실제 '거래기록사항' 유형(2026-10 농협 파일 검증):
+#   이름만(57%) / 이름+숫자4자리 / 이름+차량번호 / 차량번호+이름 / 이름(비고) /
+#   카드·가맹점 정산형(예: 'KB' + 숫자9, '우' + 숫자9) / 결제대행 영문(예: 'ciderpay')
+PLATE_RE = re.compile(r"(\d{2,3})\s*([가-힣])\s*(\d{4})")
+_NOTE_WORDS = ("사업소", "지점", "지부", "센터", "상사", "운수", "택배", "물류", "주식회사", "(주)", "㈜", "협회")
+
+# 자동 확정(매칭) 허용 종류. 그 외는 사람이 확인해야 한다.
+AUTO_ELIGIBLE_KINDS = {"person", "person_last4", "plate"}
+
+
+def parse_payer(raw) -> dict:
+    """거래기록사항 → {name, plate, last4, extra, kind}.
+
+    kind:
+      person        '홍길동'
+      person_last4  '홍길동1234' (이름 뒤 숫자 4자리 = 차량/전화 뒤 4자리 추정)
+      plate         차량번호가 들어 있음('홍길동12배3456' / '12배3456홍길동')
+      name_with_note 이름 + 괄호/비고('홍길동(평창사업소)') — 후보만, 자동 확정 금지
+      account_like  카드/계좌번호형('KB123456789') — 회원 입금자로 보지 않음
+      service_name  결제대행 영문명('ciderpay')
+      empty / unknown
+    """
+    s = str(raw or "").replace("\u3000", " ").strip()
+    info = {"raw": s, "name": "", "plate": "", "last4": "", "extra": [], "kind": "empty"}
+    if not s:
+        return info
+    # 카드/계좌번호형: 한 토큰에 숫자 8자리 이상 + 문자 3자 이하
+    for tok in re.split(r"\s+", s):
+        digits = len(re.findall(r"\d", tok))
+        if digits >= 8 and len(re.sub(r"\d", "", tok)) <= 3:
+            info["kind"] = "account_like"
+            return info
+    if re.fullmatch(r"[A-Za-z][A-Za-z0-9 _.\-]*", s):
+        info["kind"] = "service_name"
+        return info
+    work = s
+    m = PLATE_RE.search(work)
+    if m:
+        info["plate"] = f"{m.group(1)}{m.group(2)}{m.group(3)}"
+        work = (work[:m.start()] + " " + work[m.end():]).strip()
+    # 괄호 안 내용은 별도(비고/대리 입금자 후보)
+    paren = re.findall(r"\(([^)]*)\)?", work)
+    outside = re.sub(r"\([^)]*\)?", " ", work)
+    names = [t for t in re.findall(r"[가-힣]{2,4}", outside) if not _is_bank_or_channel_token(t)]
+    extra = [t for p in paren for t in re.findall(r"[가-힣]{2,4}", p) if not _is_bank_or_channel_token(t)]
+    info["extra"] = extra
+    if names:
+        info["name"] = names[0]
+    elif extra and not paren:
+        info["name"] = extra[0]
+    tail = re.fullmatch(r"\s*[가-힣]{2,4}\s*(\d{4})\s*", outside)
+    if tail:
+        info["last4"] = tail.group(1)
+    has_note = bool(paren) or any(w in s for w in _NOTE_WORDS) or len(set(names)) > 1
+    if not info["name"] and not info["plate"]:
+        info["kind"] = "unknown"
+    elif has_note:
+        info["kind"] = "name_with_note"
+    elif info["plate"]:
+        info["kind"] = "plate"
+    elif info["last4"]:
+        info["kind"] = "person_last4"
+    else:
+        info["kind"] = "person"
+    return info

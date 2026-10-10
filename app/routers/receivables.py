@@ -3758,27 +3758,24 @@ def _parse_import_rows(data: bytes, filename: str, source_type: str):
                     d = None if pd.isna(ts) else ts.date()
                 except Exception:
                     d = None
-            # 입금자명: 직접 입금자 열 → (없을 때만) 약한 후보. 은행명/거래수단은 걷어낸다.
-            payer_raw, payer = "", ""
+            # 입금자 텍스트: 직접 입금자 열(농협=거래기록사항) → (없을 때만) 약한 후보. 은행명/거래수단은 입금자가 아니다.
+            payer_raw = ""
             for pc in payer_primary:
                 rv = _string_value(row.get(pc))
                 if rv and not payer_raw:
                     payer_raw = rv
-                cv = bank_import.clean_payer(rv)
-                if cv:
-                    payer = cv
+                if rv and bank_import.parse_payer(rv)["kind"] not in ("empty", "unknown"):
                     payer_raw = rv
                     break
-            if not payer and not payer_primary:
+            if not payer_raw and not payer_primary:
                 for pc in payer_fallback:
                     rv = _string_value(row.get(pc))
-                    if rv and not payer_raw:
-                        payer_raw = rv
-                    cv = bank_import.clean_payer(rv)
-                    if cv:
-                        payer = cv
+                    if rv and not bank_import.looks_like_channel_only(rv):
                         payer_raw = rv
                         break
+            pinfo = bank_import.parse_payer(payer_raw)
+            # 화면 표시용 입금자명: 사람 이름이 해석되면 이름, 아니면 원문(카드/계좌형 등은 원문 그대로 보여 준다)
+            payer = pinfo["name"] or payer_raw
             memo = _string_value(row.get(memo_col)) if memo_col else ""
             vehicle = _string_value(row.get(vehicle_col)) if vehicle_col else ""
             if not vehicle:
@@ -3825,7 +3822,12 @@ def _parse_import_rows(data: bytes, filename: str, source_type: str):
                 "has_discriminator": has_discriminator,
                 "transaction_time": trade_time,
                 "payer_raw": payer_raw,
-                "raw_data": {**raw_dict, "_payer_raw": payer_raw, "_trade_time": trade_time, "_legacy_fp": legacy_fp},
+                "payer_kind": pinfo["kind"],
+                "payer_last4": pinfo["last4"],
+                "payer_plate": pinfo["plate"],
+                "raw_data": {**raw_dict, "_payer_raw": payer_raw, "_payer_kind": pinfo["kind"],
+                             "_payer_last4": pinfo["last4"], "_trade_time": trade_time,
+                             "_balance": balance, "_legacy_fp": legacy_fp},
             })
     if not parsed:
         raise HTTPException(400, "입금액/결제금액이 있는 거래를 찾지 못했습니다. 파일의 열 이름을 확인해주세요.")
@@ -3918,6 +3920,115 @@ def _auto_match_import(row, maps):
     return None, "확인 필요"
 
 
+def _vehicle_last4(member) -> str:
+    return _digits(getattr(member, "vehicle_number", ""))[-4:]
+
+
+def _mobile_last4(member) -> str:
+    return _digits(getattr(member, "mobile", "") or getattr(member, "phone", ""))[-4:]
+
+
+def _match_import_v2(item, maps):
+    """보수적 자동매칭. 반환: (member|None, reason, confident).
+
+    confident=True 인 경우에만 자동반영(matched) 대상이 된다. 원칙:
+      · 카드/계좌번호형·결제대행명·불명확 입금자는 절대 회원에 붙이지 않는다.
+      · 관리번호/차량번호/핸드폰 정확일치는 확정. 단, 입금자 성명이 회원 성명과 다르면 후보로만 둔다.
+      · 성명만 같은 경우는 '후보'(사람 확인 필요). 이름+숫자4자리가 회원 차량/전화 뒤4자리와 일치하면 확정.
+      · 동명이인(폐업 포함)·과거 alias·부분일치는 후보로만 둔다.
+    """
+    by_id, vehicles, names, mgmts, mobiles, aliases = maps
+    kind = item.get("payer_kind") or "person"
+    if kind in ("account_like", "service_name", "empty", "unknown"):
+        # 관리번호·차량·핸드폰 열이 따로 있는 파일이면 그 정확일치만 허용
+        for key, table, label in ((_norm(item.get("management_number")), mgmts, "관리번호"),
+                                  (_norm(item.get("vehicle_number")), vehicles, "차량번호")):
+            m = _unique_member(table.get(key)) if key else None
+            if m and kind in ("empty",):
+                return m, f"{label} 정확일치", True
+        return None, "입금자 불명확(카드·계좌번호형/결제대행/이름 없음) · 회원 연결 금지", False
+
+    payer_key = _norm(item.get("payer_name"))
+    name_key = _norm(bank_import.parse_payer(item.get("payer_raw") or item.get("payer_name")).get("name")) or payer_key
+
+    def name_agrees(m):
+        return (not name_key) or _norm(getattr(m, "name", "")) == name_key
+
+    mgmt_key = _norm(item.get("management_number"))
+    m = _unique_member(mgmts.get(mgmt_key)) if mgmt_key else None
+    if m:
+        return (m, "관리번호 정확일치", True) if name_agrees(m) else (m, "관리번호 일치·입금자 성명 상이 · 확인 필요", False)
+    vehicle_key = _norm(item.get("vehicle_number")) or _norm(item.get("payer_plate"))
+    m = _unique_member(vehicles.get(vehicle_key)) if vehicle_key else None
+    if m:
+        return (m, "차량번호 정확일치", True) if name_agrees(m) else (m, "차량번호 일치·입금자 성명 상이(대리납부?) · 확인 필요", False)
+    mobile_key = _digits(item.get("mobile"))
+    m = _unique_member(mobiles.get(mobile_key)) if len(mobile_key) >= 8 else None
+    if m:
+        return (m, "핸드폰 정확일치", True) if name_agrees(m) else (m, "핸드폰 일치·입금자 성명 상이 · 확인 필요", False)
+
+    # 이름 후보
+    cands = {x.id: x for x in (names.get(name_key) or [])}
+    if cands:
+        active = [x for x in cands.values() if _is_active(x)]
+        if len(cands) == 1 and active:
+            m = active[0]
+            last4 = str(item.get("payer_last4") or "")
+            if last4 and last4 in (_vehicle_last4(m), _mobile_last4(m)) and kind == "person_last4":
+                return m, "성명+뒤4자리(차량/전화) 일치", True
+            return m, "후보: 성명 유일일치(보조근거 없음) · 확인 필요", False
+        if len(active) == 1:
+            return active[0], f"후보: 동명이인 {len(cands)}명 중 활성 1명 · 확인 필요", False
+        if len(cands) == 1:
+            return next(iter(cands.values())), "후보: 폐업·비활성 회원 · 확인 필요", False
+        return None, f"동명이인 {len(cands)}명 · 회원 직접 선택 필요", False
+    if payer_key and payer_key in aliases and aliases[payer_key] in by_id:
+        return by_id[aliases[payer_key]], "후보: 과거 입금자 매칭이력 · 확인 필요", False
+    return None, "확인 필요", False
+
+
+def _posted_twins_index(db, parsed):
+    """같은 거래일·금액으로 이미 수납 반영된 행을 모아 둔다(키 방식과 무관하게 내용으로 비교하기 위함)."""
+    dates = sorted({x["transaction_date"] for x in parsed if x.get("transaction_date")})
+    amounts = sorted({int(x["amount"]) for x in parsed})
+    idx = {}
+    if not dates or not amounts:
+        return idx
+    q = db.query(ReceivableImportRow).filter(
+        ReceivableImportRow.status == "posted",
+        ReceivableImportRow.transaction_date.in_(dates),
+        ReceivableImportRow.amount.in_(amounts),
+    )
+    for r in q.all():
+        idx.setdefault((str(r.transaction_date), int(r.amount)), []).append(r)
+    return idx
+
+
+def _twin_verdict(item, twin_row) -> str:
+    """'same' 확실히 같은 거래 / 'suspect' 구분 근거 없음 / 'different' 다른 거래."""
+    raw = twin_row.raw_data or {}
+    t_time = raw.get("_trade_time") or bank_import.parse_time_text(raw.get("거래시간"), raw.get("거래시각"))
+    t_bal = raw.get("_balance")
+    if t_bal is None:
+        for k, v in raw.items():
+            if "잔액" in str(k):
+                t_bal = bank_import.balance_int(v)
+                break
+    t_payer = _norm(raw.get("_payer_raw") or raw.get("거래기록사항") or raw.get("입금자명") or "")
+    i_time, i_bal, i_payer = item.get("transaction_time") or "", item["raw_data"].get("_balance"), _norm(item.get("payer_raw") or "")
+    if i_time and t_time:
+        if i_time != t_time:
+            return "different"
+        if i_bal is not None and t_bal is not None and int(i_bal) != int(t_bal):
+            return "different"
+        return "same"
+    if i_bal is not None and t_bal is not None:
+        return "same" if int(i_bal) == int(t_bal) else "different"
+    if i_payer and t_payer:
+        return "suspect" if i_payer == t_payer else "different"
+    return "suspect"
+
+
 def _import_row_json(row: ReceivableImportRow, member_map=None):
     member = (member_map or {}).get(row.matched_member_id) if row.matched_member_id else None
     return {
@@ -3982,7 +4093,7 @@ async def preview_payment_import(
     db.flush()
 
     maps = _member_match_maps(db)
-    fingerprints = list({fp for r in parsed for fp in (r["fingerprint"], r["legacy_fingerprint"])})
+    fingerprints = list({r["fingerprint"] for r in parsed})
     posted = set()
     for i in range(0, len(fingerprints), 800):
         chunk = fingerprints[i:i + 800]
@@ -3991,30 +4102,35 @@ async def preview_payment_import(
             .filter(ReceivableImportRow.fingerprint.in_(chunk), ReceivableImportRow.status == "posted")
             .all()
         )
+    twins = _posted_twins_index(db, parsed)
 
     seen = set()
     for item in parsed:
-        in_db = item["fingerprint"] in posted or item["legacy_fingerprint"] in posted
+        in_db = item["fingerprint"] in posted
         in_file = item["fingerprint"] in seen
         seen.add(item["fingerprint"])
-        # 파일 안에서만 반복되고 시각/거래후잔액/거래번호가 없으면 "별도 입금"일 수 있으므로 자동 중복처리하지 않는다.
-        file_suspect = in_file and not in_db and not item["has_discriminator"]
-        duplicate = in_db or (in_file and not file_suspect)
+        # 구버전 키는 (일자·금액·거래수단)만으로 서로 다른 입금이 충돌했다. 이미 반영된 거래는 키가 아니라 내용(시각·잔액·입금자)으로 대조한다.
+        verdicts = [_twin_verdict(item, t) for t in twins.get((str(item["transaction_date"]), int(item["amount"])), [])] if not in_db else []
+        twin_same = in_db or "same" in verdicts
+        twin_suspect = (not twin_same) and "suspect" in verdicts
+        file_suspect = in_file and not item["has_discriminator"]
+        duplicate = twin_same or (in_file and not file_suspect)
         non_receivable_reason = "" if duplicate else _non_receivable_import_reason(item)
         if duplicate:
-            member, reason, status = None, "기존/파일내 중복", "duplicate"
-        elif file_suspect:
-            member, _mr = _auto_match_import(item, maps)
-            reason, status = "중복 의심(동일 일자·금액·입금자 반복, 시각/잔액 없음) · 확인 필요", "review"
+            member, reason, status = None, "기존/파일내 중복(시각·잔액 일치)" if twin_same else "파일내 중복", "duplicate"
+        elif twin_suspect or file_suspect:
+            member, _mr, _cf = _match_import_v2(item, maps)
+            why = "기존 반영 건과 일자·금액·입금자 동일, 시각/잔액 확인 불가" if twin_suspect else "동일 일자·금액·입금자 반복, 시각/잔액 없음"
+            reason, status = f"중복 의심({why}) · 확인 필요", "review"
         else:
-            member, match_reason = _auto_match_import(item, maps)
+            member, match_reason, confident = _match_import_v2(item, maps)
             if non_receivable_reason:
                 # 후보 회원은 보여주되, 자동반영 대상(matched)으로 만들지 않는다.
                 reason = f"{non_receivable_reason} · 자동반영 금지" + (f" · 후보: {match_reason}" if member else "")
                 status = "review"
             else:
                 reason = match_reason
-                status = "matched" if member else "review"
+                status = "matched" if (member and confident) else "review"
         db.add(ReceivableImportRow(
             batch_id=batch.id,
             source_row=item["source_row"],
@@ -4154,6 +4270,9 @@ def post_payment_import(
     current_user=Depends(get_current_user),
 ):
     _ensure_receivables_schema_ready()
+    # 같은 반영 버튼이 동시에 두 번 눌려도 순차 처리되도록 트랜잭션 잠금(Postgres). 커밋/롤백 시 자동 해제.
+    if db.bind is not None and db.bind.dialect.name == "postgresql":
+        db.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": 20261009})
     batch = db.query(ReceivableImportBatch).filter(ReceivableImportBatch.id == batch_id).first()
     if not batch:
         raise HTTPException(404, "업로드 내역을 찾을 수 없습니다.")
@@ -4189,7 +4308,7 @@ def post_payment_import(
         if not row.matched_member_id:
             row.status = "review"
             continue
-        if row.fingerprint in posted_fingerprints or str((row.raw_data or {}).get("_legacy_fp") or "") in posted_fingerprints:
+        if row.fingerprint in posted_fingerprints:
             row.status = "duplicate"
             row.match_reason = "기존 반영 거래와 중복"
             continue

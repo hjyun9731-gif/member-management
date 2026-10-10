@@ -6,8 +6,8 @@
 
 -- [Q1] V4(및 이전 보정)가 실제로 적용되었는가?
 SELECT key,
-       value::json->>'status'     AS status,
-       value::json->>'applied_at' AS applied_at,
+       substring(value from '"status":"([^"]*)"')     AS status,
+       substring(value from '"applied_at":"([^"]*)"') AS applied_at,
        updated_at
 FROM receivable_system_state
 WHERE key LIKE 'receivables_reconcile_20261008%' OR key LIKE 'legacy_baseline%'

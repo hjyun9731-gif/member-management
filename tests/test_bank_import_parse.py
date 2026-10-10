@@ -22,8 +22,10 @@ def parse(rows=rows, cols=NH_COLS):
 
 def test_payer_is_record_text_not_channel():
     p = parse()
-    assert [x["payer_name"] for x in p] == ["김철수","김철수","이영희",""]
-    assert all(x["payer_name"] not in ("스마트뱅킹","타행이체","NH스마트뱅킹") for x in p)
+    assert [x["payer_name"] for x in p][:3] == ["김철수","김철수","이영희"]
+    assert p[3]["payer_kind"] in ("unknown","empty")
+    assert [x["payer_kind"] for x in p][:3] == ["person"]*3          # 거래내용(수단)이 입금자로 읽히지 않는다
+    assert p[3]["payer_kind"] == "unknown"                           # 수단/은행명만 있는 입금자 → 매칭 금지 대상
 
 def test_withdrawals_excluded_and_amounts():
     p = parse(); assert [x["amount"] for x in p] == [30000,30000,10000,5000]
