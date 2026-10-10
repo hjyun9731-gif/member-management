@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>수납·미수금 통합 원장</title>
+<link rel="stylesheet" href="/static/receivables_workspace.css?v=20261009-ws1">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><b>수납·미수금 통합 원장</b><span>강원특별자치도개인소형화물협회</span></div>
+  <nav class="top-links"><a href="/receivables">기존 수납·미수금 화면</a><a href="/">회원관리</a><button id="logoutBtn" type="button">로그아웃</button></nav>
+</header>
+<nav class="tabs" id="tabs" role="tablist"></nav>
+<section class="toolbar">
+  <input id="q" type="search" placeholder="이름·차량번호·입금자 검색" autocomplete="off">
+  <select id="status" class="hidden"></select>
+  <select id="size"><option>50</option><option selected>100</option><option>200</option><option>500</option></select>
+  <button id="reload" type="button">새로고침</button>
+  <button id="csv" type="button">CSV 내려받기</button>
+  <label id="revealWrap" class="hidden"><input type="checkbox" id="reveal"> 이름 표시</label>
+  <span id="summary" class="summary"></span>
+</section>
+<p id="note" class="note"></p>
+<main class="work">
+  <div class="gridwrap" id="gridwrap"><table id="grid"></table><div id="empty" class="empty hidden">표시할 자료가 없습니다.</div></div>
+  <aside id="panel" class="panel hidden"></aside>
+</main>
+<footer class="pager"><button id="prev" type="button">이전</button><span id="pageInfo"></span><button id="next" type="button">다음</button></footer>
+<div id="toast" class="toast hidden"></div>
+<script src="/static/receivables_workspace.js?v=20261009-ws1"></script>
+</body>
+</html>

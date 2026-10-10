@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
 load_dotenv()  # .env 파일 로딩 (Railway에서는 환경변수가 자동 주입됨)
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,7 +12,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 from app.database import Base, engine, SessionLocal, DATABASE_URL
-from app.auth import create_default_admin
+from app.auth import create_default_admin, require_admin
 from app.routers import (auth, dashboard, reports, excel)
 from app.routers import (candidates, members, transfer_ledger,
                           closures, change_history, allocation, admin)
@@ -332,6 +332,8 @@ app.include_router(admin.router,          prefix="/api/admin",          tags=["�
 
 # === RECEIVABLES MODULE ROUTER ===
 app.include_router(receivables.router)
+from app.routers import receivables_workspace  # 통합 원장(읽기 전용)
+app.include_router(receivables_workspace.router)
 
 # 자격증명 발급대장: 신규 API만 추가
 app.include_router(certificate_ledger.router)
@@ -413,11 +415,11 @@ async def startup():
 
 
 @app.get("/api/receivables/reconcile-20260916-v4")
-def receivables_reconcile_20260916_v4_status():
+def receivables_reconcile_20260916_v4_status(_admin=Depends(require_admin)):
     return _receivables_reconcile_v4.get_receivables_reconcile_v4_status()
 
 @app.post("/api/receivables/reconcile-20260916-v4/apply")
-def receivables_reconcile_20260916_v4_apply():
+def receivables_reconcile_20260916_v4_apply(_admin=Depends(require_admin)):
     try:
         return _receivables_reconcile_v4.apply_receivables_reconcile_20260916_v4()
     except Exception as exc:
