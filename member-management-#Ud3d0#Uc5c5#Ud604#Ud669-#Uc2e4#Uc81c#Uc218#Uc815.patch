@@ -1,0 +1,51 @@
+--- a/app/static/app.js
++++ b/app/static/app.js
+@@ -1834,6 +1834,7 @@
+         <input class="srch" id="clSrch" placeholder="관리번호, 성명, 차량번호" value="${e_(f.search||'')}">
+         <button class="btn bp btn-sm" id="clSrchBtn">조회</button>
+         <button class="btn bo btn-sm" id="clRstBtn">초기화</button>
++        <button class="btn bo btn-sm" id="clTransferToggle">${ST.inner.clTransferVisible?'양수인/이관지역 숨기기':'양수인/이관지역 보기'}</button>
+       </div>
+       <div id="clTbl"><div class="loading-box"><div class="spin"></div></div></div>
+     </div>`;
+@@ -1842,7 +1843,9 @@
+   const hdrs=[
+     {label:'기존관리번호'},{label:'폐업관리번호'},{label:'지역'},{label:'차량번호'},{label:'성명'},
+     {label:'구분'},{label:'가입'},{label:'핸드폰'},{label:'접수일자'},{label:'처리일자'},{label:'가입일자'},
+-    {label:'양수인'},{label:'이관지역'},{label:'차종'},{label:'유종'},{label:'주소'},{label:'비고'},{label:'관리',noSort:true}
++    {label:'폐업사유'},
++    ...(ST.inner.clTransferVisible?[{label:'양수인'},{label:'이관지역'}]:[]),
++    {label:'차종'},{label:'유종'},{label:'주소'},{label:'비고'},{label:'관리',noSort:true}
+   ];
+ 
+   const doSearch=async(pg=1)=>{
+@@ -1875,8 +1878,8 @@
+           <td>${fv(r.receipt_date)}</td>
+           <td><span class="ledger-date">${fv(r.closure_date)}</span></td>
+           <td>${fv(joinDate)}</td>
+-          <td>${fv(r.transferee)}</td>
+-          <td>${fv(r.transfer_region)}</td>
++          <td title="${e_(r.reason||'')}">${fv(r.reason)}</td>
++          ${ST.inner.clTransferVisible?`<td>${fv(r.transferee)}</td><td>${fv(r.transfer_region)}</td>`:''}
+           <td title="${e_(r.vehicle_type||'')}">${fv(r.vehicle_type)}</td>
+           <td>${fv(r.fuel_type)}</td>
+           <td title="${e_(r.address||'')}">${fv(r.address)}</td>
+@@ -1891,6 +1894,7 @@
+   document.getElementById('clSrchBtn').onclick=()=>doSearch(1);
+   document.getElementById('clSrch').onkeydown=e=>{if(e.key==='Enter')doSearch(1);};
+   document.getElementById('clRstBtn').onclick=()=>{ST.fl.cl={};renderClosures();};
++  document.getElementById('clTransferToggle').onclick=()=>{ST.inner.clTransferVisible=!ST.inner.clTransferVisible;renderClosures();};
+   document.getElementById('clAddBtn').onclick=()=>editClosure(null);
+   document.getElementById('clXlBtn').onclick=()=>{
+     const q=new URLSearchParams(Object.fromEntries(Object.entries(ST.fl.cl||{}).filter(([,v])=>v)));
+--- a/app/static/index.html
++++ b/app/static/index.html
+@@ -63,7 +63,7 @@
+ </div>
+ 
+ <div class="toast-box" id="toastBox"></div>
+-<script src="/static/app.js?v=20260822pbrange"></script>
++<script src="/static/app.js?v=20260910closure1"></script>
+ <script src="/static/design-dashboard-v19-20260830.js?v=20260830v19"></script>
+ <script src="/static/certificate-ledger.js?v=20260904"></script>
+ </body>
