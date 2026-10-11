@@ -1,7 +1,7 @@
 """농협 거래내역 업로드→미리보기→반영 통합 테스트(가상 데이터 · 임시 sqlite · 운영 DB 접속 없음)."""
 import io, os, sys
-os.environ["DATABASE_URL"] = "sqlite:////tmp/mm_test_flow.db"
-if os.path.exists("/tmp/mm_test_flow.db"): os.remove("/tmp/mm_test_flow.db")
+os.environ.setdefault("DATABASE_URL", "sqlite:////tmp/mm_test_flow.db")
+if os.environ["DATABASE_URL"].startswith("sqlite") and os.path.exists("/tmp/mm_test_flow.db"): os.remove("/tmp/mm_test_flow.db")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pandas as pd, pytest
 from datetime import datetime
@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from app import models
 from app.database import Base, engine, SessionLocal
 from app.routers import receivables as R
-from app.auth import get_current_user
+from app.auth import get_current_user, admin_for_writes
 from app.database import get_db
 
 COLS = ["구분","거래일자","출금금액(원)","입금금액(원)","거래 후 잔액(원)","거래내용","거래기록사항","거래점","거래시간","이체메모","거래메모"]
@@ -45,6 +45,7 @@ def client():
         try: yield d
         finally: d.close()
     app.dependency_overrides[get_db] = _db
+    app.dependency_overrides[admin_for_writes] = lambda: None
     app.dependency_overrides[get_current_user] = lambda: type("U", (), {"username":"tester","role":"admin","id":1,"is_admin":True})()
     return TestClient(app)
 

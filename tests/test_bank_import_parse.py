@@ -1,6 +1,6 @@
 """통장 거래내역 파싱 테스트 — 가상 데이터, 임시 sqlite 전용(운영 DB 접속 없음)."""
 import io, os, sys
-os.environ["DATABASE_URL"] = "sqlite:////tmp/mm_test_parse.db"   # 반드시 임시 DB
+os.environ.setdefault("DATABASE_URL", "sqlite:////tmp/mm_test_parse.db")   # 반드시 임시 DB
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pandas as pd
 from datetime import datetime

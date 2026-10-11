@@ -18,7 +18,7 @@ from sqlalchemy import and_, func, or_, text
 from sqlalchemy.orm import Session
 
 from app import models
-from app.auth import get_current_user, require_admin
+from app.auth import admin_for_writes, get_current_user, require_admin
 from app.database import get_db
 from app.receivables_models import (
     ReceivableCharge,
@@ -29,7 +29,7 @@ from app.receivables_models import (
     ReceivableProfile,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(admin_for_writes)])
 _STATIC = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
 LEGACY_CUTOFF_MONTH = "2026-09"      # 9월말 확정잔액 이후 부과만 더한다(V4 기준)
 LEGACY_CUTOFF_DATE = "2026-09-30"    # 9/30 이후 수납만 뺀다(V4 기준)
@@ -145,19 +145,24 @@ def _import_rows(db, tab, q, status, page, size, sort, direction, fmt, base_filt
 
 
 def _ledger(db, q, status, page, size, sort, direction, fmt):
+    """미수금 원장 — 회원 상세·목록·통계와 같은 잔액식(receivables._balance_sql_core)을 쓴다."""
+    from app.routers import receivables as R
     M, P = models.LicenseHolder, ReceivableProfile
-    ch = (db.query(ReceivableCharge.member_id.label("mid"), func.sum(ReceivableCharge.amount).label("a"))
-          .filter(ReceivableCharge.billing_month > LEGACY_CUTOFF_MONTH).group_by(ReceivableCharge.member_id).subquery())
-    py = (db.query(ReceivablePayment.member_id.label("mid"), func.sum(ReceivablePayment.amount).label("a"),
-                   func.max(ReceivablePayment.payment_date).label("last"))
-          .filter(ReceivablePayment.cancelled_at.is_(None), ReceivablePayment.payment_date > LEGACY_CUTOFF_DATE)
-          .group_by(ReceivablePayment.member_id).subquery())
-    charges, pays = func.coalesce(ch.c.a, 0), func.coalesce(py.c.a, 0)
-    balance = P.legacy_balance + charges - pays
-    query = (db.query(P.member_id, M.name, M.vehicle_number, M.category, M.status, P.account_type, P.unit_fee,
-                      P.legacy_balance, charges, pays, balance, py.c.last, P.legacy_note)
-             .join(M, M.id == P.member_id).outerjoin(ch, ch.c.mid == P.member_id).outerjoin(py, py.c.mid == P.member_id)
-             .filter(M.deleted_at.is_(None)))
+    charges_sq, payments_sq = R._charge_payment_subqueries(db)
+    charges = func.coalesce(charges_sq.c.charge_total, 0)
+    pays = func.coalesce(payments_sq.c.payment_total, 0)
+    adjs = func.coalesce(payments_sq.c.adjustment_total, 0)
+    balance = R._balance_sql_core(charges_sq, payments_sq)
+    last_pay = (db.query(func.max(ReceivablePayment.payment_date))
+                .filter(ReceivablePayment.member_id == P.member_id, ReceivablePayment.cancelled_at.is_(None))
+                .correlate(P).scalar_subquery())
+    base = (db.query(P.member_id, M.name, M.vehicle_number, M.category, M.status, P.account_type, P.unit_fee,
+                     P.legacy_balance, charges, pays, adjs, balance, last_pay, P.legacy_note)
+            .join(M, M.id == P.member_id)
+            .outerjoin(charges_sq, charges_sq.c.member_id == P.member_id)
+            .outerjoin(payments_sq, payments_sq.c.member_id == P.member_id)
+            .filter(M.deleted_at.is_(None)))
+    query = base
     if status == "active":
         query = query.filter(or_(M.status.is_(None), M.status == "", M.status == "active"))
     elif status == "closed":
@@ -169,7 +174,7 @@ def _ledger(db, q, status, page, size, sort, direction, fmt):
     if q:
         like = f"%{q.strip()}%"
         query = query.filter(or_(M.name.ilike(like), M.vehicle_number.ilike(like)))
-    sort_map = {"name": M.name, "balance": balance, "legacy_balance": P.legacy_balance, "last": py.c.last,
+    sort_map = {"name": M.name, "balance": balance, "legacy_balance": P.legacy_balance, "last": last_pay,
                 "account_type": P.account_type}
     col = sort_map.get(sort, balance)
     query = query.order_by(col.asc() if direction == "asc" else col.desc(), P.member_id)
@@ -177,23 +182,23 @@ def _ledger(db, q, status, page, size, sort, direction, fmt):
     rows = [{
         "member_id": r[0], "name": r[1] or "", "vehicle": r[2] or "", "category": r[3] or "", "status": r[4] or "active",
         "account_type": r[5] or "", "unit_fee": r[6], "legacy_balance": r[7], "charges": int(r[8] or 0),
-        "payments": int(r[9] or 0), "balance": int(r[10] or 0), "last_payment": r[11] or "", "note": (r[12] or "")[:120],
+        "payments": int(r[9] or 0), "adjustments": int(r[10] or 0), "balance": int(r[11] or 0),
+        "last_payment": r[12] or "", "note": (r[13] or "")[:120],
     } for r in items]
-    agg = db.query(func.count(P.member_id), func.coalesce(func.sum(case_pos(balance)), 0),
-                   func.coalesce(func.sum(case_neg(balance)), 0)).join(M, M.id == P.member_id) \
-        .outerjoin(ch, ch.c.mid == P.member_id).outerjoin(py, py.c.mid == P.member_id) \
-        .filter(M.deleted_at.is_(None), or_(M.status.is_(None), M.status == "", M.status == "active")).first()
-    summary = {"활성 회원": agg[0], "미수 합계": int(agg[1] or 0), "초과납(음수) 합계": int(agg[2] or 0)}
+    act = [x for x in base.filter(or_(M.status.is_(None), M.status == "", M.status == "active")).all()]
+    bals = [int(x[11] or 0) for x in act]
+    summary = {"활성 회원": len(act), "미수 합계": sum(b for b in bals if b > 0), "초과납(음수) 합계": sum(b for b in bals if b < 0)}
     cols = [
         _col("name", "성명", "text", 90, sortable=True, sticky=True), _col("vehicle", "차량번호", "text", 110, sticky=True),
         _col("category", "구분", "text", 56), _col("status", "상태", "text", 62),
         _col("account_type", "계정", "text", 70, sortable=True), _col("unit_fee", "월부과", "money", 72),
-        _col("legacy_balance", "9월말 확정잔액", "money", 112, sortable=True), _col("charges", "10월~ 부과", "money", 92),
-        _col("payments", "9/30후 수납", "money", 92), _col("balance", "현재 미수금(재계산)", "money", 128, sortable=True),
+        _col("legacy_balance", "기준잔액", "money", 96, sortable=True), _col("charges", "유효 부과", "money", 92),
+        _col("payments", "실제 수납", "money", 92), _col("adjustments", "정정(입금 아님)", "money", 108),
+        _col("balance", "현재 미수금", "money", 110, sortable=True),
         _col("last_payment", "마지막 입금일", "date", 100, sortable=True), _col("note", "비고(미수금)", "text", 280),
     ]
     return _finish("ledger", cols, rows, total, page, size, summary, fmt,
-                   note="현재 미수금 = 9월말 확정잔액 + 2026-10 이후 부과 − 9/30 이후 유효 수납 (V4 공식으로 재계산한 참고값)")
+                   note="현재 미수금 = 기준잔액 + 유효 부과 − 실제 수납 − 정정. 회원 상세·목록·통계와 같은 계산식입니다(정정은 수납이 아닙니다).")
 
 
 def case_pos(expr):

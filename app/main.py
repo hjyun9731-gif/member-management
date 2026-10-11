@@ -334,6 +334,8 @@ app.include_router(admin.router,          prefix="/api/admin",          tags=["�
 app.include_router(receivables.router)
 from app.routers import receivables_workspace  # 통합 원장(읽기 전용)
 app.include_router(receivables_workspace.router)
+from app.routers import receivables_adjustments  # 미수금 정정(관리자)
+app.include_router(receivables_adjustments.router)
 
 # 자격증명 발급대장: 신규 API만 추가
 app.include_router(certificate_ledger.router)
