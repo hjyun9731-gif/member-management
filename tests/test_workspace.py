@@ -45,8 +45,32 @@ def test_no_write_endpoints():
 
 @pytest.mark.skipif(not IS_PG, reason="점검 API는 Postgres 전용")
 def test_audit_readonly_and_results(client):
+    """점검 API(READ ONLY 트랜잭션): 테스트가 직접 가상 자료를 넣고, 의심 항목이 잡히는지·이름이 가려지는지·DB가 안 바뀌는지 확인."""
+    from sqlalchemy import text
+    from app.receivables_models import ReceivableProfile, ReceivableCharge, ReceivablePayment
+    Base.metadata.drop_all(bind=engine); Base.metadata.create_all(bind=engine)
+    d = SessionLocal()
+    d.execute(text("CREATE TABLE IF NOT EXISTS receivable_billing_exclusions(member_id int primary key, reason text, patch_id text, created_at timestamptz default now())"))
+    d.add(models.Closure(id=1, management_number="폐-1", closure_type="폐업", name="박폐업", vehicle_number="강원81배2222", closure_date="2026-03-10"))
+    d.add_all([
+        models.LicenseHolder(id=1, name="이미발급", vehicle_number="강원80배1111", category="택배", status="active"),
+        models.LicenseHolder(id=2, name="박폐업", vehicle_number="강원81배2222", category="택배", status="closed", closure_id=1,
+                             certificate_number="X1"),
+    ])
+    d.add_all([
+        ReceivableProfile(member_id=1, account_type="관리비", unit_fee=5000, vehicle_count=1, legacy_balance=30000, legacy_months=[], receivable_active=1,
+                          account_manual_override=0, legacy_note="[20261008 월별장부 전수정정 V4]"),
+        ReceivableProfile(member_id=2, account_type="관리비", unit_fee=5000, vehicle_count=1, legacy_balance=0, legacy_months=[], receivable_active=1,
+                          account_manual_override=0),
+        ReceivableCharge(member_id=1, billing_month="2026-10", amount=5000, account_type="관리비", source="auto"),
+        ReceivableCharge(member_id=2, billing_month="2026-05", amount=5000, account_type="관리비", source="auto"),
+        ReceivablePayment(member_id=1, payment_date="2026-09-05", amount=15000, method="계좌이체"),
+    ])
+    d.commit(); before = d.execute(text("select count(*), coalesce(sum(amount),0) from receivable_payments")).fetchone(); d.close()
     j = client.get("/api/receivables/workspace/audit").json()
-    assert j["ok"] and j["readonly"] and not [s for s in j["sections"] if s.get("error")]
-    by = {s["key"]: s for s in j["sections"]}
-    assert by["stale_payments"]["rows"] and by["unissued_not_held"]["rows"] and by["closed_charged"]["rows"]
-    assert by["stale_payments"]["rows"][0]["name"].endswith("*")        # 이름 마스킹
+    assert j["ok"] and j["readonly"] and not [x for x in j["sections"] if x.get("error")], [x for x in j["sections"] if x.get("error")]
+    by = {x["key"]: x for x in j["sections"]}
+    assert len(by["stale_payments"]["rows"]) == 1 and by["stale_payments"]["rows"][0]["name"] == "이***"        # 이름 마스킹
+    assert len(by["unissued_not_held"]["rows"]) == 1 and len(by["closed_charged"]["rows"]) == 1
+    d = SessionLocal(); after = d.execute(text("select count(*), coalesce(sum(amount),0) from receivable_payments")).fetchone(); d.close()
+    assert tuple(before) == tuple(after)                                                                    # 점검은 DB를 바꾸지 않는다

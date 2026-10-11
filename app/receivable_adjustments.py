@@ -76,29 +76,30 @@ def build_plan(db: Session, exclude_member_ids=()) -> dict:
         if profile.account_type != "관리비":
             continue            # 협회비/70세 등은 이번 정정 대상이 아니다
         flags = []
-        decision, reason = "target", ""
         closure = R._current_closure_for_member(db, member)
         parts = R._canonical_balance_parts(db, member, profile, closure)
         bal = parts["balance"]
         is_bae = "배" in str(member.vehicle_number or "").replace(" ", "")
-        if not is_bae:
-            flags.append("비택배 차량(회원유형 확인 필요)")
         if member.company_name:
-            flags.append("법인/업체명 있음")
-        if int(member.id) in exclude:
+            flags.append("법인/업체명 있음(확인 권장)")
+        # 판정 순서: 정정할 미수금(양수)이 없으면 그대로 두고, 있으면 '택배 미발급'만 자동 대상이다.
+        # 비택배·폐업·계정불일치는 자동정정하지 않고 별도 검토 목록으로 분리한다.
+        if bal == 0:
+            decision, reason = "already_zero", "이미 0원"
+        elif bal < 0:
+            decision, reason = "credit_kept", "선납(음수) 유지"
+        elif int(member.id) in exclude:
             decision, reason = "excluded", "관리자가 제외 지정"
-        elif (member.status or "active") == "closed":
-            decision, reason = "excluded", "폐업 회원 — 폐업 전 미수금은 임의 삭제하지 않음(별도 검토)"
         elif int(getattr(profile, "receivable_active", 1) or 0) != 1:
             decision, reason = "excluded", "미수금 비활성 프로필"
+        elif (member.status or "active") == "closed":
+            decision, reason = "review_closed", "폐업 회원 — 폐업 전 미수금은 임의 삭제하지 않음(별도 검토)"
         elif int(getattr(profile, "account_manual_override", 0) or 0) != 1 and R._infer_account(member) != profile.account_type:
-            decision, reason = "excluded", f"계정 불일치(회원정보상 {R._infer_account(member)} / 프로필 {profile.account_type}) — 자동정정 제외"
-        elif bal > 0:
-            decision = "target"
-        elif bal == 0:
-            decision, reason = "already_zero", "이미 0원"
+            decision, reason = "review_account", f"계정 불일치(회원정보상 {R._infer_account(member)} / 프로필 {profile.account_type}) — 별도 검토"
+        elif not is_bae:
+            decision, reason = "review_non_bae", "비택배(배 번호판 아님) — 자동정정 제외, 회원유형·자격증명 대상 여부 별도 검토"
         else:
-            decision, reason = "credit_kept", "선납(음수) 유지"
+            decision, reason = "target", ""
         planned = bal if decision == "target" else 0
         rows.append({
             "member_id": int(member.id), "name": member.name or "", "vehicle_number": member.vehicle_number or "",
@@ -123,11 +124,14 @@ def build_plan(db: Session, exclude_member_ids=()) -> dict:
         "summary": {
             "미발급 후보(모든 계정)": candidates_all,
             "관리비 계정 미발급": len(rows),
-            "정정 대상(양수 미수)": len(targets),
+            "정정 대상(택배 미발급·양수 미수)": len(targets),
             "정정 예정액 합계": sum(r["planned_adjustment"] for r in targets),
+            "별도 검토 — 비택배": by.get("review_non_bae", 0),
+            "별도 검토 — 폐업": by.get("review_closed", 0),
+            "별도 검토 — 계정 불일치": by.get("review_account", 0),
+            "별도 검토 미수 합계(정정하지 않음)": sum(r["balance_before"] for r in rows if r["decision"].startswith("review_")),
             "선납 유지": by.get("credit_kept", 0), "이미 0원": by.get("already_zero", 0),
-            "제외(폐업/계정불일치/지정 등)": by.get("excluded", 0),
-            "비택배 차량 포함 대상": sum(1 for r in targets if r["flags"]),
+            "제외(관리자 지정/비활성)": by.get("excluded", 0),
         },
         "rows": rows,
         "excluded_member_ids": sorted(exclude),
@@ -305,3 +309,28 @@ def verify_batch(db: Session, batch_id: str) -> dict:
         "members_checked": len(rows), "members_failed": bad, "rows": rows,
         "screens": consistency_report(db),
     }
+
+
+# ───────────────────────────── 금액수정(수동 1건) — 가짜 수납 대신 정정 전용 테이블 ─────────────────────────────
+MANUAL_PREFIX = "manual_balance_edit"
+
+
+def record_manual_adjustment(db: Session, *, member_id: int, account_type: str, balance_before: int, balance_after: int,
+                             reason: str, actor: str, effective_date: str):
+    """'금액수정' 1건을 receivable_adjustments 에 기록한다(실제 수납 아님). 호출자가 commit 한다.
+
+    adjustment_amount = 정정 전 잔액 − 정정 후 잔액 (양수=미수금 감소, 음수=증가).
+    """
+    uid = uuid.uuid4().hex[:8]
+    batch_id = datetime.now(KST).strftime("MAN%Y%m%d%H%M%S-") + uid
+    amount = int(balance_before) - int(balance_after)
+    db.add(ReceivableAdjustmentBatch(
+        batch_id=batch_id, reason_code=f"{MANUAL_PREFIX}_{uid}", status="applied", member_count=1, total_amount=amount,
+        created_by=actor, report={"kind": "manual_balance_edit", "member_id": int(member_id), "reason": reason}))
+    adj = ReceivableAdjustment(
+        batch_id=batch_id, member_id=int(member_id), account_type=account_type, balance_before=int(balance_before),
+        adjustment_amount=amount, balance_after=int(balance_after), reason_code=f"{MANUAL_PREFIX}_{uid}",
+        reason=f"[금액수정] {reason}", effective_date=effective_date, created_by=actor)
+    db.add(adj)
+    db.flush()
+    return adj

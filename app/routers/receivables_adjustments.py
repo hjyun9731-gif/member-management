@@ -10,12 +10,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app import receivable_adjustments as svc
-from app.auth import require_admin
+from app.auth import admin_for_writes, require_admin
 from app.database import get_db
 from app.receivables_models import ReceivableAdjustmentBatch
 from app.routers.receivables import _ensure_receivables_schema_ready
 
-router = APIRouter(prefix="/api/receivables/adjustments", tags=["receivable-adjustments"])
+router = APIRouter(prefix="/api/receivables/adjustments", tags=["receivable-adjustments"], dependencies=[Depends(admin_for_writes)])
 
 
 def _ids(exclude: str) -> list[int]:
@@ -60,7 +60,8 @@ def preview_csv(exclude: str = Query("", max_length=2000), db: Session = Depends
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(head)
-    label = {"target": "정정대상", "already_zero": "이미0원", "credit_kept": "선납유지", "excluded": "제외"}
+    label = {"target": "정정대상(택배)", "already_zero": "이미0원", "credit_kept": "선납유지", "excluded": "제외",
+             "review_non_bae": "별도검토(비택배)", "review_closed": "별도검토(폐업)", "review_account": "별도검토(계정불일치)"}
     for r in plan["rows"]:
         w.writerow([r["member_id"], r["name"], r["vehicle_number"], r["category"], r["member_status"], r["certificate_issue_date"],
                     r["certificate_number"], r["account_type"], r["baseline"], r["charges"], r["payments"], r["adjustments"],
@@ -91,7 +92,7 @@ def apply(body: ApplyIn, db: Session = Depends(get_db), admin=Depends(require_ad
 def batches(db: Session = Depends(get_db), _a=Depends(require_admin)):
     _ensure_receivables_schema_ready()
     rows = db.query(ReceivableAdjustmentBatch).order_by(ReceivableAdjustmentBatch.id.desc()).limit(50).all()
-    return [{"batch_id": b.batch_id, "status": b.status, "members": b.member_count, "total_amount": b.total_amount,
+    return [{"batch_id": b.batch_id, "reason_code": b.reason_code, "status": b.status, "members": b.member_count, "total_amount": b.total_amount,
              "created_by": b.created_by, "created_at": str(b.created_at), "voided_at": str(b.voided_at) if b.voided_at else None}
             for b in rows]
 

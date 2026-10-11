@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 import os
@@ -93,3 +93,18 @@ def create_default_admin(db: Session):
             db.commit()
     except Exception:
         db.rollback()  # 중복 등 오류 발생 시 rollback만 (admin은 이미 존재)
+
+
+async def admin_for_writes(request: Request, db: Session = Depends(get_db)):
+    """수납·미수금 모듈의 '데이터를 바꾸는 요청'(POST/PUT/PATCH/DELETE)은 로그인 + 관리자 권한이 필수.
+
+    조회(GET/HEAD/OPTIONS)는 각 엔드포인트의 기존 인증을 그대로 따른다(페이지 HTML 자체는 공개).
+    라우터 정의에 dependencies=[Depends(admin_for_writes)] 로 걸어 두면, 나중에 추가되는 변경 API도 자동으로 보호된다.
+    """
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return None
+    token = await oauth2_scheme(request)           # 토큰이 없으면 401
+    user = await get_current_user(token=token, db=db)
+    if user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="관리자만 이 작업을 수행할 수 있습니다.")
+    return user

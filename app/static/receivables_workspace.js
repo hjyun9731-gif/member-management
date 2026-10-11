@@ -63,7 +63,8 @@ async function loadAudit(){
       return `<div class="card"><h4><span>${esc(s.title)}</span>${head}</h4><div class="hint">${esc(HINT[s.key]||'')}</div>${tbl}</div>`}).join('')}catch(e){$('#grid').textContent=e.message}}
 
 const ADJ='/api/receivables/adjustments';
-const DEC={target:'정정대상',already_zero:'이미 0원',credit_kept:'선납 유지',excluded:'제외'};
+const DEC={target:'정정대상(택배)',already_zero:'이미 0원',credit_kept:'선납 유지',excluded:'제외',review_non_bae:'별도검토(비택배)',review_closed:'별도검토(폐업)',review_account:'별도검토(계정불일치)'};
+const UNISSUED_CODE='unissued_management_fee_20261010';
 async function adjJson(url,opt){const r=await api(url,opt);return r.json()}
 async function loadAdjust(){
   $('#note').textContent='자격증명 미발급(발급일자·발급번호 모두 공란) 회원의 관리비 미수금을 0원으로 정정합니다. 실제 입금이 아니며 수납 통계에 들어가지 않습니다. 미리보기는 아무것도 바꾸지 않습니다.';$('#summary').textContent='';
@@ -71,21 +72,25 @@ async function loadAdjust(){
   try{
     const [pv,bt]=await Promise.all([adjJson(ADJ+'/unissued-management/preview'),adjJson(ADJ+'/batches')]);
     const sm=Object.entries(pv.summary).map(([k,v])=>`<tr><td>${esc(k)}</td><td style="text-align:right"><b>${typeof v==='number'?won(v):esc(v)}</b></td></tr>`).join('');
-    const applied=bt.find(b=>b.status==='applied');
-    const rows=pv.rows.filter(r=>r.decision!=='already_zero').slice(0,400).map(r=>`<tr><td>${r.member_id}</td><td>${esc(r.name)}</td><td>${esc(r.vehicle_number)}</td><td>${esc(r.certificate_issue_date)}</td><td>${esc(r.certificate_number)}</td><td style="text-align:right">${won(r.balance_before)}</td><td style="text-align:right"><b>${won(r.planned_adjustment)}</b></td><td>${esc(DEC[r.decision]||r.decision)}</td><td>${esc((r.reason?r.reason+' ':'')+(r.flags||[]).join(' / '))}</td></tr>`).join('');
+    const applied=bt.find(b=>b.status==='applied'&&b.reason_code===UNISSUED_CODE);
+    const trow=r=>`<tr><td>${r.member_id}</td><td>${esc(r.name)}</td><td>${esc(r.vehicle_number)}</td><td>${esc(r.certificate_issue_date)}</td><td>${esc(r.certificate_number)}</td><td style="text-align:right">${won(r.balance_before)}</td><td style="text-align:right"><b>${won(r.planned_adjustment)}</b></td><td>${esc(DEC[r.decision]||r.decision)}</td><td>${esc((r.reason?r.reason+' ':'')+(r.flags||[]).join(' / '))}</td></tr>`;
+    const tgt=pv.rows.filter(r=>r.decision==='target').slice(0,400).map(trow).join('');
+    const rev=pv.rows.filter(r=>r.decision.startsWith('review_')||r.decision==='excluded').slice(0,400).map(trow).join('');
+    const head='<thead><tr><th>ID</th><th>성명</th><th>차량번호</th><th>발급일자</th><th>발급번호</th><th>현재 관리비 미수금</th><th>정정 예정액</th><th>판정</th><th>사유/확인 필요</th></tr></thead>';
     const batches=bt.map(b=>`<tr><td>${esc(b.batch_id)}</td><td>${esc(b.status)}</td><td style="text-align:right">${b.members}</td><td style="text-align:right">${won(b.total_amount)}</td><td>${esc(b.created_by)}</td><td>${esc(b.created_at.slice(0,19))}</td><td><button class="btn ghost" data-v="${esc(b.batch_id)}">적용 후 검증</button> ${b.status==='applied'?`<button class="btn ghost" data-x="${esc(b.batch_id)}">되돌리기</button>`:''}</td></tr>`).join('');
     $('#grid').innerHTML=`
     <div class="card"><h4><span>1. 미리보기(DB 변경 없음)</span><button class="btn ghost" id="adjCsv">회원별 보고서 CSV</button></h4>
-      <table><tbody>${sm}</tbody></table><div class="hint">plan_digest: <code>${esc(pv.plan_digest.slice(0,16))}…</code> · 폐업·계정불일치·선납은 자동 제외/유지됩니다. 비택배 차량 등은 '확인 필요'로 표시됩니다(아래 표 확인).</div></div>
-    <div class="card"><h4><span>2. 회원별 정정 예정(최대 400행 표시, 전체는 CSV)</span></h4><div style="overflow:auto;max-height:340px"><table><thead><tr><th>ID</th><th>성명</th><th>차량번호</th><th>발급일자</th><th>발급번호</th><th>현재 관리비 미수금</th><th>정정 예정액</th><th>판정</th><th>사유/확인 필요</th></tr></thead><tbody>${rows}</tbody></table></div></div>
+      <table><tbody>${sm}</tbody></table><div class="hint">plan_digest: <code>${esc(pv.plan_digest.slice(0,16))}…</code> · 비택배·폐업·계정불일치는 자동정정하지 않고 '별도 검토 목록'에 분리됩니다. 선납(음수)은 유지됩니다.</div></div>
+    <div class="card"><h4><span>2. 정정 대상 — 택배(배 번호판) 미발급 회원(최대 400행, 전체는 CSV)</span></h4><div style="overflow:auto;max-height:300px"><table>${head}<tbody>${tgt||'<tr><td colspan=9>대상 없음</td></tr>'}</tbody></table></div></div>
+    <div class="card"><h4><span>2-1. 별도 검토 목록 — 자동정정하지 않음(비택배·폐업·계정불일치 등)</span></h4><div style="overflow:auto;max-height:260px"><table>${head}<tbody>${rev||'<tr><td colspan=9>없음</td></tr>'}</tbody></table></div></div>
     <div class="card"><h4><span>3. 적용(관리자 · 1회만)</span></h4><div class="hint" style="line-height:2">${applied?'<b class="tag-bad">이미 적용된 정정이 있어 다시 적용할 수 없습니다.</b>':`<label><input type="checkbox" id="adjBackup"> 운영 DB 백업을 만들었고 복구할 수 있음을 확인했습니다</label><br>
       확인 문구 <input id="adjConfirm" placeholder="ZERO_UNISSUED_MANAGEMENT" style="width:260px;padding:5px"> <button class="btn" id="adjApply">정정 적용</button><br>
-      <span>적용하면 위 '정정 대상' 회원의 관리비 미수금만 0원이 됩니다. 실제 입금·부과 내역은 바뀌지 않으며, 오류가 나면 전체가 취소됩니다.</span>`}</div></div>
+      <span>적용하면 위 '정정 대상(택배)' 회원의 관리비 미수금만 0원이 됩니다. 별도 검토 목록은 바뀌지 않습니다. 실제 입금·부과 내역은 바뀌지 않으며, 오류가 나면 전체가 취소됩니다.</span>`}</div></div>
     <div class="card"><h4><span>4. 적용 이력 · 검증</span></h4><div style="overflow:auto"><table><thead><tr><th>배치</th><th>상태</th><th>회원수</th><th>정정 합계</th><th>작업자</th><th>일시</th><th></th></tr></thead><tbody>${batches||'<tr><td colspan=7>이력 없음</td></tr>'}</tbody></table></div><div id="adjVerify" class="hint"></div></div>`;
     $('#adjCsv').onclick=async()=>{const r=await api(ADJ+'/unissued-management/preview.csv');const b=await r.blob();const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='unissued_management_preview.csv';a.click()};
     const ap=$('#adjApply');if(ap)ap.onclick=async()=>{
       if(!$('#adjBackup').checked){toast('백업 확인에 체크해 주세요.');return}
-      if(!confirm(`정정 대상 ${pv.summary['정정 대상(양수 미수)']}명, 합계 ${won(pv.summary['정정 예정액 합계'])}원을 0원으로 정정합니다.\n되돌리기는 가능하지만 기록이 남습니다. 진행할까요?`))return;
+      if(!confirm(`정정 대상 ${pv.summary['정정 대상(택배 미발급·양수 미수)']}명, 합계 ${won(pv.summary['정정 예정액 합계'])}원을 0원으로 정정합니다.\n되돌리기는 가능하지만 기록이 남습니다. 진행할까요?`))return;
       try{const r=await api(ADJ+'/unissued-management/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({plan_digest:pv.plan_digest,confirm:$('#adjConfirm').value.trim(),backup_confirmed:true})});const j=await r.json();toast('정정 완료: '+j.members+'명');loadAdjust()}catch(e){toast(e.message)}};
     $('#grid').querySelectorAll('[data-v]').forEach(b=>b.onclick=async()=>{try{const v=await adjJson(ADJ+'/batches/'+b.dataset.v+'/verify');
       $('#adjVerify').innerHTML=`<b class="${v.members_failed===0&&v.payments_unchanged.ok&&v.charges_unchanged.ok&&v.screens.mismatch_count===0?'tag-ok':'tag-bad'}">검증 결과</b> · 대상 ${v.members_checked}명 중 불일치 ${v.members_failed}명 · 실제 수납 합계 불변: ${v.payments_unchanged.ok?'예':'아니오'}(${won(v.payments_unchanged.before)} → ${won(v.payments_unchanged.after_apply)}) · 부과 합계 불변: ${v.charges_unchanged.ok?'예':'아니오'} · 화면 계산 불일치 ${v.screens.mismatch_count}명 · 활성 미수 합계(상세 ${won(v.screens.active_total_detail)} / 목록 ${won(v.screens.active_total_list)})`}catch(e){toast(e.message)}});

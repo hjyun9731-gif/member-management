@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app import bank_import_utils as bank_import
-from app.auth import get_current_user
+from app.auth import get_current_user, admin_for_writes, require_admin
 from app.database import SessionLocal, get_db, engine
 from app.excel_utils import is_association_member
 from app.receivables_models import (
@@ -43,7 +43,7 @@ from app.receivables_models import (
     ReceivableImportRow,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(admin_for_writes)])
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 DATA_FILE = Path(__file__).resolve().parent.parent / "data" / "legacy_receivables_2026.json"
 KST = ZoneInfo("Asia/Seoul")
@@ -2502,7 +2502,7 @@ def meta(
 @router.get("/api/receivables/sync")
 def sync_receivables(
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_admin),   # GET 이지만 부과/프로필을 생성·수정하므로 관리자 전용
 ):
     result = _sync_all(db)
     return {"ok": True, **result}
@@ -2942,6 +2942,9 @@ def monthly_analysis(
     charges_by_member = {}
     program_charge_by_month = {}
     if member_ids:
+        # 회원 상세/목록과 같은 규칙: 무효 자동부과(미발급 관리비·폐업월 이후·금액/계정 불일치 등)는 잔액에서 제외한다(삭제하지 않음).
+        member_map = {int(m.id): m for m in db.query(models.LicenseHolder).filter(models.LicenseHolder.id.in_(member_ids)).all()}
+        closure_cache = {}
         for c in db.query(ReceivableCharge).filter(ReceivableCharge.member_id.in_(member_ids)).all():
             p = profile_by_member.get(int(c.member_id))
             if not p:
@@ -2949,6 +2952,14 @@ def monthly_analysis(
             billing_month = str(c.billing_month or "")
             if p.legacy_source_row is not None and billing_month <= LEGACY_DATA_THROUGH_KEY:
                 continue
+            if (c.source or "auto") == "auto":
+                mem = member_map.get(int(c.member_id))
+                if mem is None:
+                    continue
+                if int(c.member_id) not in closure_cache:
+                    closure_cache[int(c.member_id)] = _current_closure_for_member(db, mem)
+                if not _valid_auto_charge(p, mem, closure_cache[int(c.member_id)], c):
+                    continue
             amount = int(c.amount or 0)
             charges_by_member.setdefault(int(c.member_id), []).append((billing_month, amount))
             program_charge_by_month[billing_month] = program_charge_by_month.get(billing_month, 0) + amount
@@ -2957,6 +2968,7 @@ def monthly_analysis(
     payments_by_member = {}
     program_paid_by_month = {}
     balance_adjustment_by_month = {}
+    adjustments_by_member = {}
     if member_ids:
         payment_rows = (
             db.query(ReceivablePayment)
@@ -2988,6 +3000,8 @@ def monthly_analysis(
             mk = str(adj.effective_date or "")[:7]
             if len(mk) == 7:
                 balance_adjustment_by_month[mk] = balance_adjustment_by_month.get(mk, 0) - int(adj.adjustment_amount or 0)
+                adjustments_by_member.setdefault(int(adj.member_id), []).append(
+                    (str(adj.effective_date), int(adj.adjustment_amount or 0)))
 
     snapshot_cache = {}
 
@@ -3011,7 +3025,8 @@ def monthly_analysis(
             else:
                 base = int(profile.legacy_balance or 0)
         else:
-            base = 0
+            # 기준잔액(legacy_balance)은 상세/목록과 같이 모든 프로필에 적용한다(법정 기준월 이전은 0).
+            base = int(profile.legacy_balance or 0) if (y, m) >= (LEGACY_YEAR, 1) else 0
 
         for billing_month, amount in charges_by_member.get(int(profile.member_id), []):
             if billing_month and billing_month <= month_key:
@@ -3019,6 +3034,9 @@ def monthly_analysis(
         for payment_date, amount, _method in payments_by_member.get(int(profile.member_id), []):
             if payment_date and payment_date <= end_iso:
                 base -= int(amount or 0)
+        for eff_date, amount in adjustments_by_member.get(int(profile.member_id), []):
+            if eff_date <= end_iso:
+                base -= int(amount)       # 정정(실제 수납 아님): 잔액에서만 차감
 
         snapshot_cache[cache_key] = int(base)
         return int(base)
@@ -5069,6 +5087,16 @@ def member_detail(
             }
             for p in payments
         ],
+        "adjustments": [
+            {
+                "id": a.id, "effective_date": a.effective_date or "", "account_type": a.account_type,
+                "balance_before": int(a.balance_before), "adjustment_amount": int(a.adjustment_amount),
+                "balance_after": int(a.balance_after), "reason": a.reason or "", "batch_id": a.batch_id,
+                "created_by": a.created_by or "", "voided": a.voided_at is not None,
+            }
+            for a in db.query(ReceivableAdjustment).filter(ReceivableAdjustment.member_id == member_id)
+                       .order_by(ReceivableAdjustment.id.desc()).all()
+        ],
         "contacts": [
             {
                 "id": c.id,
@@ -5139,9 +5167,8 @@ def edit_current_balance(
 ):
     """현재 미수/선납 금액을 감사이력이 남는 방식으로 정정한다.
 
-    실제 입금과 섞이지 않도록 별도 `잔액수정` 레코드로 남긴다.
-    기존 잔액 산식(기준원장 + 부과 - 수납)을 그대로 이용하기 위해
-    ReceivablePayment에 signed correction을 기록하되, 오늘 수납 KPI에서는 제외한다.
+    실제 입금과 섞이지 않도록 정정 전용 테이블(receivable_adjustments)에 기록한다(관리자 전용).
+    잔액 = 기준잔액 + 유효 부과 - 실제 수납 - 정정.
     """
     _ensure_db_ledger_ready(db)
     _ensure_current_month_billing(db)
@@ -5184,24 +5211,24 @@ def edit_current_balance(
     if current_balance == target_balance:
         return {"ok": True, "changed": False, "old_balance": current_balance, "new_balance": target_balance}
 
-    # balance = baseline + charges - payments
-    # 따라서 목표잔액으로 이동하려면 payment signed amount = 현재잔액 - 목표잔액.
-    signed_payment_amount = int(current_balance) - int(target_balance)
-    row = ReceivablePayment(
-        member_id=member_id,
-        payment_date=d.isoformat(),
-        amount=signed_payment_amount,
-        method="잔액수정",
-        memo=f"[금액수정] {current_balance:,}원 → {target_balance:,}원 | 사유: {reason}",
-        created_by=_user_name(current_user),
+    # 실제 수납(receivable_payments)을 만들지 않는다. 정정 전용 테이블(receivable_adjustments)에만 기록하므로
+    # 수납액·수납 통계·통장 입금액에 들어가지 않고, 기록은 되돌리기(void) 가능하다.
+    from app import receivable_adjustments as _adj
+    row = _adj.record_manual_adjustment(
+        db, member_id=member_id, account_type=profile.account_type, balance_before=current_balance,
+        balance_after=target_balance, reason=reason, actor=_user_name(current_user), effective_date=d.isoformat(),
     )
-    db.add(row)
+    verified = _canonical_balance_parts(db, member, profile, current_closure)["balance"]
+    if verified != target_balance:      # 계산이 어긋나면 저장하지 않는다
+        db.rollback()
+        raise HTTPException(500, "금액수정 검증에 실패해 취소했습니다. 아무 자료도 바뀌지 않았습니다.")
     db.commit()
     db.refresh(row)
     return {
         "ok": True,
         "changed": True,
         "adjustment_id": row.id,
+        "batch_id": row.batch_id,
         "old_balance": current_balance,
         "new_balance": target_balance,
         "balance_effect": target_balance - current_balance,

@@ -18,7 +18,7 @@ from sqlalchemy import and_, func, or_, text
 from sqlalchemy.orm import Session
 
 from app import models
-from app.auth import get_current_user, require_admin
+from app.auth import admin_for_writes, get_current_user, require_admin
 from app.database import get_db
 from app.receivables_models import (
     ReceivableCharge,
@@ -29,7 +29,7 @@ from app.receivables_models import (
     ReceivableProfile,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(admin_for_writes)])
 _STATIC = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
 LEGACY_CUTOFF_MONTH = "2026-09"      # 9월말 확정잔액 이후 부과만 더한다(V4 기준)
 LEGACY_CUTOFF_DATE = "2026-09-30"    # 9/30 이후 수납만 뺀다(V4 기준)

@@ -17,11 +17,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app import crud, models
-from app.auth import get_current_user, require_admin
+from app.auth import get_current_user, require_admin, admin_for_writes
 from app.database import SessionLocal, get_db
 from app.receivables_models import ReceivableCharge, ReceivableSystemState
 
-router = APIRouter(prefix="/api/receivables/patch-20261007-v2", tags=["수납미수금-20261007-v2"])
+router = APIRouter(prefix="/api/receivables/patch-20261007-v2", tags=["수납미수금-20261007-v2"], dependencies=[Depends(admin_for_writes)])
 
 PATCH_ID = "receivables_patch_20261007_giro_closures_v2"
 STATE_KEY = PATCH_ID

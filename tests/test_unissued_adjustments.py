@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func
 from app import models, receivable_adjustments as svc
 from app.database import Base, engine, SessionLocal, get_db
-from app.auth import get_current_user, require_admin
+from app.auth import get_current_user, require_admin, admin_for_writes
 from app.receivables_models import ReceivableProfile, ReceivableCharge, ReceivablePayment, ReceivableAdjustment, ReceivableAdjustmentBatch
 from app.routers import receivables as R, receivables_adjustments as RA, receivables_workspace as W
 
@@ -62,10 +62,10 @@ def test_target_selection(db):
     assert 5 not in by                                      # 협회비 계정은 대상 아님
     assert by[2]["decision"] == by[3]["decision"] == "target"
     assert by[4]["decision"] == "credit_kept" and by[4]["planned_adjustment"] == 0
-    assert by[6]["decision"] == "excluded" and "폐업" in by[6]["reason"]
+    assert by[6]["decision"] == "review_closed" and "폐업" in by[6]["reason"] and by[6]["planned_adjustment"] == 0
     assert by[7]["decision"] == "already_zero"
-    assert by[9]["decision"] == "target" and by[9]["flags"]            # 비택배는 대상이지만 확인 필요 표시
-    assert by[10]["decision"] == "excluded" and "계정 불일치" in by[10]["reason"]
+    assert by[9]["decision"] == "review_non_bae" and by[9]["planned_adjustment"] == 0   # 비택배는 자동정정 제외 → 별도 검토 목록
+    assert by[10]["decision"] == "review_account" and "계정 불일치" in by[10]["reason"]
     assert by[11]["balance_before"] == 70000 and by[11]["planned_adjustment"] == 70000   # 실수납은 이미 반영, 남은 70,000만 정정
 
 def test_preview_is_readonly(db):
@@ -84,11 +84,12 @@ def test_apply_zeroes_without_fake_payments(db):
     assert v["members_failed"] == 0 and v["payments_unchanged"]["ok"] and v["charges_unchanged"]["ok"]
     assert v["screens"]["mismatch_count"] == 0 and v["screens"]["totals_match"]
     ids = {r["member_id"] for r in v["rows"]}
-    assert ids == {2, 3, 9, 11} and all(r["detail_balance_now"] == 0 == r["list_balance_now"] for r in v["rows"])
+    assert ids == {2, 3, 11} and all(r["detail_balance_now"] == 0 == r["list_balance_now"] for r in v["rows"])
     # 선납·발급자·협회비·폐업은 그대로
     R_ = R; parts = lambda i: R_._canonical_balance_parts(db, db.query(models.LicenseHolder).get(i), db.query(ReceivableProfile).filter_by(member_id=i).first(),
                                                          R_._current_closure_for_member(db, db.query(models.LicenseHolder).get(i)))["balance"]
     assert parts(4) == -20000 and parts(5) == 90000 and parts(6) == 30000 and parts(1) == 55000 and parts(8) == 20000
+    assert parts(9) == 30000 and parts(10) == 25000          # 비택배·계정불일치는 정정되지 않음
 
 def test_apply_only_once_and_idempotent(db):
     p = ready(db)
@@ -136,8 +137,8 @@ def test_void_restores_balances(db):
     r = svc.apply_plan(db, plan_digest=p["plan_digest"], confirm=svc.CONFIRM_PHRASE, backup_confirmed=True, actor="a"); db.commit()
     svc.void_batch(db, r["batch_id"], confirm=svc.VOID_PHRASE, reason="테스트 되돌리기", actor="a"); db.commit()
     assert svc.consistency_report(db)["mismatch_count"] == 0
-    p2 = ready(db); assert p2["summary"]["정정 대상(양수 미수)"] == p["summary"]["정정 대상(양수 미수)"]   # 다시 대상이 됨(기록은 보존)
-    assert db.query(ReceivableAdjustment).count() == 4               # 무효 처리만, 삭제 없음
+    p2 = ready(db); assert p2["summary"]["정정 대상(택배 미발급·양수 미수)"] == p["summary"]["정정 대상(택배 미발급·양수 미수)"]   # 다시 대상이 됨(기록은 보존)
+    assert db.query(ReceivableAdjustment).count() == 3               # 무효 처리만, 삭제 없음
 
 def test_consistency_before_and_site_numbers(db):
     c = svc.consistency_report(db)
@@ -160,12 +161,13 @@ def client(db):
         try: yield d
         finally: d.close()
     U = lambda: type("U", (), {"username": "admin1", "role": "admin"})()
-    app.dependency_overrides.update({get_db: _db, get_current_user: U, require_admin: U})
+    app.dependency_overrides.update({get_db: _db, get_current_user: U, require_admin: U, admin_for_writes: lambda: None})
     return TestClient(app)
 
 def test_http_flow(client):
     pv = client.get("/api/receivables/adjustments/unissued-management/preview").json()
-    assert pv["summary"]["정정 대상(양수 미수)"] == 4 and pv["summary"]["정정 예정액 합계"] == 210000 + 240000 + 30000 + 70000
+    assert pv["summary"]["정정 대상(택배 미발급·양수 미수)"] == 3 and pv["summary"]["정정 예정액 합계"] == 210000 + 240000 + 70000
+    assert pv["summary"]["별도 검토 — 비택배"] == 1 and pv["summary"]["별도 검토 — 폐업"] == 1 and pv["summary"]["별도 검토 — 계정 불일치"] == 1
     assert client.get("/api/receivables/adjustments/unissued-management/preview.csv").content.startswith(b"\xef\xbb\xbf")
     body = {"plan_digest": pv["plan_digest"], "confirm": "no", "backup_confirmed": True}
     assert client.post("/api/receivables/adjustments/unissued-management/apply", json=body).status_code == 400
