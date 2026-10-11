@@ -43,7 +43,12 @@ from app.receivables_models import (
     ReceivableImportRow,
 )
 
-router = APIRouter(dependencies=[Depends(admin_for_writes)])
+router = APIRouter()
+# 주의: 이 라우터에는 더 이상 admin_for_writes를 일괄 적용하지 않는다.
+# 정상 수납 입력(add_payment)·통장 업로드(preview/match/post)·연락기록(add_contact)은
+# 일반 직원도 사용해야 하는 기능이므로 로그인(get_current_user)만 요구한다.
+# 미수금 정정·금액수정(edit_current_balance)·수동 동기화(sync_receivables)는
+# 각 엔드포인트에서 개별적으로 require_admin을 요구한다.
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 DATA_FILE = Path(__file__).resolve().parent.parent / "data" / "legacy_receivables_2026.json"
 KST = ZoneInfo("Asia/Seoul")
@@ -2513,7 +2518,9 @@ def verify_legacy_import(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    _ensure_db_ledger_ready(db)
+    # 목록/summary/dashboard와 동일한 read-only 정책: GET 요청에서 전수 동기화/복구는 돌리지 않는다.
+    # 최신 상태가 필요하면 관리자가 /api/receivables/sync 를 명시적으로 호출한다.
+    _ensure_receivables_read_ready(db)
     payload = json.loads(DATA_FILE.read_text(encoding="utf-8")) if DATA_FILE.exists() else {}
     _load_seed()
     seed_rows = _seed_cache or []
@@ -4554,7 +4561,8 @@ def export_receivables_excel(
     화면의 50건 페이지가 아니라, 현재 필터에 해당하는 전체 건을 다운로드한다.
     회원마스터의 주소/핸드폰번호를 함께 포함하며 폐업현황은 Closure 스냅샷을 우선 사용한다.
     """
-    _ensure_db_ledger_ready(db)
+    # 목록/summary/dashboard와 동일한 read-only 정책: 엑셀 다운로드(GET)도 전수 동기화를 트리거하지 않는다.
+    _ensure_receivables_read_ready(db)
 
     # 기존 목록 API와 완전히 같은 판정/필터를 재사용한다. Python 내부 호출이므로
     # 외부 API의 limit<=200 제약과 무관하게 필터 결과 전체를 한 번에 받는다.
@@ -5163,7 +5171,7 @@ def edit_current_balance(
     member_id: int,
     payload: BalanceEditIn,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_admin),   # 금액수정은 관리자 전용
 ):
     """현재 미수/선납 금액을 감사이력이 남는 방식으로 정정한다.
 

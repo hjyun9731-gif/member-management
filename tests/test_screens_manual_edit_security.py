@@ -115,7 +115,19 @@ def test_edit_endpoint_source_has_no_payment_row():
     src = inspect.getsource(R.edit_current_balance)
     assert "ReceivablePayment(" not in src and "잔액수정" not in src.split('"""', 2)[2]
 
-# ───────── ③ 변경 API 관리자 권한 전수 점검 ─────────
+# ───────── ③ 변경 API 권한 전수 점검 ─────────
+# 일반 직원도 사용해야 하는 '정상 업무' API — 로그인만 있으면 403이 나지 않아야 한다.
+# (정상 수납 입력, 수납 취소, 연락기록, 계정 설정, 통장 업로드 미리보기/매칭/반영)
+STAFF_ALLOWED_WRITE_ROUTES = {
+    ("POST", "/api/receivables/members/{member_id}/payments"),
+    ("DELETE", "/api/receivables/payments/{payment_id}"),
+    ("POST", "/api/receivables/members/{member_id}/contacts"),
+    ("PATCH", "/api/receivables/members/{member_id}/account"),
+    ("POST", "/api/receivables/imports/preview"),
+    ("PATCH", "/api/receivables/imports/rows/{row_id}/match"),
+    ("POST", "/api/receivables/imports/{batch_id}/post"),
+}
+
 def _mutating_routes(app):
     """OpenAPI 에 노출된 모든 경로를 사용한다(중첩 라우터 포함)."""
     out = []
@@ -129,7 +141,8 @@ def _mutating_routes(app):
             out.append(("GET", path))
     return out
 
-def test_all_receivable_write_routes_require_admin(db, tokens):
+def test_admin_only_write_routes_require_admin(db, tokens):
+    """정정·금액수정·reconcile·동기화는 일반 직원이 호출하면 403이어야 한다."""
     import app.main as M
     sub = FastAPI()
     for r in (RC.router, P1.router, P2.router):                 # railway_entry / 보정 모듈 라우터
@@ -138,15 +151,51 @@ def test_all_receivable_write_routes_require_admin(db, tokens):
     for app in (M.app, sub):
         c = TestClient(app, raise_server_exceptions=False)
         for method, path in _mutating_routes(app):
+            if (method, path) in STAFF_ALLOWED_WRITE_ROUTES:
+                continue
             url = re.sub(r"\{[^}]+\}", "1", path)
             no_token = c.request(method, url, json={})
             assert no_token.status_code == 401, (method, path, no_token.status_code)          # 로그인 없이 변경 불가
             staff = c.request(method, url, json={}, headers=tokens["staff"])
             assert staff.status_code == 403, (method, path, staff.status_code)               # 일반 직원 변경 불가
             checked += 1
-    assert checked >= 12, checked                                # 엔드포인트가 실제로 점검되었는지(빈 루프 방지)
-    # 점검 대상에는 수납 입력·금액수정·정정·reconcile/apply·동기화가 모두 포함되어야 한다
+    assert checked >= 8, checked                                 # 엔드포인트가 실제로 점검되었는지(빈 루프 방지)
+    # 점검 대상에는 금액수정·정정·reconcile/apply·동기화가 모두 포함되어야 한다
     paths = {p for app in (M.app, sub) for _, p in _mutating_routes(app)}
     for must in ("/api/receivables/members/{member_id}/balance", "/api/receivables/sync", "/api/receivables/adjustments/unissued-management/apply",
                  "/api/receivables/reconcile-20261008/apply", "/api/receivables/reconcile-20260916-v4/apply"):
         assert must in paths, must
+
+def test_staff_write_routes_require_login_but_not_admin(db, tokens):
+    """정상 수납 입력·통장 업로드·연락기록은 로그인만 하면 일반 직원도 사용할 수 있어야 한다(403이면 안 됨)."""
+    import app.main as M
+    c = TestClient(M.app, raise_server_exceptions=False)
+    checked = 0
+    for method, path in _mutating_routes(M.app):
+        if (method, path) not in STAFF_ALLOWED_WRITE_ROUTES:
+            continue
+        url = re.sub(r"\{[^}]+\}", "1", path)
+        no_token = c.request(method, url, json={})
+        assert no_token.status_code == 401, (method, path, no_token.status_code)              # 로그인은 여전히 필수
+        staff = c.request(method, url, json={}, headers=tokens["staff"])
+        assert staff.status_code != 403, (method, path, staff.status_code)                    # 관리자가 아니어도 403은 아님
+        checked += 1
+    assert checked == len(STAFF_ALLOWED_WRITE_ROUTES), checked
+
+def test_staff_can_record_normal_payment_and_contact(db, client, tokens):
+    """일반 직원 토큰으로 정상 수납 입력·연락기록이 실제로 성공해야 한다."""
+    h = tokens["staff"]
+    pay_body = {"payment_date": "2026-10-10", "amount": 30000, "method": "현금", "memo": "직원 테스트 수납"}
+    r = client.post("/api/receivables/members/2/payments", json=pay_body, headers=h)
+    assert r.status_code == 200, r.text
+    payment_id = r.json()["payment_id"]
+    assert client.delete(f"/api/receivables/payments/{payment_id}", headers=h).status_code == 200
+    contact_body = {"contact_date": "2026-10-10", "contact_method": "전화", "status": "연락완료", "memo": "직원 테스트 연락"}
+    r = client.post("/api/receivables/members/2/contacts", json=contact_body, headers=h)
+    assert r.status_code == 200, r.text
+    # 금액수정은 여전히 일반 직원에게 막혀 있어야 한다
+    assert client.patch(
+        "/api/receivables/members/2/balance",
+        json={"balance_type": "미수금", "amount": 1, "reason": "x"},
+        headers=h,
+    ).status_code == 403
