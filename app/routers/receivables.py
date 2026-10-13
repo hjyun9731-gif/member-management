@@ -6,6 +6,7 @@ import calendar
 import hashlib
 import io
 import json
+import os
 import re
 import threading
 import time
@@ -28,7 +29,7 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app import bank_import_utils as bank_import
-from app.auth import get_current_user, admin_for_writes, require_admin
+from app.auth import get_current_user, admin_for_writes, require_admin, staff_write_ok
 from app.database import SessionLocal, get_db, engine
 from app.excel_utils import is_association_member
 from app.receivables_models import (
@@ -43,12 +44,11 @@ from app.receivables_models import (
     ReceivableImportRow,
 )
 
-router = APIRouter()
-# 주의: 이 라우터에는 더 이상 admin_for_writes를 일괄 적용하지 않는다.
-# 정상 수납 입력(add_payment)·통장 업로드(preview/match/post)·연락기록(add_contact)은
-# 일반 직원도 사용해야 하는 기능이므로 로그인(get_current_user)만 요구한다.
-# 미수금 정정·금액수정(edit_current_balance)·수동 동기화(sync_receivables)는
-# 각 엔드포인트에서 개별적으로 require_admin을 요구한다.
+router = APIRouter(dependencies=[Depends(admin_for_writes)])
+# 변경 요청(POST/PUT/PATCH/DELETE)은 기본적으로 로그인 + 관리자 전용이다(앞으로 추가되는 변경 API도 자동 보호).
+# 일반 직원이 쓰는 일상 업무만 @staff_write_ok 로 열어 둔다:
+#   수납 입력/취소, 연락기록, 계정 설정, 통장 업로드(미리보기·회원 연결·수납 반영).
+# 금액수정·정정·되돌리기·reconcile·원장 동기화는 표시가 없으므로 관리자 전용이다.
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 DATA_FILE = Path(__file__).resolve().parent.parent / "data" / "legacy_receivables_2026.json"
 KST = ZoneInfo("Asia/Seoul")
@@ -1984,7 +1984,7 @@ def _sync_charges(db: Session) -> int:
     return added
 
 
-def _ensure_current_month_billing(db: Session) -> int:
+def _ensure_current_month_billing(db: Session, remove_invalid_charges: bool = True) -> int:
     """현재 월 자동부과를 월 1회 보장한다.
 
     2026-08까지는 최신 원장 snapshot에 포함되어 있어 자동부과하지 않는다.
@@ -2012,7 +2012,8 @@ def _ensure_current_month_billing(db: Session) -> int:
         # 부과 직전 계정/폐업 상태와 고정월회비를 다시 확인한다.
         _repair_account_types(db)
         _repair_profile_fee_rules(db)
-        _repair_invalid_auto_charges(db)
+        if remove_invalid_charges:
+            _repair_invalid_auto_charges(db)
         added = _sync_charges(db)
         db.add(
             ReceivableSystemState(
@@ -2034,14 +2035,14 @@ def _ensure_current_month_billing(db: Session) -> int:
         return added
 
 
-def _sync_all(db: Session):
+def _sync_all(db: Session, remove_invalid_charges: bool = True):
     """운영 DB 동기화. Excel/JSON 재반영은 절대 하지 않는다."""
     baseline_imported = _ensure_db_ledger_ready(db)
     p = _sync_profiles_full(db, allow_legacy_seed=True)
     r = _repair_account_types(db)
     fee_fixed = _repair_profile_fee_rules(db)
-    removed = _repair_invalid_auto_charges(db)
-    c = _ensure_current_month_billing(db)
+    removed = _repair_invalid_auto_charges(db) if remove_invalid_charges else 0
+    c = _ensure_current_month_billing(db, remove_invalid_charges=remove_invalid_charges)
     # 신규 profile 또는 가입일자/자격증명발급일자 변경으로 이번 달부터 부과대상이 된 경우 즉시 보정.
     if p or r or fee_fixed or removed:
         c += _sync_charges(db)
@@ -2100,7 +2101,14 @@ def _monthly_billing_worker():
 
 @router.on_event("startup")
 def _start_monthly_billing_scheduler():
+    """백그라운드 동기화는 기본적으로 켜지 않는다(환경변수 RECEIVABLES_BACKGROUND_SYNC=1 로 명시적으로 켠다).
+
+    기본값에서는 서버 시작·조회가 DB를 바꾸지 않으며, 월 부과·프로필 생성은 관리자 '원장 동기화'로 실행한다.
+    """
     global _monthly_scheduler_started
+    if not _background_sync_enabled():
+        print("[receivables] 백그라운드 동기화 꺼짐(RECEIVABLES_BACKGROUND_SYNC 미설정) — 관리자 '원장 동기화'로 실행")
+        return
     with _monthly_scheduler_lock:
         if _monthly_scheduler_started:
             return
@@ -2504,13 +2512,44 @@ def meta(
     return {"regions": regions, "account_types": list(ACCOUNT_FEES), "contact_statuses": sorted(CONTACT_STATUSES), "ledger_mode": LEDGER_MODE, "excel_reupload_required": False, "baseline_key": LEGACY_BASELINE_KEY}
 
 
-@router.get("/api/receivables/sync")
+def _background_sync_enabled() -> bool:
+    return str(os.getenv("RECEIVABLES_BACKGROUND_SYNC", "")).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _sync_status(db: Session) -> dict:
+    """원장 동기화가 필요한지 조회만으로 알려준다(DB 변경 없음)."""
+    month = _month_key(datetime.now(KST).date())
+    charged = {mid for (mid,) in db.query(ReceivableCharge.member_id).filter(ReceivableCharge.billing_month == month).all()}
+    return {
+        "month": month,
+        "profiles_missing": int(_eligible_missing_profiles_query(db).count()),
+        "active_profiles": int(db.query(func.count(ReceivableProfile.member_id)).filter(ReceivableProfile.receivable_active == 1).scalar() or 0),
+        "members_with_charge_this_month": len(charged),
+        "monthly_billing_marker": db.query(ReceivableSystemState).filter(
+            ReceivableSystemState.key == f"receivable_billing_generated:{month}").first() is not None,
+        "background_sync_enabled": _background_sync_enabled(),
+        "note": "읽기 전용 점검입니다. 실행은 관리자 전용 POST /api/receivables/admin/sync",
+    }
+
+
+@router.get("/api/receivables/admin/sync-status")
+def sync_status(db: Session = Depends(get_db), current_user=Depends(require_admin)):
+    _ensure_receivables_read_ready(db)
+    return _sync_status(db)
+
+
+@router.post("/api/receivables/admin/sync")
 def sync_receivables(
     db: Session = Depends(get_db),
-    current_user=Depends(require_admin),   # GET 이지만 부과/프로필을 생성·수정하므로 관리자 전용
+    current_user=Depends(require_admin),
 ):
-    result = _sync_all(db)
-    return {"ok": True, **result}
+    """관리자가 명시적으로 실행하는 원장 동기화(프로필 생성·월 부과 생성). 조회 API에서는 절대 실행되지 않는다.
+
+    과거 부과 기록은 삭제하지 않는다(무효 부과는 잔액 계산에서만 제외).
+    """
+    before = _sync_status(db)
+    result = _sync_all(db, remove_invalid_charges=False)
+    return {"ok": True, "before": before, **result}
 
 
 @router.get("/api/receivables/verify")
@@ -4233,6 +4272,7 @@ def _refresh_import_batch(db: Session, batch: ReceivableImportBatch):
 
 
 @router.post("/api/receivables/imports/preview")
+@staff_write_ok
 async def preview_payment_import(
     source_type: str = Form("통장"),
     file: UploadFile = File(...),
@@ -4240,7 +4280,7 @@ async def preview_payment_import(
     current_user=Depends(get_current_user),
 ):
     _ensure_receivables_schema_ready()
-    _ensure_db_ledger_ready(db)
+    _ensure_receivables_read_ready(db)
     raw = await file.read()
     if not raw:
         raise HTTPException(400, "빈 파일입니다.")
@@ -4396,6 +4436,7 @@ def import_member_search(
 
 
 @router.patch("/api/receivables/imports/rows/{row_id}/match")
+@staff_write_ok
 def match_import_row(
     row_id: int,
     payload: ImportMatchIn,
@@ -4435,6 +4476,7 @@ def match_import_row(
 
 
 @router.post("/api/receivables/imports/{batch_id}/post")
+@staff_write_ok
 def post_payment_import(
     batch_id: int,
     db: Session = Depends(get_db),
@@ -4791,34 +4833,12 @@ def member_detail(
     member = db.query(models.LicenseHolder).filter(models.LicenseHolder.id == member_id).first()
     if not member:
         raise HTTPException(404, "회원을 찾을 수 없습니다.")
-    profile = _ensure_profile_for_member(db, member_id)
+    # 조회는 데이터를 바꾸지 않는다: 프로필이 없으면 만들지 않고 안내만 한다(생성은 관리자 '원장 동기화' 또는 수납 입력 시).
+    profile = db.query(ReceivableProfile).filter(ReceivableProfile.member_id == member_id).first()
     if not profile:
-        raise HTTPException(404, "미수금 프로필을 찾을 수 없습니다.")
-
-    # V34 이중 안전장치: 상세조회 시에도 최신 seed가 존재하면 DB snapshot 누락을 즉시 복구한다.
-    # 운영 DB marker가 남아 있더라도 특정 회원의 legacy_months가 비어 있는 상태를 허용하지 않는다.
-    seed = _match_seed(member) or _seed_for_profile(profile)
-    if seed:
-        expected_source_row = int(seed.get("source_row")) if seed.get("source_row") is not None else None
-        expected_balance = int(seed.get("current_arrears") or 0)
-        expected_months = seed.get("months") or []
-        if (
-            profile.legacy_source_row != expected_source_row
-            or int(profile.legacy_balance or 0) != expected_balance
-            or (profile.legacy_months or []) != expected_months
-        ):
-            profile.legacy_source_row = expected_source_row
-            profile.legacy_balance = expected_balance
-            profile.legacy_months = expected_months
-            profile.legacy_note = seed.get("legacy_note") or None
-            if int(getattr(profile, "account_manual_override", 0) or 0) != 1:
-                account = seed.get("account_type") or _infer_account(member)
-                profile.account_type = account
-                profile.unit_fee = ACCOUNT_FEES.get(account, 5000)
-            profile.first_charge_date = _legacy_next_charge_date(member, profile.account_type).isoformat()
-            db.commit()
-            _repair_invalid_auto_charges(db)
-            _sync_charges(db)
+        raise HTTPException(404, "미수금 프로필이 아직 없습니다. 관리자가 '원장 동기화'를 실행하면 생성됩니다.")
+    # (제거됨) 이전에는 여기서 legacy seed 와 다르면 profile.legacy_balance/계정을 seed 값으로 덮어쓰고
+    # 자동부과를 삭제·재생성했다. 조회만으로 기준잔액이 바뀌므로 읽기 전용 원칙에 따라 삭제했다.
 
     # 현재 폐업상태와 과거 폐업현황 조회 문맥을 분리한다.
     # active 회원에게 과거 closure 이력이 있어도 현재 폐업으로 취급하지 않는다.
@@ -5120,19 +5140,22 @@ def member_detail(
 
 
 @router.post("/api/receivables/members/{member_id}/payments")
+@staff_write_ok
 def add_payment(
     member_id: int,
     payload: PaymentIn,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    _ensure_db_ledger_ready(db)
+    _ensure_receivables_read_ready(db)
     d = _parse_date(payload.payment_date)
     if not d:
         raise HTTPException(400, "입금일 형식이 올바르지 않습니다.")
     profile = _ensure_profile_for_member(db, member_id)
     if not profile:
         raise HTTPException(404, "미수금 프로필을 찾을 수 없습니다.")
+    if (payload.method or "").strip() == "잔액수정" or (payload.memo or "").lstrip().startswith("[금액수정]"):
+        raise HTTPException(400, "금액수정은 수납으로 입력할 수 없습니다. 관리자 전용 '금액수정(정정)' 기능을 사용하세요.")
     non_receivable_reason = _non_receivable_import_reason({"memo": payload.memo or ""})
     if non_receivable_reason:
         raise HTTPException(400, f"{non_receivable_reason}은(는) 관리비/협회비 미수금 수납으로 등록할 수 없습니다.")
@@ -5151,6 +5174,7 @@ def add_payment(
 
 
 @router.delete("/api/receivables/payments/{payment_id}")
+@staff_write_ok
 def cancel_payment(
     payment_id: int,
     db: Session = Depends(get_db),
@@ -5178,8 +5202,7 @@ def edit_current_balance(
     실제 입금과 섞이지 않도록 정정 전용 테이블(receivable_adjustments)에 기록한다(관리자 전용).
     잔액 = 기준잔액 + 유효 부과 - 실제 수납 - 정정.
     """
-    _ensure_db_ledger_ready(db)
-    _ensure_current_month_billing(db)
+    _ensure_receivables_read_ready(db)
     member = db.query(models.LicenseHolder).filter(models.LicenseHolder.id == member_id).first()
     if not member:
         raise HTTPException(404, "회원을 찾을 수 없습니다.")
@@ -5244,13 +5267,14 @@ def edit_current_balance(
 
 
 @router.post("/api/receivables/members/{member_id}/contacts")
+@staff_write_ok
 def add_contact(
     member_id: int,
     payload: ContactIn,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    _ensure_db_ledger_ready(db)
+    _ensure_receivables_read_ready(db)
     if payload.status not in CONTACT_STATUSES:
         raise HTTPException(400, "지원하지 않는 연락상태입니다.")
     d = _parse_date(payload.contact_date)
@@ -5273,13 +5297,14 @@ def add_contact(
 
 
 @router.patch("/api/receivables/members/{member_id}/account")
+@staff_write_ok
 def update_account(
     member_id: int,
     payload: AccountIn,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    _ensure_db_ledger_ready(db)
+    _ensure_receivables_read_ready(db)
     if payload.account_type not in ACCOUNT_FEES:
         raise HTTPException(400, "계정은 협회비/관리비/70세 중 하나여야 합니다.")
     profile = _ensure_profile_for_member(db, member_id)

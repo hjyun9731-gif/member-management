@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 
 from app.database import get_db
-from app.auth import require_admin
+from app.auth import require_admin, security_status
 from app import models, crud
 
 router = APIRouter()
@@ -2888,3 +2888,9 @@ async def reactivate_certificate_number(certificate_number: str,
     except ValueError as e:
         raise HTTPException(400, str(e))
     return {"ok": True, "certificate_number": certificate_number, "status": "issued"}
+
+
+@router.get("/security-status")
+def get_security_status(_admin=Depends(require_admin)):
+    """관리자 전용 보안 설정 점검. 설정 여부·길이 구간·기본값 사용 여부만 알려주고 비밀값은 반환하지 않는다."""
+    return security_status()
