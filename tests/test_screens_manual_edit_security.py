@@ -137,8 +137,6 @@ def _mutating_routes(app):
         for m in ops:
             if m.upper() in {"POST", "PUT", "PATCH", "DELETE"}:
                 out.append((m.upper(), path))
-        if path == "/api/receivables/sync":                     # GET 이지만 데이터를 만든다
-            out.append(("GET", path))
     return out
 
 def test_admin_only_write_routes_require_admin(db, tokens):
@@ -162,7 +160,7 @@ def test_admin_only_write_routes_require_admin(db, tokens):
     assert checked >= 8, checked                                 # 엔드포인트가 실제로 점검되었는지(빈 루프 방지)
     # 점검 대상에는 금액수정·정정·reconcile/apply·동기화가 모두 포함되어야 한다
     paths = {p for app in (M.app, sub) for _, p in _mutating_routes(app)}
-    for must in ("/api/receivables/members/{member_id}/balance", "/api/receivables/sync", "/api/receivables/adjustments/unissued-management/apply",
+    for must in ("/api/receivables/members/{member_id}/balance", "/api/receivables/admin/sync", "/api/receivables/adjustments/unissued-management/apply",
                  "/api/receivables/reconcile-20261008/apply", "/api/receivables/reconcile-20260916-v4/apply"):
         assert must in paths, must
 
