@@ -47,6 +47,16 @@
     document.head.appendChild(style);
   }
 
+  // FastAPI 검증 오류(422)의 detail 은 객체 배열이라 그대로 글자로 바꾸면 '[object Object]' 가 된다.
+  function errorText(detail) {
+    if (!detail) return '';
+    if (typeof detail === 'string') return detail;
+    if (Array.isArray(detail)) {
+      return detail.map(d => (d && (d.msg || d.message)) ? `${(d.loc || []).slice(1).join('.')} ${d.msg || d.message}`.trim() : errorText(d)).filter(Boolean).join(' / ');
+    }
+    if (typeof detail === 'object') return detail.msg || detail.message || JSON.stringify(detail);
+    return String(detail);
+  }
   async function request(method, url, body) {
     const options = { method, headers: tokenHeaders() };
     if (body !== undefined) {
@@ -62,7 +72,7 @@
       let message = '요청 처리에 실패했습니다.';
       try {
         const error = await response.json();
-        message = error.detail || error.message || message;
+        message = errorText(error.detail || error.message) || message;
       } catch (_) {}
       if (typeof toast === 'function') toast(message, 'err');
       throw new Error(message);
@@ -228,8 +238,8 @@
             }
           };
         });
-      } catch (_) {
-        results.innerHTML = '<div style="padding:8px;color:var(--c-text-3);font-size:12px">검색 중 오류가 발생했습니다.</div>';
+      } catch (err) {
+        results.innerHTML = `<div style="padding:8px;color:var(--c-text-3);font-size:12px">검색 중 오류가 발생했습니다.${err && err.message ? ' (' + esc(err.message) + ')' : ''}</div>`;
       }
     };
     searchBtn.onclick = doSearch;

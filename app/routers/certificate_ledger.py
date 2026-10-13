@@ -1234,7 +1234,7 @@ async def create_ledger(
     return _item(db, row)
 
 
-@router.post("/{ledger_id}/prepare")
+@router.post("/{ledger_id:int}/prepare")
 async def prepare_issue(
     ledger_id: int,
     db: Session = Depends(get_db),
@@ -1249,7 +1249,7 @@ async def prepare_issue(
     return _item(db, row)
 
 
-@router.get("/{ledger_id}/history")
+@router.get("/{ledger_id:int}/history")
 async def ledger_history(
     ledger_id: int,
     db: Session = Depends(get_db),
@@ -1278,7 +1278,7 @@ async def ledger_history(
     }
 
 
-@router.post("/{ledger_id}/issue")
+@router.post("/{ledger_id:int}/issue")
 async def complete_issue(
     ledger_id: int,
     body: IssueLedgerBody,
@@ -1337,7 +1337,7 @@ async def complete_issue(
     return _item(db, row)
 
 
-@router.get("/{ledger_id}")
+@router.get("/{ledger_id:int}")
 async def get_ledger(
     ledger_id: int,
     db: Session = Depends(get_db),
@@ -1351,7 +1351,7 @@ async def get_ledger(
     return _item(db, row)
 
 
-@router.put("/{ledger_id}")
+@router.put("/{ledger_id:int}")
 async def update_ledger(
     ledger_id: int,
     body: UpdateLedgerBody,
@@ -1493,7 +1493,7 @@ async def search_link_targets(
     return {"items": items}
 
 
-@router.post("/{ledger_id}/relink")
+@router.post("/{ledger_id:int}/relink")
 async def relink_ledger(
     ledger_id: int,
     body: RelinkLedgerBody,

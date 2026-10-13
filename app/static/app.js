@@ -1023,7 +1023,7 @@ window.editCandidate=async(id)=>{
       if(!r)return;
     }else if(!res.ok){
       let msg=res.statusText;
-      try{const j=await res.json();msg=j.detail||msg;}catch{}
+      try{const j=await res.json();msg=Array.isArray(j.detail)?j.detail.map(x=>(x&&x.msg)||String(x)).join(' / '):(typeof j.detail==='string'?j.detail:(j.detail&&(j.detail.msg||j.detail.message))||msg);}catch{}
       toast(`${res.status} 오류: ${String(msg).slice(0,120)}`,'err');
       return;
     }else{
