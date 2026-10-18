@@ -12,6 +12,7 @@ from app.auth import get_current_user, require_admin
 from app import models, crud
 from app.excel_utils import records_to_excel, normalize_fuel, normalize_membership_status
 from app.services.certificate_ledger_service import ensure_member_ledger
+from app.services.certificate_number_guard import guard_certificate_number
 
 router = APIRouter()
 
@@ -296,6 +297,11 @@ async def create_member(data: dict, db: Session = Depends(get_db), _=Depends(get
     mgmt = (data.get("management_number") or "").strip()
     if mgmt and crud.check_mgmt_dup(db, models.LicenseHolder, mgmt):
         raise HTTPException(400, f"관리번호 {mgmt}가 이미 존재합니다.")
+    # 이미 다른 대상이 쓰는 자격증명발급번호면 저장하지 않는다 (409). 예정자에서 전환하는 경우
+    # candidate_id가 넘어오면 같은 사람으로 보고 허용한다.
+    guard_certificate_number(
+        db, data.get("certificate_number"), candidate_id=data.get("candidate_id"),
+        name=str(data.get("name") or ""), vehicle_number=str(data.get("vehicle_number") or ""))
     return _fmt(crud.create_item(db, models.LicenseHolder, data))
 
 
@@ -393,6 +399,11 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
                     f"자격증명발급번호 {new_cert_clean}는 이미 {tname}에서 사용 중입니다"
                     f"(대상: {uname or lid}). 다른 번호를 입력하거나 기존 자료를 먼저 확인하세요."
                 )
+        # 5개 저장소 전체 확인 + 번호 잠금(저장까지 유지). 위 검사가 못 보는 폐업/양도양수/발급대장도 본다.
+        guard_certificate_number(
+            db, new_cert_clean, member_id=mid, candidate_id=getattr(m, "candidate_id", None),
+            name=str(data.get("name") or m.name or ""),
+            vehicle_number=str(data.get("vehicle_number") or m.vehicle_number or ""))
 
     # 허용 필드만 필터링
     filtered_data = {k: v for k, v in data.items() if k in _ALLOWED_UPDATE_FIELDS}

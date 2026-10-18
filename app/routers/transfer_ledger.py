@@ -11,6 +11,8 @@ from app.database import get_db
 from app.auth import get_current_user, require_admin
 from app import models, crud
 from app.services.certificate_number_reservation import get_or_reserve_certificate_number
+from app.services.certificate_number_guard import guard_certificate_number
+from app.services.certificate_number_rules import canonical_number
 from app.excel_utils import records_to_excel, parse_date_sort, is_association_member
 
 logger = logging.getLogger(__name__)
@@ -371,6 +373,12 @@ async def get_transfer(tid: int, db: Session = Depends(get_db), _=Depends(get_cu
 
 @router.post("")
 async def create_transfer(data: dict, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    # 이미 다른 대상이 쓰는 자격증명발급번호면 저장하지 않는다 (409).
+    guard_certificate_number(
+        db, data.get("certificate_number"),
+        member_id=data.get("transferee_member_id") or data.get("member_id"),
+        extra_member_ids=[data.get("transferor_member_id")],
+        name=str(data.get("transferee") or ""), vehicle_number=str(data.get("vehicle_number") or ""))
     return _fmt(crud.create_item(db, models.TransferLedger, data))
 
 
@@ -379,6 +387,13 @@ async def update_transfer(tid: int, data: dict, db: Session = Depends(get_db), _
     t = crud.get_by_id(db, models.TransferLedger, tid)
     if not t:
         raise HTTPException(404, "양도양수 기록을 찾을 수 없습니다.")
+    # 번호를 새로 넣거나 바꾸는 경우에만 검사한다. 확인~저장 사이에 commit이 없어야 잠금이 유지된다.
+    if "certificate_number" in data and canonical_number(data.get("certificate_number")) != canonical_number(t.certificate_number):
+        guard_certificate_number(
+            db, data.get("certificate_number"), transfer_id=t.id,
+            member_id=t.transferee_member_id or t.member_id, extra_member_ids=[t.transferor_member_id],
+            name=str(data.get("transferee") or t.transferee or ""),
+            vehicle_number=str(data.get("vehicle_number") or t.vehicle_number or ""))
     try:
         t = crud.update_transfer_ledger_synced(db, t, data)
     except ValueError as e:
@@ -506,6 +521,12 @@ async def create_domestic_transfer(body: DomesticTransferBody,
         has_strong = any(m["strength"] == "strong" for m in matches)
         if matches and not body.force_new:
             raise HTTPException(409, "중복 가능성이 있는 회원정보가 존재합니다. 중복 확인 후 다시 시도해주세요.")
+
+    # 도내 양도양수: 양도자 본인(과 연결 기록)의 번호는 그대로 이어질 수 있으므로 중복으로 보지 않는다.
+    guard_certificate_number(
+        db, body.certificate_number, member_id=body.link_existing_id,
+        extra_member_ids=[body.transferor_member_id],
+        name=body.transferee_name or "", vehicle_number=body.transferee_vehicle_number or "")
 
     transfer_fields = {
         "approval_date": body.approval_date, "membership_date": body.membership_date,

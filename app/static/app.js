@@ -97,6 +97,8 @@ async function api(method,url,body=null,isForm=false){
     const fullMsg=`[${res.status}] ${method} ${url}\n${msg}`;
     console.error('API Error:', fullMsg);
     toast(`${res.status} 오류: ${msg.slice(0,120)}`,'err');
+    // 자격증명발급번호 중복은 놓치지 않도록 경고창으로 기존 등록 대상까지 보여준다.
+    if(res.status===409&&String(msg).includes('이미 등록된 자격증명발급번호')){alert(msg);}
     throw new Error(fullMsg);
   }
   return res.headers.get('content-type')?.includes('json')?res.json():res;
@@ -1338,7 +1340,7 @@ window.editMember=async(id,defaultCat='개인')=>{
   openModal(id?'회원 수정':'회원 등록',missingLedgerBox+formHtml,
     `<button class="btn bg btn-sm" id="_mSave">${id?'저장':'등록'}</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
 
-  setTimeout(()=>_bindFmt(document.getElementById('mForm')),0);
+  setTimeout(()=>{const mf=document.getElementById('mForm');if(mf&&id)mf.dataset.memberId=String(id);_bindFmt(mf);},0);
   document.getElementById('_mSave').onclick=async()=>{
     const form=document.getElementById('mForm');
     const fd=_normFormDates(Object.fromEntries(new FormData(form)));
@@ -1858,6 +1860,7 @@ window.editTransfer=async(id)=>{
     ${sec('기타',`${fta('memo','비고',r.memo||'','cs4')}`,'📝')}
   </form>`,
   `<button class="btn bg btn-sm" id="_tlS">${id?'저장':'등록'}</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
+  setTimeout(()=>{const tf=document.getElementById('tlForm');if(tf&&id)tf.dataset.transferId=String(id);},0);
   document.getElementById('_tlS').onclick=async()=>{
     const form=document.getElementById('tlForm');if(!form.checkValidity()){form.reportValidity();return;}
     const fd=_normFormDates(Object.fromEntries(new FormData(form)));
@@ -3992,3 +3995,59 @@ window._smsHistRefresh=async(id)=>{
 };
 
 // PHASE1_DEPLOY_MARKER: 20260904_1605_FORCE_DEPLOY (app.js)
+
+
+// ===== 자격증명발급번호 즉시 중복확인 (입력 중/입력 후 바로 기존 등록 여부 표시) =====
+(function(){
+  const SKIP_FORMS=new Set(['clForm']);  // 폐업 등록은 기존 회원 번호를 그대로 옮기는 화면이라 제외
+  let timer=null, seq=0;
+  function warnBox(inp){
+    let box=inp.closest('.fi')?.querySelector('.cert-dup-warn');
+    if(!box){
+      box=document.createElement('div');box.className='cert-dup-warn';
+      box.style.cssText='margin-top:4px;font-size:12px;font-weight:600;color:#c62828;display:none;white-space:normal';
+      (inp.closest('.fi')||inp.parentElement).appendChild(box);
+    }
+    return box;
+  }
+  async function check(inp){
+    const form=inp.form; if(!form||SKIP_FORMS.has(form.id)) return;
+    const box=warnBox(inp);
+    const val=(inp.value||'').trim();
+    inp.dataset.certDup='';
+    if(!val){box.style.display='none';return;}
+    // 수정 화면에서 번호를 바꾸지 않았다면 검사하지 않는다 (본인 번호)
+    const orig=(inp.defaultValue||'').trim();
+    if(orig&&orig===val){box.style.display='none';return;}
+    const q=new URLSearchParams({number:val});
+    const get=(n)=>form.querySelector(`[name="${n}"]`)?.value||'';
+    const name=get('name')||get('transferee_name')||get('transferee');
+    const veh=get('vehicle_number')||get('transferee_vehicle_number');
+    if(name) q.set('name',name); if(veh) q.set('vehicle_number',veh);
+    if(form.dataset.candidateId) q.set('candidate_id',form.dataset.candidateId);
+    if(form.dataset.memberId) q.set('member_id',form.dataset.memberId);
+    if(form.dataset.transferId) q.set('transfer_id',form.dataset.transferId);
+    const my=++seq;
+    try{
+      const res=await fetch('/api/certificate-ledger/number-check?'+q.toString(),{headers:{Authorization:`Bearer ${localStorage.getItem('authToken')}`}});
+      if(!res.ok||my!==seq) return;
+      const j=await res.json();
+      if(j.duplicate){
+        inp.dataset.certDup='1';
+        box.textContent='⚠ '+j.message;box.style.display='block';
+        inp.style.borderColor='#c62828';
+        if(inp.dataset.certAlerted!==j.normalized){inp.dataset.certAlerted=j.normalized;alert(j.message);}
+      }else{
+        box.style.display='none';inp.style.borderColor='';
+      }
+    }catch(e){/* 확인 실패 시 조용히 넘어간다. 서버가 저장 시 다시 차단한다. */}
+  }
+  function schedule(e,delay){
+    const inp=e.target;
+    if(!(inp instanceof HTMLInputElement)||inp.name!=='certificate_number') return;
+    clearTimeout(timer);timer=setTimeout(()=>check(inp),delay);
+  }
+  document.addEventListener('input',e=>schedule(e,500));
+  document.addEventListener('focusout',e=>schedule(e,0));
+  document.addEventListener('change',e=>schedule(e,0));
+})();
