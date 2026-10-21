@@ -432,7 +432,7 @@ async function loadDetail(){
         ${sec('기본정보','👤',[['성명',r.name],['주민등록번호',r.resident_number],['차량번호',r.vehicle_number],['지역',r.region]])}
         ${sec('연락처 / 주소','📞',[['전화번호',r.phone],['핸드폰',r.mobile],['주소',r.address,true],['공문주소',r.official_address,true]])}
         ${sec('등록정보','📋',[['등록구분',r.registration_type],['인가일자',fv(r.approval_date)],['가입일자',fv(r.membership_date)],['재허가',fv(r.reapproval_date)]])}
-        ${sec('자격증명정보','🪪',[['자격증명발급일자',fv(r.certificate_issue_date)],['자격증명발급번호',r.certificate_number],['운전면허번호',r.driver_license_number],['차종',r.vehicle_type],['유종',r.fuel_type]])}
+        ${sec('자격증명정보','🪪',[['자격증명발급일자',fv(r.certificate_issue_date)],['자격증명발급번호',r.certificate_number],['운전면허번호',r.driver_license_number],['화물운송종사자격증 번호',r.freight_qualification_number],['차종',r.vehicle_type],['유종',r.fuel_type]])}
         ${sec('사업자정보','🏢',[['사업자번호',r.business_number?fmtBizNo(r.business_number):''],['소속업체',r.affiliated_company]])}
         ${sec('대리인정보','🧾',[['대리인',r.agent_name],['대리인 주민등록번호',r.agent_resident_number],['대리인 핸드폰',r.agent_mobile],['대리인 주소',r.agent_address,true]])}
         ${sec('비고','📝',[['비고',r.memo,true],['구조변경',r.structure_change,true]])}

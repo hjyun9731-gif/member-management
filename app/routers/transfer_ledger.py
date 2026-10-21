@@ -14,6 +14,7 @@ from app.services.certificate_number_reservation import get_or_reserve_certifica
 from app.services.certificate_number_guard import guard_certificate_number
 from app.services.certificate_number_rules import canonical_number
 from app.excel_utils import records_to_excel, parse_date_sort, is_association_member
+from app.services.freight_qualification import normalize_fqn, normalize_in_dict_or_400
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -96,6 +97,7 @@ def _fmt(t):
         "certificate_number":    t.certificate_number or "",
         "ledger_update":         t.ledger_update or "",
         "driver_license_number": t.driver_license_number or "",
+        "freight_qualification_number": getattr(t, "freight_qualification_number", None) or "",
         "computer_report":       t.computer_report or "",
         "memo":                  t.memo or "",
         "vehicle_type":          getattr(t, 'vehicle_type', '') or "",
@@ -373,6 +375,7 @@ async def get_transfer(tid: int, db: Session = Depends(get_db), _=Depends(get_cu
 
 @router.post("")
 async def create_transfer(data: dict, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    normalize_in_dict_or_400(data)  # 화물운송종사자격증 번호 형식 검증/정규화
     # 이미 다른 대상이 쓰는 자격증명발급번호면 저장하지 않는다 (409).
     guard_certificate_number(
         db, data.get("certificate_number"),
@@ -384,6 +387,7 @@ async def create_transfer(data: dict, db: Session = Depends(get_db), _=Depends(g
 
 @router.put("/{tid}")
 async def update_transfer(tid: int, data: dict, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    normalize_in_dict_or_400(data)  # 화물운송종사자격증 번호 형식 검증/정규화
     t = crud.get_by_id(db, models.TransferLedger, tid)
     if not t:
         raise HTTPException(404, "양도양수 기록을 찾을 수 없습니다.")
@@ -492,6 +496,8 @@ class DomesticTransferBody(BaseModel):
     transferee_address: Optional[str] = ""
     transferee_phone: Optional[str] = ""
     transferee_mobile: Optional[str] = ""
+    # 양수자 개인의 화물운송종사자격증 번호 (양도자 번호와 별개, 복사 없음)
+    transferee_freight_qualification_number: Optional[str] = ""
 
     closure_date: str
     closure_reason: Optional[str] = ""
@@ -541,6 +547,11 @@ async def create_domestic_transfer(body: DomesticTransferBody,
         "address": body.transferee_address, "phone": body.transferee_phone,
         "mobile": body.transferee_mobile,
     }
+    try:
+        transferee_fields["freight_qualification_number"] = normalize_fqn(
+            body.transferee_freight_qualification_number)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
     try:
         result = crud.process_domestic_transfer(

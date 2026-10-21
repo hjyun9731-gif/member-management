@@ -326,6 +326,9 @@ function fi(name,label,val='',req=false){
   if(/_date$/i.test(name)||name==='date'){
     return `<div class="fi"><label>${label}${req?'<span class="req">*</span>':''}</label><input class="fc fmt-date" name="${name}" value="${e_(_isoToYY(val))}" placeholder="00.00.00" inputmode="numeric" maxlength="8" ${req?'required':''}></div>`;
   }
+  if(/(^|_)freight_qualification_number$/.test(name)){
+    return `<div class="fi"><label>${label}${req?'<span class="req">*</span>':''}</label><input class="fc fmt-fqn" name="${name}" value="${e_(_autoFqn(String(val||'')))}" placeholder="0-00-000000" inputmode="numeric" maxlength="11" autocomplete="off" ${req?'required':''}></div>`;
+  }
   if(name==='business_number'){
     return `<div class="fi"><label>${label}${req?'<span class="req">*</span>':''}</label><input class="fc fmt-bizno" name="${name}" value="${e_(_autoBizNo(String(val||'')))}" placeholder="000-00-00000" inputmode="numeric" maxlength="12" ${req?'required':''}></div>`;
   }
@@ -480,6 +483,25 @@ function _autoBizNo(v){
   if(d.length<=5)return `${d.slice(0,3)}-${d.slice(3)}`;
   return `${d.slice(0,3)}-${d.slice(3,5)}-${d.slice(5)}`;
 }
+// 화물운송종사자격증 번호 자동 하이픈 포맷 (0-00-000000, 숫자 9자리 기준 / 앞자리 0 유지 / 9자리 초과 입력 차단)
+function _autoFqn(v){
+  const d=String(v||'').replace(/\D/g,'').slice(0,9);
+  if(d.length<=1)return d;
+  if(d.length<=3)return `${d.slice(0,1)}-${d.slice(1)}`;
+  return `${d.slice(0,1)}-${d.slice(1,3)}-${d.slice(3)}`;
+}
+// 어떤 폼(회원/예정자/양도양수/도내양도 팝업)에서든 .fmt-fqn 입력칸은 항상 같은 방식으로 포맷한다.
+document.addEventListener('input',function(e){
+  const el=e.target;
+  if(!el||!el.classList||!el.classList.contains('fmt-fqn'))return;
+  const caret=el.selectionStart;
+  const digitsBefore=String(el.value).slice(0,caret==null?el.value.length:caret).replace(/\D/g,'').length;
+  const nv=_autoFqn(el.value);
+  if(nv!==el.value)el.value=nv;
+  let pos=0,cnt=0;
+  while(pos<nv.length&&cnt<digitsBefore){if(/\d/.test(nv[pos]))cnt++;pos++;}
+  try{el.setSelectionRange(pos,pos);}catch(_){}
+});
 // 입력 포맷 이벤트 바인딩
 function _bindFmt(scope){
   const s=typeof scope==='string'?document.getElementById(scope):scope;
@@ -672,7 +694,7 @@ window.viewMember=async(id)=>{
   const sections=[
     {title:'기본 정보',fields:[['관리번호',r.management_number],['지역',r.region],['차량번호',r.vehicle_number],['성명',r.name],['개인/택배',r.category],['가입여부',r.membership_status]]},
     {title:'연락처 / 주소',fields:[['전화번호',r.phone],['핸드폰',r.mobile],['주소',r.address,true],['공문주소',rawAddr,true],['대리인',rawAgent],['대리인 주민등록번호',rawAgentRes],['대리인 핸드폰',rawAgentMob]]},
-    {title:'인허가 정보',fields:[['인가일자',r.approval_date],['가입일자',r.membership_date],['재허가',rawReapproval],['자격증명발급일자',r.certificate_issue_date],['자격증명번호',r.certificate_number],['운전면허번호',r.driver_license_number],['주민등록번호',r.resident_number],['사업자번호',r.business_number]]},
+    {title:'인허가 정보',fields:[['인가일자',r.approval_date],['가입일자',r.membership_date],['재허가',rawReapproval],['자격증명발급일자',r.certificate_issue_date],['자격증명번호',r.certificate_number],['운전면허번호',r.driver_license_number],['화물운송종사자격증 번호',r.freight_qualification_number],['주민등록번호',r.resident_number],['사업자번호',r.business_number]]},
     {title:'차량 정보',fields:[['차종',r.vehicle_type],['유종',r.fuel_type],['소속업체',r.affiliated_company],['구조변경',r.structure_change||rawStruct,true],['전속업체 변경',rawCompChg,true]]},
     ...(rehasa.length?[{title:'재허가 이력',fields:rehasa}]:[]),
     ...(edu.length?[{title:'교육 / 점검',fields:edu}]:[]),
@@ -768,7 +790,7 @@ window.viewTransfer=async(id)=>{
       ['구조변경',r.structure_change||raw['구조변경']||'',true],
     ]},
     {title:'양도자 / 양수자',fields:[['양도자',r.transferor],['양수자',r.transferee],['주민등록번호',r.resident_number],['전화번호',r.phone],['핸드폰',r.mobile],['주소',r.address,true],['공문주소',raw['공문주소']||raw['official_address']||'',true]]},
-    {title:'인허가 / 자격',fields:[['인가일자',r.approval_date],['가입여부',raw['가입여부']||raw['membership_status']||''],['가입일자',r.membership_date],['자격증명발급일자',r.certificate_issue_date],['자격증명번호',r.certificate_number],['운전면허번호',r.driver_license_number]]},
+    {title:'인허가 / 자격',fields:[['인가일자',r.approval_date],['가입여부',raw['가입여부']||raw['membership_status']||''],['가입일자',r.membership_date],['자격증명발급일자',r.certificate_issue_date],['자격증명번호',r.certificate_number],['운전면허번호',r.driver_license_number],['화물운송종사자격증 번호(양수자)',r.freight_qualification_number]]},
     {title:'소속 / 행정',fields:[['소속업체',r.affiliated_company||raw['소속업체']||raw['업체명']||''],['비고',r.memo,true]]},
     ...(rawExtra.length?[{title:'원본 엑셀 데이터',fields:rawExtra.map(([k,v])=>[k,v,false])}]:[]),
   ];
@@ -897,6 +919,7 @@ async function renderCandidateSection(){
         ${sec('자격증·면허정보',`
         ${fi('certificate_issue_date','자격증명발급일자')} ${certNumField('certificate_number','자격증명번호')}
         ${fi('driver_license_number','운전면허번호')}
+        ${fi('freight_qualification_number','화물운송종사자격증 번호')}
         <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" placeholder="예: 22,포터Ⅱ내장탑차 / 봉고 / 냉동탑차"></div>
         ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),'')}
         `,'🪪','yellow')}
@@ -1041,6 +1064,7 @@ window.editCandidate=async(id)=>{
     <div class="fi cs2"><label>주소</label><input class="fc" name="address" value="${e_(r.address||'')}"></div>
     ${fi('certificate_issue_date','자격증명발급일자',r.certificate_issue_date||'')} ${certNumField('certificate_number','자격증명번호',r.certificate_number||'')}
     ${fi('driver_license_number','운전면허번호',r.driver_license_number||'')}
+    ${fi('freight_qualification_number','화물운송종사자격증 번호',r.freight_qualification_number||'')}
     <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||'')}" placeholder="예: 22,포터Ⅱ내장탑차 / 봉고 / 냉동탑차"></div>
     ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),r.fuel_type||'')}
     ${fi('business_number','사업자번호',r.business_number||'')} ${fi('affiliated_company','소속업체',r.affiliated_company||'')}
@@ -1114,6 +1138,7 @@ async function renderTransferSection(){
         ${sec('자격증·면허정보',`
         ${fi('certificate_issue_date','자격증명발급일자','')} ${fi('certificate_number','자격증명번호','')}
         ${fi('driver_license_number','운전면허번호','')}
+        ${fi('freight_qualification_number','화물운송종사자격증 번호(양수자)','')}
         <div class="fi"><label>차종 (직접입력)</label><input class="fc" name="vehicle_type" placeholder="예: 22,포터Ⅱ내장탑차 / 1톤 냉동탑차"></div>
         ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),'')}
         `,'🪪','yellow')}
@@ -1142,6 +1167,7 @@ async function renderTransferSection(){
       membership_date:fd.membership_date||'',
       certificate_issue_date:fd.certificate_issue_date,certificate_number:fd.certificate_number,
       driver_license_number:fd.driver_license_number,
+      freight_qualification_number:fd.freight_qualification_number||'',
       vehicle_type:fd.vehicle_type||'',fuel_type:fd.fuel_type||'',
       business_number:fd.business_number||'',affiliated_company:fd.affiliated_company||'',
       memo:fd.memo};
@@ -1255,7 +1281,7 @@ window.editMember=async(id,defaultCat='개인')=>{
   let r={management_number:'',region:'',vehicle_number:'',name:'',company_name:'',
     address:'',phone:'',mobile:'',category:defaultCat,
     membership_status:'가입',membership_date:'',approval_date:'',
-    certificate_issue_date:'',certificate_number:'',driver_license_number:'',
+    certificate_issue_date:'',certificate_number:'',driver_license_number:'',freight_qualification_number:'',
     vehicle_type:'',fuel_type:'',business_number:'',affiliated_company:'',
     resident_number:'',memo:'',
     reapproval_date:'',official_address:'',
@@ -1318,6 +1344,7 @@ window.editMember=async(id,defaultCat='개인')=>{
     `,'📋','purple')}
     ${sec('면허정보',`
       ${fi('driver_license_number','운전면허번호',r.driver_license_number||'')}
+      ${fi('freight_qualification_number','화물운송종사자격증 번호',r.freight_qualification_number||'')}
       <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||'')}" placeholder="예: 22,포터Ⅱ내장탑차"></div>
       ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),r.fuel_type||'')}
       ${fi('business_number','사업자번호',r.business_number||'')} ${fi('affiliated_company','소속업체',r.affiliated_company||'')}
@@ -1430,6 +1457,7 @@ window.openDomesticTransfer=async(id)=>{
           <div class="fi"><label>자격증명발급일자</label><input class="fc" value="${e_(m.certificate_issue_date||'')}" disabled></div>
           <div class="fi"><label>자격증명발급번호</label><input class="fc" value="${e_(m.certificate_number||'')}" disabled></div>
           <div class="fi"><label>운전면허번호</label><input class="fc" value="${e_(m.driver_license_number||'')}" disabled></div>
+          <div class="fi"><label>화물운송종사자격증 번호(양도자)</label><input class="fc" value="${e_(m.freight_qualification_number||'')}" disabled></div>
         </div>
       </details>
       ${sec('차량정보',`
@@ -1454,6 +1482,7 @@ window.openDomesticTransfer=async(id)=>{
       ${fi('certificate_issue_date','자격증명발급일자(신규)','')}
       ${certNumField('certificate_number','자격증명발급번호(신규)','')}
       ${fi('driver_license_number','운전면허번호(신규)','')}
+      ${fi('transferee_freight_qualification_number','화물운송종사자격증 번호(양수자)','')}
       `,'🔗','teal')}
       ${sec('기타',`${fta('memo','비고','','cs4')}`,'📝')}
     </form>
@@ -1485,6 +1514,7 @@ window.openDomesticTransfer=async(id)=>{
       transferee_name:fd.transferee_name||'', transferee_resident_number:fd.transferee_resident_number||'',
       transferee_vehicle_number:fd.transferee_vehicle_number||'', transferee_region:fd.transferee_region||'',
       transferee_address:fd.transferee_address||'', transferee_mobile:fd.transferee_mobile||'',
+      transferee_freight_qualification_number:fd.transferee_freight_qualification_number||'',
       closure_date:fd.closure_date, closure_reason:'도내 양도양수',
       force_new: !!forceNew,
     };
@@ -1823,7 +1853,7 @@ window.openMissingTransferLedgerModal=async(refreshCb)=>{
 };
 
 window.editTransfer=async(id)=>{
-  let r={seq_number:'',receipt_date:'',region:'',vehicle_number:'',transferor:'',transferee:'',resident_number:'',address:'',phone:'',mobile:'',approval_date:'',membership_date:'',certificate_issue_date:'',certificate_number:'',ledger_update:'',driver_license_number:'',computer_report:'',memo:'',vehicle_type:'',fuel_type:'',structure_change:'',affiliated_company:''};
+  let r={seq_number:'',receipt_date:'',region:'',vehicle_number:'',transferor:'',transferee:'',resident_number:'',address:'',phone:'',mobile:'',approval_date:'',membership_date:'',certificate_issue_date:'',certificate_number:'',ledger_update:'',driver_license_number:'',freight_qualification_number:'',computer_report:'',memo:'',vehicle_type:'',fuel_type:'',structure_change:'',affiliated_company:''};
   if(id){r=await api('GET',`/api/transfer-ledger/${id}`).catch(()=>null);if(!r)return;}
   const raw_tl=(r.raw_data&&typeof r.raw_data==='object')?r.raw_data:{};
   openModal(id?'양도양수 수정':'양도양수 등록',`<form id="tlForm">
@@ -1848,6 +1878,7 @@ window.editTransfer=async(id)=>{
     `,'✅','purple')}
     ${sec('면허정보',`
       ${fi('driver_license_number','운전면허번호',r.driver_license_number||'')}
+      ${fi('freight_qualification_number','화물운송종사자격증 번호(양수자)',r.freight_qualification_number||'')}
       ${frn('resident_number','주민등록번호',r.resident_number||'')}
       ${fi('vehicle_type','차종',r.vehicle_type||raw_tl['차종']||'')}
       ${fri('fuel_type','유종',['','경유','LPG','전기','휘발유','CNG','하이브리드'],r.fuel_type||raw_tl['유종']||'')}

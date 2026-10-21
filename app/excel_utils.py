@@ -942,6 +942,15 @@ def records_to_excel(records: list, exclude: list = None) -> bytes:
     out = io.BytesIO()
     with pd.ExcelWriter(out, engine='openpyxl') as w:
         df.to_excel(w, index=False)
+        # 화물운송종사자격증 번호: 앞자리 0 보존을 위해 문자열(텍스트) 서식으로 고정
+        if 'freight_qualification_number' in df.columns:
+            ws = w.sheets[w.book.sheetnames[0]]
+            col_idx = list(df.columns).index('freight_qualification_number') + 1
+            for row in ws.iter_rows(min_row=2, min_col=col_idx, max_col=col_idx):
+                for cell in row:
+                    if cell.value not in (None, ''):
+                        cell.value = str(cell.value)
+                    cell.number_format = '@'
     return out.getvalue()
 
 

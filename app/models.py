@@ -70,6 +70,7 @@ class LicenseHolder(Base):
     certificate_number = Column(String(100))
     permit_number = Column(String(100))
     driver_license_number = Column(String(100))
+    freight_qualification_number = Column(String(20))  # 화물운송종사자격증 번호 (0-00-000000, 운송종사자 개인 귀속)
     vehicle_type = Column(String(50))
     fuel_type = Column(String(30))
     business_number = Column(String(50))
@@ -110,6 +111,7 @@ class Candidate(Base):
     certificate_issue_date = Column(String(50))
     certificate_number = Column(String(100))
     driver_license_number = Column(String(100))
+    freight_qualification_number = Column(String(20))  # 화물운송종사자격증 번호 (0-00-000000, 운송종사자 개인 귀속)
     vehicle_type = Column(String(50))
     fuel_type = Column(String(30))
     business_number = Column(String(50))
@@ -146,6 +148,7 @@ class TransferLedger(Base):
     process_date = Column(String(50))                    # 처리일자 (양도양수 기준날짜)
     ledger_update = Column(String(100))                  # 장부정리
     driver_license_number = Column(String(100))          # 운전면허번호
+    freight_qualification_number = Column(String(20))  # 화물운송종사자격증 번호 (0-00-000000, 운송종사자 개인 귀속)
     computer_report = Column(String(100))                # 전산보고
     memo = Column(Text)                                  # 비고
     vehicle_type = Column(String(100))                  # 차종

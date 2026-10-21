@@ -13,6 +13,7 @@ from app import models, crud
 from app.excel_utils import records_to_excel, normalize_fuel, normalize_membership_status
 from app.services.certificate_ledger_service import ensure_member_ledger
 from app.services.certificate_number_guard import guard_certificate_number
+from app.services.freight_qualification import normalize_in_dict_or_400
 
 router = APIRouter()
 
@@ -48,6 +49,7 @@ def _fmt(m):
         "certificate_issue_date": m.certificate_issue_date or "",
         "certificate_number": m.certificate_number or "",
         "driver_license_number": m.driver_license_number or "",
+        "freight_qualification_number": getattr(m, "freight_qualification_number", None) or "",
         "vehicle_type": m.vehicle_type or "",
         "fuel_type": normalize_fuel(m.fuel_type or ""),
         "business_number": m.business_number or "",
@@ -288,6 +290,7 @@ async def get_member(mid: int, db: Session = Depends(get_db), _=Depends(get_curr
 
 @router.post("")
 async def create_member(data: dict, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    normalize_in_dict_or_400(data)  # 화물운송종사자격증 번호 형식(0-00-000000) 검증/정규화
     data.setdefault("category", crud.detect_category(data.get("vehicle_number", "")))
     data.setdefault("status", "active")
     # 지역 정규화
@@ -322,7 +325,7 @@ _AUTO_CHANGE_FIELDS = {
 _INTERNAL_LOG_ONLY_FIELDS = {
     "memo", "name", "region", "membership_status", "membership_date",
     "approval_date", "certificate_issue_date", "certificate_number",
-    "driver_license_number", "resident_number", "business_number",
+    "driver_license_number", "freight_qualification_number", "resident_number", "business_number",
     "reapproval_date", "agent_name", "agent_resident_number", "agent_mobile",
     "agent_address",
     "category",
@@ -346,7 +349,7 @@ _ALLOWED_UPDATE_FIELDS = {
     "management_number", "region", "vehicle_number", "name", "company_name",
     "address", "phone", "mobile", "membership_status", "membership_date",
     "approval_date", "certificate_issue_date", "certificate_number",
-    "driver_license_number", "vehicle_type", "fuel_type", "business_number",
+    "driver_license_number", "freight_qualification_number", "vehicle_type", "fuel_type", "business_number",
     "affiliated_company", "resident_number", "memo", "category",
     # 택배 전용
     "reapproval_date", "official_address",
@@ -369,6 +372,7 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
     if data.get("region"):
         from app.excel_utils import _normalize_region
         data["region"] = _normalize_region(data["region"])
+    normalize_in_dict_or_400(data)  # 화물운송종사자격증 번호 형식(0-00-000000) 검증/정규화
 
     new_mgmt = data.get("management_number")
     if new_mgmt is not None and str(new_mgmt).strip() and str(new_mgmt).strip() != (m.management_number or ""):

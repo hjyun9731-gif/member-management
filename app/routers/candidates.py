@@ -12,6 +12,7 @@ from app.services.certificate_ledger_service import (
 from app.services.certificate_number_reservation import get_or_reserve_certificate_number
 from app.services.certificate_number_guard import guard_certificate_number
 from app.services.certificate_number_rules import canonical_number
+from app.services.freight_qualification import normalize_in_dict_or_400
 
 router = APIRouter()
 
@@ -62,6 +63,7 @@ def _fmt(c):
         "resident_number": c.resident_number, "address": c.address, "phone": c.phone, "mobile": c.mobile,
         "certificate_issue_date": c.certificate_issue_date, "certificate_number": c.certificate_number,
         "driver_license_number": c.driver_license_number, "vehicle_type": c.vehicle_type,
+        "freight_qualification_number": getattr(c, "freight_qualification_number", None) or "",
         "fuel_type": c.fuel_type, "business_number": c.business_number,
         "affiliated_company": c.affiliated_company,
         "membership_date": getattr(c, 'membership_date', '') or "",   # 가입일자
@@ -102,6 +104,7 @@ async def restore_candidate(cid: int, db: Session = Depends(get_db), _=Depends(g
 
 @router.post("")
 async def create_candidate(data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    normalize_in_dict_or_400(data)  # 화물운송종사자격증 번호 형식 검증/정규화
     # 이미 다른 대상이 쓰는 자격증명발급번호면 저장하지 않는다 (409). 확인~저장은 번호 잠금으로 직렬화.
     guard_certificate_number(db, data.get("certificate_number"),
                              name=str(data.get("name") or ""), vehicle_number=str(data.get("vehicle_number") or ""))
@@ -121,6 +124,7 @@ async def create_candidate(data: dict, db: Session = Depends(get_db), user=Depen
 
 @router.put("/{cid}")
 async def update_candidate(cid: int, data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    normalize_in_dict_or_400(data)  # 화물운송종사자격증 번호 형식 검증/정규화
     item = crud.get_by_id(db, models.Candidate, cid)
     if not item:
         raise HTTPException(404, "예정자를 찾을 수 없습니다.")

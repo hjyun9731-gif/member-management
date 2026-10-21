@@ -350,6 +350,10 @@ def update_transfer_ledger_synced(db: Session, ledger: "models.TransferLedger", 
             ).first()
 
         sync_fields = ["certificate_number", "certificate_issue_date", "driver_license_number"]
+        # 화물운송종사자격증 번호는 양수자 개인에게 귀속 → 연결된 양수자 회원/예정자에만 반영하고,
+        # 대장 폼이 빈 값이면 이미 저장된 회원 번호를 지우지 않는다.
+        if (data.get("freight_qualification_number") or "").strip():
+            sync_fields.append("freight_qualification_number")
         if linked_member:
             for f in sync_fields:
                 if f in data:
@@ -1298,6 +1302,7 @@ def register_candidate_as_member(db: Session, candidate_id: int,
             certificate_issue_date=cand.certificate_issue_date,
             certificate_number=cand.certificate_number,
             driver_license_number=cand.driver_license_number,
+            freight_qualification_number=getattr(cand, "freight_qualification_number", None) or "",
             vehicle_type=cand.vehicle_type,
             fuel_type=cand.fuel_type,
             business_number=cand.business_number,
@@ -1345,6 +1350,7 @@ def register_candidate_as_member(db: Session, candidate_id: int,
                     certificate_issue_date=cand.certificate_issue_date or "",
                     certificate_number=cand.certificate_number or "",
                     driver_license_number=cand.driver_license_number or "",
+                    freight_qualification_number=getattr(cand, "freight_qualification_number", None) or "",
                     memo=cand.memo or "",
                     vehicle_type=cand.vehicle_type or "",
                     fuel_type=cand.fuel_type or "",
@@ -1425,6 +1431,7 @@ def register_transfer_as_member(db: Session, transfer_id: int,
         certificate_issue_date=tr.certificate_issue_date,
         certificate_number=tr.certificate_number,
         driver_license_number=tr.driver_license_number,
+        freight_qualification_number=getattr(tr, "freight_qualification_number", None) or "",
         memo=tr.memo,
         transfer_ledger_id=transfer_id,
         membership_status=ms,   # 가입일자 기준 자동 판정
@@ -1746,6 +1753,21 @@ def process_domestic_transfer(db: Session, *, transferor_member_id: int,
         if check_mgmt_dup(db, models.Closure, closure_mgmt):
             raise ValueError(f"폐업현황 관리번호 {closure_mgmt}가 이미 존재합니다. 다시 시도해주세요.")
 
+        # 화물운송종사자격증 번호: 양수자 개인 번호만 사용한다 (양도자 번호는 절대 복사하지 않는다).
+        # 형식 오류면 ValueError → 전체 rollback.
+        from app.services.freight_qualification import normalize_fqn
+        entered_fqn = normalize_fqn(transferee_fields.get("freight_qualification_number"))
+        ledger_fqn = entered_fqn
+
+        def _resolve_link_fqn(existing):
+            stored = (getattr(existing, "freight_qualification_number", "") or "").strip()
+            if entered_fqn and stored and entered_fqn != stored:
+                raise ValueError("연결할 기존 양수자의 화물운송종사자격증 번호와 입력한 번호가 다릅니다. "
+                                 "번호를 확인하거나 기존 정보를 먼저 수정해주세요.")
+            if entered_fqn and not stored:
+                existing.freight_qualification_number = entered_fqn   # 비어 있던 기존 양수자에 보충
+            return stored or entered_fqn
+
         # ── 1) 양수자 결정: 기존 회원/예정자 연결 or 신규 생성 ──
         transferee_member = None
         transferee_candidate = None
@@ -1758,11 +1780,13 @@ def process_domestic_transfer(db: Session, *, transferor_member_id: int,
             if not transferee_member:
                 raise ValueError("연결할 기존 회원을 찾을 수 없습니다.")
             mgmt = transferee_member.management_number or None
+            ledger_fqn = _resolve_link_fqn(transferee_member)
         elif link_existing_id and link_existing_type == "candidate":
             transferee_candidate = get_by_id(db, models.Candidate, link_existing_id)
             if not transferee_candidate:
                 raise ValueError("연결할 기존 예정자를 찾을 수 없습니다.")
             mgmt = getattr(transferee_candidate, 'management_number', None) or None
+            ledger_fqn = _resolve_link_fqn(transferee_candidate)
         else:
             # 신규 생성 - 관리번호 발급 (동시성 잠금, 최댓값+1, 중복 재확인)
             lock_transfer_number_sequence(db)
@@ -1786,6 +1810,7 @@ def process_domestic_transfer(db: Session, *, transferor_member_id: int,
                     certificate_issue_date=transfer_fields.get("certificate_issue_date") or "",
                     certificate_number=transfer_fields.get("certificate_number") or "",
                     driver_license_number=transfer_fields.get("driver_license_number") or "",
+                    freight_qualification_number=ledger_fqn,
                     vehicle_type=transfer_fields.get("vehicle_type") or transferor.vehicle_type or "",
                     fuel_type=transfer_fields.get("fuel_type") or transferor.fuel_type or "",
                     affiliated_company=transfer_fields.get("affiliated_company") or transferor.affiliated_company or "",
@@ -1817,6 +1842,7 @@ def process_domestic_transfer(db: Session, *, transferor_member_id: int,
                     certificate_issue_date=transfer_fields.get("certificate_issue_date") or "",
                     certificate_number=transfer_fields.get("certificate_number") or "",
                     driver_license_number=transfer_fields.get("driver_license_number") or "",
+                    freight_qualification_number=ledger_fqn,
                     vehicle_type=transfer_fields.get("vehicle_type") or transferor.vehicle_type or "",
                     fuel_type=transfer_fields.get("fuel_type") or transferor.fuel_type or "",
                     affiliated_company=transfer_fields.get("affiliated_company") or transferor.affiliated_company or "",
@@ -1847,6 +1873,7 @@ def process_domestic_transfer(db: Session, *, transferor_member_id: int,
             certificate_issue_date=transfer_fields.get("certificate_issue_date") or "",
             certificate_number=transfer_fields.get("certificate_number") or "",
             driver_license_number=transfer_fields.get("driver_license_number") or "",
+            freight_qualification_number=ledger_fqn,
             memo=transfer_fields.get("memo") or "",
             vehicle_type=transfer_fields.get("vehicle_type") or transferor.vehicle_type or "",
             fuel_type=transfer_fields.get("fuel_type") or transferor.fuel_type or "",
@@ -2280,6 +2307,7 @@ def create_missing_transfer_ledger_for_member(db: Session, m: "models.LicenseHol
         certificate_issue_date=m.certificate_issue_date or "",
         certificate_number=m.certificate_number or "",
         driver_license_number=m.driver_license_number or "",
+        freight_qualification_number=getattr(m, "freight_qualification_number", None) or "",
         vehicle_type=m.vehicle_type or "",
         fuel_type=m.fuel_type or "",
         structure_change=getattr(m, "structure_change", None) or "",
