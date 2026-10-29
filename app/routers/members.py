@@ -14,6 +14,8 @@ from app.excel_utils import records_to_excel, normalize_fuel, normalize_membersh
 from app.services.certificate_ledger_service import ensure_member_ledger
 from app.services.certificate_number_guard import guard_certificate_number
 from app.services.freight_qualification import normalize_in_dict_or_400
+from app.services.change_judgement import classify_plate, classify_text, NORMAL, FIRST as FIRST_J
+from app.excel_utils import is_association_member
 
 router = APIRouter()
 
@@ -342,6 +344,8 @@ def _normalize_for_compare(field: str, v: str) -> str:
         return re.sub(r"[-\s]", "", v)  # 010-1234-5678 == 01012345678
     if field == "vehicle_number":
         return re.sub(r"[\s호]", "", v)  # 강원81자 1234호 == 강원81자1234
+    if field in ("address", "official_address", "company_name", "affiliated_company", "vehicle_type"):
+        return re.sub(r"\s+", "", v).lower()  # 공백·대소문자만 다른 경우는 표기 차이
     return v
 
 # 수정 시 저장 허용할 모든 필드 목록 (화이트리스트)
@@ -432,6 +436,20 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
     all_track_fields = set(_AUTO_CHANGE_FIELDS) | _INTERNAL_LOG_ONLY_FIELDS | _STRUCT_FIELDS
     before_snap = {f: getattr(m, f, "") or "" for f in all_track_fields}
 
+    # 탈퇴 감지: 기존 가입일자가 있었는데 수정 후 사라지는 경우에만 (빈칸→빈칸, 빈칸→입력, 날짜→다른 날짜는 해당 없음).
+    # 저장 전에 확인한다(변경 전 아무것도 수정되지 않은 상태에서 409).
+    withdrawal_prior = None
+    if "membership_date" in filtered_data:
+        _old_md = (m.membership_date or "").strip()
+        _new_md = str(filtered_data.get("membership_date") or "").strip()
+        if _old_md and is_association_member(_old_md) and not is_association_member(_new_md):
+            if not data.get("confirm_withdrawal"):
+                raise HTTPException(409, detail={
+                    "code": "WITHDRAWAL_CONFIRM_REQUIRED",
+                    "message": "가입일자를 삭제하면 탈퇴 처리됩니다. 탈퇴 처리하시겠습니까?",
+                    "prior_membership_date": _old_md})
+            withdrawal_prior = _old_md
+
     # 기본 필드 업데이트
     for k, v in filtered_data.items():
         try:
@@ -441,56 +459,61 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
 
     m.updated_at = datetime.datetime.now(datetime.timezone.utc)
 
-    # 변경된 필드 분류
+    # 변경된 필드 분류 (판정: 정상변경/최초등록/표기정정/오류정정/확인필요 — 정상변경만 실적에 합산)
     today = datetime.datetime.now().strftime("%Y-%m-%d")
-    changes_by_type: dict = {}
+    changes_by_key: dict = {}   # (change_type, judgement) -> [(field, old, new, reason)]
     internal_logs = []
+    recorded_fields = set()
 
     for field in all_track_fields:
         old_val = (before_snap.get(field) or "").strip()
         new_val = str(filtered_data.get(field, old_val) or "").strip()
-
-        # 정규화 비교: 형식만 다른 경우 무시
-        if _normalize_for_compare(field, old_val) == _normalize_for_compare(field, new_val):
+        if old_val == new_val:
             continue
+        norm_equal = _normalize_for_compare(field, old_val) == _normalize_for_compare(field, new_val)
         if not new_val:
             continue
 
-        # 원본이 미기재(공백)였다가 이번에 값이 채워지는 경우 - 변경등록대장에는 기록하지 않음
-        # (실제 값이 바뀐 '변경'이 아니라 누락된 정보를 처음 채우는 것이므로).
-        # 단, 내부 수정로그(MemberEditLog)에는 그대로 남긴다.
+        # 원본이 미기재(공백)였다가 이번에 값이 채워지는 경우: 변경이 아니라 누락정보 입력.
         is_blank_fill = not old_val
+        internal_logs.append((field, old_val, new_val, is_blank_fill))   # 내부 수정로그(MemberEditLog)는 항상 기록
 
-        # 내부 수정로그 항상 기록
-        internal_logs.append((field, old_val, new_val, is_blank_fill))
-
-        if field in _STRUCT_FIELDS:
-            # 차종/구조 변경: auto_change_type 파라미터로만 기록
-            auto_ct = data.get("auto_change_type")  # 'structureChange'/'vehicleTypeCorrection'/'vehicleReplacement'
+        if field in ("mobile", "phone"):
+            if norm_equal or is_blank_fill:
+                continue
+            changes_by_key.setdefault(("연락처변경", NORMAL), []).append((field, old_val, new_val, "연락처 변경"))
+        elif field == "vehicle_number":
+            # 최초 차량번호 등록(임시값/빈칸→번호)·오타정정·표기정정은 차량번호변경 실적에서 분리
+            j, why = classify_plate(old_val, new_val)
+            ct = "최초번호등록" if j == FIRST_J else "차량번호변경"
+            changes_by_key.setdefault((ct, j), []).append((field, old_val, new_val, why))
+        elif field == "vehicle_type":
+            # 차종이 실제로 달라지면 차량변경(대폐차) 1건. 공백·표기만 다르면 표기정정(실적 제외).
+            if is_blank_fill:
+                continue
+            j, why = classify_text(old_val, new_val)
+            ct = "대폐차" if j == NORMAL else "차종변경"
+            changes_by_key.setdefault((ct, j), []).append((field, old_val, new_val, why))
+        elif field in _STRUCT_FIELDS:
+            # 연료/구조변경: 기존과 동일하게 auto_change_type 파라미터로만 기록
+            auto_ct = data.get("auto_change_type")
             if auto_ct and not is_blank_fill:
-                ct_map = {"structureChange": "구조변경", "vehicleTypeCorrection": "차종정정",
-                          "vehicleReplacement": "대폐차"}
-                change_type = ct_map.get(auto_ct, "구조변경")
-                if change_type not in changes_by_type:
-                    changes_by_type[change_type] = []
-                changes_by_type[change_type].append((field, old_val, new_val))
-            # auto_change_type 없거나 미기재→채움인 경우 변경등록대장 기록 안 함
-
+                ct = {"structureChange": "구조변경", "vehicleTypeCorrection": "차종정정",
+                      "vehicleReplacement": "대폐차"}.get(auto_ct, "구조변경")
+                changes_by_key.setdefault((ct, NORMAL), []).append((field, old_val, new_val, "구조/연료 변경"))
         elif field in _INTERNAL_LOG_ONLY_FIELDS:
             pass  # 내부 수정로그만
-
         elif field in _AUTO_CHANGE_FIELDS:
-            if not is_blank_fill:
-                change_type = _AUTO_CHANGE_FIELDS[field]
-                if change_type not in changes_by_type:
-                    changes_by_type[change_type] = []
-                changes_by_type[change_type].append((field, old_val, new_val))
-            # else: 미기재→채움은 내부 수정로그만 남기고 변경등록대장 기록 제외
+            if is_blank_fill:
+                continue   # 미기재→채움은 변경등록대장 기록 제외
+            ct = _AUTO_CHANGE_FIELDS[field]
+            j, why = classify_text(old_val, new_val)
+            changes_by_key.setdefault((ct, j), []).append((field, old_val, new_val, why))
 
-    # 내부 수정로그 저장
+    # 내부 수정로그 저장 (기존 MemberEditLog 유지)
+    _recorded_fields = {f for lst in changes_by_key.values() for (f, *_r) in lst}
     for field, old_val, new_val, is_blank_fill in internal_logs:
-        recorded = (field in _AUTO_CHANGE_FIELDS or (
-            field in _STRUCT_FIELDS and bool(data.get("auto_change_type")))) and not is_blank_fill
+        recorded = field in _recorded_fields
         try:
             log = models.MemberEditLog(
                 member_id=mid, vehicle_number=getattr(m, "vehicle_number", "") or "",
@@ -504,16 +527,28 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
         except Exception as ex:
             logger.warning(f"내부 수정로그 저장 실패: {ex}")
 
-    # 변경등록대장 자동기록
-    for change_type, field_changes in changes_by_type.items():
+    # 변경등록대장 자동기록 (한 번의 저장에서 같은 유형·판정은 1건, 동일 저장 중복 방지)
+    for (change_type, judgement), field_changes in changes_by_key.items():
         try:
             if len(field_changes) == 1:
-                _, old_val, new_val = field_changes[0]
+                _, old_val, new_val, why = field_changes[0]
                 bv, av = old_val or "", new_val
             else:
-                bv = " / ".join(ov for _, ov, _ in field_changes if ov)
-                av = " / ".join(nv for _, _, nv in field_changes)
-            ch = models.ChangeHistory(
+                bv = " / ".join(ov for _, ov, _, _ in field_changes if ov)
+                av = " / ".join(nv for _, _, nv, _ in field_changes)
+                why = field_changes[0][3]
+            dup = db.query(models.ChangeHistory).filter(
+                models.ChangeHistory.member_id == mid,
+                models.ChangeHistory.change_type == change_type,
+                models.ChangeHistory.before_value == bv,
+                models.ChangeHistory.after_value == av,
+                models.ChangeHistory.change_date == today,
+                models.ChangeHistory.memo == "회원정보 수정 자동기록",
+                models.ChangeHistory.deleted_at.is_(None),
+            ).first()
+            if dup:
+                continue
+            db.add(models.ChangeHistory(
                 change_type=change_type,
                 region=getattr(m, "region", "") or "",
                 vehicle_number=getattr(m, "vehicle_number", "") or "",
@@ -522,11 +557,34 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
                 change_date=today,
                 memo="회원정보 수정 자동기록",
                 member_id=mid,
-                raw_data={"source": "member_auto_log"},
-            )
-            db.add(ch)
+                judgement=judgement, judge_reason=why,
+                raw_data={"source": "member_auto_log",
+                          "processed_by": getattr(current_user, "username", "")},
+            ))
         except Exception as ex:
             logger.warning(f"변경이력 저장 실패: {ex}")
+
+    # 탈퇴 기록 (가입일자 삭제 확인을 받은 경우): 식별정보·기존 가입일자·처리일자·처리자
+    if withdrawal_prior:
+        try:
+            db.add(models.ChangeHistory(
+                change_type="탈퇴",
+                region=getattr(m, "region", "") or "",
+                vehicle_number=getattr(m, "vehicle_number", "") or "",
+                name=getattr(m, "name", "") or "",
+                before_value=withdrawal_prior, after_value="",
+                change_date=today,
+                memo="가입일자 삭제에 따른 탈퇴 처리",
+                member_id=mid,
+                judgement=NORMAL, judge_reason="기존 가입일자 삭제(탈퇴)",
+                raw_data={"source": "member_withdrawal",
+                          "member_id": mid,
+                          "prior_membership_date": withdrawal_prior,
+                          "processed_date": today,
+                          "processed_by": getattr(current_user, "username", "")},
+            ))
+        except Exception as ex:
+            logger.warning(f"탈퇴 기록 저장 실패: {ex}")
 
     # transfer_ledger 동기화 (양도양수에서 온 회원인 경우)
     _TRANSFER_SYNC_FIELDS = {

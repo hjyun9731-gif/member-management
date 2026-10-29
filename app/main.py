@@ -15,7 +15,7 @@ from app.database import Base, engine, SessionLocal, DATABASE_URL
 from app.auth import create_default_admin, require_admin
 from app.routers import (auth, dashboard, reports, excel)
 from app.routers import (candidates, members, transfer_ledger,
-                          closures, change_history, allocation, admin)
+                          closures, change_history, allocation, admin, change_stats)
 from app.routers import sms as sms_router
 import app.models as _models
 
@@ -86,6 +86,9 @@ def _run_migrations():
         ("freight_qualification_number", "license_holders", "VARCHAR(20)"),
         ("freight_qualification_number", "candidates",      "VARCHAR(20)"),
         ("freight_qualification_number", "transfer_ledger", "VARCHAR(20)"),
+        # 변경이력 판정 (기존 이력은 NULL 유지 — 소급 변경 없음)
+        ("judgement",    "change_history", "VARCHAR(20)"),
+        ("judge_reason", "change_history", "TEXT"),
         # 도내 양도양수 등록 기능: 양도자/양수자 회원 ID 연결
         ("transferor_member_id",  "transfer_ledger",  "INTEGER"),
         ("transferee_member_id",  "transfer_ledger",  "INTEGER"),
@@ -329,6 +332,7 @@ app.include_router(transfer_ledger.router,prefix="/api/transfer-ledger",tags=["�
 app.include_router(closures.router,       prefix="/api/closures",       tags=["폐지현황"])
 app.include_router(change_history.router, prefix="/api/change-history", tags=["변경이력"])
 app.include_router(allocation.router,     prefix="/api/allocation",     tags=["부과대수"])
+app.include_router(change_stats.router,   prefix="/api/change-stats",   tags=["변경이력 통계"])
 app.include_router(dashboard.router,      prefix="/api/dashboard",      tags=["대시보드"])
 app.include_router(reports.router,        prefix="/api/reports",        tags=["보고서"])
 app.include_router(excel.router,          prefix="/api/excel",          tags=["엑셀"])

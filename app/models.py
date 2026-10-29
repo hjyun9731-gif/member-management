@@ -232,6 +232,8 @@ class ChangeHistory(Base):
     memo = Column(Text)
     member_id = Column(Integer, nullable=True)
     upload_id = Column(Integer, nullable=True)     # 업로드 이력 ID
+    judgement = Column(String(20), index=True)     # 정상변경/최초등록/표기정정/오류정정/확인필요 (NULL=기존 미분류 이력)
+    judge_reason = Column(Text)                    # 판정 근거
     raw_data = Column(JSON)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

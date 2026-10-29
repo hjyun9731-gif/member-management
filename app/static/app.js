@@ -1374,6 +1374,14 @@ window.editMember=async(id,defaultCat='개인')=>{
     if(!fd.vehicle_number||!fd.name){toast('차량번호와 성명은 필수입니다','warn');return;}
     // category 재계산 (신규 등록 및 수정 시 차량번호 기준)
     fd.category=fd.vehicle_number?.includes('배')?'택배':'개인';
+    // 가입일자 삭제 = 탈퇴: 기존 가입일자가 있었는데 비우는 경우에만 확인 (서버에서도 한 번 더 검증)
+    if(id){
+      const oldMd=String((r&&r.membership_date)||'').trim(), newMd=String(fd.membership_date||'').trim();
+      if(oldMd && /\d/.test(oldMd) && !newMd){
+        if(!window.confirm(`가입일자(${oldMd})를 삭제하면 탈퇴 처리됩니다.\n\n탈퇴 처리하시겠습니까?\n(단순 입력 실수라면 [취소]를 누르고 가입일자를 다시 입력하세요)`))return;
+        fd.confirm_withdrawal=true;
+      }
+    }
     const btn=document.getElementById('_mSave');
     btn.disabled=true; btn.textContent='저장 중...';
     try{
@@ -2110,6 +2118,95 @@ window.cancelClosure=async(id)=>{
 window.deleteClosure=async(id)=>{if(!await cfm('삭제?'))return;try{await api('DELETE',`/api/closures/${id}`);toast('삭제');renderClosures();}catch(e){};};
 
 // ===== CHANGE HISTORY =====
+// ===== 월별 변경이력 통계 (월례보고서와 동일 인정 기준) =====
+window.openChangeStats=async()=>{
+  const now=new Date(),cy=now.getFullYear(),yrs=[];
+  for(let y=cy+1;y>=2015;y--)yrs.push(y);
+  openModal('월별 변경이력 통계',`
+    <div class="frow" style="margin-bottom:8px">
+      <select id="stY" class="fsel">${yrs.map(y=>`<option value="${y}" ${y===cy?'selected':''}>${y}년</option>`).join('')}</select>
+      <select id="stM" class="fsel"><option value="0">전체 월</option>${[...Array(12)].map((_,i)=>`<option value="${i+1}" ${i===now.getMonth()?'selected':''}>${i+1}월</option>`).join('')}</select>
+      ${rselflt('stReg','')}
+      <select id="stT" class="fsel"><option value="">전체 유형</option>${CHANGE_TYPES.map(t=>`<option value="${t}">${t}</option>`).join('')}</select>
+      <input type="date" id="stF" class="fsel" title="기간 시작(입력 시 연·월 대신 기간 기준)"> ~ <input type="date" id="stTo" class="fsel" title="기간 끝">
+      <button class="btn bp btn-sm" id="stGo">조회</button>
+      <button class="btn bxl btn-sm" id="stXl">엑셀 다운로드</button>
+    </div>
+    <div id="stBody"><div class="loading-box"><div class="spin"></div></div></div>
+    <div id="stDetail" style="margin-top:12px"></div>`,
+    `<button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
+  const qs=(extra={})=>{
+    const p=new URLSearchParams();
+    const y=document.getElementById('stY').value,m=document.getElementById('stM').value;
+    const f=document.getElementById('stF').value,t=document.getElementById('stTo').value;
+    if(f||t){if(f)p.set('date_from',f);if(t)p.set('date_to',t);}else{p.set('year',y);if(m&&m!=='0')p.set('month',m);}
+    const rg=document.getElementById('stReg').value,ty=document.getElementById('stT').value;
+    if(rg)p.set('region',rg);if(ty)p.set('change_type',ty);
+    Object.entries(extra).forEach(([k,v])=>{if(v)p.set(k,v);});
+    return p.toString();
+  };
+  const BK=['상호변경','차량변경(대폐차)','주소변경','차량번호변경','대표자변경','자격증재교부','기타'];
+  const SEP=['최초등록','표기정정','오류정정','확인필요','월귀속불가(날짜 없음/불량)'];
+  const num=(n,bucket)=>n>0?`<a class="click-link" data-bk="${e_(bucket)}" style="font-weight:700">${n.toLocaleString()}</a>`:'0';
+  const loadDetail=async(bucket)=>{
+    const box=document.getElementById('stDetail');
+    box.innerHTML='<div class="loading-box"><div class="spin"></div></div>';
+    const sv=document.getElementById('stSrch')?.value.trim()||'';
+    const bk=bucket.startsWith('월귀속불가')?'월귀속불가':bucket;
+    const d=await api('GET',`/api/change-stats/detail?${qs({bucket:bk,search:sv})}`).catch(()=>null);
+    if(!d){box.innerHTML='';return;}
+    box.dataset.bk=bucket;
+    box.innerHTML=`<div class="flex gap-8" style="align-items:center;margin-bottom:6px"><strong>${e_(bucket)} 상세 (${d.total.toLocaleString()}건)</strong>
+        <input class="srch" id="stSrch" placeholder="성명·차량번호 검색" value="${e_(sv)}" style="max-width:200px"><button class="btn bp btn-xs" id="stSrchBtn">검색</button></div>
+      ${d.items.length?`<div class="tbl-wrap"><table><thead><tr><th>성명</th><th>차량번호</th><th>지역</th><th>변경유형</th><th>판정</th><th>집계기준일</th><th>변경 전</th><th>변경 후</th><th>비고/사유</th></tr></thead>
+      <tbody>${d.items.map(r=>`<tr><td>${fv(r.name)}</td><td>${fv(r.vehicle_number)}</td><td>${fv(r.region)}</td><td>${fv(r.change_type)}</td>
+        <td>${fv(r.judgement)}${r.legacy_unclassified?'<span style="font-size:10px;color:var(--c-text-4)"> (기존)</span>':''}</td>
+        <td>${r.basis_date?`${e_(r.basis_date)} <span style="font-size:10px;color:var(--c-text-4)">(${e_(r.basis_source)})</span>`:'<span style="color:var(--c-warn)">유효 날짜 없음</span>'}</td>
+        <td>${fv(r.before_value)}</td><td>${fv(r.after_value)}</td><td title="${e_(r.memo)}">${fv(r.reason||r.memo)}</td></tr>`).join('')}</tbody></table></div>
+      ${d.total>d.items.length?`<p style="font-size:11px;color:var(--c-text-4)">상위 ${d.items.length}건만 표시합니다. 전체는 엑셀로 내려받으세요.</p>`:''}`:'<div class="empty-box"><p class="empty-txt">해당 건이 없습니다.</p></div>'}`;
+    document.getElementById('stSrchBtn').onclick=()=>loadDetail(bucket);
+    document.getElementById('stSrch').onkeydown=ev=>{if(ev.key==='Enter')loadDetail(bucket);};
+  };
+  const load=async()=>{
+    const body=document.getElementById('stBody');
+    body.innerHTML='<div class="loading-box"><div class="spin"></div></div>';document.getElementById('stDetail').innerHTML='';
+    const d=await api('GET',`/api/change-stats/summary?${qs()}`).catch(()=>null);
+    if(!d){body.innerHTML='';return;}
+    const regs=Object.entries(d.by_region).sort((a,b)=>b[1].합계-a[1].합계);
+    body.innerHTML=`
+      <div class="grid2" style="align-items:start">
+        <div><table><thead><tr><th>구분</th><th>해당 기간 건수</th></tr></thead><tbody>
+          ${BK.map(b=>`<tr><td>${b}${b==='자격증재교부'?' <span style="font-size:10px;color:var(--c-text-4)">(자동연동 예정)</span>':''}</td><td>${num(d.buckets[b]||0,b)}</td></tr>`).join('')}
+          <tr style="font-weight:700;background:var(--c-bg-2,#f1f5f9)"><td>정상 변경실적 합계</td><td>${num(d.total,'전체')}</td></tr></tbody></table></div>
+        <div><table><thead><tr><th>별도 집계 (실적 제외)</th><th>건수</th></tr></thead><tbody>
+          ${SEP.map(k=>`<tr><td>${k}</td><td>${num(d.separate[k]||0,k)}</td></tr>`).join('')}</tbody></table>
+          <p style="font-size:11px;color:var(--c-text-4);margin-top:6px">${e_(d.note)}${d.legacy_unclassified_in_total?`<br>합계 중 기존(판정 미저장) 이력 ${d.legacy_unclassified_in_total.toLocaleString()}건 포함.`:''}</p></div>
+      </div>
+      <div class="grid2" style="align-items:start;margin-top:10px">
+        <div><strong style="font-size:12px">지역별 정상 변경건수</strong>${regs.length?`<table><thead><tr><th>지역</th><th>합계</th>${BK.slice(0,4).map(b=>`<th>${b}</th>`).join('')}<th>별도(최초·정정·확인)</th></tr></thead><tbody>
+          ${regs.map(([r,v])=>`<tr><td>${e_(r)}</td><td><b>${v.합계}</b></td>${BK.slice(0,4).map(b=>`<td>${v[b]||0}</td>`).join('')}<td>${(v.최초등록||0)+(v.표기정정||0)+(v.오류정정||0)+(v.확인필요||0)}</td></tr>`).join('')}</tbody></table>`:'<p class="empty-txt">데이터 없음</p>'}</div>
+        <div><strong style="font-size:12px">변경 유형별 (원본 유형)</strong>${Object.keys(d.by_type).length?`<table><thead><tr><th>유형</th><th>건수</th></tr></thead><tbody>${Object.entries(d.by_type).map(([t,n])=>`<tr><td>${e_(t)}</td><td>${n}</td></tr>`).join('')}</tbody></table>`:'<p class="empty-txt">데이터 없음</p>'}</div>
+      </div>`;
+    body.querySelectorAll('[data-bk]').forEach(a=>a.onclick=()=>loadDetail(a.dataset.bk));
+  };
+  document.getElementById('stGo').onclick=load;
+  document.getElementById('stXl').onclick=()=>dl(`/api/change-stats/export?${qs()}`,'월별변경이력통계.xlsx');
+  await load();
+};
+
+// ===== 관리비폐지 확인필요 (택배 폐업자 · 부과 중단 여부는 데이터 없어 '검증불가') =====
+window.openFeeClosure=async()=>{
+  const d=await api('GET','/api/allocation/fee-closure-candidates').catch(()=>null);if(!d)return;
+  openModal(`관리비폐지 확인필요 (${d.total.toLocaleString()}명)`,`
+    <p class="warn-box" style="margin-bottom:10px">폐업 처리된 <strong>택배회원</strong> 목록입니다. 이 시스템에는 부과·수납 데이터가 없어 실제 관리비 부과 중단 여부는 <strong>검증불가</strong>이며, 폐업자를 부과 대상으로 확정하지 않습니다. 기존 관리비·미수금은 변경되지 않습니다.</p>
+    ${d.items.length?`<div class="tbl-wrap"><table><thead><tr><th>성명</th><th>차량번호</th><th>지역</th><th>폐업일</th><th>최종 부과월</th><th>폐업 이후 부과금액</th><th>부과 중단 여부</th></tr></thead>
+    <tbody>${d.items.map(r=>`<tr><td>${fv(r.name)}</td><td>${fv(r.vehicle_number)}</td><td>${fv(r.region)}</td>
+      <td>${fv(r.closure_date||r.receipt_date)}${r.closure_date_valid?'':' <span style="color:var(--c-warn);font-size:10px">(날짜 확인)</span>'}</td>
+      <td>${r.last_billed_month?e_(r.last_billed_month):'-'}</td><td>${r.post_closure_amount!=null?Number(r.post_closure_amount).toLocaleString():'-'}</td>
+      <td>${e_(r.billing_status)}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty-box"><p class="empty-txt">대상자가 없습니다.</p></div>'}`,
+    `<button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
+};
+
 async function renderChangeHistory(){
   await _loadChangeTypes();  // 유형 목록 최신화
   const f=ST.fl.ch||{};
@@ -2118,6 +2215,7 @@ async function renderChangeHistory(){
       <div class="card-hd">
         <div class="card-hd-l"><span class="card-ico">📝</span><span class="card-ttl">변경이력대장</span><span class="cnt" id="chCnt">0건</span></div>
         <div class="flex gap-8">
+          <button class="btn bp btn-sm" id="chStatBtn">📊 월별 통계</button>
           <button class="btn bg btn-sm" id="chAddBtn">+ 등록</button>
           <button class="btn bxl btn-sm" id="chXlBtn">엑셀 다운로드</button>
         </div>
@@ -2166,6 +2264,7 @@ async function renderChangeHistory(){
   document.getElementById('chSrch').onkeydown=e=>{if(e.key==='Enter')doSearch(1);};
   document.getElementById('chRstBtn').onclick=()=>{ST.fl.ch={};renderChangeHistory();};
   document.getElementById('chAddBtn').onclick=()=>editChange(null);
+  document.getElementById('chStatBtn').onclick=()=>openChangeStats();
   document.getElementById('chXlBtn').onclick=()=>{
     const q=new URLSearchParams(Object.fromEntries(Object.entries(ST.fl.ch||{}).filter(([,v])=>v)));
     dl(`/api/change-history/export/excel?${q}`,'변경이력대장.xlsx');
@@ -2251,8 +2350,8 @@ async function renderDashboard(){
       <div class="card-hd"><div class="card-hd-l"><span class="card-ico">📊</span><span class="card-ttl">부과대수 자동 파악</span><span class="badge b-teal" style="font-size:10px;margin-left:6px">자동 계산</span></div></div>
       <div class="card-bd">
         <div class="alloc-grid">
-          ${[['협회가입',alloc['협회가입'],'가입일자 기준'],['양도누계',alloc['양도누계'],'양도양수대장 누계'],['이관누계',alloc['이관누계'],'이관 누계'],['폐업누계',alloc['폐업누계'],'폐업 누계'],['탈퇴',alloc['탈퇴'],''],['택배신규',alloc['택배신규'],''],['관리비폐지',alloc['관리비폐지'],''],['70세',alloc['70세'],''],['협회기본대수',alloc['협회기본대수'],'현재 유효 사업자'],['총부과대수',alloc['총부과대수'],'현재 유효 사업자'],['택배관리',alloc['택배관리'],'']].map(([l,v,sub])=>`
-          <div class="alloc-card"><div class="alloc-lbl">${l}${sub?`<span style="display:block;font-size:9.5px;color:var(--c-text-3);font-weight:400;margin-top:1px">${sub}</span>`:''}</div>
+          ${[['협회가입',alloc['협회가입'],'가입일자 기준'],['양도누계',alloc['양도누계'],'양도양수대장 누계'],['이관누계',alloc['이관누계'],'이관 누계'],['폐업누계',alloc['폐업누계'],'폐업 누계'],['탈퇴',alloc['탈퇴'],''],['택배신규',alloc['택배신규'],''],['관리비폐지 확인필요',alloc['관리비폐지'],'택배 폐업자 · 눌러서 목록 확인'],['70세',alloc['70세'],''],['협회기본대수',alloc['협회기본대수'],'현재 유효 사업자'],['총부과대수',alloc['총부과대수'],'현재 유효 사업자'],['택배관리',alloc['택배관리'],'']].map(([l,v,sub])=>`
+          <div class="alloc-card" ${l==='관리비폐지 확인필요'?`style="cursor:pointer" onclick="openFeeClosure()" title="클릭하면 대상자 목록을 봅니다"`:''}><div class="alloc-lbl">${l}${sub?`<span style="display:block;font-size:9.5px;color:var(--c-text-3);font-weight:400;margin-top:1px">${sub}</span>`:''}</div>
             ${v===null||v===undefined?`<div class="alloc-na">확인 필요</div>`:`<div class="alloc-val">${Number(v).toLocaleString()}</div>`}
           </div>`).join('')}
         </div>
@@ -2626,7 +2725,7 @@ async function renderMonthlyReportDetail(){
             <tr><td class="rl">이관</td><td>${aw.이관||0}</td></tr>
             <tr><td class="rl">상호변경</td><td>${aw.상호변경||0}</td></tr>
             <tr><td class="rl">대표자변경</td><td>${aw.대표자변경||0}</td></tr>
-            <tr><td class="rl">차량변경</td><td>${aw.차량변경||0}</td></tr>
+            <tr><td class="rl">차량변경(대폐차)</td><td>${aw.차량변경||0}</td></tr>
             <tr><td class="rl">주소변경</td><td>${aw.주소변경||0}</td></tr>
             <tr><td class="rl">자격증재교부</td><td>${aw.자격증재교부||0}</td></tr>
           </tbody>
