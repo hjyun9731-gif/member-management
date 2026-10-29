@@ -299,6 +299,7 @@ def _run_deferred_db_maintenance():
     try:
         jobs = [
             ("DB 테이블 생성", lambda: _models.Base.metadata.create_all(bind=engine, checkfirst=True)),
+            ("변경이력 판정 컬럼 보장", lambda: _schema_guard.ensure_columns(engine)),
             ("컬럼 마이그레이션", _run_migrations),
             ("수납/미수금 인덱스", _ensure_receivables_indexes),
             ("Receivables 2026-09-16 V4 reconcile", _receivables_reconcile_v4.apply_receivables_reconcile_20260916_v4),
@@ -320,7 +321,12 @@ def _run_deferred_db_maintenance():
         _maintenance_lock.release()
 
 
-app = FastAPI(title="강원도 개인소형화물협회 업무관리 시스템", version="3.0.0")
+from app.services import schema_guard as _schema_guard
+
+# 변경이력 판정 컬럼(judgement, judge_reason)이 없으면 요청 처리 전에 한 번 추가한다(멱등·비파괴).
+# 백그라운드 마이그레이션이 끝나기 전/실패했을 때 발생하는 UndefinedColumn 500 방지용.
+app = FastAPI(title="강원도 개인소형화물협회 업무관리 시스템", version="3.0.0",
+              dependencies=[Depends(_schema_guard.guard_dependency)])
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
                    allow_methods=["*"], allow_headers=["*"])
