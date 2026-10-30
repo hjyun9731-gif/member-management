@@ -348,7 +348,6 @@ function agentFormSection(r,memberId,context='member'){
   const agentKeys=['agent_name','agent_resident_number','agent_mobile','agent_address',
     'agent_driver_license_number','agent_freight_qualification_number','agent_start_date'];
   const hasAgent=agentKeys.some(k=>String(r[k]||'').trim());
-  const title=context==='transfer'?'대리인 정보 (양수인)':'대리인 정보';
   const hist=memberId?`<button type="button" class="btn bo btn-sm" onclick="showAgentHistory(${memberId})" style="white-space:nowrap;flex-shrink:0">변경이력 보기</button>`:'';
   const fields=`${fi('agent_name','대리인 성명',r.agent_name||'')}
     ${frn('agent_resident_number','대리인 주민등록번호',r.agent_resident_number||'')}
@@ -357,12 +356,20 @@ function agentFormSection(r,memberId,context='member'){
     ${fi('agent_driver_license_number','대리인 운전면허번호',r.agent_driver_license_number||'')}
     ${fi('agent_freight_qualification_number','대리인 화물운송종사자격증 번호',r.agent_freight_qualification_number||'')}
     ${fi('agent_start_date','대리 시작일',r.agent_start_date||'')}`;
-  return `<div class="fi cs4 agent-toggle-wrap" style="margin:8px 0 ${hasAgent?'0':'10px'};padding:8px 12px;border:1px solid #e5e7eb;border-radius:${hasAgent?'8px 8px 0 0':'8px'};background:#fff;display:flex;justify-content:space-between;align-items:center;gap:10px">
-    <label style="display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;cursor:pointer;color:#374151;min-width:0">
-      <input type="checkbox" class="agent-present-check" style="width:15px;height:15px;margin:0;accent-color:#7c3aed" ${hasAgent?'checked':''} onchange="toggleAgentFields(this)">
-      <span>${title} 입력</span>
-    </label>${hist}</div>
-    <fieldset class="fg agent-detail-fields" style="grid-column:1/-1;width:100%;box-sizing:border-box;border:1px solid #e5e7eb;border-top:0;border-radius:0 0 8px 8px;background:#fff;padding:12px;margin:0 0 10px;min-width:0;display:${hasAgent?'grid':'none'} !important" ${hasAgent?'':'hidden disabled'}>${fields}</fieldset>`;
+  // 모든 화면에서 동일한 연연두 라벨 + 한 줄 선택 컨트롤을 사용한다.
+  return `<div class="cs4 agent-toggle-wrap" style="grid-column:1/-1;width:100%;box-sizing:border-box;margin:9px 0 6px">
+    <div style="margin-bottom:7px;line-height:1">
+      <span style="display:inline-block;padding:6px 11px;border-radius:999px;background:#e9f8e7;color:#377647;font-size:11px;font-weight:700;letter-spacing:-.15px">대리인 정보</span>
+    </div>
+    <div style="display:flex!important;flex-direction:row!important;align-items:center!important;justify-content:space-between!important;gap:10px;min-height:27px">
+      <label style="display:inline-flex!important;flex-direction:row!important;align-items:center!important;gap:7px!important;margin:0!important;width:auto!important;min-width:0;cursor:pointer;color:#374151;font-size:12px;font-weight:500;line-height:19px">
+        <input type="checkbox" class="agent-present-check" style="width:15px!important;height:15px!important;min-width:15px;flex-shrink:0;margin:0!important;accent-color:#63a66e" ${hasAgent?'checked':''} onchange="toggleAgentFields(this)">
+        <span>대리인 정보 입력</span>
+      </label>
+      ${hist}
+    </div>
+  </div>
+  <fieldset class="fg agent-detail-fields" style="grid-column:1/-1;width:100%;box-sizing:border-box;border:1px solid #dcebd9;border-radius:8px;background:#fbfefb;padding:12px;margin:0 0 9px;min-width:0;display:${hasAgent?'grid':'none'} !important" ${hasAgent?'':'hidden disabled'}>${fields}</fieldset>`;
 }
 // .fg의 CSS display 선언보다 숨김 상태가 우선하도록 inline !important로 처리한다.
 window.toggleAgentFields=(check)=>{
@@ -373,8 +380,6 @@ window.toggleAgentFields=(check)=>{
   panel.hidden=!show;
   panel.disabled=!show;
   panel.style.setProperty('display',show?'grid':'none','important');
-  wrapper.style.borderRadius=show?'8px 8px 0 0':'8px';
-  wrapper.style.marginBottom=show?'0':'10px';
 };
 function bindAgentForm(form){
   if(!form) return;
