@@ -342,23 +342,27 @@ function fi(name,label,val='',req=false){
 
 // ── 대리인 입력 섹션 / 이력 (회원 수정 · 양도양수 등록 · 도내 양도양수 공통) ──
 function _maskRrnView(v){const d=String(v||'').replace(/\D/g,'');return d.length>=13?d.slice(0,6)+'-'+d.slice(6,13):(v||'');}
-function agentFormSection(r,memberId){
+function agentFormSection(r,memberId,context='member'){
   r=r||{};
   const hasAgent=Boolean(String(r.agent_name||'').trim());
-  const hist=memberId?`<button type="button" class="btn bo btn-sm" onclick="showAgentHistory(${memberId})" style="white-space:nowrap">변경이력</button>`:'';
+  const title=context==='transfer'?'대리인 정보 (양수인)':'대리인 정보';
+  const hist=memberId?`<button type="button" class="btn bo btn-sm" onclick="showAgentHistory(${memberId})" style="white-space:nowrap">◷ 변경이력 보기</button>`:'';
   const fields=`${fi('agent_name','대리인 성명',r.agent_name||'')}
     ${frn('agent_resident_number','대리인 주민등록번호',r.agent_resident_number||'')}
     ${fph('agent_mobile','대리인 연락처',r.agent_mobile||'')}
-    <div class="fi cs2"><label>대리인 주소</label><input class="fc" name="agent_address" value="${e_(r.agent_address||'')}"></div>
+    <div class="fi cs4"><label>대리인 주소</label><input class="fc" name="agent_address" value="${e_(r.agent_address||'')}"></div>
     ${fi('agent_driver_license_number','대리인 운전면허번호',r.agent_driver_license_number||'')}
     ${fi('agent_freight_qualification_number','대리인 화물운송종사자격증 번호',r.agent_freight_qualification_number||'')}
     ${fi('agent_start_date','대리 시작일',r.agent_start_date||'')}`;
-  return `<div class="fi cs4 agent-toggle-wrap" style="margin:14px 0 10px;padding:12px 14px;border:1px solid #e2e8f0;border-radius:10px;background:#fff;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
-    <label style="display:flex;align-items:center;gap:10px;font-weight:700;cursor:pointer;color:#1e293b">
-      <input type="checkbox" class="agent-present-check" style="width:17px;height:17px;accent-color:#6366f1" ${hasAgent?'checked':''} onchange="toggleAgentFields(this)">
-      <span>대리인 등록</span>
-    </label>${hist}</div>
-    <fieldset class="fg agent-detail-fields" style="grid-column:1/-1;width:100%;box-sizing:border-box;border:1px solid #e2e8f0;border-radius:10px;padding:14px;margin:0 0 12px;min-width:0;display:${hasAgent?'grid':'none'}" ${hasAgent?'':'hidden disabled'}>${fields}</fieldset>`;
+  return `<div class="fi cs4 agent-toggle-wrap" style="margin:12px 0 0;padding:12px 14px;border:1px solid #ddd6fe;border-radius:10px 10px ${hasAgent?'0 0':'10px 10px'};background:${hasAgent?'#f5f3ff':'#fff'};display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+    <div style="display:flex;flex-direction:column;gap:8px;flex:1;min-width:180px">
+      <strong style="color:#4c1d95;font-size:13px">${title}</strong>
+      <label style="display:inline-flex;align-items:center;gap:9px;font-weight:600;cursor:pointer;color:#334155;width:max-content">
+        <input type="checkbox" class="agent-present-check" style="width:16px;height:16px;accent-color:#7c3aed" ${hasAgent?'checked':''} onchange="toggleAgentFields(this)">
+        <span>대리인 정보 입력</span>
+      </label>
+    </div>${hist}</div>
+    <fieldset class="fg agent-detail-fields" style="grid-column:1/-1;width:100%;box-sizing:border-box;border:1px solid #ddd6fe;border-top:0;border-radius:0 0 10px 10px;background:#fff;padding:14px;margin:0 0 12px;min-width:0;display:${hasAgent?'grid':'none'}" ${hasAgent?'':'hidden disabled'}>${fields}</fieldset>`;
 }
 // 대리인 체크박스 상태와 폼 필드셋을 함께 변경. 초기화(reset) 시에도 동기화한다.
 window.toggleAgentFields=(check)=>{
@@ -367,6 +371,12 @@ window.toggleAgentFields=(check)=>{
   panel.hidden=!check.checked;
   panel.disabled=!check.checked;
   panel.style.display=check.checked?'grid':'none';
+  const wrapper=check.closest('.agent-toggle-wrap');
+  if(wrapper){
+    wrapper.style.background=check.checked?'#f5f3ff':'#fff';
+    wrapper.style.borderRadius=check.checked?'10px 10px 0 0':'10px';
+    wrapper.style.marginBottom=check.checked?'0':'12px';
+  }
 };
 function bindAgentForm(form){
   if(!form) return;
@@ -1174,7 +1184,7 @@ async function renderTransferSection(){
         ${fi('vehicle_number','차량번호','')}
         ${fi('transferor','양도인(성명)','')}
         ${fi('name','양수자(성명)','')}
-        ${frn('resident_number','주민등록번호','')}
+        ${frn('resident_number','양수자 주민등록번호','')}
         `,'👤','sky')}
         ${sec('처리정보',`
         ${fi('receipt_date','접수일자',new Date().toISOString().slice(0,10))}
@@ -1192,7 +1202,7 @@ async function renderTransferSection(){
         <div class="fi"><label>차종 (직접입력)</label><input class="fc" name="vehicle_type" placeholder="예: 22.포터Ⅱ냉동탑차"></div>
         ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),'')}
         `,'🪪','yellow')}
-        ${agentFormSection({})}
+        ${agentFormSection({},null,'transfer')}
         ${sec('사업정보',`
         ${fi('business_number','사업자번호','')} ${fi('affiliated_company','소속업체','')}
         `,'🏢','teal')}
@@ -1543,7 +1553,7 @@ window.openDomesticTransfer=async(id)=>{
       ${fi('driver_license_number','운전면허번호(신규)','')}
       ${fi('transferee_freight_qualification_number','화물운송종사자격증 번호(양수자)','')}
       `,'🔗','teal')}
-      ${agentFormSection({})}
+      ${agentFormSection({},null,'transfer')}
       ${sec('기타',`${fta('memo','비고','','cs4')}`,'📝')}
     </form>
     <div id="dtDupBox"></div>`,
@@ -1928,8 +1938,8 @@ window.editTransfer=async(id)=>{
     `,'📋','sky')}
     ${sec('회원정보',`
       ${fi('vehicle_number','차량번호',r.vehicle_number||'',true)}
-      ${fi('transferor','양도자',r.transferor||'')}
-      ${fi('transferee','양수자',r.transferee||'')}
+      ${fi('transferor','양도인',r.transferor||'')}
+      ${fi('transferee','양수인',r.transferee||'')}
       ${fi('phone','전화번호',r.phone||'')}
       ${fph('mobile','핸드폰',r.mobile||'')}
       <div class="fi cs2"><label>주소</label><input class="fc" name="address" value="${e_(r.address||'')}"></div>
@@ -1943,7 +1953,7 @@ window.editTransfer=async(id)=>{
     ${sec('면허정보',`
       ${fi('driver_license_number','운전면허번호(차주)',r.driver_license_number||'')}
       ${fi('freight_qualification_number','화물운송종사자격증 번호(양수자)',r.freight_qualification_number||'')}
-      ${frn('resident_number','주민등록번호',r.resident_number||'')}
+      ${frn('resident_number','양수인 주민등록번호',r.resident_number||'')}
       <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||raw_tl['차종']||'')}" placeholder="예: 22.포터Ⅱ냉동탑차"></div>
       ${fri('fuel_type','유종',['','경유','LPG','전기','휘발유','CNG','하이브리드'],r.fuel_type||raw_tl['유종']||'')}
       ${fi('affiliated_company','소속업체',r.affiliated_company||raw_tl['소속업체']||raw_tl['업체명']||'')}
@@ -1952,7 +1962,7 @@ window.editTransfer=async(id)=>{
     ${sec('업무정보',`
       ${fi('transfer_region','이관/양도지역',r.transfer_region||'')}
     `,'🔄','teal')}
-    ${agentFormSection(r)}
+    ${agentFormSection(r,null,'transfer')}
     ${sec('기타',`${fta('memo','비고',r.memo||'','cs4')}`,'📝')}
   </form>`,
   `<button class="btn bg btn-sm" id="_tlS">${id?'저장':'등록'}</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
