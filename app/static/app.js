@@ -345,7 +345,7 @@ function _maskRrnView(v){const d=String(v||'').replace(/\D/g,'');return d.length
 function agentFormSection(r,memberId){
   r=r||{};
   const hasAgent=Boolean(String(r.agent_name||'').trim());
-  const hist=memberId?`<div class="fi cs4"><button type="button" class="btn bo btn-sm" onclick="showAgentHistory(${memberId})">대리인 변경이력 보기</button></div>`:'';
+  const hist=memberId?`<button type="button" class="btn bo btn-sm" onclick="showAgentHistory(${memberId})" style="white-space:nowrap">변경이력</button>`:'';
   const fields=`${fi('agent_name','대리인 성명',r.agent_name||'')}
     ${frn('agent_resident_number','대리인 주민등록번호',r.agent_resident_number||'')}
     ${fph('agent_mobile','대리인 연락처',r.agent_mobile||'')}
@@ -353,15 +353,16 @@ function agentFormSection(r,memberId){
     ${fi('agent_driver_license_number','대리인 운전면허번호',r.agent_driver_license_number||'')}
     ${fi('agent_freight_qualification_number','대리인 화물운송종사자격증 번호',r.agent_freight_qualification_number||'')}
     ${fi('agent_start_date','대리 시작일',r.agent_start_date||'')}`;
-  return `<div class="fi cs4" style="margin:10px 0"><label style="display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer">
-    <input type="checkbox" class="agent-present-check" ${hasAgent?'checked':''}
-    onchange="toggleAgentFields(this)"> 대리인 있음</label></div>
-    <fieldset class="fg agent-detail-fields" style="border:0;padding:0;margin:0;min-width:0;display:${hasAgent?'grid':'none'}" ${hasAgent?'':'hidden disabled'}>${fields}</fieldset>
-    ${hist}`;
+  return `<div class="fi cs4 agent-toggle-wrap" style="margin:14px 0 10px;padding:12px 14px;border:1px solid #e2e8f0;border-radius:10px;background:#fff;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+    <label style="display:flex;align-items:center;gap:10px;font-weight:700;cursor:pointer;color:#1e293b">
+      <input type="checkbox" class="agent-present-check" style="width:17px;height:17px;accent-color:#6366f1" ${hasAgent?'checked':''} onchange="toggleAgentFields(this)">
+      <span>대리인 등록</span>
+    </label>${hist}</div>
+    <fieldset class="fg agent-detail-fields" style="grid-column:1/-1;width:100%;box-sizing:border-box;border:1px solid #e2e8f0;border-radius:10px;padding:14px;margin:0 0 12px;min-width:0;display:${hasAgent?'grid':'none'}" ${hasAgent?'':'hidden disabled'}>${fields}</fieldset>`;
 }
 // 대리인 체크박스 상태와 폼 필드셋을 함께 변경. 초기화(reset) 시에도 동기화한다.
 window.toggleAgentFields=(check)=>{
-  const panel=check?.closest('.fi')?.nextElementSibling;
+  const panel=check?.closest('.agent-toggle-wrap')?.nextElementSibling;
   if(!panel) return;
   panel.hidden=!check.checked;
   panel.disabled=!check.checked;
@@ -378,7 +379,7 @@ window.showAgentHistory=async(mid)=>{
   const res=await api('GET',`/api/members/${mid}/agents`).catch(()=>null);if(!res)return;
   const rows=(res.items||[]).map(a=>`<tr><td>${e_(a.name)}</td><td>${e_(a.start_date||'미상')}</td><td>${e_(a.end_date||'-')}</td>
     <td>${a.status==='현재'?'<b style="color:#2563eb">현재</b>':'종료'}</td><td>${e_(a.mobile)}</td><td>${e_(a.resident_number)}</td></tr>`).join('');
-  openModal('대리인 변경이력',`<div class="tw"><table><thead><tr><th>대리인</th><th>시작일</th><th>종료일</th><th>상태</th><th>연락처</th><th>주민번호(마스킹)</th></tr></thead>
+  openModal('대리인 변경이력',`<div class="tw"><table><thead><tr><th>대리인</th><th>시작일</th><th>종료일</th><th>상태</th><th>연락처</th><th>주민등록번호</th></tr></thead>
     <tbody>${rows||'<tr><td colspan="6" style="text-align:center;color:#94a3b8">대리인 이력이 없습니다</td></tr>'}</tbody></table></div>
     <p style="font-size:11px;color:#64748b;margin-top:8px">시작일을 알 수 없는 기존 대리인은 '미상'으로 표시되며 임의로 날짜를 만들지 않습니다.</p>`,
     `<button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
@@ -1356,14 +1357,7 @@ window.editMember=async(id,defaultCat='개인')=>{
 
   // 개인 전용 섹션 HTML
   const indSection=agentFormSection(r,id);
-  // 기존 원장에 별도로 저장한 차주 자격정보는 삭제하지 않고, 평소에는 접어 화면을 간결하게 유지한다.
-  const ownerSection=`<details class="fi cs4" style="margin:8px 0 12px">
-    <summary style="cursor:pointer;font-weight:600;padding:8px 10px;background:var(--c-bg-alt,#f7f8fa);border-radius:6px">차주 자격정보 상세 (필요할 때 펼치기)</summary>
-    <div class="fg" style="margin-top:10px">
-      ${fi('owner_driver_license_number','차주 운전면허번호',r.owner_driver_license_number||'')}
-      ${fi('owner_freight_qualification_number','차주 화물운송종사자격증 번호',r.owner_freight_qualification_number||'')}
-    </div>
-  </details>`;
+  // 차주 면허·자격증은 위 면허정보에 한 번만 표시한다. 기존 별도 DB 필드는 변경하지 않는다.
 
   const relationSection=(id&&(r.transfer_info||r.transfer_out_info))?sec('양도양수 관계정보 (읽기 전용)',`
     ${r.transfer_info?`
@@ -1401,7 +1395,7 @@ window.editMember=async(id,defaultCat='개인')=>{
       ${fi('certificate_issue_date','자격증명발급일자',r.certificate_issue_date||'')} ${fi('certificate_number','자격증명번호',r.certificate_number||'')}
     `,'📋','purple')}
     ${sec('면허정보',`
-      ${fi('driver_license_number','운전면허번호(소유자 미확인 기존값)',r.driver_license_number||'')}
+      ${fi('driver_license_number','운전면허번호',r.driver_license_number||'')}
       ${fi('freight_qualification_number','화물운송종사자격증 번호',r.freight_qualification_number||'')}
       <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||'')}" placeholder="예: 22.포터Ⅱ냉동탑차"></div>
       ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),r.fuel_type||'')}
@@ -1410,7 +1404,6 @@ window.editMember=async(id,defaultCat='개인')=>{
       <div class="fi cs2"><label>구조변경</label><input class="fc" name="structure_change" value="${e_(r.structure_change||'')}" placeholder="예: 윙바디 변경, 냉동기 장착, 호로→윙바디"></div>
     `,'🪪','yellow')}
     ${isTaxi?taxiSection:''}
-    ${isInd?ownerSection:''}
     ${isInd?indSection:''}
     ${relationSection}
     ${sec('기타',`${fta('memo','비고',r.memo||'','cs4')}`,'📝')}
