@@ -358,6 +358,20 @@ def update_transfer_ledger_synced(db: Session, ledger: "models.TransferLedger", 
             for f in sync_fields:
                 if f in data:
                     setattr(linked_member, f, data[f])
+            # 양도양수 화면에서 입력한 면허/자격증은 차주(양수자) 본인 값이므로 차주 전용 컬럼에도 저장한다.
+            if (data.get("driver_license_number") or "").strip():
+                linked_member.owner_driver_license_number = data["driver_license_number"]
+            if (data.get("freight_qualification_number") or "").strip():
+                linked_member.owner_freight_qualification_number = data["freight_qualification_number"]
+            # 대리인: 회원의 현재 대리인/대리인 이력과 자동 연동 (같은 트랜잭션, ChangeHistory 미기록)
+            # 대리인 칸이 비어 있는 수정(대장 일반 수정)이 회원의 현재 대리인을 종료시키지 않도록, 값이 있을 때만 연동
+            if (data.get("agent_name") or "").strip() or (data.get("agent_end_date") or "").strip():
+                from app.services import agent_history as _ah
+                _ah.set_current_agent(
+                    db, linked_member,
+                    _ah.from_prefixed({c: getattr(ledger, c, None) for c in _ah._MEMBER_COL.values()}),
+                    source="transfer", transfer_ledger_id=ledger.id,
+                    previous_end_date=str(data.get("agent_end_date") or ""))
             linked_member.updated_at = datetime.now(timezone.utc)
         elif linked_candidate:
             for f in sync_fields:
@@ -1333,6 +1347,14 @@ def register_candidate_as_member(db: Session, candidate_id: int,
                 db.flush()
                 member.transfer_ledger_id = existing_ledger.id
                 ledger = existing_ledger
+                # 예정자 단계에서 양도양수 등록 때 입력한 대리인 → 회원 현재 대리인/대리인 이력으로 자동 연동
+                if (getattr(existing_ledger, 'agent_name', None) or '').strip():
+                    from app.services import agent_history as _ah
+                    _ah.set_current_agent(
+                        db, member,
+                        _ah.from_prefixed({c: getattr(existing_ledger, c, None) for c in _ah._MEMBER_COL.values()}),
+                        source='transfer', transfer_ledger_id=existing_ledger.id,
+                        previous_end_date=str(getattr(existing_ledger, 'agent_end_date', '') or ''))
             else:
                 ledger = models.TransferLedger(
                     management_number=mgmt_clean,
@@ -1435,11 +1457,19 @@ def register_transfer_as_member(db: Session, transfer_id: int,
         memo=tr.memo,
         transfer_ledger_id=transfer_id,
         membership_status=ms,   # 가입일자 기준 자동 판정
+        owner_driver_license_number=tr.driver_license_number or None,
+        owner_freight_qualification_number=getattr(tr, "freight_qualification_number", None) or None,
     )
     db.add(member)
     db.flush()
     tr.management_number = management_number
     tr.member_id = member.id
+    # 양도양수 등록 때 입력한 대리인 → 회원의 현재 대리인 + 대리인 이력으로 자동 연동 (같은 트랜잭션)
+    if (getattr(tr, "agent_name", None) or "").strip():
+        from app.services import agent_history as _ah
+        _ah.set_current_agent(
+            db, member, _ah.from_prefixed({c: getattr(tr, c, None) for c in _ah._MEMBER_COL.values()}),
+            source="transfer", transfer_ledger_id=tr.id, previous_end_date=str(getattr(tr, "agent_end_date", "") or ""))
     db.commit()
     db.refresh(member)
     return member
@@ -1735,7 +1765,8 @@ def process_domestic_transfer(db: Session, *, transferor_member_id: int,
                                closure_reason: str = "", receipt_date: str = "",
                                management_number: str = None,
                                link_existing_id: int = None,
-                               link_existing_type: str = None) -> dict:
+                               link_existing_type: str = None,
+                               agent: dict = None) -> dict:
     """도내 양도양수 등록 - 하나의 트랜잭션으로 처리.
     성공 시 db.commit(), 실패 시 db.rollback() 후 예외 재발생.
 
@@ -1847,6 +1878,9 @@ def process_domestic_transfer(db: Session, *, transferor_member_id: int,
                     fuel_type=transfer_fields.get("fuel_type") or transferor.fuel_type or "",
                     affiliated_company=transfer_fields.get("affiliated_company") or transferor.affiliated_company or "",
                     memo=transfer_fields.get("memo") or "",
+                    # 양수자 본인(차주) 면허/자격증 — 양도자 값은 복사하지 않는다.
+                    owner_driver_license_number=transfer_fields.get("driver_license_number") or None,
+                    owner_freight_qualification_number=ledger_fqn or None,
                 )
                 db.add(transferee_member)
                 db.flush()
@@ -1883,8 +1917,19 @@ def process_domestic_transfer(db: Session, *, transferor_member_id: int,
             transferee_member_id=transferee_member_id_val,
             member_id=transferee_member_id_val,
         )
+        # 양수자의 대리인 정보를 대장에 보존 (예정자로 등록된 경우 이후 회원등록 때 자동 연동된다)
+        _ag = {k: str(v).strip() for k, v in (agent or {}).items() if v is not None}
+        for _k in ("name", "resident_number", "mobile", "address", "driver_license_number",
+                   "freight_qualification_number", "start_date", "end_date"):
+            if _ag.get(_k):
+                setattr(ledger, "agent_" + _k, _ag[_k])
         db.add(ledger)
         db.flush()
+        if transferee_member and _ag.get("name"):
+            from app.services import agent_history as _ah
+            _ah.set_current_agent(
+                db, transferee_member, {f: _ag.get(f) for f in _ah.AGENT_FIELDS}, source="transfer",
+                transfer_ledger_id=ledger.id, previous_end_date=_ag.get("end_date", ""))
 
         # 예정자 등록인 경우, 예정자에 transfer 참조 남김 (member_id는 실제 등록 시점에 채움)
         if transferee_candidate:

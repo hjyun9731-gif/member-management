@@ -335,6 +335,33 @@ function fi(name,label,val='',req=false){
   return `<div class="fi"><label>${label}${req?'<span class="req">*</span>':''}</label><input class="fc" name="${name}" value="${e_(val)}" ${req?'required':''}></div>`;
 }
 
+// ── 대리인 입력 섹션 / 이력 (회원 수정 · 양도양수 등록 · 도내 양도양수 공통) ──
+function _maskRrnView(v){const d=String(v||'').replace(/\D/g,'');return d.length>=7?d.slice(0,6)+'-*******':(v?'(표시 제한)':'');}
+function agentFormSection(r,memberId){
+  r=r||{};
+  const hist=memberId?`<div class="fi cs4"><button type="button" class="btn bo btn-sm" onclick="showAgentHistory(${memberId})">대리인 변경이력 보기</button>
+    <span style="font-size:11px;color:#64748b;margin-left:8px">새 대리인을 입력하면 기존 대리인은 삭제되지 않고 '종료'로 보존됩니다.</span></div>`:'';
+  return sec('대리인 정보 (없으면 비워 두세요)',`
+    ${fi('agent_name','대리인 성명',r.agent_name||'')}
+    ${frn('agent_resident_number','대리인 주민등록번호',r.agent_resident_number||'')}
+    ${fph('agent_mobile','대리인 연락처',r.agent_mobile||'')}
+    <div class="fi cs2"><label>대리인 주소</label><input class="fc" name="agent_address" value="${e_(r.agent_address||'')}"></div>
+    ${fi('agent_driver_license_number','대리인 운전면허번호',r.agent_driver_license_number||'')}
+    ${fi('agent_freight_qualification_number','대리인 화물운송종사자격증 번호',r.agent_freight_qualification_number||'')}
+    ${fi('agent_start_date','대리 시작일',r.agent_start_date||'')}
+    ${fi('agent_end_date','대리 종료일 (종료 시 입력)',r.agent_end_date||'')}
+    ${hist}`,'🧾','pink');
+}
+window.showAgentHistory=async(mid)=>{
+  const res=await api('GET',`/api/members/${mid}/agents`).catch(()=>null);if(!res)return;
+  const rows=(res.items||[]).map(a=>`<tr><td>${e_(a.name)}</td><td>${e_(a.start_date||'미상')}</td><td>${e_(a.end_date||'-')}</td>
+    <td>${a.status==='현재'?'<b style="color:#2563eb">현재</b>':'종료'}</td><td>${e_(a.mobile)}</td><td>${e_(a.resident_number)}</td></tr>`).join('');
+  openModal('대리인 변경이력',`<div class="tw"><table><thead><tr><th>대리인</th><th>시작일</th><th>종료일</th><th>상태</th><th>연락처</th><th>주민번호(마스킹)</th></tr></thead>
+    <tbody>${rows||'<tr><td colspan="6" style="text-align:center;color:#94a3b8">대리인 이력이 없습니다</td></tr>'}</tbody></table></div>
+    <p style="font-size:11px;color:#64748b;margin-top:8px">시작일을 알 수 없는 기존 대리인은 '미상'으로 표시되며 임의로 날짜를 만들지 않습니다.</p>`,
+    `<button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
+};
+
 // 자격증명발급번호 입력 + '발급번호 부여' 버튼 (예정자/도내양도 등록 공통)
 function certNumField(name,label,val=''){
   return `<div class="fi"><label>${label}</label>
@@ -369,7 +396,7 @@ function _bindCertIssueBtn(form, apiPath){
     btn.disabled=true; // 요청 중 중복클릭 방지
     btn.textContent='발급 중...';
     try{
-      const nameInp=form.querySelector('[name="name"]')||form.querySelector('[name="transferee_name"]');
+      const nameInp=form.querySelector('[name="name"]')||form.querySelector('[name="transferee_name"]')||form.querySelector('[name="transferee"]');
       const vehicleInp=form.querySelector('[name="vehicle_number"]')||form.querySelector('[name="transferee_vehicle_number"]');
       const payload={
         current_number:(inp.value||'').trim(),
@@ -694,7 +721,7 @@ window.viewMember=async(id)=>{
   const sections=[
     {title:'기본 정보',fields:[['관리번호',r.management_number],['지역',r.region],['차량번호',r.vehicle_number],['성명',r.name],['개인/택배',r.category],['가입여부',r.membership_status]]},
     {title:'연락처 / 주소',fields:[['전화번호',r.phone],['핸드폰',r.mobile],['주소',r.address,true],['공문주소',rawAddr,true],['대리인',rawAgent],['대리인 주민등록번호',rawAgentRes],['대리인 핸드폰',rawAgentMob]]},
-    {title:'인허가 정보',fields:[['인가일자',r.approval_date],['가입일자',r.membership_date],['재허가',rawReapproval],['자격증명발급일자',r.certificate_issue_date],['자격증명번호',r.certificate_number],['운전면허번호',r.driver_license_number],['화물운송종사자격증 번호',r.freight_qualification_number],['주민등록번호',r.resident_number],['사업자번호',r.business_number]]},
+    {title:'인허가 정보',fields:[['인가일자',r.approval_date],['가입일자',r.membership_date],['재허가',rawReapproval],['자격증명발급일자',r.certificate_issue_date],['자격증명번호',r.certificate_number],['운전면허번호',r.driver_license_number],['화물운송종사자격증 번호',r.freight_qualification_number],['주민등록번호',_maskRrnView(r.resident_number)],['사업자번호',r.business_number]]},
     {title:'차량 정보',fields:[['차종',r.vehicle_type],['유종',r.fuel_type],['소속업체',r.affiliated_company],['구조변경',r.structure_change||rawStruct,true],['전속업체 변경',rawCompChg,true]]},
     ...(rehasa.length?[{title:'재허가 이력',fields:rehasa}]:[]),
     ...(edu.length?[{title:'교육 / 점검',fields:edu}]:[]),
@@ -789,7 +816,7 @@ window.viewTransfer=async(id)=>{
       ['유종',r.fuel_type||raw['유종']||raw['fuel_type']||''],
       ['구조변경',r.structure_change||raw['구조변경']||'',true],
     ]},
-    {title:'양도자 / 양수자',fields:[['양도자',r.transferor],['양수자',r.transferee],['주민등록번호',r.resident_number],['전화번호',r.phone],['핸드폰',r.mobile],['주소',r.address,true],['공문주소',raw['공문주소']||raw['official_address']||'',true]]},
+    {title:'양도자 / 양수자',fields:[['양도자',r.transferor],['양수자',r.transferee],['주민등록번호',_maskRrnView(r.resident_number)],['전화번호',r.phone],['핸드폰',r.mobile],['주소',r.address,true],['공문주소',raw['공문주소']||raw['official_address']||'',true]]},
     {title:'인허가 / 자격',fields:[['인가일자',r.approval_date],['가입여부',raw['가입여부']||raw['membership_status']||''],['가입일자',r.membership_date],['자격증명발급일자',r.certificate_issue_date],['자격증명번호',r.certificate_number],['운전면허번호',r.driver_license_number],['화물운송종사자격증 번호(양수자)',r.freight_qualification_number]]},
     {title:'소속 / 행정',fields:[['소속업체',r.affiliated_company||raw['소속업체']||raw['업체명']||''],['비고',r.memo,true]]},
     ...(rawExtra.length?[{title:'원본 엑셀 데이터',fields:rawExtra.map(([k,v])=>[k,v,false])}]:[]),
@@ -815,7 +842,7 @@ window.viewClosure=async(id)=>{
   const sections=[
     {title:'기본 정보',fields:[['관리번호',r.management_number],['처리구분',r.closure_type],['자료구분',r.data_type],['지역',r.region],['차량번호',r.vehicle_number],['성명',r.name],['상호',r.company_name]]},
     {title:'차량 정보',fields:[['차종',r.vehicle_type||raw['차종']||raw['차량종류']||''],['유종',r.fuel_type||raw['유종']||raw['연료']||''],['구조변경',r.structure_change||raw['구조변경']||'',true]]},
-    {title:'연락처 / 주소',fields:[['전화번호',r.phone||rawPhone],['핸드폰',r.mobile||rawMobile],['주소',r.address||rawAddr,true],['공문주소',r.official_address||'',true],['주민등록번호',r.resident_number||rawResNo]]},
+    {title:'연락처 / 주소',fields:[['전화번호',r.phone||rawPhone],['핸드폰',r.mobile||rawMobile],['주소',r.address||rawAddr,true],['공문주소',r.official_address||'',true],['주민등록번호',_maskRrnView(r.resident_number||rawResNo)]]},
     {title:'회원 / 자격',fields:[['가입여부',r.membership_status],['가입일자',r.membership_date||rawMemDate],['인가일자',r.approval_date],['자격증명발급일자',r.certificate_issue_date||rawCertDate],['자격증명발급번호',r.certificate_number||rawCertNo],['운전면허번호',r.driver_license_number||rawDrvLic]]},
     {title:'소속 / 대리인',fields:[['소속업체',r.affiliated_company||''],['대리인',r.agent_name||''],['대리인 핸드폰',r.agent_mobile||'']]},
     {title:'폐업처리 정보',fields:[
@@ -1301,11 +1328,11 @@ window.editMember=async(id,defaultCat='개인')=>{
     <div class="fi cs2"><label>공문주소</label><input class="fc" name="official_address" value="${e_(r.official_address||'')}" placeholder="공문 발송 주소"></div>`,'🚚','pink');
 
   // 개인 전용 섹션 HTML
-  const indSection=sec('개인 전용 항목 (대리인)',`
-    ${fi('agent_name','대리인',r.agent_name||'')}
-    ${frn('agent_resident_number','대리인 주민등록번호',r.agent_resident_number||'')}
-    ${fph('agent_mobile','대리인 핸드폰번호',r.agent_mobile||'')}
-    <div class="fi cs2"><label>대리인 주소</label><input class="fc" name="agent_address" value="${e_(r.agent_address||'')}" placeholder="대리인 주소"></div>`,'👤','pink');
+  const indSection=agentFormSection(r,id);
+  const ownerSection=sec('차주/대리인 자격정보 구분',`
+    ${fi('owner_driver_license_number','차주 운전면허번호',r.owner_driver_license_number||'')}
+    ${fi('owner_freight_qualification_number','차주 화물운송종사자격증 번호',r.owner_freight_qualification_number||'')}
+    <div class="fi cs4" style="font-size:11.5px;color:#64748b">아래 '운전면허번호/화물운송종사자격증 번호' 기존 값은 차주·대리인 중 누구 것인지 <b>미확인</b> 상태로 그대로 보존됩니다(자동 이전·삭제 없음).</div>`,'🪪','yellow');
 
   const relationSection=(id&&(r.transfer_info||r.transfer_out_info))?sec('양도양수 관계정보 (읽기 전용)',`
     ${r.transfer_info?`
@@ -1343,7 +1370,7 @@ window.editMember=async(id,defaultCat='개인')=>{
       ${fi('certificate_issue_date','자격증명발급일자',r.certificate_issue_date||'')} ${fi('certificate_number','자격증명번호',r.certificate_number||'')}
     `,'📋','purple')}
     ${sec('면허정보',`
-      ${fi('driver_license_number','운전면허번호',r.driver_license_number||'')}
+      ${fi('driver_license_number','운전면허번호(소유자 미확인 기존값)',r.driver_license_number||'')}
       ${fi('freight_qualification_number','화물운송종사자격증 번호',r.freight_qualification_number||'')}
       <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||'')}" placeholder="예: 22,포터Ⅱ내장탑차"></div>
       ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),r.fuel_type||'')}
@@ -1352,6 +1379,7 @@ window.editMember=async(id,defaultCat='개인')=>{
       <div class="fi cs2"><label>구조변경</label><input class="fc" name="structure_change" value="${e_(r.structure_change||'')}" placeholder="예: 윙바디 변경, 냉동기 장착, 호로→윙바디"></div>
     `,'🪪','yellow')}
     ${isTaxi?taxiSection:''}
+    ${ownerSection}
     ${isInd?indSection:''}
     ${(!id)?(taxiSection+indSection):''}
     ${relationSection}
@@ -1492,6 +1520,7 @@ window.openDomesticTransfer=async(id)=>{
       ${fi('driver_license_number','운전면허번호(신규)','')}
       ${fi('transferee_freight_qualification_number','화물운송종사자격증 번호(양수자)','')}
       `,'🔗','teal')}
+      ${agentFormSection({})}
       ${sec('기타',`${fta('memo','비고','','cs4')}`,'📝')}
     </form>
     <div id="dtDupBox"></div>`,
@@ -1523,6 +1552,10 @@ window.openDomesticTransfer=async(id)=>{
       transferee_vehicle_number:fd.transferee_vehicle_number||'', transferee_region:fd.transferee_region||'',
       transferee_address:fd.transferee_address||'', transferee_mobile:fd.transferee_mobile||'',
       transferee_freight_qualification_number:fd.transferee_freight_qualification_number||'',
+      agent_name:fd.agent_name||'', agent_resident_number:fd.agent_resident_number||'', agent_mobile:fd.agent_mobile||'',
+      agent_address:fd.agent_address||'', agent_driver_license_number:fd.agent_driver_license_number||'',
+      agent_freight_qualification_number:fd.agent_freight_qualification_number||'',
+      agent_start_date:fd.agent_start_date||'', agent_end_date:fd.agent_end_date||'',
       closure_date:fd.closure_date, closure_reason:'도내 양도양수',
       force_new: !!forceNew,
     };
@@ -1882,10 +1915,10 @@ window.editTransfer=async(id)=>{
       ${fi('approval_date','인가일자',r.approval_date||'')}
       ${fi('membership_date','가입일자',r.membership_date||'')}
       ${fi('certificate_issue_date','자격증명발급일자',r.certificate_issue_date||'')}
-      ${fi('certificate_number','자격증명발급번호',r.certificate_number||'')}
+      ${certNumField('certificate_number','자격증명발급번호',r.certificate_number||'')}
     `,'✅','purple')}
     ${sec('면허정보',`
-      ${fi('driver_license_number','운전면허번호',r.driver_license_number||'')}
+      ${fi('driver_license_number','운전면허번호(차주)',r.driver_license_number||'')}
       ${fi('freight_qualification_number','화물운송종사자격증 번호(양수자)',r.freight_qualification_number||'')}
       ${frn('resident_number','주민등록번호',r.resident_number||'')}
       ${fi('vehicle_type','차종',r.vehicle_type||raw_tl['차종']||'')}
@@ -1896,10 +1929,11 @@ window.editTransfer=async(id)=>{
     ${sec('업무정보',`
       ${fi('transfer_region','이관/양도지역',r.transfer_region||'')}
     `,'🔄','teal')}
+    ${agentFormSection(r)}
     ${sec('기타',`${fta('memo','비고',r.memo||'','cs4')}`,'📝')}
   </form>`,
   `<button class="btn bg btn-sm" id="_tlS">${id?'저장':'등록'}</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
-  setTimeout(()=>{const tf=document.getElementById('tlForm');if(tf&&id)tf.dataset.transferId=String(id);},0);
+  setTimeout(()=>{const tf=document.getElementById('tlForm');if(tf&&id)tf.dataset.transferId=String(id);_bindCertIssueBtn(tf,'/api/transfer-ledger/issue-certificate-number');},0);
   document.getElementById('_tlS').onclick=async()=>{
     const form=document.getElementById('tlForm');if(!form.checkValidity()){form.reportValidity();return;}
     const fd=_normFormDates(Object.fromEntries(new FormData(form)));

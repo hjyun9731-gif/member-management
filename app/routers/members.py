@@ -16,6 +16,7 @@ from app.services.certificate_number_guard import guard_certificate_number
 from app.services.freight_qualification import normalize_in_dict_or_400
 from app.services.change_judgement import classify_plate, classify_text, NORMAL, FIRST as FIRST_J
 from app.excel_utils import is_association_member
+from app.services import agent_history
 
 router = APIRouter()
 
@@ -70,6 +71,14 @@ def _fmt(m):
         "agent_resident_number": getattr(m, "agent_resident_number", None) or "",
         "agent_mobile": getattr(m, "agent_mobile", None) or "",
         "agent_address": getattr(m, "agent_address", None) or "",
+        "agent_driver_license_number": getattr(m, "agent_driver_license_number", None) or "",
+        "agent_freight_qualification_number": getattr(m, "agent_freight_qualification_number", None) or "",
+        "agent_start_date": getattr(m, "agent_start_date", None) or "",
+        # 차주/대리인 자격정보 분리. 위 driver_license_number/freight_qualification_number 는 소유자 미확인 기존값.
+        "owner_driver_license_number": getattr(m, "owner_driver_license_number", None) or "",
+        "owner_freight_qualification_number": getattr(m, "owner_freight_qualification_number", None) or "",
+        "license_owner_status": "확인" if (getattr(m, "owner_driver_license_number", None)
+                                         or getattr(m, "owner_freight_qualification_number", None)) else "미확인",
         "structure_change": getattr(m, "structure_change", None) or "",
         "pinned": bool(getattr(m, "pinned", False)),
     }
@@ -216,7 +225,7 @@ async def list_members(
         )
 
     pages = max(1, (total + limit - 1) // limit)
-    return {"items": [_fmt(i) for i in items], "total": total,
+    return {"items": [agent_history.mask_row_rrn(_fmt(i)) for i in items], "total": total,
             "page": page, "pages": pages, "limit": limit}
 
 
@@ -235,13 +244,32 @@ async def export_excel(
                "management_number_prefix": mgmt_prefix}
     items, _ = crud.get_list(db, models.LicenseHolder, skip=0, limit=9999,
                               search=search, search_fields=SEARCH, filters=filters)
-    content = records_to_excel([_fmt(i) for i in items],
+    content = records_to_excel([agent_history.mask_row_rrn(_fmt(i)) for i in items],
                                 exclude=["id", "status", "registration_type"])
     return StreamingResponse(
         io.BytesIO(content),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=members.xlsx"},
     )
+
+
+@router.get("/{mid}/agents")
+async def member_agent_history(mid: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """대리인 변경이력(현재 → 과거). 주민번호·면허번호는 마스킹된 값만 반환한다."""
+    m = crud.get_by_id(db, models.LicenseHolder, mid)
+    if not m:
+        raise HTTPException(404, "회원을 찾을 수 없습니다.")
+    items = agent_history.list_history(db, mid, member=m, created_by=getattr(user, "username", ""))
+    db.commit()   # 기존 대리인 정보를 이력으로 전환한 경우(시작일 미상) 보존
+    return {"member_id": mid, "items": items}
+
+
+@router.post("/agent-history/backfill")
+async def agent_history_backfill(db: Session = Depends(get_db), user=Depends(require_admin)):
+    """관리자: 기존 회원정보의 대리인을 이력 1건씩으로 전환(이력이 없는 회원만, 멱등, 시작일 임의 생성 없음)."""
+    res = agent_history.backfill_legacy(db, created_by=getattr(user, "username", ""))
+    db.commit()
+    return res
 
 
 @router.get("/{mid}")
@@ -329,7 +357,8 @@ _INTERNAL_LOG_ONLY_FIELDS = {
     "approval_date", "certificate_issue_date", "certificate_number",
     "driver_license_number", "freight_qualification_number", "resident_number", "business_number",
     "reapproval_date", "agent_name", "agent_resident_number", "agent_mobile",
-    "agent_address",
+    "agent_address", "agent_driver_license_number", "agent_freight_qualification_number",
+    "agent_start_date", "owner_driver_license_number", "owner_freight_qualification_number",
     "category",
 }
 
@@ -359,8 +388,13 @@ _ALLOWED_UPDATE_FIELDS = {
     "reapproval_date", "official_address",
     # 개인 전용
     "agent_name", "agent_resident_number", "agent_mobile", "agent_address",
+    "agent_driver_license_number", "agent_freight_qualification_number", "agent_start_date",
+    "owner_driver_license_number", "owner_freight_qualification_number",
     "structure_change",
 }
+
+_AGENT_KEYS = {"agent_name", "agent_resident_number", "agent_mobile", "agent_address",
+               "agent_driver_license_number", "agent_freight_qualification_number", "agent_start_date"}
 
 
 @router.put("/{mid}")
@@ -426,7 +460,9 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
 
     # 새로 추가된 컬럼이 실제 DB에 없을 경우 안전하게 제거
     _new_cols = {"reapproval_date", "official_address", "agent_name",
-                 "agent_resident_number", "agent_mobile", "agent_address", "structure_change"}
+                 "agent_resident_number", "agent_mobile", "agent_address", "structure_change",
+                 "agent_driver_license_number", "agent_freight_qualification_number", "agent_start_date",
+                 "owner_driver_license_number", "owner_freight_qualification_number"}
     for col in list(_new_cols):
         if col in filtered_data and not hasattr(m, col):
             filtered_data.pop(col)
@@ -458,6 +494,28 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
             logger.warning(f"setattr {k}={v} 실패: {ex}")
 
     m.updated_at = datetime.datetime.now(datetime.timezone.utc)
+
+    # 대리인 이력: 대리인이 바뀌면 기존 대리인은 '종료'로 보존하고 새 이력을 만든다(덮어쓰기·삭제 금지).
+    # ChangeHistory(월례보고서 실적)에는 기록하지 않는다. 같은 트랜잭션이라 아래 commit 과 함께 저장/롤백된다.
+    if (_AGENT_KEYS & set(filtered_data.keys())) or data.get("agent_end_date"):
+        try:
+            old_agent = {f: before_snap.get(c, "") for f, c in
+                         zip(agent_history.AGENT_FIELDS, [agent_history._MEMBER_COL[x] for x in agent_history.AGENT_FIELDS])}
+            # 대리인 성명이 바뀌었는데 나머지 칸이 이번 요청에 없으면, 이전 대리인의 값이 새 대리인에게
+            # 딸려 가지 않도록 비운다(이전 대리인 값은 이력에 그대로 보존된다).
+            if "agent_name" in filtered_data and \
+               re.sub(r"\s+", "", str(filtered_data.get("agent_name") or "")) != re.sub(r"\s+", "", str(old_agent.get("name") or "")):
+                for _f, _c in agent_history._MEMBER_COL.items():
+                    if _c != "agent_name" and _c not in filtered_data:
+                        setattr(m, _c, None)
+            new_agent = agent_history.from_prefixed({c: getattr(m, c, None) for c in agent_history._MEMBER_COL.values()})
+            agent_history.set_current_agent(
+                db, m, new_agent, source="member_edit", created_by=getattr(current_user, "username", ""),
+                previous_end_date=str(data.get("agent_end_date") or ""), old=old_agent)
+        except Exception as ex:
+            logger.error(f"대리인 이력 저장 실패: {ex}")
+            db.rollback()
+            raise HTTPException(500, f"대리인 이력 저장 오류: {ex}")
 
     # 변경된 필드 분류 (판정: 정상변경/최초등록/표기정정/오류정정/확인필요 — 정상변경만 실적에 합산)
     today = datetime.datetime.now().strftime("%Y-%m-%d")

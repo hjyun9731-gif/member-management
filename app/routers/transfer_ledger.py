@@ -13,6 +13,7 @@ from app import models, crud
 from app.services.certificate_number_reservation import get_or_reserve_certificate_number
 from app.services.certificate_number_guard import guard_certificate_number
 from app.services.certificate_number_rules import canonical_number
+from app.services import agent_history
 from app.excel_utils import records_to_excel, parse_date_sort, is_association_member
 from app.services.freight_qualification import normalize_fqn, normalize_in_dict_or_400
 
@@ -104,6 +105,14 @@ def _fmt(t):
         "fuel_type":             getattr(t, 'fuel_type', '') or "",
         "structure_change":      getattr(t, 'structure_change', '') or "",
         "affiliated_company":    getattr(t, 'affiliated_company', '') or "",
+        "agent_name":            getattr(t, "agent_name", None) or "",
+        "agent_resident_number": getattr(t, "agent_resident_number", None) or "",
+        "agent_mobile":          getattr(t, "agent_mobile", None) or "",
+        "agent_address":         getattr(t, "agent_address", None) or "",
+        "agent_driver_license_number": getattr(t, "agent_driver_license_number", None) or "",
+        "agent_freight_qualification_number": getattr(t, "agent_freight_qualification_number", None) or "",
+        "agent_start_date":      getattr(t, "agent_start_date", None) or "",
+        "agent_end_date":        getattr(t, "agent_end_date", None) or "",
         "member_id":             t.member_id,
         "transferor_member_id":  getattr(t, 'transferor_member_id', None),
         "transferee_member_id":  getattr(t, 'transferee_member_id', None),
@@ -317,7 +326,7 @@ async def list_transfers(
 
     formatted = []
     for t in items:
-        d = _fmt(t)
+        d = agent_history.mask_row_rrn(_fmt(t))     # 목록: 주민등록번호·대리인 주민등록번호 마스킹
         tor_status, tor_date = _member_status(getattr(t, "transferor_member_id", None))
         tee_id = getattr(t, "transferee_member_id", None) or getattr(t, "member_id", None)
         tee_status, tee_date = _member_status(tee_id, t.membership_date or "", allow_fallback=True)
@@ -342,7 +351,7 @@ async def export(search: Optional[str] = Query(None), region: Optional[str] = Qu
                   db: Session = Depends(get_db), _=Depends(get_current_user)):
     items, _ = crud.get_list(db, models.TransferLedger, skip=0, limit=9999,
                               search=search, search_fields=SEARCH, filters={"region": region})
-    content = records_to_excel([_fmt(i) for i in items])
+    content = records_to_excel([agent_history.mask_row_rrn(_fmt(i)) for i in items])
     return StreamingResponse(io.BytesIO(content),
                               media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                               headers={"Content-Disposition": "attachment; filename=transfer_ledger.xlsx"})
@@ -498,6 +507,15 @@ class DomesticTransferBody(BaseModel):
     transferee_mobile: Optional[str] = ""
     # 양수자 개인의 화물운송종사자격증 번호 (양도자 번호와 별개, 복사 없음)
     transferee_freight_qualification_number: Optional[str] = ""
+    # 양수자 대리인 (없으면 비워 두고 등록 가능)
+    agent_name: Optional[str] = ""
+    agent_resident_number: Optional[str] = ""
+    agent_mobile: Optional[str] = ""
+    agent_address: Optional[str] = ""
+    agent_driver_license_number: Optional[str] = ""
+    agent_freight_qualification_number: Optional[str] = ""
+    agent_start_date: Optional[str] = ""
+    agent_end_date: Optional[str] = ""
 
     closure_date: str
     closure_reason: Optional[str] = ""
@@ -566,6 +584,10 @@ async def create_domestic_transfer(body: DomesticTransferBody,
             management_number=body.management_number,
             link_existing_id=body.link_existing_id,
             link_existing_type=body.link_existing_type,
+            agent={k[len('agent_'):]: getattr(body, k) or '' for k in (
+                'agent_name', 'agent_resident_number', 'agent_mobile', 'agent_address',
+                'agent_driver_license_number', 'agent_freight_qualification_number',
+                'agent_start_date', 'agent_end_date')},
         )
     except ValueError as e:
         raise HTTPException(400, str(e))

@@ -19,6 +19,20 @@ logger = logging.getLogger(__name__)
 REQUIRED_COLUMNS = [
     ("change_history", "judgement", "VARCHAR(20)"),
     ("change_history", "judge_reason", "TEXT"),
+    # 대리인 이력/차주·대리인 자격정보 분리 (ORM 모델이 SELECT 하므로 요청 전에 보장)
+    ("license_holders", "agent_driver_license_number", "VARCHAR(100)"),
+    ("license_holders", "agent_freight_qualification_number", "VARCHAR(20)"),
+    ("license_holders", "agent_start_date", "VARCHAR(50)"),
+    ("license_holders", "owner_driver_license_number", "VARCHAR(100)"),
+    ("license_holders", "owner_freight_qualification_number", "VARCHAR(20)"),
+    ("transfer_ledger", "agent_name", "VARCHAR(100)"),
+    ("transfer_ledger", "agent_resident_number", "VARCHAR(30)"),
+    ("transfer_ledger", "agent_mobile", "VARCHAR(50)"),
+    ("transfer_ledger", "agent_address", "TEXT"),
+    ("transfer_ledger", "agent_driver_license_number", "VARCHAR(100)"),
+    ("transfer_ledger", "agent_freight_qualification_number", "VARCHAR(20)"),
+    ("transfer_ledger", "agent_start_date", "VARCHAR(50)"),
+    ("transfer_ledger", "agent_end_date", "VARCHAR(50)"),
 ]
 _RETRY_SECONDS = 15
 

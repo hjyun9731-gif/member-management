@@ -10,6 +10,7 @@ from app.services.certificate_ledger_service import (
     ensure_candidate_ledger, ensure_ledger_schema, mark_candidate_approved,
 )
 from app.services.certificate_number_reservation import get_or_reserve_certificate_number
+from app.services import agent_history
 from app.services.certificate_number_guard import guard_certificate_number
 from app.services.certificate_number_rules import canonical_number
 from app.services.freight_qualification import normalize_in_dict_or_400
@@ -53,7 +54,7 @@ async def list_candidates(
     filters = {"region": region, "is_registered": False}
     items, total = crud.get_list(db, models.Candidate, skip=(page-1)*limit, limit=limit,
                                   search=search, search_fields=SEARCH, filters=filters)
-    return {"items": [_fmt(i) for i in items], "total": total,
+    return {"items": [agent_history.mask_row_rrn(_fmt(i)) for i in items], "total": total,
             "page": page, "pages": max(1, (total+limit-1)//limit), "limit": limit}
 
 
