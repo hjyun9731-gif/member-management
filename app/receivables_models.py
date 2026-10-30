@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, JSON, UniqueConstraint
+from sqlalchemy import Column, Integer, String, DateTime, Text, JSON, UniqueConstraint, Index
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -111,3 +111,44 @@ class ReceivableImportRow(Base):
     raw_data = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class ReceivableAdjustmentBatch(Base):
+    """미수금 정정(실제 입금이 아님) 일괄작업 1건. 한 번 적용되면 status='applied', 되돌리면 'voided'(기록은 보존)."""
+    __tablename__ = "receivable_adjustment_batches"
+    id = Column(Integer, primary_key=True, index=True)
+    batch_id = Column(String(40), unique=True, index=True, nullable=False)
+    reason_code = Column(String(60), index=True, nullable=False)
+    status = Column(String(20), nullable=False, default="applied")
+    plan_digest = Column(String(64), nullable=True)
+    member_count = Column(Integer, nullable=False, default=0)
+    total_amount = Column(Integer, nullable=False, default=0)
+    payments_total_before = Column(Integer, nullable=True)   # 실제 수납 합계(정정 전/후 동일해야 함)
+    payments_total_after = Column(Integer, nullable=True)
+    charges_total_before = Column(Integer, nullable=True)    # 부과 합계(정정 전/후 동일해야 함)
+    charges_total_after = Column(Integer, nullable=True)
+    report = Column(JSON, nullable=True)
+    created_by = Column(String(100), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    voided_at = Column(DateTime(timezone=True), nullable=True)
+    voided_by = Column(String(100), nullable=True)
+    void_reason = Column(Text, nullable=True)
+
+
+class ReceivableAdjustment(Base):
+    """회원별 미수금 정정 내역. receivable_payments(실제 수납)와 완전히 분리되어 수납 통계/통장 입금액에 들어가지 않는다."""
+    __tablename__ = "receivable_adjustments"
+    id = Column(Integer, primary_key=True, index=True)
+    batch_id = Column(String(40), index=True, nullable=False)
+    member_id = Column(Integer, index=True, nullable=False)
+    account_type = Column(String(20), nullable=False)
+    balance_before = Column(Integer, nullable=False)
+    adjustment_amount = Column(Integer, nullable=False)   # 양수 = 미수금 감소
+    balance_after = Column(Integer, nullable=False)
+    reason_code = Column(String(60), index=True, nullable=False)
+    reason = Column(Text, nullable=True)
+    effective_date = Column(String(10), nullable=True)
+    created_by = Column(String(100), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    voided_at = Column(DateTime(timezone=True), nullable=True)
+    voided_by = Column(String(100), nullable=True)

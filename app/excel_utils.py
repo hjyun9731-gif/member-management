@@ -942,6 +942,15 @@ def records_to_excel(records: list, exclude: list = None) -> bytes:
     out = io.BytesIO()
     with pd.ExcelWriter(out, engine='openpyxl') as w:
         df.to_excel(w, index=False)
+        # 화물운송종사자격증 번호: 앞자리 0 보존을 위해 문자열(텍스트) 서식으로 고정
+        if 'freight_qualification_number' in df.columns:
+            ws = w.sheets[w.book.sheetnames[0]]
+            col_idx = list(df.columns).index('freight_qualification_number') + 1
+            for row in ws.iter_rows(min_row=2, min_col=col_idx, max_col=col_idx):
+                for cell in row:
+                    if cell.value not in (None, ''):
+                        cell.value = str(cell.value)
+                    cell.number_format = '@'
     return out.getvalue()
 
 
@@ -994,4 +1003,12 @@ def extract_fuel_type_from_raw(raw: dict) -> str:
         if v and str(v).strip() and str(v).strip() not in ('-', '', 'nan', 'None'):
             return str(v).strip()
     return ''
+
+
+# app/routers/license_holders.py가 import하지만 정의된 적이 없던 이름.
+# main.py에 include_router되지 않는 미사용 라우터라 운영에는 영향이 없으나,
+# 모듈 import 자체가 깨져 있어 테스트 수집이 막힌다. 빈 매핑으로 두면
+# records_to_excel 쪽 `.get(k, k)` 호출이 원래 키를 그대로 쓰는 것과 동일하게 동작한다.
+# (이번 자격증명발급대장 작업과 무관한 기존 버그 — 별도 커밋으로 분리)
+COLUMN_LABELS: dict = {}
 

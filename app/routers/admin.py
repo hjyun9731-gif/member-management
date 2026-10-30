@@ -8,9 +8,10 @@ from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 
 from app.database import get_db
-from app.auth import require_admin
+from app.auth import require_admin, security_status
 from app import models, crud
 
+from app.services.change_judgement import mask_rrn  # 주민번호 형식 값 표시 제한
 router = APIRouter()
 
 TABLE_MAP = {
@@ -1324,7 +1325,7 @@ async def verify_change_types(db: Session = Depends(get_db), _=Depends(require_a
                 "id": r.id, "change_type": r.change_type,
                 "vehicle_number": r.vehicle_number, "name": r.name,
                 "before_value": r.before_value, "after_value": r.after_value,
-                "memo": r.memo, "change_date": r.change_date,
+                "memo": r.memo, "change_date": mask_rrn(r.change_date),
                 "판정": "상호변경으로 재분류 필요",
             })
 
@@ -1914,7 +1915,7 @@ async def cert_debug_change(
         y, mo = _ym(date_str)
         if y == year and mo == month:
             matched.append({'id': r.id, 'change_type': r.change_type,
-                           'change_date': r.change_date, 'receipt_date': r.receipt_date})
+                           'change_date': mask_rrn(r.change_date), 'receipt_date': r.receipt_date})
         elif len(unmatched_samples) < 5 and date_str:
             unmatched_samples.append({'date_str': date_str, 'parsed': (y, mo)})
 
@@ -2026,7 +2027,7 @@ async def audit_change_history(db: Session = Depends(get_db), _=Depends(require_
         return {
             "id": c.id, "change_type": c.change_type,
             "추천유형": sug_ct, "vehicle_number": c.vehicle_number,
-            "name": c.name, "change_date": c.change_date,
+            "name": c.name, "change_date": mask_rrn(c.change_date),
             "before": c.before_value or "", "after": c.after_value or "",
             "memo": c.memo or "",
             "raw_sample": {k: str(raw[k])[:50] for k in list(raw.keys())[:10]},
@@ -2341,7 +2342,7 @@ async def nonstandard_change_types(db: Session = Depends(get_db), _=Depends(requ
             '추천_type': _suggest(ct, combined),
             'vehicle_number': r.vehicle_number,
             'name': r.name,
-            'change_date': r.change_date,
+            'change_date': mask_rrn(r.change_date),
             'before': r.before_value or '',
             'after':  r.after_value  or '',
             'memo':   r.memo         or '',
@@ -2888,3 +2889,9 @@ async def reactivate_certificate_number(certificate_number: str,
     except ValueError as e:
         raise HTTPException(400, str(e))
     return {"ok": True, "certificate_number": certificate_number, "status": "issued"}
+
+
+@router.get("/security-status")
+def get_security_status(_admin=Depends(require_admin)):
+    """관리자 전용 보안 설정 점검. 설정 여부·길이 구간·기본값 사용 여부만 알려주고 비밀값은 반환하지 않는다."""
+    return security_status()

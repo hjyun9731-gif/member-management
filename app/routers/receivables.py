@@ -6,6 +6,7 @@ import calendar
 import hashlib
 import io
 import json
+import os
 import re
 import threading
 import time
@@ -27,7 +28,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import models
-from app.auth import get_current_user
+from app import bank_import_utils as bank_import
+from app.auth import get_current_user, admin_for_writes, require_admin, staff_write_ok
 from app.database import SessionLocal, get_db, engine
 from app.excel_utils import is_association_member
 from app.receivables_models import (
@@ -36,11 +38,17 @@ from app.receivables_models import (
     ReceivablePayment,
     ReceivableProfile,
     ReceivableSystemState,
+    ReceivableAdjustment,
+    ReceivableAdjustmentBatch,
     ReceivableImportBatch,
     ReceivableImportRow,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(admin_for_writes)])
+# 변경 요청(POST/PUT/PATCH/DELETE)은 기본적으로 로그인 + 관리자 전용이다(앞으로 추가되는 변경 API도 자동 보호).
+# 일반 직원이 쓰는 일상 업무만 @staff_write_ok 로 열어 둔다:
+#   수납 입력/취소, 연락기록, 계정 설정, 통장 업로드(미리보기·회원 연결·수납 반영).
+# 금액수정·정정·되돌리기·reconcile·원장 동기화는 표시가 없으므로 관리자 전용이다.
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 DATA_FILE = Path(__file__).resolve().parent.parent / "data" / "legacy_receivables_2026.json"
 KST = ZoneInfo("Asia/Seoul")
@@ -105,9 +113,19 @@ def _ensure_receivables_schema_ready() -> None:
             ReceivableSystemState.__table__,
             ReceivableImportBatch.__table__,
             ReceivableImportRow.__table__,
+            ReceivableAdjustmentBatch.__table__,
+            ReceivableAdjustment.__table__,
         ]
         # 이 모듈 테이블만 checkfirst=True로 생성한다. 기존 회원/인허가 테이블은 대상 아님.
         ReceivableProfile.metadata.create_all(bind=engine, tables=tables, checkfirst=True)
+        # 같은 회원·계정·사유의 '유효한' 정정은 1건만 허용(동시 실행/재실행 시에도 DB가 중복을 거부한다).
+        try:
+            with engine.begin() as _c:
+                _c.execute(text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_receivable_adj_active "
+                    "ON receivable_adjustments (member_id, account_type, reason_code) WHERE voided_at IS NULL"))
+        except Exception:
+            pass
 
         # create_all은 기존 테이블의 누락 컬럼을 ALTER하지 않으므로,
         # 과거 receivable_profiles가 이미 존재하는 경우 이 컬럼들만 안전하게 보강한다.
@@ -1826,6 +1844,17 @@ def _repair_profile_fee_rules(db: Session) -> int:
     return fixed
 
 
+def _certificate_unissued(member) -> bool:
+    """발급일자와 발급번호가 *모두* 없으면 자격증명 미발급으로 판정한다.
+
+    발급번호만 있는 기존 회원은 미발급으로 간주하지 않는다.
+    공백/NULL은 동일하게 처리한다.
+    """
+    issue_date = str(getattr(member, "certificate_issue_date", "") or "").strip()
+    issue_number = str(getattr(member, "certificate_number", "") or "").strip()
+    return not issue_date and not issue_number
+
+
 def _auto_charge_allowed_for_month(profile, member, billing_month: str) -> bool:
     """계정/차량/시행연도 기준 자동부과 허용 여부.
 
@@ -1836,6 +1865,10 @@ def _auto_charge_allowed_for_month(profile, member, billing_month: str) -> bool:
     """
     if str(getattr(profile, "account_type", "") or "") != "관리비":
         return True
+    # 미발급 회원은 기존 등록일/legacy 차지 시작일이 있어도 신규 관리비를 만들지 않는다.
+    # 과거 부과 기록/legacy_balance는 자동 삭제·차감하지 않고 별도 대조한다.
+    if _certificate_unissued(member):
+        return False
     if str(billing_month or "") < GENERAL_MANAGEMENT_START_KEY:
         return _is_bae_vehicle(member)
     return True
@@ -1885,6 +1918,10 @@ def _repair_invalid_auto_charges(db: Session) -> int:
     for ch in rows:
         p = profiles.get(ch.member_id)
         m = members.get(ch.member_id)
+        # 기존 미발급자 자동부과는 금액 산정에 이미 반영됐을 수 있어 자동 삭제 금지.
+        # 신규 생성만 차단하고 과거 오부과는 원본 기준잔액 대조 후 별도 정정한다.
+        if p and m and str(getattr(p, "account_type", "") or "") == "관리비" and _certificate_unissued(m):
+            continue
         if not p or not m or not _valid_auto_charge(p, m, closures.get(ch.member_id), ch, today):
             db.delete(ch)
             removed += 1
@@ -1947,7 +1984,7 @@ def _sync_charges(db: Session) -> int:
     return added
 
 
-def _ensure_current_month_billing(db: Session) -> int:
+def _ensure_current_month_billing(db: Session, remove_invalid_charges: bool = True) -> int:
     """현재 월 자동부과를 월 1회 보장한다.
 
     2026-08까지는 최신 원장 snapshot에 포함되어 있어 자동부과하지 않는다.
@@ -1975,7 +2012,8 @@ def _ensure_current_month_billing(db: Session) -> int:
         # 부과 직전 계정/폐업 상태와 고정월회비를 다시 확인한다.
         _repair_account_types(db)
         _repair_profile_fee_rules(db)
-        _repair_invalid_auto_charges(db)
+        if remove_invalid_charges:
+            _repair_invalid_auto_charges(db)
         added = _sync_charges(db)
         db.add(
             ReceivableSystemState(
@@ -1997,14 +2035,14 @@ def _ensure_current_month_billing(db: Session) -> int:
         return added
 
 
-def _sync_all(db: Session):
+def _sync_all(db: Session, remove_invalid_charges: bool = True):
     """운영 DB 동기화. Excel/JSON 재반영은 절대 하지 않는다."""
     baseline_imported = _ensure_db_ledger_ready(db)
     p = _sync_profiles_full(db, allow_legacy_seed=True)
     r = _repair_account_types(db)
     fee_fixed = _repair_profile_fee_rules(db)
-    removed = _repair_invalid_auto_charges(db)
-    c = _ensure_current_month_billing(db)
+    removed = _repair_invalid_auto_charges(db) if remove_invalid_charges else 0
+    c = _ensure_current_month_billing(db, remove_invalid_charges=remove_invalid_charges)
     # 신규 profile 또는 가입일자/자격증명발급일자 변경으로 이번 달부터 부과대상이 된 경우 즉시 보정.
     if p or r or fee_fixed or removed:
         c += _sync_charges(db)
@@ -2063,7 +2101,14 @@ def _monthly_billing_worker():
 
 @router.on_event("startup")
 def _start_monthly_billing_scheduler():
+    """백그라운드 동기화는 기본적으로 켜지 않는다(환경변수 RECEIVABLES_BACKGROUND_SYNC=1 로 명시적으로 켠다).
+
+    기본값에서는 서버 시작·조회가 DB를 바꾸지 않으며, 월 부과·프로필 생성은 관리자 '원장 동기화'로 실행한다.
+    """
     global _monthly_scheduler_started
+    if not _background_sync_enabled():
+        print("[receivables] 백그라운드 동기화 꺼짐(RECEIVABLES_BACKGROUND_SYNC 미설정) — 관리자 '원장 동기화'로 실행")
+        return
     with _monthly_scheduler_lock:
         if _monthly_scheduler_started:
             return
@@ -2134,29 +2179,59 @@ def _legacy_effective_payment_sql_condition():
 
 
 def _charge_payment_subqueries(db: Session):
-    """잔액 집계용 서브쿼리.
+    """잔액 집계용 서브쿼리 — 회원 상세(_canonical_balance_parts)와 같은 규칙을 SQL로 옮긴 것.
 
     legacy_balance가 최신 2026-08 통장기준 원장의 누적 미수이므로, legacy 회원의
     1~8월 auto charge를 제외한다. 또한 최신 snapshot 확정 이전에 DB에 이미 존재하던
     8/31 이하 수납/잔액수정은 snapshot에 흡수된 과거 처리이므로 다시 차감하지 않는다.
     기존 DB 기록은 삭제하지 않으며 snapshot 이후 새 입력은 정상 반영한다.
+
+    자동부과(auto)는 상세화면의 _valid_auto_charge와 같이 다음을 무효로 본다:
+      · 계정/금액이 프로필과 다른 부과 · 자격증명 미발급(발급일·발급번호 모두 공란) 관리비 회원의 부과
+      · 2026년 비택배 관리비 · 현재 폐업건의 폐업월 이후 부과
+    무효 부과는 삭제하지 않고(감사용 보존) 잔액 계산에서만 제외한다.
+    정정(receivable_adjustments)은 실제 수납과 분리된 adjustment_total 열로 제공한다.
     """
     today_month = _month_key(datetime.now(KST).date())
+    M = models.LicenseHolder
+    C = models.Closure
+    blank_issue = func.coalesce(func.trim(M.certificate_issue_date), "") == ""
+    blank_number = func.coalesce(func.trim(M.certificate_number), "") == ""
+    unissued_mgmt = and_(ReceivableProfile.account_type == "관리비", blank_issue, blank_number)
+    bae = func.replace(func.coalesce(M.vehicle_number, ""), " ", "").like("%배%")
+    expected_fee = case(
+        *[(ReceivableProfile.account_type == k, v) for k, v in ACCOUNT_FEES.items()], else_=-1
+    )
+    cdate = func.replace(func.coalesce(C.closure_date, ""), ".", "-")
+    after_closure = and_(
+        M.status == "closed", C.id.isnot(None), func.length(cdate) >= 7, func.substr(cdate, 5, 1) == "-",
+        ReceivableCharge.billing_month > func.substr(cdate, 1, 7),
+    )
+    auto_invalid = or_(
+        ReceivableCharge.account_type != ReceivableProfile.account_type,
+        ReceivableCharge.amount != expected_fee,
+        unissued_mgmt,
+        and_(ReceivableProfile.account_type == "관리비", ReceivableCharge.billing_month < GENERAL_MANAGEMENT_START_KEY, ~bae),
+        after_closure,
+    )
     charges_sq = (
         db.query(
             ReceivableCharge.member_id.label("member_id"),
             func.coalesce(func.sum(ReceivableCharge.amount), 0).label("charge_total"),
         )
         .join(ReceivableProfile, ReceivableProfile.member_id == ReceivableCharge.member_id)
+        .join(M, M.id == ReceivableCharge.member_id)
+        .outerjoin(C, and_(C.id == M.closure_id, C.deleted_at.is_(None)))
         .filter(ReceivableCharge.billing_month <= today_month)
         .filter(or_(
             ReceivableProfile.legacy_source_row.is_(None),
             ReceivableCharge.billing_month > LEGACY_DATA_THROUGH_KEY,
         ))
+        .filter(or_(ReceivableCharge.source.is_(None), ReceivableCharge.source != "auto", ~auto_invalid))
         .group_by(ReceivableCharge.member_id)
         .subquery()
     )
-    payments_sq = (
+    pay_raw = (
         db.query(
             ReceivablePayment.member_id.label("member_id"),
             func.coalesce(func.sum(ReceivablePayment.amount), 0).label("payment_total"),
@@ -2167,7 +2242,87 @@ def _charge_payment_subqueries(db: Session):
         .group_by(ReceivablePayment.member_id)
         .subquery()
     )
+    adj_raw = (
+        db.query(
+            ReceivableAdjustment.member_id.label("member_id"),
+            func.coalesce(func.sum(ReceivableAdjustment.adjustment_amount), 0).label("adjustment_total"),
+        )
+        .filter(ReceivableAdjustment.voided_at.is_(None))
+        .group_by(ReceivableAdjustment.member_id)
+        .subquery()
+    )
+    payments_sq = (
+        db.query(
+            ReceivableProfile.member_id.label("member_id"),
+            func.coalesce(pay_raw.c.payment_total, 0).label("payment_total"),
+            func.coalesce(adj_raw.c.adjustment_total, 0).label("adjustment_total"),
+        )
+        .outerjoin(pay_raw, pay_raw.c.member_id == ReceivableProfile.member_id)
+        .outerjoin(adj_raw, adj_raw.c.member_id == ReceivableProfile.member_id)
+        .subquery()
+    )
     return charges_sq, payments_sq
+
+
+def _balance_sql_core(charges_sq, payments_sq):
+    """모든 목록/통계/엑셀/지로 대상이 쓰는 단일 SQL 잔액식: 기준잔액 + 부과 - 실제수납 - 정정."""
+    return (
+        func.coalesce(ReceivableProfile.legacy_balance, 0)
+        + func.coalesce(charges_sq.c.charge_total, 0)
+        - func.coalesce(payments_sq.c.payment_total, 0)
+        - func.coalesce(payments_sq.c.adjustment_total, 0)
+    )
+
+
+def _adjustment_total_for(db: Session, member_id: int) -> int:
+    return int(
+        db.query(func.coalesce(func.sum(ReceivableAdjustment.adjustment_amount), 0))
+        .filter(ReceivableAdjustment.member_id == member_id, ReceivableAdjustment.voided_at.is_(None))
+        .scalar() or 0
+    )
+
+
+def _current_closure_for_member(db: Session, member):
+    """상세화면과 동일: 현재 폐업 상태 회원만 현재 폐업건을 가진다."""
+    if (member.status or "active") != "closed":
+        return None
+    closure = None
+    if getattr(member, "closure_id", None):
+        closure = db.query(models.Closure).filter(
+            models.Closure.id == member.closure_id, models.Closure.deleted_at.is_(None)).first()
+    if closure is None:
+        closure = db.query(models.Closure).filter(
+            models.Closure.member_id == member.id, models.Closure.deleted_at.is_(None)
+        ).order_by(models.Closure.id.desc()).first()
+    return closure
+
+
+def _canonical_balance_parts(db: Session, member, profile, closure) -> dict:
+    """회원 1명의 현재 미수금 — 상세화면·금액수정·일괄정정이 모두 이 함수를 쓴다."""
+    member_id = int(member.id)
+    all_member_charges = db.query(ReceivableCharge).filter(ReceivableCharge.member_id == member_id).all()
+    valid_member_charges = [
+        ch for ch in all_member_charges
+        if ch.source != "auto" or _valid_auto_charge(profile, member, closure, ch)
+    ]
+    charge_total = sum(int(ch.amount or 0) for ch in valid_member_charges)
+    payment_q = db.query(func.coalesce(func.sum(ReceivablePayment.amount), 0)).filter(
+        ReceivablePayment.member_id == member_id, ReceivablePayment.cancelled_at.is_(None)
+    )
+    if profile.legacy_source_row is not None:
+        cutoff = _legacy_snapshot_cutoff_at()
+        payment_q = payment_q.filter(or_(
+            ReceivablePayment.payment_date > LEGACY_DATA_THROUGH_DATE_ISO,
+            ReceivablePayment.created_at > cutoff,
+        ))
+    payment_total = int(payment_q.scalar() or 0)
+    baseline = int(_legacy_balance_as_of(profile, _parse_date(getattr(closure, "closure_date", None)) if closure else None))
+    adjustment_total = _adjustment_total_for(db, member_id)
+    return {
+        "baseline": baseline, "charges": int(charge_total), "payments": payment_total,
+        "adjustments": adjustment_total,
+        "balance": baseline + int(charge_total) - payment_total - adjustment_total,
+    }
 
 
 def _latest_contact_subquery(db: Session):
@@ -2357,13 +2512,44 @@ def meta(
     return {"regions": regions, "account_types": list(ACCOUNT_FEES), "contact_statuses": sorted(CONTACT_STATUSES), "ledger_mode": LEDGER_MODE, "excel_reupload_required": False, "baseline_key": LEGACY_BASELINE_KEY}
 
 
-@router.get("/api/receivables/sync")
+def _background_sync_enabled() -> bool:
+    return str(os.getenv("RECEIVABLES_BACKGROUND_SYNC", "")).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _sync_status(db: Session) -> dict:
+    """원장 동기화가 필요한지 조회만으로 알려준다(DB 변경 없음)."""
+    month = _month_key(datetime.now(KST).date())
+    charged = {mid for (mid,) in db.query(ReceivableCharge.member_id).filter(ReceivableCharge.billing_month == month).all()}
+    return {
+        "month": month,
+        "profiles_missing": int(_eligible_missing_profiles_query(db).count()),
+        "active_profiles": int(db.query(func.count(ReceivableProfile.member_id)).filter(ReceivableProfile.receivable_active == 1).scalar() or 0),
+        "members_with_charge_this_month": len(charged),
+        "monthly_billing_marker": db.query(ReceivableSystemState).filter(
+            ReceivableSystemState.key == f"receivable_billing_generated:{month}").first() is not None,
+        "background_sync_enabled": _background_sync_enabled(),
+        "note": "읽기 전용 점검입니다. 실행은 관리자 전용 POST /api/receivables/admin/sync",
+    }
+
+
+@router.get("/api/receivables/admin/sync-status")
+def sync_status(db: Session = Depends(get_db), current_user=Depends(require_admin)):
+    _ensure_receivables_read_ready(db)
+    return _sync_status(db)
+
+
+@router.post("/api/receivables/admin/sync")
 def sync_receivables(
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_admin),
 ):
-    result = _sync_all(db)
-    return {"ok": True, **result}
+    """관리자가 명시적으로 실행하는 원장 동기화(프로필 생성·월 부과 생성). 조회 API에서는 절대 실행되지 않는다.
+
+    과거 부과 기록은 삭제하지 않는다(무효 부과는 잔액 계산에서만 제외).
+    """
+    before = _sync_status(db)
+    result = _sync_all(db, remove_invalid_charges=False)
+    return {"ok": True, "before": before, **result}
 
 
 @router.get("/api/receivables/verify")
@@ -2371,7 +2557,9 @@ def verify_legacy_import(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    _ensure_db_ledger_ready(db)
+    # 목록/summary/dashboard와 동일한 read-only 정책: GET 요청에서 전수 동기화/복구는 돌리지 않는다.
+    # 최신 상태가 필요하면 관리자가 /api/receivables/sync 를 명시적으로 호출한다.
+    _ensure_receivables_read_ready(db)
     payload = json.loads(DATA_FILE.read_text(encoding="utf-8")) if DATA_FILE.exists() else {}
     _load_seed()
     seed_rows = _seed_cache or []
@@ -2401,9 +2589,7 @@ def verify_legacy_import(
 
     charges_sq, payments_sq = _charge_payment_subqueries(db)
     balance_expr = (
-        func.coalesce(ReceivableProfile.legacy_balance, 0)
-        + func.coalesce(charges_sq.c.charge_total, 0)
-        - func.coalesce(payments_sq.c.payment_total, 0)
+        _balance_sql_core(charges_sq, payments_sq)
     )
     current_balances = [
         int(v or 0) for (v,) in (
@@ -2480,9 +2666,7 @@ def summary(
     _ensure_receivables_read_ready(db)
     charges_sq, payments_sq = _charge_payment_subqueries(db)
     balance_expr = (
-        func.coalesce(ReceivableProfile.legacy_balance, 0)
-        + func.coalesce(charges_sq.c.charge_total, 0)
-        - func.coalesce(payments_sq.c.payment_total, 0)
+        _balance_sql_core(charges_sq, payments_sq)
     )
     positive_balance = case((balance_expr > 0, balance_expr), else_=0)
     prepaid_balance = case((balance_expr < 0, -balance_expr), else_=0)
@@ -2575,9 +2759,7 @@ def receivables_dashboard(
     charges_sq, payments_sq = _charge_payment_subqueries(db)
     latest_contact_sq = _latest_contact_subquery(db)
     balance_expr = (
-        func.coalesce(ReceivableProfile.legacy_balance, 0)
-        + func.coalesce(charges_sq.c.charge_total, 0)
-        - func.coalesce(payments_sq.c.payment_total, 0)
+        _balance_sql_core(charges_sq, payments_sq)
     ).label("balance")
 
     rows = (
@@ -2806,6 +2988,9 @@ def monthly_analysis(
     charges_by_member = {}
     program_charge_by_month = {}
     if member_ids:
+        # 회원 상세/목록과 같은 규칙: 무효 자동부과(미발급 관리비·폐업월 이후·금액/계정 불일치 등)는 잔액에서 제외한다(삭제하지 않음).
+        member_map = {int(m.id): m for m in db.query(models.LicenseHolder).filter(models.LicenseHolder.id.in_(member_ids)).all()}
+        closure_cache = {}
         for c in db.query(ReceivableCharge).filter(ReceivableCharge.member_id.in_(member_ids)).all():
             p = profile_by_member.get(int(c.member_id))
             if not p:
@@ -2813,6 +2998,14 @@ def monthly_analysis(
             billing_month = str(c.billing_month or "")
             if p.legacy_source_row is not None and billing_month <= LEGACY_DATA_THROUGH_KEY:
                 continue
+            if (c.source or "auto") == "auto":
+                mem = member_map.get(int(c.member_id))
+                if mem is None:
+                    continue
+                if int(c.member_id) not in closure_cache:
+                    closure_cache[int(c.member_id)] = _current_closure_for_member(db, mem)
+                if not _valid_auto_charge(p, mem, closure_cache[int(c.member_id)], c):
+                    continue
             amount = int(c.amount or 0)
             charges_by_member.setdefault(int(c.member_id), []).append((billing_month, amount))
             program_charge_by_month[billing_month] = program_charge_by_month.get(billing_month, 0) + amount
@@ -2821,6 +3014,7 @@ def monthly_analysis(
     payments_by_member = {}
     program_paid_by_month = {}
     balance_adjustment_by_month = {}
+    adjustments_by_member = {}
     if member_ids:
         payment_rows = (
             db.query(ReceivablePayment)
@@ -2844,6 +3038,17 @@ def monthly_analysis(
             else:
                 program_paid_by_month[mk] = program_paid_by_month.get(mk, 0) + amount
 
+    if member_ids:
+        # 정정 전용 테이블(receivable_adjustments)은 수납이 아니라 잔액 조정으로만 반영한다.
+        for adj in db.query(ReceivableAdjustment).filter(
+            ReceivableAdjustment.member_id.in_(member_ids), ReceivableAdjustment.voided_at.is_(None)
+        ).all():
+            mk = str(adj.effective_date or "")[:7]
+            if len(mk) == 7:
+                balance_adjustment_by_month[mk] = balance_adjustment_by_month.get(mk, 0) - int(adj.adjustment_amount or 0)
+                adjustments_by_member.setdefault(int(adj.member_id), []).append(
+                    (str(adj.effective_date), int(adj.adjustment_amount or 0)))
+
     snapshot_cache = {}
 
     def snapshot(profile: ReceivableProfile, month_key: str) -> int:
@@ -2866,7 +3071,8 @@ def monthly_analysis(
             else:
                 base = int(profile.legacy_balance or 0)
         else:
-            base = 0
+            # 기준잔액(legacy_balance)은 상세/목록과 같이 모든 프로필에 적용한다(법정 기준월 이전은 0).
+            base = int(profile.legacy_balance or 0) if (y, m) >= (LEGACY_YEAR, 1) else 0
 
         for billing_month, amount in charges_by_member.get(int(profile.member_id), []):
             if billing_month and billing_month <= month_key:
@@ -2874,6 +3080,9 @@ def monthly_analysis(
         for payment_date, amount, _method in payments_by_member.get(int(profile.member_id), []):
             if payment_date and payment_date <= end_iso:
                 base -= int(amount or 0)
+        for eff_date, amount in adjustments_by_member.get(int(profile.member_id), []):
+            if eff_date <= end_iso:
+                base -= int(amount)       # 정정(실제 수납 아님): 잔액에서만 차감
 
         snapshot_cache[cache_key] = int(base)
         return int(base)
@@ -3166,9 +3375,7 @@ def _hydrate_closure_records(db: Session, closure_rows):
     if member_ids:
         charges_sq, payments_sq = _charge_payment_subqueries(db)
         balance_expr = (
-            func.coalesce(ReceivableProfile.legacy_balance, 0)
-            + func.coalesce(charges_sq.c.charge_total, 0)
-            - func.coalesce(payments_sq.c.payment_total, 0)
+            _balance_sql_core(charges_sq, payments_sq)
         ).label("balance")
         for profile, balance in (
             db.query(ReceivableProfile, balance_expr)
@@ -3414,9 +3621,7 @@ def list_members(
     latest_contact_sq = _latest_contact_subquery(db)
     current_closure_sq = _current_closure_subquery(db)
     balance_expr = (
-        func.coalesce(ReceivableProfile.legacy_balance, 0)
-        + func.coalesce(charges_sq.c.charge_total, 0)
-        - func.coalesce(payments_sq.c.payment_total, 0)
+        _balance_sql_core(charges_sq, payments_sq)
     ).label("balance")
 
     query = (
@@ -3706,6 +3911,24 @@ def _extract_vehicle_from_text(text_value: str) -> str:
     return ""
 
 
+def _pick_payer_columns(cols):
+    """입금자명 후보 열(우선순위 순). 농협은 '거래기록사항'이 입금자명, '거래내용'은 입금 수단이다."""
+    primary, fallback = [], []
+    for alias in bank_import.PAYER_PRIMARY_ALIASES:
+        c = _pick_column(cols, [alias], prefer_exact=True)
+        if c is not None and c not in primary:
+            primary.append(c)
+    for alias in ("입금자", "거래기록사항"):  # '입금자(…)' 처럼 덧붙은 헤더 허용
+        c = _pick_column(cols, [alias], prefer_exact=False)
+        if c is not None and c not in primary:
+            primary.append(c)
+    for alias in bank_import.PAYER_FALLBACK_ALIASES:
+        c = _pick_column(cols, [alias], prefer_exact=True)
+        if c is not None and c not in primary and c not in fallback:
+            fallback.append(c)
+    return primary, fallback
+
+
 def _parse_import_rows(data: bytes, filename: str, source_type: str):
     parsed = []
     for sheet, df in _read_import_frames(data, filename):
@@ -3713,13 +3936,18 @@ def _parse_import_rows(data: bytes, filename: str, source_type: str):
             continue
         cols = list(df.columns)
         date_col = _pick_column(cols, _IMPORT_ALIASES["date"], prefer_exact=False)
-        amount_col = _pick_column(cols, _IMPORT_ALIASES["amount"], prefer_exact=False)
-        payer_col = _pick_column(cols, _IMPORT_ALIASES["payer"], prefer_exact=False)
+        amount_col = _pick_column(cols, bank_import.AMOUNT_ALIASES, prefer_exact=False)
+        payer_primary, payer_fallback = _pick_payer_columns(cols)
+        legacy_payer_col = _pick_column(cols, bank_import.LEGACY_PAYER_ALIASES, prefer_exact=False)
+        legacy_memo_col = _pick_column(cols, bank_import.LEGACY_MEMO_ALIASES, prefer_exact=False)
+        time_col = _pick_column(cols, bank_import.TIME_ALIASES, prefer_exact=True)
+        balance_col = _pick_column(cols, bank_import.BALANCE_ALIASES, prefer_exact=True)
+        branch_col = _pick_column(cols, bank_import.BRANCH_ALIASES, prefer_exact=True)
         vehicle_col = _pick_column(cols, _IMPORT_ALIASES["vehicle"], prefer_exact=False)
         mgmt_col = _pick_column(cols, _IMPORT_ALIASES["management"], prefer_exact=False)
         mobile_col = _pick_column(cols, _IMPORT_ALIASES["mobile"], prefer_exact=False)
         ext_col = _pick_column(cols, _IMPORT_ALIASES["external"], prefer_exact=False)
-        memo_col = _pick_column(cols, _IMPORT_ALIASES["memo"], prefer_exact=False)
+        memo_col = _pick_column(cols, bank_import.MEMO_ALIASES, prefer_exact=False)
         if amount_col is None:
             continue
         for local_idx, (_, row) in enumerate(df.iterrows(), start=1):
@@ -3734,23 +3962,58 @@ def _parse_import_rows(data: bytes, filename: str, source_type: str):
                     d = None if pd.isna(ts) else ts.date()
                 except Exception:
                     d = None
-            payer = _string_value(row.get(payer_col)) if payer_col else ""
+            # 입금자 텍스트: 직접 입금자 열(농협=거래기록사항) → (없을 때만) 약한 후보. 은행명/거래수단은 입금자가 아니다.
+            payer_raw = ""
+            for pc in payer_primary:
+                rv = _string_value(row.get(pc))
+                if rv and not payer_raw:
+                    payer_raw = rv
+                if rv and bank_import.parse_payer(rv)["kind"] not in ("empty", "unknown"):
+                    payer_raw = rv
+                    break
+            if not payer_raw and not payer_primary:
+                for pc in payer_fallback:
+                    rv = _string_value(row.get(pc))
+                    if rv and not bank_import.looks_like_channel_only(rv):
+                        payer_raw = rv
+                        break
+            pinfo = bank_import.parse_payer(payer_raw)
+            # 화면 표시용 입금자명: 사람 이름이 해석되면 이름, 아니면 원문(카드/계좌형 등은 원문 그대로 보여 준다)
+            payer = pinfo["name"] or payer_raw
             memo = _string_value(row.get(memo_col)) if memo_col else ""
             vehicle = _string_value(row.get(vehicle_col)) if vehicle_col else ""
             if not vehicle:
-                vehicle = _extract_vehicle_from_text(" ".join([payer, memo]))
+                vehicle = _extract_vehicle_from_text(" ".join([payer_raw, memo]))
+            trade_time = bank_import.parse_time_text(raw_date, row.get(time_col) if time_col else None)
+            balance = bank_import.balance_int(row.get(balance_col)) if balance_col else None
+            branch = _string_value(row.get(branch_col)) if branch_col else ""
             management = _string_value(row.get(mgmt_col)) if mgmt_col else ""
             mobile = _string_value(row.get(mobile_col)) if mobile_col else ""
             external = _string_value(row.get(ext_col)) if ext_col else ""
             raw_dict = {str(k): _string_value(v) for k, v in row.to_dict().items() if _string_value(v)}
+            # v2 중복키: 시각·거래후잔액·거래점까지 포함해 같은 날 같은 금액의 "별도 입금"을 구분한다.
+            has_discriminator = bool(external or trade_time or balance is not None)
             fingerprint_base = (
                 f"{source_type}|id|{_norm_col(external)}" if external else
-                "|".join([source_type, d.isoformat() if d else "", str(amount), _norm_col(payer), _norm_col(vehicle), _norm_col(memo)])
+                "|".join([source_type, "v2", d.isoformat() if d else "", trade_time, str(amount),
+                          "" if balance is None else str(balance), _norm_col(payer_raw or payer),
+                          _norm_col(vehicle), _norm_col(memo), _norm_col(branch)])
             )
+            # 이전 버전 키(이미 반영된 거래와의 중복 판정용). 이전 열 선택 로직을 그대로 재현한다.
+            lp = _string_value(row.get(legacy_payer_col)) if legacy_payer_col else ""
+            lm = _string_value(row.get(legacy_memo_col)) if legacy_memo_col else ""
+            lv = _string_value(row.get(vehicle_col)) if vehicle_col else ""
+            if not lv:
+                lv = _extract_vehicle_from_text(" ".join([lp, lm]))
+            legacy_fp_base = (
+                f"{source_type}|id|{_norm_col(external)}" if external else
+                "|".join([source_type, d.isoformat() if d else "", str(amount), _norm_col(lp), _norm_col(lv), _norm_col(lm)])
+            )
+            legacy_fp = hashlib.sha256(legacy_fp_base.encode("utf-8")).hexdigest()
             parsed.append({
                 "sheet": sheet,
                 "source_row": local_idx,
-                "transaction_date": d.isoformat() if d else datetime.now(KST).date().isoformat(),
+                "transaction_date": d.isoformat() if d else "",
                 "payer_name": payer,
                 "amount": amount,
                 "vehicle_number": vehicle,
@@ -3759,7 +4022,16 @@ def _parse_import_rows(data: bytes, filename: str, source_type: str):
                 "external_id": external,
                 "memo": memo,
                 "fingerprint": hashlib.sha256(fingerprint_base.encode("utf-8")).hexdigest(),
-                "raw_data": raw_dict,
+                "legacy_fingerprint": legacy_fp,
+                "has_discriminator": has_discriminator,
+                "transaction_time": trade_time,
+                "payer_raw": payer_raw,
+                "payer_kind": pinfo["kind"],
+                "payer_last4": pinfo["last4"],
+                "payer_plate": pinfo["plate"],
+                "raw_data": {**raw_dict, "_payer_raw": payer_raw, "_payer_kind": pinfo["kind"],
+                             "_payer_last4": pinfo["last4"], "_trade_time": trade_time,
+                             "_balance": balance, "_legacy_fp": legacy_fp},
             })
     if not parsed:
         raise HTTPException(400, "입금액/결제금액이 있는 거래를 찾지 못했습니다. 파일의 열 이름을 확인해주세요.")
@@ -3852,6 +4124,115 @@ def _auto_match_import(row, maps):
     return None, "확인 필요"
 
 
+def _vehicle_last4(member) -> str:
+    return _digits(getattr(member, "vehicle_number", ""))[-4:]
+
+
+def _mobile_last4(member) -> str:
+    return _digits(getattr(member, "mobile", "") or getattr(member, "phone", ""))[-4:]
+
+
+def _match_import_v2(item, maps):
+    """보수적 자동매칭. 반환: (member|None, reason, confident).
+
+    confident=True 인 경우에만 자동반영(matched) 대상이 된다. 원칙:
+      · 카드/계좌번호형·결제대행명·불명확 입금자는 절대 회원에 붙이지 않는다.
+      · 관리번호/차량번호/핸드폰 정확일치는 확정. 단, 입금자 성명이 회원 성명과 다르면 후보로만 둔다.
+      · 성명만 같은 경우는 '후보'(사람 확인 필요). 이름+숫자4자리가 회원 차량/전화 뒤4자리와 일치하면 확정.
+      · 동명이인(폐업 포함)·과거 alias·부분일치는 후보로만 둔다.
+    """
+    by_id, vehicles, names, mgmts, mobiles, aliases = maps
+    kind = item.get("payer_kind") or "person"
+    if kind in ("account_like", "service_name", "empty", "unknown"):
+        # 관리번호·차량·핸드폰 열이 따로 있는 파일이면 그 정확일치만 허용
+        for key, table, label in ((_norm(item.get("management_number")), mgmts, "관리번호"),
+                                  (_norm(item.get("vehicle_number")), vehicles, "차량번호")):
+            m = _unique_member(table.get(key)) if key else None
+            if m and kind in ("empty",):
+                return m, f"{label} 정확일치", True
+        return None, "입금자 불명확(카드·계좌번호형/결제대행/이름 없음) · 회원 연결 금지", False
+
+    payer_key = _norm(item.get("payer_name"))
+    name_key = _norm(bank_import.parse_payer(item.get("payer_raw") or item.get("payer_name")).get("name")) or payer_key
+
+    def name_agrees(m):
+        return (not name_key) or _norm(getattr(m, "name", "")) == name_key
+
+    mgmt_key = _norm(item.get("management_number"))
+    m = _unique_member(mgmts.get(mgmt_key)) if mgmt_key else None
+    if m:
+        return (m, "관리번호 정확일치", True) if name_agrees(m) else (m, "관리번호 일치·입금자 성명 상이 · 확인 필요", False)
+    vehicle_key = _norm(item.get("vehicle_number")) or _norm(item.get("payer_plate"))
+    m = _unique_member(vehicles.get(vehicle_key)) if vehicle_key else None
+    if m:
+        return (m, "차량번호 정확일치", True) if name_agrees(m) else (m, "차량번호 일치·입금자 성명 상이(대리납부?) · 확인 필요", False)
+    mobile_key = _digits(item.get("mobile"))
+    m = _unique_member(mobiles.get(mobile_key)) if len(mobile_key) >= 8 else None
+    if m:
+        return (m, "핸드폰 정확일치", True) if name_agrees(m) else (m, "핸드폰 일치·입금자 성명 상이 · 확인 필요", False)
+
+    # 이름 후보
+    cands = {x.id: x for x in (names.get(name_key) or [])}
+    if cands:
+        active = [x for x in cands.values() if _is_active(x)]
+        if len(cands) == 1 and active:
+            m = active[0]
+            last4 = str(item.get("payer_last4") or "")
+            if last4 and last4 in (_vehicle_last4(m), _mobile_last4(m)) and kind == "person_last4":
+                return m, "성명+뒤4자리(차량/전화) 일치", True
+            return m, "후보: 성명 유일일치(보조근거 없음) · 확인 필요", False
+        if len(active) == 1:
+            return active[0], f"후보: 동명이인 {len(cands)}명 중 활성 1명 · 확인 필요", False
+        if len(cands) == 1:
+            return next(iter(cands.values())), "후보: 폐업·비활성 회원 · 확인 필요", False
+        return None, f"동명이인 {len(cands)}명 · 회원 직접 선택 필요", False
+    if payer_key and payer_key in aliases and aliases[payer_key] in by_id:
+        return by_id[aliases[payer_key]], "후보: 과거 입금자 매칭이력 · 확인 필요", False
+    return None, "확인 필요", False
+
+
+def _posted_twins_index(db, parsed):
+    """같은 거래일·금액으로 이미 수납 반영된 행을 모아 둔다(키 방식과 무관하게 내용으로 비교하기 위함)."""
+    dates = sorted({x["transaction_date"] for x in parsed if x.get("transaction_date")})
+    amounts = sorted({int(x["amount"]) for x in parsed})
+    idx = {}
+    if not dates or not amounts:
+        return idx
+    q = db.query(ReceivableImportRow).filter(
+        ReceivableImportRow.status == "posted",
+        ReceivableImportRow.transaction_date.in_(dates),
+        ReceivableImportRow.amount.in_(amounts),
+    )
+    for r in q.all():
+        idx.setdefault((str(r.transaction_date), int(r.amount)), []).append(r)
+    return idx
+
+
+def _twin_verdict(item, twin_row) -> str:
+    """'same' 확실히 같은 거래 / 'suspect' 구분 근거 없음 / 'different' 다른 거래."""
+    raw = twin_row.raw_data or {}
+    t_time = raw.get("_trade_time") or bank_import.parse_time_text(raw.get("거래시간"), raw.get("거래시각"))
+    t_bal = raw.get("_balance")
+    if t_bal is None:
+        for k, v in raw.items():
+            if "잔액" in str(k):
+                t_bal = bank_import.balance_int(v)
+                break
+    t_payer = _norm(raw.get("_payer_raw") or raw.get("거래기록사항") or raw.get("입금자명") or "")
+    i_time, i_bal, i_payer = item.get("transaction_time") or "", item["raw_data"].get("_balance"), _norm(item.get("payer_raw") or "")
+    if i_time and t_time:
+        if i_time != t_time:
+            return "different"
+        if i_bal is not None and t_bal is not None and int(i_bal) != int(t_bal):
+            return "different"
+        return "same"
+    if i_bal is not None and t_bal is not None:
+        return "same" if int(i_bal) == int(t_bal) else "different"
+    if i_payer and t_payer:
+        return "suspect" if i_payer == t_payer else "different"
+    return "suspect"
+
+
 def _import_row_json(row: ReceivableImportRow, member_map=None):
     member = (member_map or {}).get(row.matched_member_id) if row.matched_member_id else None
     return {
@@ -3891,6 +4272,7 @@ def _refresh_import_batch(db: Session, batch: ReceivableImportBatch):
 
 
 @router.post("/api/receivables/imports/preview")
+@staff_write_ok
 async def preview_payment_import(
     source_type: str = Form("통장"),
     file: UploadFile = File(...),
@@ -3898,7 +4280,7 @@ async def preview_payment_import(
     current_user=Depends(get_current_user),
 ):
     _ensure_receivables_schema_ready()
-    _ensure_db_ledger_ready(db)
+    _ensure_receivables_read_ready(db)
     raw = await file.read()
     if not raw:
         raise HTTPException(400, "빈 파일입니다.")
@@ -3916,7 +4298,7 @@ async def preview_payment_import(
     db.flush()
 
     maps = _member_match_maps(db)
-    fingerprints = [r["fingerprint"] for r in parsed]
+    fingerprints = list({r["fingerprint"] for r in parsed})
     posted = set()
     for i in range(0, len(fingerprints), 800):
         chunk = fingerprints[i:i + 800]
@@ -3925,23 +4307,41 @@ async def preview_payment_import(
             .filter(ReceivableImportRow.fingerprint.in_(chunk), ReceivableImportRow.status == "posted")
             .all()
         )
+    twins = _posted_twins_index(db, parsed)
 
     seen = set()
     for item in parsed:
-        duplicate = item["fingerprint"] in posted or item["fingerprint"] in seen
+        in_db = item["fingerprint"] in posted
+        in_file = item["fingerprint"] in seen
         seen.add(item["fingerprint"])
+        # 구버전 키는 (일자·금액·거래수단)만으로 서로 다른 입금이 충돌했다. 이미 반영된 거래는 키가 아니라 내용(시각·잔액·입금자)으로 대조한다.
+        verdicts = [_twin_verdict(item, t) for t in twins.get((str(item["transaction_date"]), int(item["amount"])), [])] if not in_db else []
+        twin_same = in_db or "same" in verdicts
+        twin_suspect = (not twin_same) and "suspect" in verdicts
+        file_suspect = in_file and not item["has_discriminator"]
+        duplicate = twin_same or (in_file and not file_suspect)
         non_receivable_reason = "" if duplicate else _non_receivable_import_reason(item)
-        if duplicate:
-            member, reason, status = None, "기존/파일내 중복", "duplicate"
+        if not item["transaction_date"]:
+            member, reason, status = None, "거래일자 없음 · 자동반영 금지", "review"
+        elif item["transaction_date"] <= "2026-09-30":
+            # Historical imports may already be included in the V4/legacy ledger.
+            # Keep them visible for manual reconciliation; never auto-post them.
+            member, reason, status = None, "2026년 9월 이전 거래 · 기존 장부 중복 차감 위험 · 확인 필요", "review"
+        elif duplicate:
+            member, reason, status = None, "기존/파일내 중복(시각·잔액 일치)" if twin_same else "파일내 중복", "duplicate"
+        elif twin_suspect or file_suspect:
+            member, _mr, _cf = _match_import_v2(item, maps)
+            why = "기존 반영 건과 일자·금액·입금자 동일, 시각/잔액 확인 불가" if twin_suspect else "동일 일자·금액·입금자 반복, 시각/잔액 없음"
+            reason, status = f"중복 의심({why}) · 확인 필요", "review"
         else:
-            member, match_reason = _auto_match_import(item, maps)
+            member, match_reason, confident = _match_import_v2(item, maps)
             if non_receivable_reason:
                 # 후보 회원은 보여주되, 자동반영 대상(matched)으로 만들지 않는다.
                 reason = f"{non_receivable_reason} · 자동반영 금지" + (f" · 후보: {match_reason}" if member else "")
                 status = "review"
             else:
                 reason = match_reason
-                status = "matched" if member else "review"
+                status = "matched" if (member and confident) else "review"
         db.add(ReceivableImportRow(
             batch_id=batch.id,
             source_row=item["source_row"],
@@ -4036,6 +4436,7 @@ def import_member_search(
 
 
 @router.patch("/api/receivables/imports/rows/{row_id}/match")
+@staff_write_ok
 def match_import_row(
     row_id: int,
     payload: ImportMatchIn,
@@ -4075,12 +4476,16 @@ def match_import_row(
 
 
 @router.post("/api/receivables/imports/{batch_id}/post")
+@staff_write_ok
 def post_payment_import(
     batch_id: int,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     _ensure_receivables_schema_ready()
+    # 같은 반영 버튼이 동시에 두 번 눌려도 순차 처리되도록 트랜잭션 잠금(Postgres). 커밋/롤백 시 자동 해제.
+    if db.bind is not None and db.bind.dialect.name == "postgresql":
+        db.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": 20261009})
     batch = db.query(ReceivableImportBatch).filter(ReceivableImportBatch.id == batch_id).first()
     if not batch:
         raise HTTPException(404, "업로드 내역을 찾을 수 없습니다.")
@@ -4102,6 +4507,11 @@ def post_payment_import(
         # 안전장치: 일괄반영은 status == matched 인 거래만 허용한다.
         # review(자격증명/발급비 의심 포함)는 matched_member_id가 있더라도 절대 자동반영하지 않는다.
         if row.status != "matched":
+            continue
+        # Recheck during posting as manually changed review rows can be matched.
+        if not row.transaction_date or row.transaction_date <= "2026-09-30":
+            row.status = "review"
+            row.match_reason = "과거 거래 또는 거래일자 누락 · 원장 대조 전 반영 금지"
             continue
         nonreceivable_reason = _non_receivable_import_reason({
             "payer_name": row.payer_name or "",
@@ -4126,7 +4536,7 @@ def post_payment_import(
             continue
         payment = ReceivablePayment(
             member_id=row.matched_member_id,
-            payment_date=row.transaction_date or datetime.now(KST).date().isoformat(),
+            payment_date=row.transaction_date,
             amount=int(row.amount or 0),
             method=method,
             memo=(f"[일괄수납 #{batch.id}] {row.payer_name or ''} {row.memo or ''}").strip(),
@@ -4193,7 +4603,8 @@ def export_receivables_excel(
     화면의 50건 페이지가 아니라, 현재 필터에 해당하는 전체 건을 다운로드한다.
     회원마스터의 주소/핸드폰번호를 함께 포함하며 폐업현황은 Closure 스냅샷을 우선 사용한다.
     """
-    _ensure_db_ledger_ready(db)
+    # 목록/summary/dashboard와 동일한 read-only 정책: 엑셀 다운로드(GET)도 전수 동기화를 트리거하지 않는다.
+    _ensure_receivables_read_ready(db)
 
     # 기존 목록 API와 완전히 같은 판정/필터를 재사용한다. Python 내부 호출이므로
     # 외부 API의 limit<=200 제약과 무관하게 필터 결과 전체를 한 번에 받는다.
@@ -4422,34 +4833,12 @@ def member_detail(
     member = db.query(models.LicenseHolder).filter(models.LicenseHolder.id == member_id).first()
     if not member:
         raise HTTPException(404, "회원을 찾을 수 없습니다.")
-    profile = _ensure_profile_for_member(db, member_id)
+    # 조회는 데이터를 바꾸지 않는다: 프로필이 없으면 만들지 않고 안내만 한다(생성은 관리자 '원장 동기화' 또는 수납 입력 시).
+    profile = db.query(ReceivableProfile).filter(ReceivableProfile.member_id == member_id).first()
     if not profile:
-        raise HTTPException(404, "미수금 프로필을 찾을 수 없습니다.")
-
-    # V34 이중 안전장치: 상세조회 시에도 최신 seed가 존재하면 DB snapshot 누락을 즉시 복구한다.
-    # 운영 DB marker가 남아 있더라도 특정 회원의 legacy_months가 비어 있는 상태를 허용하지 않는다.
-    seed = _match_seed(member) or _seed_for_profile(profile)
-    if seed:
-        expected_source_row = int(seed.get("source_row")) if seed.get("source_row") is not None else None
-        expected_balance = int(seed.get("current_arrears") or 0)
-        expected_months = seed.get("months") or []
-        if (
-            profile.legacy_source_row != expected_source_row
-            or int(profile.legacy_balance or 0) != expected_balance
-            or (profile.legacy_months or []) != expected_months
-        ):
-            profile.legacy_source_row = expected_source_row
-            profile.legacy_balance = expected_balance
-            profile.legacy_months = expected_months
-            profile.legacy_note = seed.get("legacy_note") or None
-            if int(getattr(profile, "account_manual_override", 0) or 0) != 1:
-                account = seed.get("account_type") or _infer_account(member)
-                profile.account_type = account
-                profile.unit_fee = ACCOUNT_FEES.get(account, 5000)
-            profile.first_charge_date = _legacy_next_charge_date(member, profile.account_type).isoformat()
-            db.commit()
-            _repair_invalid_auto_charges(db)
-            _sync_charges(db)
+        raise HTTPException(404, "미수금 프로필이 아직 없습니다. 관리자가 '원장 동기화'를 실행하면 생성됩니다.")
+    # (제거됨) 이전에는 여기서 legacy seed 와 다르면 profile.legacy_balance/계정을 seed 값으로 덮어쓰고
+    # 자동부과를 삭제·재생성했다. 조회만으로 기준잔액이 바뀌므로 읽기 전용 원칙에 따라 삭제했다.
 
     # 현재 폐업상태와 과거 폐업현황 조회 문맥을 분리한다.
     # active 회원에게 과거 closure 이력이 있어도 현재 폐업으로 취급하지 않는다.
@@ -4492,27 +4881,16 @@ def member_detail(
     # 계산/자동부과 중단에는 현재 폐업건만 사용한다.
     closure = current_closure
 
-    # 과거 버그로 DB에 남아 있어도 미래/legacy중복/폐업후 auto charge는 상세 잔액에서 제외한다.
+    # 과거 버그로 DB에 남아 있어도 미래/legacy중복/폐업후/미발급 auto charge는 잔액에서 제외한다(삭제하지 않음).
+    # 목록·통계·엑셀·일괄정정과 같은 단일 계산(_canonical_balance_parts)을 쓴다.
     all_member_charges = db.query(ReceivableCharge).filter(ReceivableCharge.member_id == member_id).all()
     valid_member_charges = [
         ch for ch in all_member_charges
         if ch.source != "auto" or _valid_auto_charge(profile, member, closure, ch)
     ]
-    charge_total = sum(int(ch.amount or 0) for ch in valid_member_charges)
-
-    payment_total_query = db.query(func.coalesce(func.sum(ReceivablePayment.amount), 0)).filter(
-        ReceivablePayment.member_id == member_id,
-        ReceivablePayment.cancelled_at.is_(None),
-    )
-    if profile.legacy_source_row is not None:
-        cutoff = _legacy_snapshot_cutoff_at()
-        payment_total_query = payment_total_query.filter(or_(
-            ReceivablePayment.payment_date > LEGACY_DATA_THROUGH_DATE_ISO,
-            ReceivablePayment.created_at > cutoff,
-        ))
-    payment_total = payment_total_query.scalar() or 0
-    baseline_balance = _legacy_balance_as_of(profile, _parse_date(getattr(closure, "closure_date", None)) if closure else None)
-    balance = int(baseline_balance) + int(charge_total) - int(payment_total)
+    _parts = _canonical_balance_parts(db, member, profile, closure)
+    charge_total, payment_total, baseline_balance = _parts["charges"], _parts["payments"], _parts["baseline"]
+    balance = _parts["balance"]
 
     latest = (
         db.query(ReceivableContactLog)
@@ -4737,6 +5115,16 @@ def member_detail(
             }
             for p in payments
         ],
+        "adjustments": [
+            {
+                "id": a.id, "effective_date": a.effective_date or "", "account_type": a.account_type,
+                "balance_before": int(a.balance_before), "adjustment_amount": int(a.adjustment_amount),
+                "balance_after": int(a.balance_after), "reason": a.reason or "", "batch_id": a.batch_id,
+                "created_by": a.created_by or "", "voided": a.voided_at is not None,
+            }
+            for a in db.query(ReceivableAdjustment).filter(ReceivableAdjustment.member_id == member_id)
+                       .order_by(ReceivableAdjustment.id.desc()).all()
+        ],
         "contacts": [
             {
                 "id": c.id,
@@ -4752,19 +5140,22 @@ def member_detail(
 
 
 @router.post("/api/receivables/members/{member_id}/payments")
+@staff_write_ok
 def add_payment(
     member_id: int,
     payload: PaymentIn,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    _ensure_db_ledger_ready(db)
+    _ensure_receivables_read_ready(db)
     d = _parse_date(payload.payment_date)
     if not d:
         raise HTTPException(400, "입금일 형식이 올바르지 않습니다.")
     profile = _ensure_profile_for_member(db, member_id)
     if not profile:
         raise HTTPException(404, "미수금 프로필을 찾을 수 없습니다.")
+    if (payload.method or "").strip() == "잔액수정" or (payload.memo or "").lstrip().startswith("[금액수정]"):
+        raise HTTPException(400, "금액수정은 수납으로 입력할 수 없습니다. 관리자 전용 '금액수정(정정)' 기능을 사용하세요.")
     non_receivable_reason = _non_receivable_import_reason({"memo": payload.memo or ""})
     if non_receivable_reason:
         raise HTTPException(400, f"{non_receivable_reason}은(는) 관리비/협회비 미수금 수납으로 등록할 수 없습니다.")
@@ -4783,6 +5174,7 @@ def add_payment(
 
 
 @router.delete("/api/receivables/payments/{payment_id}")
+@staff_write_ok
 def cancel_payment(
     payment_id: int,
     db: Session = Depends(get_db),
@@ -4803,16 +5195,14 @@ def edit_current_balance(
     member_id: int,
     payload: BalanceEditIn,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_admin),   # 금액수정은 관리자 전용
 ):
     """현재 미수/선납 금액을 감사이력이 남는 방식으로 정정한다.
 
-    실제 입금과 섞이지 않도록 별도 `잔액수정` 레코드로 남긴다.
-    기존 잔액 산식(기준원장 + 부과 - 수납)을 그대로 이용하기 위해
-    ReceivablePayment에 signed correction을 기록하되, 오늘 수납 KPI에서는 제외한다.
+    실제 입금과 섞이지 않도록 정정 전용 테이블(receivable_adjustments)에 기록한다(관리자 전용).
+    잔액 = 기준잔액 + 유효 부과 - 실제 수납 - 정정.
     """
-    _ensure_db_ledger_ready(db)
-    _ensure_current_month_billing(db)
+    _ensure_receivables_read_ready(db)
     member = db.query(models.LicenseHolder).filter(models.LicenseHolder.id == member_id).first()
     if not member:
         raise HTTPException(404, "회원을 찾을 수 없습니다.")
@@ -4848,47 +5238,28 @@ def edit_current_balance(
                 models.Closure.member_id == member_id, models.Closure.deleted_at.is_(None)
             ).order_by(models.Closure.id.desc()).first()
 
-    all_member_charges = db.query(ReceivableCharge).filter(ReceivableCharge.member_id == member_id).all()
-    valid_member_charges = [
-        ch for ch in all_member_charges
-        if ch.source != "auto" or _valid_auto_charge(profile, member, current_closure, ch)
-    ]
-    charge_total = sum(int(ch.amount or 0) for ch in valid_member_charges)
-    payment_total_query = db.query(func.coalesce(func.sum(ReceivablePayment.amount), 0)).filter(
-        ReceivablePayment.member_id == member_id, ReceivablePayment.cancelled_at.is_(None)
-    )
-    if profile.legacy_source_row is not None:
-        cutoff = _legacy_snapshot_cutoff_at()
-        payment_total_query = payment_total_query.filter(or_(
-            ReceivablePayment.payment_date > LEGACY_DATA_THROUGH_DATE_ISO,
-            ReceivablePayment.created_at > cutoff,
-        ))
-    payment_total = payment_total_query.scalar() or 0
-    baseline_balance = _legacy_balance_as_of(
-        profile, _parse_date(getattr(current_closure, "closure_date", None)) if current_closure else None
-    )
-    current_balance = int(baseline_balance) + int(charge_total) - int(payment_total)
+    current_balance = _canonical_balance_parts(db, member, profile, current_closure)["balance"]
     if current_balance == target_balance:
         return {"ok": True, "changed": False, "old_balance": current_balance, "new_balance": target_balance}
 
-    # balance = baseline + charges - payments
-    # 따라서 목표잔액으로 이동하려면 payment signed amount = 현재잔액 - 목표잔액.
-    signed_payment_amount = int(current_balance) - int(target_balance)
-    row = ReceivablePayment(
-        member_id=member_id,
-        payment_date=d.isoformat(),
-        amount=signed_payment_amount,
-        method="잔액수정",
-        memo=f"[금액수정] {current_balance:,}원 → {target_balance:,}원 | 사유: {reason}",
-        created_by=_user_name(current_user),
+    # 실제 수납(receivable_payments)을 만들지 않는다. 정정 전용 테이블(receivable_adjustments)에만 기록하므로
+    # 수납액·수납 통계·통장 입금액에 들어가지 않고, 기록은 되돌리기(void) 가능하다.
+    from app import receivable_adjustments as _adj
+    row = _adj.record_manual_adjustment(
+        db, member_id=member_id, account_type=profile.account_type, balance_before=current_balance,
+        balance_after=target_balance, reason=reason, actor=_user_name(current_user), effective_date=d.isoformat(),
     )
-    db.add(row)
+    verified = _canonical_balance_parts(db, member, profile, current_closure)["balance"]
+    if verified != target_balance:      # 계산이 어긋나면 저장하지 않는다
+        db.rollback()
+        raise HTTPException(500, "금액수정 검증에 실패해 취소했습니다. 아무 자료도 바뀌지 않았습니다.")
     db.commit()
     db.refresh(row)
     return {
         "ok": True,
         "changed": True,
         "adjustment_id": row.id,
+        "batch_id": row.batch_id,
         "old_balance": current_balance,
         "new_balance": target_balance,
         "balance_effect": target_balance - current_balance,
@@ -4896,13 +5267,14 @@ def edit_current_balance(
 
 
 @router.post("/api/receivables/members/{member_id}/contacts")
+@staff_write_ok
 def add_contact(
     member_id: int,
     payload: ContactIn,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    _ensure_db_ledger_ready(db)
+    _ensure_receivables_read_ready(db)
     if payload.status not in CONTACT_STATUSES:
         raise HTTPException(400, "지원하지 않는 연락상태입니다.")
     d = _parse_date(payload.contact_date)
@@ -4925,13 +5297,14 @@ def add_contact(
 
 
 @router.patch("/api/receivables/members/{member_id}/account")
+@staff_write_ok
 def update_account(
     member_id: int,
     payload: AccountIn,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    _ensure_db_ledger_ready(db)
+    _ensure_receivables_read_ready(db)
     if payload.account_type not in ACCOUNT_FEES:
         raise HTTPException(400, "계정은 협회비/관리비/70세 중 하나여야 합니다.")
     profile = _ensure_profile_for_member(db, member_id)

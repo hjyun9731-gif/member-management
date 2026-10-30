@@ -70,6 +70,7 @@ class LicenseHolder(Base):
     certificate_number = Column(String(100))
     permit_number = Column(String(100))
     driver_license_number = Column(String(100))
+    freight_qualification_number = Column(String(20))  # 화물운송종사자격증 번호 (0-00-000000, 운송종사자 개인 귀속)
     vehicle_type = Column(String(50))
     fuel_type = Column(String(30))
     business_number = Column(String(50))
@@ -84,6 +85,13 @@ class LicenseHolder(Base):
     agent_resident_number = Column(String(30))       # 대리인 주민등록번호
     agent_mobile = Column(String(50))                # 대리인 핸드폰번호
     agent_address = Column(Text)                      # 대리인 주소
+    agent_driver_license_number = Column(String(100))          # 대리인 운전면허번호
+    agent_freight_qualification_number = Column(String(20))    # 대리인 화물운송종사자격증 번호
+    agent_start_date = Column(String(50))                      # 현재 대리인 대리 시작일
+    # 차주/대리인 자격정보 분리: 기존 driver_license_number / freight_qualification_number 는
+    # 소유자 미확인 기존값으로 그대로 보존하고(삭제·이전 금지), 아래는 소유자가 확인된 값만 별도 저장한다.
+    owner_driver_license_number = Column(String(100))          # 차주 운전면허번호
+    owner_freight_qualification_number = Column(String(20))    # 차주 화물운송종사자격증 번호
     structure_change = Column(Text)                  # 구조변경 내용 (예: 윙바디 변경)
     pinned = Column(Boolean, default=False)          # 목록 상단 고정 표시용 (비고와 무관한 별도 토글)
     upload_id = Column(Integer, nullable=True)        # 업로드 이력 ID (개별 삭제용)
@@ -91,6 +99,29 @@ class LicenseHolder(Base):
     transfer_ledger_id = Column(Integer, nullable=True)  # FK → transfer_ledger
     closure_id = Column(Integer, nullable=True)          # FK → closures (폐업 시)
     raw_data = Column(JSON)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class MemberAgent(Base):
+    """대리인 변경이력 (차주 1명 : 대리인 이력 N건). 대리인이 바뀌어도 이전 대리인 행은 덮어쓰거나 삭제하지 않는다.
+    status: 현재 / 종료. start_date 를 모르는 기존 데이터는 None 으로 두고 임의로 만들지 않는다."""
+    __tablename__ = "member_agents"
+    id = Column(Integer, primary_key=True, index=True)
+    member_id = Column(Integer, index=True, nullable=False)       # license_holders.id (차주)
+    name = Column(String(100), index=True)
+    resident_number = Column(String(30))
+    mobile = Column(String(50))
+    address = Column(Text)
+    driver_license_number = Column(String(100))
+    freight_qualification_number = Column(String(20))
+    start_date = Column(String(50))
+    end_date = Column(String(50))
+    status = Column(String(10), default="현재", index=True)       # 현재 / 종료
+    source = Column(String(20))                                   # legacy(기존 회원정보에서 전환) / member_edit / transfer
+    transfer_ledger_id = Column(Integer, nullable=True)
+    created_by = Column(String(50))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     deleted_at = Column(DateTime(timezone=True), nullable=True)
@@ -110,6 +141,7 @@ class Candidate(Base):
     certificate_issue_date = Column(String(50))
     certificate_number = Column(String(100))
     driver_license_number = Column(String(100))
+    freight_qualification_number = Column(String(20))  # 화물운송종사자격증 번호 (0-00-000000, 운송종사자 개인 귀속)
     vehicle_type = Column(String(50))
     fuel_type = Column(String(30))
     business_number = Column(String(50))
@@ -146,6 +178,7 @@ class TransferLedger(Base):
     process_date = Column(String(50))                    # 처리일자 (양도양수 기준날짜)
     ledger_update = Column(String(100))                  # 장부정리
     driver_license_number = Column(String(100))          # 운전면허번호
+    freight_qualification_number = Column(String(20))  # 화물운송종사자격증 번호 (0-00-000000, 운송종사자 개인 귀속)
     computer_report = Column(String(100))                # 전산보고
     memo = Column(Text)                                  # 비고
     vehicle_type = Column(String(100))                  # 차종
@@ -156,6 +189,15 @@ class TransferLedger(Base):
     member_id = Column(Integer, nullable=True)           # 회원등록 완료 시 연결 (양수자, 하위호환용)
     transferor_member_id = Column(Integer, nullable=True) # 양도자 회원 ID (license_holders.id)
     transferee_member_id = Column(Integer, nullable=True) # 양수자 회원 ID (license_holders.id)
+    # 양수자의 대리인 정보 (회원등록 시 회원의 현재 대리인/대리인 이력으로 자동 연동)
+    agent_name = Column(String(100))
+    agent_resident_number = Column(String(30))
+    agent_mobile = Column(String(50))
+    agent_address = Column(Text)
+    agent_driver_license_number = Column(String(100))
+    agent_freight_qualification_number = Column(String(20))
+    agent_start_date = Column(String(50))
+    agent_end_date = Column(String(50))
     upload_id = Column(Integer, nullable=True)     # 업로드 이력 ID
     raw_data = Column(JSON)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -229,6 +271,8 @@ class ChangeHistory(Base):
     memo = Column(Text)
     member_id = Column(Integer, nullable=True)
     upload_id = Column(Integer, nullable=True)     # 업로드 이력 ID
+    judgement = Column(String(20), index=True)     # 정상변경/최초등록/표기정정/오류정정/확인필요 (NULL=기존 미분류 이력)
+    judge_reason = Column(Text)                    # 판정 근거
     raw_data = Column(JSON)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

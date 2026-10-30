@@ -7,6 +7,7 @@ import io, pandas as pd
 from app.database import get_db
 from app.auth import get_current_user
 from app import models
+from app.services.fee_closure import fee_closure_candidates
 
 router = APIRouter()
 
@@ -35,6 +36,15 @@ async def get_allocation(year: int = Query(...), month: int = Query(...),
     if not row:
         return {"year": year, "month": month, **{f: 0 for f in FIELDS}, "memo": ""}
     return _fmt(row)
+
+
+@router.get("/fee-closure-candidates")
+async def fee_closure_list(year: Optional[int] = Query(None), month: Optional[int] = Query(None, ge=1, le=12),
+                           db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """관리비폐지 확인필요: 폐업 처리된 택배회원 목록 (읽기 전용 · 부과 데이터 없으면 '검증불가')"""
+    items = fee_closure_candidates(db, year, month)
+    return {"total": len(items), "items": items, "read_only": True,
+            "note": "실제 관리비 부과 중단 여부는 부과 데이터가 없어 검증불가입니다. 폐업자를 부과 대상으로 확정하지 않습니다."}
 
 
 @router.get("/list")

@@ -22,6 +22,9 @@ APPROVED = "인가완료"
 ISSUED = "발급완료"
 
 
+_SCHEMA_READY = set()  # 스키마 점검을 끝낸 DB 엔진(id). 요청마다 반복하던 점검 쿼리를 없앤다.
+
+
 def ensure_ledger_schema(db: Session) -> None:
     """발급대장 전용 테이블만 없을 때 안전하게 생성한다.
 
@@ -29,6 +32,8 @@ def ensure_ledger_schema(db: Session) -> None:
     조회 API가 500이 되는 상황을 막기 위한 최소 안전장치다.
     """
     bind = db.get_bind()
+    if id(bind) in _SCHEMA_READY:
+        return
     ledger_models.CertificateIssuanceLedger.__table__.create(bind=bind, checkfirst=True)
     ledger_models.CertificateIssuanceHistory.__table__.create(bind=bind, checkfirst=True)
 
@@ -51,6 +56,7 @@ def ensure_ledger_schema(db: Session) -> None:
                 "ALTER TABLE certificate_issuance_ledger ADD COLUMN IF NOT EXISTS remark TEXT"
             ))
             db.commit()
+    _SCHEMA_READY.add(id(bind))
 
 
 def operator_name(user) -> str:

@@ -47,6 +47,16 @@
     document.head.appendChild(style);
   }
 
+  // FastAPI 검증 오류(422)의 detail 은 객체 배열이라 그대로 글자로 바꾸면 '[object Object]' 가 된다.
+  function errorText(detail) {
+    if (!detail) return '';
+    if (typeof detail === 'string') return detail;
+    if (Array.isArray(detail)) {
+      return detail.map(d => (d && (d.msg || d.message)) ? `${(d.loc || []).slice(1).join('.')} ${d.msg || d.message}`.trim() : errorText(d)).filter(Boolean).join(' / ');
+    }
+    if (typeof detail === 'object') return detail.msg || detail.message || JSON.stringify(detail);
+    return String(detail);
+  }
   async function request(method, url, body) {
     const options = { method, headers: tokenHeaders() };
     if (body !== undefined) {
@@ -62,9 +72,10 @@
       let message = '요청 처리에 실패했습니다.';
       try {
         const error = await response.json();
-        message = error.detail || error.message || message;
+        message = errorText(error.detail || error.message) || message;
       } catch (_) {}
       if (typeof toast === 'function') toast(message, 'err');
+      if (response.status === 409 && message.includes('이미 등록된 자격증명발급번호')) alert(message);
       throw new Error(message);
     }
     return response.json();
@@ -156,11 +167,33 @@
       '발급번호 수정',
       `<div style="font-size:12px;color:var(--c-text-3);margin-bottom:8px">${label}</div>
        <input id="clNumberInput" style="width:100%;box-sizing:border-box;padding:8px;border:1px solid var(--c-border);border-radius:8px;font:inherit" placeholder="예: 26-395 또는 26-395(운전자명)" value="${esc(current)}">
+       <div id="clNumberWarn" style="display:none;margin-top:6px;font-size:12px;font-weight:700;color:#c62828"></div>
        <div style="font-size:10.5px;color:var(--c-text-3);margin-top:6px">차주와 실제 운전자가 다른 경우 "26-385(강동규)"처럼 괄호로 운전자명을 함께 적을 수 있습니다. 이미 다른 대상이 쓰고 있는 번호는 저장할 수 없습니다.</div>`,
       `<button class="btn" onclick="closeModal()">취소</button>
        <button class="btn bp" id="clNumberSaveBtn">저장</button>`
     );
     const saveBtn = document.getElementById('clNumberSaveBtn');
+    // 입력하는 즉시 기존 등록 여부를 확인해 경고한다 (26-085와 26-85는 같은 번호).
+    const numInput = document.getElementById('clNumberInput');
+    const warnBox = document.getElementById('clNumberWarn');
+    let checkTimer = null, checkSeq = 0;
+    if (numInput && warnBox) {
+      numInput.addEventListener('input', () => {
+        clearTimeout(checkTimer);
+        const value = numInput.value.trim();
+        if (!value || value === current.trim()) { warnBox.style.display = 'none'; return; }
+        checkTimer = setTimeout(async () => {
+          const mySeq = ++checkSeq;
+          try {
+            const res = await fetch(`/api/certificate-ledger/number-check?number=${encodeURIComponent(value)}&ledger_id=${ledgerId}`, { headers: tokenHeaders() });
+            if (!res.ok || mySeq !== checkSeq) return;
+            const j = await res.json();
+            warnBox.textContent = j.duplicate ? '⚠ ' + j.message : '';
+            warnBox.style.display = j.duplicate ? 'block' : 'none';
+          } catch (_) { /* 저장 시 서버가 다시 차단한다 */ }
+        }, 400);
+      });
+    }
     if (saveBtn) {
       saveBtn.onclick = async () => {
         saveBtn.disabled = true;
@@ -228,8 +261,8 @@
             }
           };
         });
-      } catch (_) {
-        results.innerHTML = '<div style="padding:8px;color:var(--c-text-3);font-size:12px">검색 중 오류가 발생했습니다.</div>';
+      } catch (err) {
+        results.innerHTML = `<div style="padding:8px;color:var(--c-text-3);font-size:12px">검색 중 오류가 발생했습니다.${err && err.message ? ' (' + esc(err.message) + ')' : ''}</div>`;
       }
     };
     searchBtn.onclick = doSearch;

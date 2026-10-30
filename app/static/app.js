@@ -97,6 +97,8 @@ async function api(method,url,body=null,isForm=false){
     const fullMsg=`[${res.status}] ${method} ${url}\n${msg}`;
     console.error('API Error:', fullMsg);
     toast(`${res.status} 오류: ${msg.slice(0,120)}`,'err');
+    // 자격증명발급번호 중복은 놓치지 않도록 경고창으로 기존 등록 대상까지 보여준다.
+    if(res.status===409&&String(msg).includes('이미 등록된 자격증명발급번호')){alert(msg);}
     throw new Error(fullMsg);
   }
   return res.headers.get('content-type')?.includes('json')?res.json():res;
@@ -318,17 +320,69 @@ function chBadge(t){const m={'주소지변경':'b-sky','상호변경':'b-pri','�
 
 // FORM HELPERS
 function rsel(name,sel=''){return `<select name="${name}" class="fc"><option value="">선택</option>${REGIONS.map(r=>`<option value="${r}" ${r===sel?'selected':''}>${r}</option>`).join('')}</select>`;}
+// 지역은 예정자 화면과 동일하게 목록 선택 및 직접 입력 모두 허용.
+function regionEditable(name,sel=''){
+  const id='regions-'+name.replace(/[^a-z0-9_-]/gi,'');
+  return `<input class="fc" name="${name}" list="${id}" value="${e_(sel)}" placeholder="직접 입력 또는 선택" autocomplete="off"><datalist id="${id}">${REGIONS.map(r=>`<option value="${e_(r)}"></option>`).join('')}</datalist>`;
+}
 function rselflt(id,sel=''){return `<select id="${id}" class="fsel"><option value="">전체 지역</option>${REGIONS.map(r=>`<option value="${r}" ${r===sel?'selected':''}>${r}</option>`).join('')}</select>`;}
 function ssel(name,opts,sel=''){return `<select name="${name}" class="fc">${opts.map(o=>`<option value="${o}" ${o===sel?'selected':''}>${o}</option>`).join('')}</select>`;}
 function fi(name,label,val='',req=false){
   if(/_date$/i.test(name)||name==='date'){
     return `<div class="fi"><label>${label}${req?'<span class="req">*</span>':''}</label><input class="fc fmt-date" name="${name}" value="${e_(_isoToYY(val))}" placeholder="00.00.00" inputmode="numeric" maxlength="8" ${req?'required':''}></div>`;
   }
+  if(/(^|_)freight_qualification_number$/.test(name)){
+    return `<div class="fi"><label>${label}${req?'<span class="req">*</span>':''}</label><input class="fc fmt-fqn" name="${name}" value="${e_(_autoFqn(String(val||'')))}" placeholder="0-00-000000" inputmode="numeric" maxlength="11" autocomplete="off" ${req?'required':''}></div>`;
+  }
   if(name==='business_number'){
     return `<div class="fi"><label>${label}${req?'<span class="req">*</span>':''}</label><input class="fc fmt-bizno" name="${name}" value="${e_(_autoBizNo(String(val||'')))}" placeholder="000-00-00000" inputmode="numeric" maxlength="12" ${req?'required':''}></div>`;
   }
   return `<div class="fi"><label>${label}${req?'<span class="req">*</span>':''}</label><input class="fc" name="${name}" value="${e_(val)}" ${req?'required':''}></div>`;
 }
+
+// ── 대리인 입력 섹션 / 이력 (회원 수정 · 양도양수 등록 · 도내 양도양수 공통) ──
+function _maskRrnView(v){const d=String(v||'').replace(/\D/g,'');return d.length>=13?d.slice(0,6)+'-'+d.slice(6,13):(v||'');}
+function agentFormSection(r,memberId){
+  r=r||{};
+  const hasAgent=Boolean(String(r.agent_name||'').trim());
+  const hist=memberId?`<div class="fi cs4"><button type="button" class="btn bo btn-sm" onclick="showAgentHistory(${memberId})">대리인 변경이력 보기</button></div>`:'';
+  const fields=`${fi('agent_name','대리인 성명',r.agent_name||'')}
+    ${frn('agent_resident_number','대리인 주민등록번호',r.agent_resident_number||'')}
+    ${fph('agent_mobile','대리인 연락처',r.agent_mobile||'')}
+    <div class="fi cs2"><label>대리인 주소</label><input class="fc" name="agent_address" value="${e_(r.agent_address||'')}"></div>
+    ${fi('agent_driver_license_number','대리인 운전면허번호',r.agent_driver_license_number||'')}
+    ${fi('agent_freight_qualification_number','대리인 화물운송종사자격증 번호',r.agent_freight_qualification_number||'')}
+    ${fi('agent_start_date','대리 시작일',r.agent_start_date||'')}`;
+  return `<div class="fi cs4" style="margin:10px 0"><label style="display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer">
+    <input type="checkbox" class="agent-present-check" ${hasAgent?'checked':''}
+    onchange="toggleAgentFields(this)"> 대리인 있음</label></div>
+    <fieldset class="fg agent-detail-fields" style="border:0;padding:0;margin:0;min-width:0;display:${hasAgent?'grid':'none'}" ${hasAgent?'':'hidden disabled'}>${fields}</fieldset>
+    ${hist}`;
+}
+// 대리인 체크박스 상태와 폼 필드셋을 함께 변경. 초기화(reset) 시에도 동기화한다.
+window.toggleAgentFields=(check)=>{
+  const panel=check?.closest('.fi')?.nextElementSibling;
+  if(!panel) return;
+  panel.hidden=!check.checked;
+  panel.disabled=!check.checked;
+  panel.style.display=check.checked?'grid':'none';
+};
+function bindAgentForm(form){
+  if(!form) return;
+  const check=form.querySelector('.agent-present-check');
+  if(!check) return;
+  toggleAgentFields(check);
+  form.addEventListener('reset',()=>setTimeout(()=>toggleAgentFields(check),0));
+}
+window.showAgentHistory=async(mid)=>{
+  const res=await api('GET',`/api/members/${mid}/agents`).catch(()=>null);if(!res)return;
+  const rows=(res.items||[]).map(a=>`<tr><td>${e_(a.name)}</td><td>${e_(a.start_date||'미상')}</td><td>${e_(a.end_date||'-')}</td>
+    <td>${a.status==='현재'?'<b style="color:#2563eb">현재</b>':'종료'}</td><td>${e_(a.mobile)}</td><td>${e_(a.resident_number)}</td></tr>`).join('');
+  openModal('대리인 변경이력',`<div class="tw"><table><thead><tr><th>대리인</th><th>시작일</th><th>종료일</th><th>상태</th><th>연락처</th><th>주민번호(마스킹)</th></tr></thead>
+    <tbody>${rows||'<tr><td colspan="6" style="text-align:center;color:#94a3b8">대리인 이력이 없습니다</td></tr>'}</tbody></table></div>
+    <p style="font-size:11px;color:#64748b;margin-top:8px">시작일을 알 수 없는 기존 대리인은 '미상'으로 표시되며 임의로 날짜를 만들지 않습니다.</p>`,
+    `<button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
+};
 
 // 자격증명발급번호 입력 + '발급번호 부여' 버튼 (예정자/도내양도 등록 공통)
 function certNumField(name,label,val=''){
@@ -364,8 +418,8 @@ function _bindCertIssueBtn(form, apiPath){
     btn.disabled=true; // 요청 중 중복클릭 방지
     btn.textContent='발급 중...';
     try{
-      const nameInp=form.querySelector('[name="name"]')||form.querySelector('[name="transferee_name"]');
-      const vehicleInp=form.querySelector('[name="vehicle_number"]')||form.querySelector('[name="transferee_vehicle_number"]');
+      const nameInp=form.querySelector('[name="transferee_name"]')||form.querySelector('[name="transferee"]')||form.querySelector('[name="name"]');
+      const vehicleInp=form.querySelector('[name="transferee_vehicle_number"]')||form.querySelector('[name="vehicle_number"]');
       const payload={
         current_number:(inp.value||'').trim(),
         name:(nameInp?.value||'').trim(),
@@ -478,6 +532,25 @@ function _autoBizNo(v){
   if(d.length<=5)return `${d.slice(0,3)}-${d.slice(3)}`;
   return `${d.slice(0,3)}-${d.slice(3,5)}-${d.slice(5)}`;
 }
+// 화물운송종사자격증 번호 자동 하이픈 포맷 (0-00-000000, 숫자 9자리 기준 / 앞자리 0 유지 / 9자리 초과 입력 차단)
+function _autoFqn(v){
+  const d=String(v||'').replace(/\D/g,'').slice(0,9);
+  if(d.length<=1)return d;
+  if(d.length<=3)return `${d.slice(0,1)}-${d.slice(1)}`;
+  return `${d.slice(0,1)}-${d.slice(1,3)}-${d.slice(3)}`;
+}
+// 어떤 폼(회원/예정자/양도양수/도내양도 팝업)에서든 .fmt-fqn 입력칸은 항상 같은 방식으로 포맷한다.
+document.addEventListener('input',function(e){
+  const el=e.target;
+  if(!el||!el.classList||!el.classList.contains('fmt-fqn'))return;
+  const caret=el.selectionStart;
+  const digitsBefore=String(el.value).slice(0,caret==null?el.value.length:caret).replace(/\D/g,'').length;
+  const nv=_autoFqn(el.value);
+  if(nv!==el.value)el.value=nv;
+  let pos=0,cnt=0;
+  while(pos<nv.length&&cnt<digitsBefore){if(/\d/.test(nv[pos]))cnt++;pos++;}
+  try{el.setSelectionRange(pos,pos);}catch(_){}
+});
 // 입력 포맷 이벤트 바인딩
 function _bindFmt(scope){
   const s=typeof scope==='string'?document.getElementById(scope):scope;
@@ -670,7 +743,7 @@ window.viewMember=async(id)=>{
   const sections=[
     {title:'기본 정보',fields:[['관리번호',r.management_number],['지역',r.region],['차량번호',r.vehicle_number],['성명',r.name],['개인/택배',r.category],['가입여부',r.membership_status]]},
     {title:'연락처 / 주소',fields:[['전화번호',r.phone],['핸드폰',r.mobile],['주소',r.address,true],['공문주소',rawAddr,true],['대리인',rawAgent],['대리인 주민등록번호',rawAgentRes],['대리인 핸드폰',rawAgentMob]]},
-    {title:'인허가 정보',fields:[['인가일자',r.approval_date],['가입일자',r.membership_date],['재허가',rawReapproval],['자격증명발급일자',r.certificate_issue_date],['자격증명번호',r.certificate_number],['운전면허번호',r.driver_license_number],['주민등록번호',r.resident_number],['사업자번호',r.business_number]]},
+    {title:'인허가 정보',fields:[['인가일자',r.approval_date],['가입일자',r.membership_date],['재허가',rawReapproval],['자격증명발급일자',r.certificate_issue_date],['자격증명번호',r.certificate_number],['운전면허번호',r.driver_license_number],['화물운송종사자격증 번호',r.freight_qualification_number],['주민등록번호',_maskRrnView(r.resident_number)],['사업자번호',r.business_number]]},
     {title:'차량 정보',fields:[['차종',r.vehicle_type],['유종',r.fuel_type],['소속업체',r.affiliated_company],['구조변경',r.structure_change||rawStruct,true],['전속업체 변경',rawCompChg,true]]},
     ...(rehasa.length?[{title:'재허가 이력',fields:rehasa}]:[]),
     ...(edu.length?[{title:'교육 / 점검',fields:edu}]:[]),
@@ -765,8 +838,8 @@ window.viewTransfer=async(id)=>{
       ['유종',r.fuel_type||raw['유종']||raw['fuel_type']||''],
       ['구조변경',r.structure_change||raw['구조변경']||'',true],
     ]},
-    {title:'양도자 / 양수자',fields:[['양도자',r.transferor],['양수자',r.transferee],['주민등록번호',r.resident_number],['전화번호',r.phone],['핸드폰',r.mobile],['주소',r.address,true],['공문주소',raw['공문주소']||raw['official_address']||'',true]]},
-    {title:'인허가 / 자격',fields:[['인가일자',r.approval_date],['가입여부',raw['가입여부']||raw['membership_status']||''],['가입일자',r.membership_date],['자격증명발급일자',r.certificate_issue_date],['자격증명번호',r.certificate_number],['운전면허번호',r.driver_license_number]]},
+    {title:'양도자 / 양수자',fields:[['양도자',r.transferor],['양수자',r.transferee],['주민등록번호',_maskRrnView(r.resident_number)],['전화번호',r.phone],['핸드폰',r.mobile],['주소',r.address,true],['공문주소',raw['공문주소']||raw['official_address']||'',true]]},
+    {title:'인허가 / 자격',fields:[['인가일자',r.approval_date],['가입여부',raw['가입여부']||raw['membership_status']||''],['가입일자',r.membership_date],['자격증명발급일자',r.certificate_issue_date],['자격증명번호',r.certificate_number],['운전면허번호',r.driver_license_number],['화물운송종사자격증 번호(양수자)',r.freight_qualification_number]]},
     {title:'소속 / 행정',fields:[['소속업체',r.affiliated_company||raw['소속업체']||raw['업체명']||''],['비고',r.memo,true]]},
     ...(rawExtra.length?[{title:'원본 엑셀 데이터',fields:rawExtra.map(([k,v])=>[k,v,false])}]:[]),
   ];
@@ -791,7 +864,7 @@ window.viewClosure=async(id)=>{
   const sections=[
     {title:'기본 정보',fields:[['관리번호',r.management_number],['처리구분',r.closure_type],['자료구분',r.data_type],['지역',r.region],['차량번호',r.vehicle_number],['성명',r.name],['상호',r.company_name]]},
     {title:'차량 정보',fields:[['차종',r.vehicle_type||raw['차종']||raw['차량종류']||''],['유종',r.fuel_type||raw['유종']||raw['연료']||''],['구조변경',r.structure_change||raw['구조변경']||'',true]]},
-    {title:'연락처 / 주소',fields:[['전화번호',r.phone||rawPhone],['핸드폰',r.mobile||rawMobile],['주소',r.address||rawAddr,true],['공문주소',r.official_address||'',true],['주민등록번호',r.resident_number||rawResNo]]},
+    {title:'연락처 / 주소',fields:[['전화번호',r.phone||rawPhone],['핸드폰',r.mobile||rawMobile],['주소',r.address||rawAddr,true],['공문주소',r.official_address||'',true],['주민등록번호',_maskRrnView(r.resident_number||rawResNo)]]},
     {title:'회원 / 자격',fields:[['가입여부',r.membership_status],['가입일자',r.membership_date||rawMemDate],['인가일자',r.approval_date],['자격증명발급일자',r.certificate_issue_date||rawCertDate],['자격증명발급번호',r.certificate_number||rawCertNo],['운전면허번호',r.driver_license_number||rawDrvLic]]},
     {title:'소속 / 대리인',fields:[['소속업체',r.affiliated_company||''],['대리인',r.agent_name||''],['대리인 핸드폰',r.agent_mobile||'']]},
     {title:'폐업처리 정보',fields:[
@@ -884,7 +957,7 @@ async function renderCandidateSection(){
       <div class="card-hd"><div class="card-hd-l"><span class="card-ico">✏️</span><span class="card-ttl">예정자 입력</span></div></div>
       <div class="card-bd"><form id="candForm">
         ${sec('기본정보',`
-        <div class="fi"><label>지역</label>${rsel('region','')}</div>
+        <div class="fi"><label>지역</label>${regionEditable('region','')}</div>
         ${fi('vehicle_number','차량번호')} ${fi('name','성명')}
         ${frn('resident_number','주민등록번호')}
         `,'👤','sky')}
@@ -895,7 +968,8 @@ async function renderCandidateSection(){
         ${sec('자격증·면허정보',`
         ${fi('certificate_issue_date','자격증명발급일자')} ${certNumField('certificate_number','자격증명번호')}
         ${fi('driver_license_number','운전면허번호')}
-        <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" placeholder="예: 22,포터Ⅱ내장탑차 / 봉고 / 냉동탑차"></div>
+        ${fi('freight_qualification_number','화물운송종사자격증 번호')}
+        <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" placeholder="예: 22.포터Ⅱ냉동탑차"></div>
         ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),'')}
         `,'🪪','yellow')}
         ${sec('사업정보',`
@@ -1023,7 +1097,7 @@ window.editCandidate=async(id)=>{
       if(!r)return;
     }else if(!res.ok){
       let msg=res.statusText;
-      try{const j=await res.json();msg=j.detail||msg;}catch{}
+      try{const j=await res.json();msg=Array.isArray(j.detail)?j.detail.map(x=>(x&&x.msg)||String(x)).join(' / '):(typeof j.detail==='string'?j.detail:(j.detail&&(j.detail.msg||j.detail.message))||msg);}catch{}
       toast(`${res.status} 오류: ${String(msg).slice(0,120)}`,'err');
       return;
     }else{
@@ -1032,14 +1106,15 @@ window.editCandidate=async(id)=>{
   }catch(e){toast('서버 연결 오류','err');return;}
   if(!r)return;
   openModal('예정자 수정',`<form id="cEditForm"><div class="fg">
-    <div class="fi"><label>지역</label>${rsel('region',r.region||'')}</div>
+    <div class="fi"><label>지역</label>${regionEditable('region',r.region||'')}</div>
     ${fi('vehicle_number','차량번호',r.vehicle_number||'')} ${fi('name','성명',r.name||'')}
     ${frn('resident_number','주민등록번호',r.resident_number||'')}
     ${fi('phone','전화번호',r.phone||'')} ${fph('mobile','핸드폰',r.mobile||'')}
     <div class="fi cs2"><label>주소</label><input class="fc" name="address" value="${e_(r.address||'')}"></div>
     ${fi('certificate_issue_date','자격증명발급일자',r.certificate_issue_date||'')} ${certNumField('certificate_number','자격증명번호',r.certificate_number||'')}
     ${fi('driver_license_number','운전면허번호',r.driver_license_number||'')}
-    <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||'')}" placeholder="예: 22,포터Ⅱ내장탑차 / 봉고 / 냉동탑차"></div>
+    ${fi('freight_qualification_number','화물운송종사자격증 번호',r.freight_qualification_number||'')}
+    <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||'')}" placeholder="예: 22.포터Ⅱ냉동탑차"></div>
     ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),r.fuel_type||'')}
     ${fi('business_number','사업자번호',r.business_number||'')} ${fi('affiliated_company','소속업체',r.affiliated_company||'')}
     ${fi('membership_date','가입일자',r.membership_date||'')}
@@ -1094,7 +1169,7 @@ async function renderTransferSection(){
       <div class="card-hd"><div class="card-hd-l"><span class="card-ico">✏️</span><span class="card-ttl">양도양수 등록 (타 지역→강원도 전입)</span></div></div>
       <div class="card-bd"><form id="trSecForm">
         ${sec('기본정보',`
-        <div class="fi"><label>지역</label>${rsel('region','')}</div>
+        <div class="fi"><label>지역</label>${regionEditable('region','')}</div>
         ${fi('vehicle_number','차량번호','')}
         ${fi('transferor','양도인(성명)','')}
         ${fi('name','양수자(성명)','')}
@@ -1110,11 +1185,13 @@ async function renderTransferSection(){
         <div class="fi cs4"><label>주소</label><input class="fc" name="address"></div>
         `,'📞','purple')}
         ${sec('자격증·면허정보',`
-        ${fi('certificate_issue_date','자격증명발급일자','')} ${fi('certificate_number','자격증명번호','')}
+        ${fi('certificate_issue_date','자격증명발급일자','')} ${certNumField('certificate_number','자격증명번호','')}
         ${fi('driver_license_number','운전면허번호','')}
-        <div class="fi"><label>차종 (직접입력)</label><input class="fc" name="vehicle_type" placeholder="예: 22,포터Ⅱ내장탑차 / 1톤 냉동탑차"></div>
+        ${fi('freight_qualification_number','화물운송종사자격증 번호(양수자)','')}
+        <div class="fi"><label>차종 (직접입력)</label><input class="fc" name="vehicle_type" placeholder="예: 22.포터Ⅱ냉동탑차"></div>
         ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),'')}
         `,'🪪','yellow')}
+        ${agentFormSection({})}
         ${sec('사업정보',`
         ${fi('business_number','사업자번호','')} ${fi('affiliated_company','소속업체','')}
         `,'🏢','teal')}
@@ -1124,7 +1201,7 @@ async function renderTransferSection(){
         <button type="button" class="btn bg btn-sm" id="trSecSave">+ 저장</button>
       </div></form></div>
     </div>`;
-  setTimeout(()=>_bindFmt(document.getElementById('trSecForm')),0);
+  setTimeout(()=>{const f=document.getElementById('trSecForm');_bindFmt(f);bindAgentForm(f);_bindCertIssueBtn(f,'/api/transfer-ledger/issue-certificate-number');},0);
   document.getElementById('trSecSave').onclick=async()=>{
     const fd=_normFormDates(Object.fromEntries(new FormData(document.getElementById('trSecForm'))));
     if(!fd.vehicle_number){toast('차량번호를 입력하세요','warn');return;}
@@ -1140,9 +1217,14 @@ async function renderTransferSection(){
       membership_date:fd.membership_date||'',
       certificate_issue_date:fd.certificate_issue_date,certificate_number:fd.certificate_number,
       driver_license_number:fd.driver_license_number,
+      freight_qualification_number:fd.freight_qualification_number||'',
       vehicle_type:fd.vehicle_type||'',fuel_type:fd.fuel_type||'',
       business_number:fd.business_number||'',affiliated_company:fd.affiliated_company||'',
-      memo:fd.memo};
+      agent_name:fd.agent_name||'',agent_resident_number:fd.agent_resident_number||'',
+      agent_mobile:fd.agent_mobile||'',agent_address:fd.agent_address||'',
+      agent_driver_license_number:fd.agent_driver_license_number||'',
+      agent_freight_qualification_number:fd.agent_freight_qualification_number||'',
+      agent_start_date:fd.agent_start_date||'',memo:fd.memo};
     const trRec=await api('POST','/api/transfer-ledger',tl).catch(()=>null);
     if(!trRec)return;
     const mr=await api('POST',`/api/transfer-ledger/${trRec.id}/register-member`,{management_number:nn?.next_number||''}).catch(()=>null);
@@ -1253,7 +1335,7 @@ window.editMember=async(id,defaultCat='개인')=>{
   let r={management_number:'',region:'',vehicle_number:'',name:'',company_name:'',
     address:'',phone:'',mobile:'',category:defaultCat,
     membership_status:'가입',membership_date:'',approval_date:'',
-    certificate_issue_date:'',certificate_number:'',driver_license_number:'',
+    certificate_issue_date:'',certificate_number:'',driver_license_number:'',freight_qualification_number:'',
     vehicle_type:'',fuel_type:'',business_number:'',affiliated_company:'',
     resident_number:'',memo:'',
     reapproval_date:'',official_address:'',
@@ -1273,11 +1355,11 @@ window.editMember=async(id,defaultCat='개인')=>{
     <div class="fi cs2"><label>공문주소</label><input class="fc" name="official_address" value="${e_(r.official_address||'')}" placeholder="공문 발송 주소"></div>`,'🚚','pink');
 
   // 개인 전용 섹션 HTML
-  const indSection=sec('개인 전용 항목 (대리인)',`
-    ${fi('agent_name','대리인',r.agent_name||'')}
-    ${frn('agent_resident_number','대리인 주민등록번호',r.agent_resident_number||'')}
-    ${fph('agent_mobile','대리인 핸드폰번호',r.agent_mobile||'')}
-    <div class="fi cs2"><label>대리인 주소</label><input class="fc" name="agent_address" value="${e_(r.agent_address||'')}" placeholder="대리인 주소"></div>`,'👤','pink');
+  const indSection=agentFormSection(r,id);
+  const ownerSection=sec('차주/대리인 자격정보 구분',`
+    ${fi('owner_driver_license_number','차주 운전면허번호',r.owner_driver_license_number||'')}
+    ${fi('owner_freight_qualification_number','차주 화물운송종사자격증 번호',r.owner_freight_qualification_number||'')}
+    <div class="fi cs4" style="font-size:11.5px;color:#64748b">아래 '운전면허번호/화물운송종사자격증 번호' 기존 값은 차주·대리인 중 누구 것인지 <b>미확인</b> 상태로 그대로 보존됩니다(자동 이전·삭제 없음).</div>`,'🪪','yellow');
 
   const relationSection=(id&&(r.transfer_info||r.transfer_out_info))?sec('양도양수 관계정보 (읽기 전용)',`
     ${r.transfer_info?`
@@ -1304,7 +1386,7 @@ window.editMember=async(id,defaultCat='개인')=>{
     <input type="hidden" name="category" value="${e_(cat)}">
     ${sec('회원정보',`
       ${fi('management_number','관리번호',r.management_number||'')}
-      <div class="fi"><label>지역</label>${rsel('region',r.region||'')}</div>
+      <div class="fi"><label>지역</label>${regionEditable('region',r.region||'')}</div>
       ${fi('vehicle_number','차량번호',r.vehicle_number||'',true)} ${fi('name','성명',r.name||'',true)}
       ${fi('phone','전화번호',r.phone||'')} ${fph('mobile','핸드폰',r.mobile||'')}
       <div class="fi cs2"><label>주소</label><input class="fc" name="address" value="${e_(r.address||'')}"></div>
@@ -1315,16 +1397,17 @@ window.editMember=async(id,defaultCat='개인')=>{
       ${fi('certificate_issue_date','자격증명발급일자',r.certificate_issue_date||'')} ${fi('certificate_number','자격증명번호',r.certificate_number||'')}
     `,'📋','purple')}
     ${sec('면허정보',`
-      ${fi('driver_license_number','운전면허번호',r.driver_license_number||'')}
-      <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||'')}" placeholder="예: 22,포터Ⅱ내장탑차"></div>
+      ${fi('driver_license_number','운전면허번호(소유자 미확인 기존값)',r.driver_license_number||'')}
+      ${fi('freight_qualification_number','화물운송종사자격증 번호',r.freight_qualification_number||'')}
+      <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||'')}" placeholder="예: 22.포터Ⅱ냉동탑차"></div>
       ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),r.fuel_type||'')}
       ${fi('business_number','사업자번호',r.business_number||'')} ${fi('affiliated_company','소속업체',r.affiliated_company||'')}
       ${frn('resident_number','주민등록번호',r.resident_number||'')}
       <div class="fi cs2"><label>구조변경</label><input class="fc" name="structure_change" value="${e_(r.structure_change||'')}" placeholder="예: 윙바디 변경, 냉동기 장착, 호로→윙바디"></div>
     `,'🪪','yellow')}
     ${isTaxi?taxiSection:''}
+    ${isInd?ownerSection:''}
     ${isInd?indSection:''}
-    ${(!id)?(taxiSection+indSection):''}
     ${relationSection}
     ${sec('기타',`${fta('memo','비고',r.memo||'','cs4')}`,'📝')}
   </form>`;
@@ -1338,20 +1421,28 @@ window.editMember=async(id,defaultCat='개인')=>{
   openModal(id?'회원 수정':'회원 등록',missingLedgerBox+formHtml,
     `<button class="btn bg btn-sm" id="_mSave">${id?'저장':'등록'}</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
 
-  setTimeout(()=>_bindFmt(document.getElementById('mForm')),0);
+  setTimeout(()=>{const mf=document.getElementById('mForm');if(mf&&id)mf.dataset.memberId=String(id);_bindFmt(mf);bindAgentForm(mf);},0);
   document.getElementById('_mSave').onclick=async()=>{
     const form=document.getElementById('mForm');
     const fd=_normFormDates(Object.fromEntries(new FormData(form)));
     if(!fd.vehicle_number||!fd.name){toast('차량번호와 성명은 필수입니다','warn');return;}
     // category 재계산 (신규 등록 및 수정 시 차량번호 기준)
     fd.category=fd.vehicle_number?.includes('배')?'택배':'개인';
+    // 가입일자 삭제 = 탈퇴: 기존 가입일자가 있었는데 비우는 경우에만 확인 (서버에서도 한 번 더 검증)
+    if(id){
+      const oldMd=String((r&&r.membership_date)||'').trim(), newMd=String(fd.membership_date||'').trim();
+      if(oldMd && /\d/.test(oldMd) && !newMd){
+        if(!window.confirm(`가입일자(${oldMd})를 삭제하면 탈퇴 처리됩니다.\n\n탈퇴 처리하시겠습니까?\n(단순 입력 실수라면 [취소]를 누르고 가입일자를 다시 입력하세요)`))return;
+        fd.confirm_withdrawal=true;
+      }
+    }
     const btn=document.getElementById('_mSave');
     btn.disabled=true; btn.textContent='저장 중...';
     try{
       const res=await api(id?'PUT':'POST',id?`/api/members/${id}`:'/api/members',fd);
       if(res){toast(id?'수정되었습니다.':'등록되었습니다.');closeModal();navigate(ST.cat,ST.sub);}
     }catch(e){
-      console.error('회원 저장 오류:', e, '전송 데이터:', fd);
+      console.error('회원 저장 오류:', (e&&e.message)||'서버 오류');
       toast('저장 실패: '+((e&&e.message)||'서버 오류'),'err');
     }finally{btn.disabled=false; btn.textContent=id?'저장':'등록';}
   };
@@ -1428,10 +1519,11 @@ window.openDomesticTransfer=async(id)=>{
           <div class="fi"><label>자격증명발급일자</label><input class="fc" value="${e_(m.certificate_issue_date||'')}" disabled></div>
           <div class="fi"><label>자격증명발급번호</label><input class="fc" value="${e_(m.certificate_number||'')}" disabled></div>
           <div class="fi"><label>운전면허번호</label><input class="fc" value="${e_(m.driver_license_number||'')}" disabled></div>
+          <div class="fi"><label>화물운송종사자격증 번호(양도자)</label><input class="fc" value="${e_(m.freight_qualification_number||'')}" disabled></div>
         </div>
       </details>
       ${sec('차량정보',`
-      <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(m.vehicle_type||'')}"></div>
+      <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(m.vehicle_type||'')}" placeholder="예: 22.포터Ⅱ냉동탑차"></div>
       ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),m.fuel_type||'')}
       <div class="fi cs2"><label>구조변경</label><input class="fc" name="structure_change" value=""></div>
       <div class="fi"><label>소속업체</label><input class="fc" name="affiliated_company" value="${e_(m.affiliated_company||'')}"></div>
@@ -1443,7 +1535,7 @@ window.openDomesticTransfer=async(id)=>{
           <label><input type="radio" name="transferee_target" value="candidate">예정자로 등록</label>
         </div>
       </div>
-      <div class="fi"><label>지역</label>${rsel('transferee_region',m.region||'')}</div>
+      <div class="fi"><label>지역</label>${regionEditable('transferee_region',m.region||'')}</div>
       ${fi('transferee_name','성명','',true)}
       ${frn('transferee_resident_number','주민등록번호','')}
       <div class="fi"><label>차량번호</label><input class="fc" name="transferee_vehicle_number" value="${e_(m.vehicle_number||'')}"></div>
@@ -1452,12 +1544,14 @@ window.openDomesticTransfer=async(id)=>{
       ${fi('certificate_issue_date','자격증명발급일자(신규)','')}
       ${certNumField('certificate_number','자격증명발급번호(신규)','')}
       ${fi('driver_license_number','운전면허번호(신규)','')}
+      ${fi('transferee_freight_qualification_number','화물운송종사자격증 번호(양수자)','')}
       `,'🔗','teal')}
+      ${agentFormSection({})}
       ${sec('기타',`${fta('memo','비고','','cs4')}`,'📝')}
     </form>
     <div id="dtDupBox"></div>`,
     `<button class="btn bg btn-sm" id="_dtSave">저장</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
-  setTimeout(()=>{_bindFmt(document.getElementById('dtForm'));_bindCertIssueBtn(document.getElementById('dtForm'),'/api/transfer-ledger/issue-certificate-number');},0);
+  setTimeout(()=>{_bindFmt(document.getElementById('dtForm'));bindAgentForm(document.getElementById('dtForm'));_bindCertIssueBtn(document.getElementById('dtForm'),'/api/transfer-ledger/issue-certificate-number');},0);
 
   let linkExisting=null; // {id,type}
 
@@ -1483,6 +1577,11 @@ window.openDomesticTransfer=async(id)=>{
       transferee_name:fd.transferee_name||'', transferee_resident_number:fd.transferee_resident_number||'',
       transferee_vehicle_number:fd.transferee_vehicle_number||'', transferee_region:fd.transferee_region||'',
       transferee_address:fd.transferee_address||'', transferee_mobile:fd.transferee_mobile||'',
+      transferee_freight_qualification_number:fd.transferee_freight_qualification_number||'',
+      agent_name:fd.agent_name||'', agent_resident_number:fd.agent_resident_number||'', agent_mobile:fd.agent_mobile||'',
+      agent_address:fd.agent_address||'', agent_driver_license_number:fd.agent_driver_license_number||'',
+      agent_freight_qualification_number:fd.agent_freight_qualification_number||'',
+      agent_start_date:fd.agent_start_date||'', agent_end_date:fd.agent_end_date||'',
       closure_date:fd.closure_date, closure_reason:'도내 양도양수',
       force_new: !!forceNew,
     };
@@ -1821,14 +1920,14 @@ window.openMissingTransferLedgerModal=async(refreshCb)=>{
 };
 
 window.editTransfer=async(id)=>{
-  let r={seq_number:'',receipt_date:'',region:'',vehicle_number:'',transferor:'',transferee:'',resident_number:'',address:'',phone:'',mobile:'',approval_date:'',membership_date:'',certificate_issue_date:'',certificate_number:'',ledger_update:'',driver_license_number:'',computer_report:'',memo:'',vehicle_type:'',fuel_type:'',structure_change:'',affiliated_company:''};
+  let r={seq_number:'',receipt_date:'',region:'',vehicle_number:'',transferor:'',transferee:'',resident_number:'',address:'',phone:'',mobile:'',approval_date:'',membership_date:'',certificate_issue_date:'',certificate_number:'',ledger_update:'',driver_license_number:'',freight_qualification_number:'',computer_report:'',memo:'',vehicle_type:'',fuel_type:'',structure_change:'',affiliated_company:''};
   if(id){r=await api('GET',`/api/transfer-ledger/${id}`).catch(()=>null);if(!r)return;}
   const raw_tl=(r.raw_data&&typeof r.raw_data==='object')?r.raw_data:{};
   openModal(id?'양도양수 수정':'양도양수 등록',`<form id="tlForm">
     ${sec('처리정보',`
       ${fi('management_number','관리번호',r.management_number||'')}
       ${fi('receipt_date','접수일자',r.receipt_date||'')}
-      <div class="fi"><label>지역</label>${rsel('region',r.region||'')}</div>
+      <div class="fi"><label>지역</label>${regionEditable('region',r.region||'')}</div>
     `,'📋','sky')}
     ${sec('회원정보',`
       ${fi('vehicle_number','차량번호',r.vehicle_number||'',true)}
@@ -1842,12 +1941,13 @@ window.editTransfer=async(id)=>{
       ${fi('approval_date','인가일자',r.approval_date||'')}
       ${fi('membership_date','가입일자',r.membership_date||'')}
       ${fi('certificate_issue_date','자격증명발급일자',r.certificate_issue_date||'')}
-      ${fi('certificate_number','자격증명발급번호',r.certificate_number||'')}
+      ${certNumField('certificate_number','자격증명발급번호',r.certificate_number||'')}
     `,'✅','purple')}
     ${sec('면허정보',`
-      ${fi('driver_license_number','운전면허번호',r.driver_license_number||'')}
+      ${fi('driver_license_number','운전면허번호(차주)',r.driver_license_number||'')}
+      ${fi('freight_qualification_number','화물운송종사자격증 번호(양수자)',r.freight_qualification_number||'')}
       ${frn('resident_number','주민등록번호',r.resident_number||'')}
-      ${fi('vehicle_type','차종',r.vehicle_type||raw_tl['차종']||'')}
+      <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||raw_tl['차종']||'')}" placeholder="예: 22.포터Ⅱ냉동탑차"></div>
       ${fri('fuel_type','유종',['','경유','LPG','전기','휘발유','CNG','하이브리드'],r.fuel_type||raw_tl['유종']||'')}
       ${fi('affiliated_company','소속업체',r.affiliated_company||raw_tl['소속업체']||raw_tl['업체명']||'')}
       <div class="fi cs2"><label>구조변경</label><input class="fc" name="structure_change" value="${e_(r.structure_change||'')}"></div>
@@ -1855,9 +1955,11 @@ window.editTransfer=async(id)=>{
     ${sec('업무정보',`
       ${fi('transfer_region','이관/양도지역',r.transfer_region||'')}
     `,'🔄','teal')}
+    ${agentFormSection(r)}
     ${sec('기타',`${fta('memo','비고',r.memo||'','cs4')}`,'📝')}
   </form>`,
   `<button class="btn bg btn-sm" id="_tlS">${id?'저장':'등록'}</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
+  setTimeout(()=>{const tf=document.getElementById('tlForm');if(tf&&id)tf.dataset.transferId=String(id);bindAgentForm(tf);_bindFmt(tf);_bindCertIssueBtn(tf,'/api/transfer-ledger/issue-certificate-number');},0);
   document.getElementById('_tlS').onclick=async()=>{
     const form=document.getElementById('tlForm');if(!form.checkValidity()){form.reportValidity();return;}
     const fd=_normFormDates(Object.fromEntries(new FormData(form)));
@@ -2017,7 +2119,7 @@ window.editClosure=async(id)=>{
       ${fi('receipt_date','접수일자',r.receipt_date||'')} ${fi('closure_date','처리일자',r.closure_date||'')}
     `,'📋','sky')}
     ${sec('회원정보',`
-      <div class="fi"><label>지역</label>${rsel('region',r.region||'')}</div>
+      <div class="fi"><label>지역</label>${regionEditable('region',r.region||'')}</div>
       ${fi('vehicle_number','차량번호',r.vehicle_number||'',true)} ${fi('name','성명',r.name||'')} ${fi('company_name','상호',r.company_name||'')}
       ${fi('phone','전화번호',r.phone||'')} ${fph('mobile','핸드폰',r.mobile||'')}
       <div class="fi cs2"><label>주소</label><input class="fc" name="address" value="${e_(r.address||'')}"></div>
@@ -2033,7 +2135,7 @@ window.editClosure=async(id)=>{
     ${sec('면허정보',`
       ${frn('resident_number','주민등록번호',r.resident_number||'')}
       ${fi('driver_license_number','운전면허번호',r.driver_license_number||'')}
-      <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||raw['차종']||'')}" placeholder="예: 22,포터Ⅱ내장탑차"></div>
+      <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||raw['차종']||'')}" placeholder="예: 22.포터Ⅱ냉동탑차"></div>
       ${fri('fuel_type','유종',['','경유','LPG','전기','휘발유','CNG','하이브리드'],r.fuel_type||raw['유종']||'')}
       ${fi('affiliated_company','소속업체',r.affiliated_company||'')}
       <div class="fi cs2"><label>구조변경</label><input class="fc" name="structure_change" value="${e_(r.structure_change||'')}"></div>
@@ -2076,6 +2178,95 @@ window.cancelClosure=async(id)=>{
 window.deleteClosure=async(id)=>{if(!await cfm('삭제?'))return;try{await api('DELETE',`/api/closures/${id}`);toast('삭제');renderClosures();}catch(e){};};
 
 // ===== CHANGE HISTORY =====
+// ===== 월별 변경이력 통계 (월례보고서와 동일 인정 기준) =====
+window.openChangeStats=async()=>{
+  const now=new Date(),cy=now.getFullYear(),yrs=[];
+  for(let y=cy+1;y>=2015;y--)yrs.push(y);
+  openModal('월별 변경이력 통계',`
+    <div class="frow" style="margin-bottom:8px">
+      <select id="stY" class="fsel">${yrs.map(y=>`<option value="${y}" ${y===cy?'selected':''}>${y}년</option>`).join('')}</select>
+      <select id="stM" class="fsel"><option value="0">전체 월</option>${[...Array(12)].map((_,i)=>`<option value="${i+1}" ${i===now.getMonth()?'selected':''}>${i+1}월</option>`).join('')}</select>
+      ${rselflt('stReg','')}
+      <select id="stT" class="fsel"><option value="">전체 유형</option>${CHANGE_TYPES.map(t=>`<option value="${t}">${t}</option>`).join('')}</select>
+      <input type="date" id="stF" class="fsel" title="기간 시작(입력 시 연·월 대신 기간 기준)"> ~ <input type="date" id="stTo" class="fsel" title="기간 끝">
+      <button class="btn bp btn-sm" id="stGo">조회</button>
+      <button class="btn bxl btn-sm" id="stXl">엑셀 다운로드</button>
+    </div>
+    <div id="stBody"><div class="loading-box"><div class="spin"></div></div></div>
+    <div id="stDetail" style="margin-top:12px"></div>`,
+    `<button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
+  const qs=(extra={})=>{
+    const p=new URLSearchParams();
+    const y=document.getElementById('stY').value,m=document.getElementById('stM').value;
+    const f=document.getElementById('stF').value,t=document.getElementById('stTo').value;
+    if(f||t){if(f)p.set('date_from',f);if(t)p.set('date_to',t);}else{p.set('year',y);if(m&&m!=='0')p.set('month',m);}
+    const rg=document.getElementById('stReg').value,ty=document.getElementById('stT').value;
+    if(rg)p.set('region',rg);if(ty)p.set('change_type',ty);
+    Object.entries(extra).forEach(([k,v])=>{if(v)p.set(k,v);});
+    return p.toString();
+  };
+  const BK=['상호변경','차량변경(대폐차)','주소변경','차량번호변경','대표자변경','자격증재교부','기타'];
+  const SEP=['최초등록','표기정정','오류정정','확인필요','월귀속불가(날짜 없음/불량)'];
+  const num=(n,bucket)=>n>0?`<a class="click-link" data-bk="${e_(bucket)}" style="font-weight:700">${n.toLocaleString()}</a>`:'0';
+  const loadDetail=async(bucket)=>{
+    const box=document.getElementById('stDetail');
+    box.innerHTML='<div class="loading-box"><div class="spin"></div></div>';
+    const sv=document.getElementById('stSrch')?.value.trim()||'';
+    const bk=bucket.startsWith('월귀속불가')?'월귀속불가':bucket;
+    const d=await api('GET',`/api/change-stats/detail?${qs({bucket:bk,search:sv})}`).catch(()=>null);
+    if(!d){box.innerHTML='';return;}
+    box.dataset.bk=bucket;
+    box.innerHTML=`<div class="flex gap-8" style="align-items:center;margin-bottom:6px"><strong>${e_(bucket)} 상세 (${d.total.toLocaleString()}건)</strong>
+        <input class="srch" id="stSrch" placeholder="성명·차량번호 검색" value="${e_(sv)}" style="max-width:200px"><button class="btn bp btn-xs" id="stSrchBtn">검색</button></div>
+      ${d.items.length?`<div class="tbl-wrap"><table><thead><tr><th>성명</th><th>차량번호</th><th>지역</th><th>변경유형</th><th>판정</th><th>집계기준일</th><th>변경 전</th><th>변경 후</th><th>비고/사유</th></tr></thead>
+      <tbody>${d.items.map(r=>`<tr><td>${fv(r.name)}</td><td>${fv(r.vehicle_number)}</td><td>${fv(r.region)}</td><td>${fv(r.change_type)}</td>
+        <td>${fv(r.judgement)}${r.legacy_unclassified?'<span style="font-size:10px;color:var(--c-text-4)"> (기존)</span>':''}</td>
+        <td>${r.basis_date?`${e_(r.basis_date)} <span style="font-size:10px;color:var(--c-text-4)">(${e_(r.basis_source)})</span>`:'<span style="color:var(--c-warn)">유효 날짜 없음</span>'}</td>
+        <td>${fv(r.before_value)}</td><td>${fv(r.after_value)}</td><td title="${e_(r.memo)}">${fv(r.reason||r.memo)}</td></tr>`).join('')}</tbody></table></div>
+      ${d.total>d.items.length?`<p style="font-size:11px;color:var(--c-text-4)">상위 ${d.items.length}건만 표시합니다. 전체는 엑셀로 내려받으세요.</p>`:''}`:'<div class="empty-box"><p class="empty-txt">해당 건이 없습니다.</p></div>'}`;
+    document.getElementById('stSrchBtn').onclick=()=>loadDetail(bucket);
+    document.getElementById('stSrch').onkeydown=ev=>{if(ev.key==='Enter')loadDetail(bucket);};
+  };
+  const load=async()=>{
+    const body=document.getElementById('stBody');
+    body.innerHTML='<div class="loading-box"><div class="spin"></div></div>';document.getElementById('stDetail').innerHTML='';
+    const d=await api('GET',`/api/change-stats/summary?${qs()}`).catch(()=>null);
+    if(!d){body.innerHTML='';return;}
+    const regs=Object.entries(d.by_region).sort((a,b)=>b[1].합계-a[1].합계);
+    body.innerHTML=`
+      <div class="grid2" style="align-items:start">
+        <div><table><thead><tr><th>구분</th><th>해당 기간 건수</th></tr></thead><tbody>
+          ${BK.map(b=>`<tr><td>${b}${b==='자격증재교부'?' <span style="font-size:10px;color:var(--c-text-4)">(자동연동 예정)</span>':''}</td><td>${num(d.buckets[b]||0,b)}</td></tr>`).join('')}
+          <tr style="font-weight:700;background:var(--c-bg-2,#f1f5f9)"><td>정상 변경실적 합계</td><td>${num(d.total,'전체')}</td></tr></tbody></table></div>
+        <div><table><thead><tr><th>별도 집계 (실적 제외)</th><th>건수</th></tr></thead><tbody>
+          ${SEP.map(k=>`<tr><td>${k}</td><td>${num(d.separate[k]||0,k)}</td></tr>`).join('')}</tbody></table>
+          <p style="font-size:11px;color:var(--c-text-4);margin-top:6px">${e_(d.note)}${d.legacy_unclassified_in_total?`<br>합계 중 기존(판정 미저장) 이력 ${d.legacy_unclassified_in_total.toLocaleString()}건 포함.`:''}</p></div>
+      </div>
+      <div class="grid2" style="align-items:start;margin-top:10px">
+        <div><strong style="font-size:12px">지역별 정상 변경건수</strong>${regs.length?`<table><thead><tr><th>지역</th><th>합계</th>${BK.slice(0,4).map(b=>`<th>${b}</th>`).join('')}<th>별도(최초·정정·확인)</th></tr></thead><tbody>
+          ${regs.map(([r,v])=>`<tr><td>${e_(r)}</td><td><b>${v.합계}</b></td>${BK.slice(0,4).map(b=>`<td>${v[b]||0}</td>`).join('')}<td>${(v.최초등록||0)+(v.표기정정||0)+(v.오류정정||0)+(v.확인필요||0)}</td></tr>`).join('')}</tbody></table>`:'<p class="empty-txt">데이터 없음</p>'}</div>
+        <div><strong style="font-size:12px">변경 유형별 (원본 유형)</strong>${Object.keys(d.by_type).length?`<table><thead><tr><th>유형</th><th>건수</th></tr></thead><tbody>${Object.entries(d.by_type).map(([t,n])=>`<tr><td>${e_(t)}</td><td>${n}</td></tr>`).join('')}</tbody></table>`:'<p class="empty-txt">데이터 없음</p>'}</div>
+      </div>`;
+    body.querySelectorAll('[data-bk]').forEach(a=>a.onclick=()=>loadDetail(a.dataset.bk));
+  };
+  document.getElementById('stGo').onclick=load;
+  document.getElementById('stXl').onclick=()=>dl(`/api/change-stats/export?${qs()}`,'월별변경이력통계.xlsx');
+  await load();
+};
+
+// ===== 관리비폐지 확인필요 (택배 폐업자 · 부과 중단 여부는 데이터 없어 '검증불가') =====
+window.openFeeClosure=async()=>{
+  const d=await api('GET','/api/allocation/fee-closure-candidates').catch(()=>null);if(!d)return;
+  openModal(`관리비폐지 확인필요 (${d.total.toLocaleString()}명)`,`
+    <p class="warn-box" style="margin-bottom:10px">폐업 처리된 <strong>택배회원</strong> 목록입니다. 이 시스템에는 부과·수납 데이터가 없어 실제 관리비 부과 중단 여부는 <strong>검증불가</strong>이며, 폐업자를 부과 대상으로 확정하지 않습니다. 기존 관리비·미수금은 변경되지 않습니다.</p>
+    ${d.items.length?`<div class="tbl-wrap"><table><thead><tr><th>성명</th><th>차량번호</th><th>지역</th><th>폐업일</th><th>최종 부과월</th><th>폐업 이후 부과금액</th><th>부과 중단 여부</th></tr></thead>
+    <tbody>${d.items.map(r=>`<tr><td>${fv(r.name)}</td><td>${fv(r.vehicle_number)}</td><td>${fv(r.region)}</td>
+      <td>${fv(r.closure_date||r.receipt_date)}${r.closure_date_valid?'':' <span style="color:var(--c-warn);font-size:10px">(날짜 확인)</span>'}</td>
+      <td>${r.last_billed_month?e_(r.last_billed_month):'-'}</td><td>${r.post_closure_amount!=null?Number(r.post_closure_amount).toLocaleString():'-'}</td>
+      <td>${e_(r.billing_status)}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty-box"><p class="empty-txt">대상자가 없습니다.</p></div>'}`,
+    `<button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
+};
+
 async function renderChangeHistory(){
   await _loadChangeTypes();  // 유형 목록 최신화
   const f=ST.fl.ch||{};
@@ -2084,6 +2275,7 @@ async function renderChangeHistory(){
       <div class="card-hd">
         <div class="card-hd-l"><span class="card-ico">📝</span><span class="card-ttl">변경이력대장</span><span class="cnt" id="chCnt">0건</span></div>
         <div class="flex gap-8">
+          <button class="btn bp btn-sm" id="chStatBtn">📊 월별 통계</button>
           <button class="btn bg btn-sm" id="chAddBtn">+ 등록</button>
           <button class="btn bxl btn-sm" id="chXlBtn">엑셀 다운로드</button>
         </div>
@@ -2132,6 +2324,7 @@ async function renderChangeHistory(){
   document.getElementById('chSrch').onkeydown=e=>{if(e.key==='Enter')doSearch(1);};
   document.getElementById('chRstBtn').onclick=()=>{ST.fl.ch={};renderChangeHistory();};
   document.getElementById('chAddBtn').onclick=()=>editChange(null);
+  document.getElementById('chStatBtn').onclick=()=>openChangeStats();
   document.getElementById('chXlBtn').onclick=()=>{
     const q=new URLSearchParams(Object.fromEntries(Object.entries(ST.fl.ch||{}).filter(([,v])=>v)));
     dl(`/api/change-history/export/excel?${q}`,'변경이력대장.xlsx');
@@ -2144,7 +2337,7 @@ window.editChange=async(id)=>{
   if(id){r=await api('GET',`/api/change-history/${id}`).catch(()=>null);if(!r)return;}
   openModal(id?'변경이력 수정':'변경이력 등록',`<form id="chForm"><div class="fg">
     <div class="fi"><label>변경유형</label>${ssel('change_type',CHANGE_TYPES,r.change_type||'주소지변경')}</div>
-    <div class="fi"><label>지역</label>${rsel('region',r.region||'')}</div>
+    <div class="fi"><label>지역</label>${regionEditable('region',r.region||'')}</div>
     ${fi('vehicle_number','차량번호',r.vehicle_number||'',true)} ${fi('name','성명',r.name||'')}
     <div class="fi cs2"><label>변경 전</label><input class="fc" name="before_value" value="${e_(r.before_value||'')}"></div>
     <div class="fi cs2"><label>변경 후</label><input class="fc" name="after_value" value="${e_(r.after_value||'')}"></div>
@@ -2217,8 +2410,8 @@ async function renderDashboard(){
       <div class="card-hd"><div class="card-hd-l"><span class="card-ico">📊</span><span class="card-ttl">부과대수 자동 파악</span><span class="badge b-teal" style="font-size:10px;margin-left:6px">자동 계산</span></div></div>
       <div class="card-bd">
         <div class="alloc-grid">
-          ${[['협회가입',alloc['협회가입'],'가입일자 기준'],['양도누계',alloc['양도누계'],'양도양수대장 누계'],['이관누계',alloc['이관누계'],'이관 누계'],['폐업누계',alloc['폐업누계'],'폐업 누계'],['탈퇴',alloc['탈퇴'],''],['택배신규',alloc['택배신규'],''],['관리비폐지',alloc['관리비폐지'],''],['70세',alloc['70세'],''],['협회기본대수',alloc['협회기본대수'],'현재 유효 사업자'],['총부과대수',alloc['총부과대수'],'현재 유효 사업자'],['택배관리',alloc['택배관리'],'']].map(([l,v,sub])=>`
-          <div class="alloc-card"><div class="alloc-lbl">${l}${sub?`<span style="display:block;font-size:9.5px;color:var(--c-text-3);font-weight:400;margin-top:1px">${sub}</span>`:''}</div>
+          ${[['협회가입',alloc['협회가입'],'가입일자 기준'],['양도누계',alloc['양도누계'],'양도양수대장 누계'],['이관누계',alloc['이관누계'],'이관 누계'],['폐업누계',alloc['폐업누계'],'폐업 누계'],['탈퇴',alloc['탈퇴'],''],['택배신규',alloc['택배신규'],''],['관리비폐지 확인필요',alloc['관리비폐지'],'택배 폐업자 · 눌러서 목록 확인'],['70세',alloc['70세'],''],['협회기본대수',alloc['협회기본대수'],'현재 유효 사업자'],['총부과대수',alloc['총부과대수'],'현재 유효 사업자'],['택배관리',alloc['택배관리'],'']].map(([l,v,sub])=>`
+          <div class="alloc-card" ${l==='관리비폐지 확인필요'?`style="cursor:pointer" onclick="openFeeClosure()" title="클릭하면 대상자 목록을 봅니다"`:''}><div class="alloc-lbl">${l}${sub?`<span style="display:block;font-size:9.5px;color:var(--c-text-3);font-weight:400;margin-top:1px">${sub}</span>`:''}</div>
             ${v===null||v===undefined?`<div class="alloc-na">확인 필요</div>`:`<div class="alloc-val">${Number(v).toLocaleString()}</div>`}
           </div>`).join('')}
         </div>
@@ -2592,7 +2785,7 @@ async function renderMonthlyReportDetail(){
             <tr><td class="rl">이관</td><td>${aw.이관||0}</td></tr>
             <tr><td class="rl">상호변경</td><td>${aw.상호변경||0}</td></tr>
             <tr><td class="rl">대표자변경</td><td>${aw.대표자변경||0}</td></tr>
-            <tr><td class="rl">차량변경</td><td>${aw.차량변경||0}</td></tr>
+            <tr><td class="rl">차량변경(대폐차)</td><td>${aw.차량변경||0}</td></tr>
             <tr><td class="rl">주소변경</td><td>${aw.주소변경||0}</td></tr>
             <tr><td class="rl">자격증재교부</td><td>${aw.자격증재교부||0}</td></tr>
           </tbody>
@@ -3992,3 +4185,59 @@ window._smsHistRefresh=async(id)=>{
 };
 
 // PHASE1_DEPLOY_MARKER: 20260904_1605_FORCE_DEPLOY (app.js)
+
+
+// ===== 자격증명발급번호 즉시 중복확인 (입력 중/입력 후 바로 기존 등록 여부 표시) =====
+(function(){
+  const SKIP_FORMS=new Set(['clForm']);  // 폐업 등록은 기존 회원 번호를 그대로 옮기는 화면이라 제외
+  let timer=null, seq=0;
+  function warnBox(inp){
+    let box=inp.closest('.fi')?.querySelector('.cert-dup-warn');
+    if(!box){
+      box=document.createElement('div');box.className='cert-dup-warn';
+      box.style.cssText='margin-top:4px;font-size:12px;font-weight:600;color:#c62828;display:none;white-space:normal';
+      (inp.closest('.fi')||inp.parentElement).appendChild(box);
+    }
+    return box;
+  }
+  async function check(inp){
+    const form=inp.form; if(!form||SKIP_FORMS.has(form.id)) return;
+    const box=warnBox(inp);
+    const val=(inp.value||'').trim();
+    inp.dataset.certDup='';
+    if(!val){box.style.display='none';return;}
+    // 수정 화면에서 번호를 바꾸지 않았다면 검사하지 않는다 (본인 번호)
+    const orig=(inp.defaultValue||'').trim();
+    if(orig&&orig===val){box.style.display='none';return;}
+    const q=new URLSearchParams({number:val});
+    const get=(n)=>form.querySelector(`[name="${n}"]`)?.value||'';
+    const name=get('name')||get('transferee_name')||get('transferee');
+    const veh=get('vehicle_number')||get('transferee_vehicle_number');
+    if(name) q.set('name',name); if(veh) q.set('vehicle_number',veh);
+    if(form.dataset.candidateId) q.set('candidate_id',form.dataset.candidateId);
+    if(form.dataset.memberId) q.set('member_id',form.dataset.memberId);
+    if(form.dataset.transferId) q.set('transfer_id',form.dataset.transferId);
+    const my=++seq;
+    try{
+      const res=await fetch('/api/certificate-ledger/number-check?'+q.toString(),{headers:{Authorization:`Bearer ${localStorage.getItem('authToken')}`}});
+      if(!res.ok||my!==seq) return;
+      const j=await res.json();
+      if(j.duplicate){
+        inp.dataset.certDup='1';
+        box.textContent='⚠ '+j.message;box.style.display='block';
+        inp.style.borderColor='#c62828';
+        if(inp.dataset.certAlerted!==j.normalized){inp.dataset.certAlerted=j.normalized;alert(j.message);}
+      }else{
+        box.style.display='none';inp.style.borderColor='';
+      }
+    }catch(e){/* 확인 실패 시 조용히 넘어간다. 서버가 저장 시 다시 차단한다. */}
+  }
+  function schedule(e,delay){
+    const inp=e.target;
+    if(!(inp instanceof HTMLInputElement)||inp.name!=='certificate_number') return;
+    clearTimeout(timer);timer=setTimeout(()=>check(inp),delay);
+  }
+  document.addEventListener('input',e=>schedule(e,500));
+  document.addEventListener('focusout',e=>schedule(e,0));
+  document.addEventListener('change',e=>schedule(e,0));
+})();

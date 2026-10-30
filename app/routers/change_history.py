@@ -20,6 +20,7 @@ from app.database import get_db
 from app.auth import get_current_user, require_admin
 from app import models, crud
 from app.excel_utils import records_to_excel
+from app.services.change_judgement import mask_rrn, view_row
 
 router = APIRouter()
 
@@ -68,13 +69,16 @@ def _fmt(c):
         "region": c.region or "",
         "vehicle_number": c.vehicle_number or "",
         "name": c.name or "",
-        "before_value": c.before_value or "",
-        "after_value": c.after_value or "",
-        "change_date": c.change_date or "",
-        "receipt_date": c.receipt_date or "",
-        "memo": c.memo or "",
+        # 주민등록번호 형식 값이 날짜/내용 칸에 섞여 있으면 화면·엑셀에서 가린다(원본 DB는 그대로)
+        "before_value": mask_rrn(c.before_value or ""),
+        "after_value": mask_rrn(c.after_value or ""),
+        "change_date": mask_rrn(c.change_date or ""),
+        "receipt_date": mask_rrn(c.receipt_date or ""),
+        "memo": mask_rrn(c.memo or ""),
         "created_at": str(c.created_at)[:10] if c.created_at else "",
         "is_future_date": _is_future_date(c.change_date or ""),  # 미래 날짜 여부
+        "judgement": getattr(c, "judgement", None) or "",
+        "judge_reason": getattr(c, "judge_reason", None) or "",
     }
 
 
@@ -103,11 +107,13 @@ def _fmt_detail(c):
         "region": c.region or "",
         "vehicle_number": c.vehicle_number or "",
         "name": c.name or "",
-        "before_value": before_value,
-        "after_value": after_value,
-        "change_date": change_date,
-        "receipt_date": c.receipt_date or "",
-        "memo": c.memo or "",
+        "before_value": mask_rrn(before_value),
+        "after_value": mask_rrn(after_value),
+        "change_date": mask_rrn(change_date),
+        "receipt_date": mask_rrn(c.receipt_date or ""),
+        "memo": mask_rrn(c.memo or ""),
+        "judgement": getattr(c, "judgement", None) or "",
+        "judge_reason": getattr(c, "judge_reason", None) or "",
         "created_at": str(c.created_at)[:10] if c.created_at else "",
     }
 

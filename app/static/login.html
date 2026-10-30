@@ -292,8 +292,13 @@
       document.documentElement.setAttribute('data-pwa-standalone', isStandalone ? 'true' : 'false');
     })();
 
+    // 로그인 후 돌아갈 같은 사이트 내부 경로(예: /receivables)만 허용 — 외부 주소/프로토콜 상대경로는 무시
+    function safeNext() {
+      const n = new URLSearchParams(location.search).get('next') || '';
+      return (/^\/(?!\/)[A-Za-z0-9_\-\/.?=&%]*$/.test(n) && !n.includes('..')) ? n : '/';
+    }
     if (localStorage.getItem('authToken')) {
-      window.location.replace('/');
+      window.location.replace(safeNext());
     }
 
     const THEMES = {
@@ -376,7 +381,7 @@
           localStorage.setItem('userRole', data.role);
           localStorage.setItem('userName', data.username);
           localStorage.setItem('userFullName', data.full_name || data.username);
-          window.location.replace('/');
+          window.location.replace(safeNext());
         } else {
           const err = await res.json().catch(() => ({}));
           errEl.textContent = err.detail || '로그인에 실패했습니다.';

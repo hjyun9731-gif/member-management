@@ -25,6 +25,7 @@ from app import certificate_ledger_models as ledger_models
 from app import crud, models
 from app.auth import get_current_user, require_admin
 from app.database import get_db
+from app.services import certificate_number_guard as number_guard
 from app.services.certificate_ledger_service import (
     APPROVED,
     ISSUED,
@@ -53,6 +54,9 @@ _MEMBER_LEDGER_SYNC = {"at": None}
 _MEMBER_LEDGER_SYNC_TTL = 300.0
 _CANDIDATE_LEDGER_SYNC = {"at": None}
 _CANDIDATE_LEDGER_SYNC_TTL = 60.0
+# 대상 없는 번호 로그 보강: 목록 조회마다 로그 100건 x 개별 쿼리를 돌리던 것을 TTL로 제한한다.
+_ORPHAN_LOG_SYNC = {"at": None}
+_ORPHAN_LOG_SYNC_TTL = 60.0
 
 def _invalidate_stats_cache():
     _STATS_CACHE["at"] = 0.0
@@ -66,6 +70,10 @@ def _ensure_orphan_number_logs_cached(db: Session) -> int:
     번호를 발급대장 placeholder 행으로 만든다. 삭제하지 않고, 관리자 화면에서 취소할 수 있게
     표시하는 목적이다. 새 채번은 여기서 절대 하지 않는다.
     """
+    last = _ORPHAN_LOG_SYNC["at"]
+    if last is not None and monotonic() - last < _ORPHAN_LOG_SYNC_TTL:
+        return 0
+    _ORPHAN_LOG_SYNC["at"] = monotonic()
     logs = (
         db.query(models.CertificateNumberLog)
         .filter(models.CertificateNumberLog.status.in_(["issued", "cancelled"]))
@@ -806,44 +814,6 @@ def _get_row(db: Session, ledger_id: int):
     return row
 
 
-def _find_number_conflict(db: Session, norm_number: str, exclude_ledger_id: int = None,
-                           exclude_candidate_id: int = None, exclude_member_id: int = None):
-    """새 발급번호가 이 발급대장 행 본인 외에 이미 다른 대상에서 쓰이고 있는지 확인한다.
-
-    26-385(강동규)처럼 괄호 주석이 붙어 있어도 normalize_certificate_number가
-    순수 번호만 비교하므로 여기서도 그대로 잡아낸다.
-    """
-    for r in db.query(ledger_models.CertificateIssuanceLedger).filter(
-        ledger_models.CertificateIssuanceLedger.deleted_at.is_(None),
-        ledger_models.CertificateIssuanceLedger.id != (exclude_ledger_id or -1),
-    ).all():
-        if crud.normalize_certificate_number(r.document_number or "") == norm_number:
-            return f"발급대장 {r.name or ''}({r.vehicle_number or ''})".strip()
-
-    q = db.query(models.Candidate).filter(
-        models.Candidate.deleted_at.is_(None),
-        models.Candidate.certificate_number.isnot(None),
-        models.Candidate.certificate_number != "",
-    )
-    if exclude_candidate_id:
-        q = q.filter(models.Candidate.id != exclude_candidate_id)
-    for c in q.all():
-        if crud.normalize_certificate_number(c.certificate_number) == norm_number:
-            return f"예정자 {c.name or ''}({c.vehicle_number or ''})".strip()
-
-    q = db.query(models.LicenseHolder).filter(
-        models.LicenseHolder.deleted_at.is_(None),
-        models.LicenseHolder.certificate_number.isnot(None),
-        models.LicenseHolder.certificate_number != "",
-    )
-    if exclude_member_id:
-        q = q.filter(models.LicenseHolder.id != exclude_member_id)
-    for m in q.all():
-        if crud.normalize_certificate_number(m.certificate_number) == norm_number:
-            return f"회원 {m.name or ''}({m.vehicle_number or ''})".strip()
-    return None
-
-
 def _same_number_subject(log: models.CertificateNumberLog, row) -> bool:
     if not log or log.status != "used":
         return True
@@ -1012,14 +982,15 @@ async def candidate_choices(
         )
     rows = q.order_by(models.Candidate.id.desc()).limit(limit).all()
 
+    _cids = [row.id for row in rows]
     ledger_rows = (
         db.query(ledger_models.CertificateIssuanceLedger)
         .filter(
-            ledger_models.CertificateIssuanceLedger.candidate_id.isnot(None),
+            ledger_models.CertificateIssuanceLedger.candidate_id.in_(_cids),
             ledger_models.CertificateIssuanceLedger.deleted_at.is_(None),
         )
         .all()
-    )
+    ) if _cids else []
     by_candidate = {r.candidate_id: r for r in ledger_rows}
 
     return {
@@ -1039,6 +1010,36 @@ async def candidate_choices(
             for row in rows
         ]
     }
+
+
+@router.get("/number-check")
+async def number_check(
+    number: str = Query(""),
+    candidate_id: Optional[int] = Query(None),
+    member_id: Optional[int] = Query(None),
+    transfer_id: Optional[int] = Query(None),
+    closure_id: Optional[int] = Query(None),
+    ledger_id: Optional[int] = Query(None),
+    name: str = Query(""),
+    vehicle_number: str = Query(""),
+    db: Session = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """입력한 자격증명발급번호가 이미 등록되어 있는지 즉시 확인한다 (읽기 전용).
+
+    26-085와 26-85는 같은 번호로 본다. 저장 대상 본인(또는 연결된 레코드)은 중복이 아니다.
+    """
+    return number_guard.check_number(
+        db, number, candidate_id=candidate_id, member_id=member_id, transfer_id=transfer_id,
+        closure_id=closure_id, ledger_id=ledger_id, name=name, vehicle_number=vehicle_number,
+    )
+
+
+@router.get("/number-duplicates")
+async def number_duplicates(db: Session = Depends(get_db), _=Depends(require_admin)):
+    """이미 저장된 데이터 중 서로 다른 대상이 같은 번호를 쓰는 목록 (보고 전용, 수정/삭제 없음)."""
+    items = number_guard.find_existing_duplicates(db)
+    return {"count": len(items), "items": items}
 
 
 @router.get("/stats")
@@ -1122,6 +1123,25 @@ async def list_ledger(
 
     # 발급번호 숫자 기준 최신순. 26-370이 26-369보다 항상 먼저 보인다.
     # 26-085/26-85도 같은 숫자 85로 정렬된다.
+    L = ledger_models.CertificateIssuanceLedger
+    if not status and not (search and search.strip()) and sort != "created_at_asc":
+        # 빠른 경로: 필터/검색이 없으면 정렬에 필요한 (id, 번호)만 읽고, 현재 페이지 행만
+        # 상세 계산(_items_bulk)한다. 전체 행의 연결 자료 계산을 매 조회마다 하지 않는다.
+        refs = base.with_entities(L.id, L.document_number).all()
+        refs.sort(key=_number_sort_key, reverse=True)
+        total = len(refs)
+        start_i = (page - 1) * limit
+        page_ids = [r.id for r in refs[start_i:start_i + limit]]
+        by_id = {r.id: r for r in base.filter(L.id.in_(page_ids)).all()} if page_ids else {}
+        page_rows = [by_id[i] for i in page_ids if i in by_id]
+        return {
+            "items": _items_bulk(db, page_rows),
+            "total": total,
+            "page": page,
+            "pages": max(1, ceil(total / limit)),
+            "limit": limit,
+        }
+
     rows = base.all()
     rows.sort(key=_number_sort_key, reverse=True)
     items = _items_bulk(db, rows)
@@ -1234,7 +1254,7 @@ async def create_ledger(
     return _item(db, row)
 
 
-@router.post("/{ledger_id}/prepare")
+@router.post("/{ledger_id:int}/prepare")
 async def prepare_issue(
     ledger_id: int,
     db: Session = Depends(get_db),
@@ -1249,7 +1269,7 @@ async def prepare_issue(
     return _item(db, row)
 
 
-@router.get("/{ledger_id}/history")
+@router.get("/{ledger_id:int}/history")
 async def ledger_history(
     ledger_id: int,
     db: Session = Depends(get_db),
@@ -1278,7 +1298,7 @@ async def ledger_history(
     }
 
 
-@router.post("/{ledger_id}/issue")
+@router.post("/{ledger_id:int}/issue")
 async def complete_issue(
     ledger_id: int,
     body: IssueLedgerBody,
@@ -1337,7 +1357,7 @@ async def complete_issue(
     return _item(db, row)
 
 
-@router.get("/{ledger_id}")
+@router.get("/{ledger_id:int}")
 async def get_ledger(
     ledger_id: int,
     db: Session = Depends(get_db),
@@ -1351,7 +1371,7 @@ async def get_ledger(
     return _item(db, row)
 
 
-@router.put("/{ledger_id}")
+@router.put("/{ledger_id:int}")
 async def update_ledger(
     ledger_id: int,
     body: UpdateLedgerBody,
@@ -1381,12 +1401,12 @@ async def update_ledger(
                 new_norm = crud.normalize_certificate_number(new_raw)
                 if not new_norm:
                     raise HTTPException(400, "자격증명발급번호 형식이 올바르지 않습니다. 예: 26-395 또는 26-395(운전자명)")
-                conflict = _find_number_conflict(
-                    db, new_norm, exclude_ledger_id=row.id,
-                    exclude_candidate_id=row.candidate_id, exclude_member_id=row.member_id,
+                # 5개 저장소(예정자/회원/양도양수/폐업/발급대장) 전체에서 중복 확인 + 번호 잠금.
+                # 잠금은 아래 commit까지 유지된다.
+                number_guard.guard_certificate_number(
+                    db, new_raw, ledger_id=row.id, candidate_id=row.candidate_id,
+                    member_id=row.member_id, name=row.name or "", vehicle_number=row.vehicle_number or "",
                 )
-                if conflict:
-                    raise HTTPException(400, f"자격증명발급번호 {new_norm}는 이미 {conflict}에서 사용 중입니다.")
 
             previous_status = row.status
             row.document_number = new_raw
@@ -1493,7 +1513,7 @@ async def search_link_targets(
     return {"items": items}
 
 
-@router.post("/{ledger_id}/relink")
+@router.post("/{ledger_id:int}/relink")
 async def relink_ledger(
     ledger_id: int,
     body: RelinkLedgerBody,

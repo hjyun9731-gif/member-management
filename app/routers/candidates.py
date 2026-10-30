@@ -10,6 +10,10 @@ from app.services.certificate_ledger_service import (
     ensure_candidate_ledger, ensure_ledger_schema, mark_candidate_approved,
 )
 from app.services.certificate_number_reservation import get_or_reserve_certificate_number
+from app.services import agent_history
+from app.services.certificate_number_guard import guard_certificate_number
+from app.services.certificate_number_rules import canonical_number
+from app.services.freight_qualification import normalize_in_dict_or_400
 
 router = APIRouter()
 
@@ -60,6 +64,7 @@ def _fmt(c):
         "resident_number": c.resident_number, "address": c.address, "phone": c.phone, "mobile": c.mobile,
         "certificate_issue_date": c.certificate_issue_date, "certificate_number": c.certificate_number,
         "driver_license_number": c.driver_license_number, "vehicle_type": c.vehicle_type,
+        "freight_qualification_number": getattr(c, "freight_qualification_number", None) or "",
         "fuel_type": c.fuel_type, "business_number": c.business_number,
         "affiliated_company": c.affiliated_company,
         "membership_date": getattr(c, 'membership_date', '') or "",   # 가입일자
@@ -100,6 +105,10 @@ async def restore_candidate(cid: int, db: Session = Depends(get_db), _=Depends(g
 
 @router.post("")
 async def create_candidate(data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    normalize_in_dict_or_400(data)  # 화물운송종사자격증 번호 형식 검증/정규화
+    # 이미 다른 대상이 쓰는 자격증명발급번호면 저장하지 않는다 (409). 확인~저장은 번호 잠금으로 직렬화.
+    guard_certificate_number(db, data.get("certificate_number"),
+                             name=str(data.get("name") or ""), vehicle_number=str(data.get("vehicle_number") or ""))
     item = crud.create_item(db, models.Candidate, data)
     if item.certificate_number:
         crud.sync_certificate_number_usage(db, item.certificate_number, "candidates", item.id,
@@ -116,9 +125,16 @@ async def create_candidate(data: dict, db: Session = Depends(get_db), user=Depen
 
 @router.put("/{cid}")
 async def update_candidate(cid: int, data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    normalize_in_dict_or_400(data)  # 화물운송종사자격증 번호 형식 검증/정규화
     item = crud.get_by_id(db, models.Candidate, cid)
     if not item:
         raise HTTPException(404, "예정자를 찾을 수 없습니다.")
+    # 번호를 새로 넣거나 바꾸는 경우에만 검사한다 (기존 데이터 저장이 막히지 않도록).
+    if "certificate_number" in data and canonical_number(data.get("certificate_number")) != canonical_number(item.certificate_number):
+        guard_certificate_number(
+            db, data.get("certificate_number"), candidate_id=item.id, member_id=item.member_id,
+            name=str(data.get("name") or item.name or ""),
+            vehicle_number=str(data.get("vehicle_number") or item.vehicle_number or ""))
     item = crud.update_item(db, item, data)
     if item.certificate_number:
         crud.sync_certificate_number_usage(db, item.certificate_number, "candidates", item.id,

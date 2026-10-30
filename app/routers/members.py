@@ -12,6 +12,11 @@ from app.auth import get_current_user, require_admin
 from app import models, crud
 from app.excel_utils import records_to_excel, normalize_fuel, normalize_membership_status
 from app.services.certificate_ledger_service import ensure_member_ledger
+from app.services.certificate_number_guard import guard_certificate_number
+from app.services.freight_qualification import normalize_in_dict_or_400
+from app.services.change_judgement import classify_plate, classify_text, NORMAL, FIRST as FIRST_J
+from app.excel_utils import is_association_member
+from app.services import agent_history
 
 router = APIRouter()
 
@@ -47,6 +52,7 @@ def _fmt(m):
         "certificate_issue_date": m.certificate_issue_date or "",
         "certificate_number": m.certificate_number or "",
         "driver_license_number": m.driver_license_number or "",
+        "freight_qualification_number": getattr(m, "freight_qualification_number", None) or "",
         "vehicle_type": m.vehicle_type or "",
         "fuel_type": normalize_fuel(m.fuel_type or ""),
         "business_number": m.business_number or "",
@@ -65,6 +71,14 @@ def _fmt(m):
         "agent_resident_number": getattr(m, "agent_resident_number", None) or "",
         "agent_mobile": getattr(m, "agent_mobile", None) or "",
         "agent_address": getattr(m, "agent_address", None) or "",
+        "agent_driver_license_number": getattr(m, "agent_driver_license_number", None) or "",
+        "agent_freight_qualification_number": getattr(m, "agent_freight_qualification_number", None) or "",
+        "agent_start_date": getattr(m, "agent_start_date", None) or "",
+        # 차주/대리인 자격정보 분리. 위 driver_license_number/freight_qualification_number 는 소유자 미확인 기존값.
+        "owner_driver_license_number": getattr(m, "owner_driver_license_number", None) or "",
+        "owner_freight_qualification_number": getattr(m, "owner_freight_qualification_number", None) or "",
+        "license_owner_status": "확인" if (getattr(m, "owner_driver_license_number", None)
+                                         or getattr(m, "owner_freight_qualification_number", None)) else "미확인",
         "structure_change": getattr(m, "structure_change", None) or "",
         "pinned": bool(getattr(m, "pinned", False)),
     }
@@ -230,13 +244,34 @@ async def export_excel(
                "management_number_prefix": mgmt_prefix}
     items, _ = crud.get_list(db, models.LicenseHolder, skip=0, limit=9999,
                               search=search, search_fields=SEARCH, filters=filters)
-    content = records_to_excel([_fmt(i) for i in items],
+    content = records_to_excel([agent_history.mask_row_rrn(_fmt(i)) for i in items],
                                 exclude=["id", "status", "registration_type"])
     return StreamingResponse(
         io.BytesIO(content),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=members.xlsx"},
     )
+
+
+@router.get("/{mid}/agents")
+async def member_agent_history(mid: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """대리인 변경이력(현재 → 과거). 주민번호·면허번호는 마스킹된 값만 반환한다."""
+    m = crud.get_by_id(db, models.LicenseHolder, mid)
+    if not m:
+        raise HTTPException(404, "회원을 찾을 수 없습니다.")
+    if (m.category or "").strip() == "택배":
+        return {"member_id": mid, "items": []}
+    items = agent_history.list_history(db, mid, member=m, created_by=getattr(user, "username", ""))
+    db.commit()   # 기존 대리인 정보를 이력으로 전환한 경우(시작일 미상) 보존
+    return {"member_id": mid, "items": items}
+
+
+@router.post("/agent-history/backfill")
+async def agent_history_backfill(db: Session = Depends(get_db), user=Depends(require_admin)):
+    """관리자: 기존 회원정보의 대리인을 이력 1건씩으로 전환(이력이 없는 회원만, 멱등, 시작일 임의 생성 없음)."""
+    res = agent_history.backfill_legacy(db, created_by=getattr(user, "username", ""))
+    db.commit()
+    return res
 
 
 @router.get("/{mid}")
@@ -287,8 +322,12 @@ async def get_member(mid: int, db: Session = Depends(get_db), _=Depends(get_curr
 
 @router.post("")
 async def create_member(data: dict, db: Session = Depends(get_db), _=Depends(get_current_user)):
+    normalize_in_dict_or_400(data)  # 화물운송종사자격증 번호 형식(0-00-000000) 검증/정규화
     data.setdefault("category", crud.detect_category(data.get("vehicle_number", "")))
     data.setdefault("status", "active")
+    # 택배 회원에게 대리인 개인정보가 등록되는 것을 서버에서도 차단한다.
+    if data.get("category") == "택배" and any(str(data.get(k) or "").strip() for k in _AGENT_INPUT_FIELDS):
+        raise HTTPException(400, "택배 회원에게 대리인 정보를 등록할 수 없습니다.")
     # 지역 정규화
     if data.get("region"):
         from app.excel_utils import _normalize_region
@@ -296,6 +335,11 @@ async def create_member(data: dict, db: Session = Depends(get_db), _=Depends(get
     mgmt = (data.get("management_number") or "").strip()
     if mgmt and crud.check_mgmt_dup(db, models.LicenseHolder, mgmt):
         raise HTTPException(400, f"관리번호 {mgmt}가 이미 존재합니다.")
+    # 이미 다른 대상이 쓰는 자격증명발급번호면 저장하지 않는다 (409). 예정자에서 전환하는 경우
+    # candidate_id가 넘어오면 같은 사람으로 보고 허용한다.
+    guard_certificate_number(
+        db, data.get("certificate_number"), candidate_id=data.get("candidate_id"),
+        name=str(data.get("name") or ""), vehicle_number=str(data.get("vehicle_number") or ""))
     return _fmt(crud.create_item(db, models.LicenseHolder, data))
 
 
@@ -316,9 +360,10 @@ _AUTO_CHANGE_FIELDS = {
 _INTERNAL_LOG_ONLY_FIELDS = {
     "memo", "name", "region", "membership_status", "membership_date",
     "approval_date", "certificate_issue_date", "certificate_number",
-    "driver_license_number", "resident_number", "business_number",
+    "driver_license_number", "freight_qualification_number", "resident_number", "business_number",
     "reapproval_date", "agent_name", "agent_resident_number", "agent_mobile",
-    "agent_address",
+    "agent_address", "agent_driver_license_number", "agent_freight_qualification_number",
+    "agent_start_date", "owner_driver_license_number", "owner_freight_qualification_number",
     "category",
 }
 
@@ -333,6 +378,8 @@ def _normalize_for_compare(field: str, v: str) -> str:
         return re.sub(r"[-\s]", "", v)  # 010-1234-5678 == 01012345678
     if field == "vehicle_number":
         return re.sub(r"[\s호]", "", v)  # 강원81자 1234호 == 강원81자1234
+    if field in ("address", "official_address", "company_name", "affiliated_company", "vehicle_type"):
+        return re.sub(r"\s+", "", v).lower()  # 공백·대소문자만 다른 경우는 표기 차이
     return v
 
 # 수정 시 저장 허용할 모든 필드 목록 (화이트리스트)
@@ -340,14 +387,21 @@ _ALLOWED_UPDATE_FIELDS = {
     "management_number", "region", "vehicle_number", "name", "company_name",
     "address", "phone", "mobile", "membership_status", "membership_date",
     "approval_date", "certificate_issue_date", "certificate_number",
-    "driver_license_number", "vehicle_type", "fuel_type", "business_number",
+    "driver_license_number", "freight_qualification_number", "vehicle_type", "fuel_type", "business_number",
     "affiliated_company", "resident_number", "memo", "category",
     # 택배 전용
     "reapproval_date", "official_address",
     # 개인 전용
     "agent_name", "agent_resident_number", "agent_mobile", "agent_address",
+    "agent_driver_license_number", "agent_freight_qualification_number", "agent_start_date",
+    "owner_driver_license_number", "owner_freight_qualification_number",
     "structure_change",
 }
+
+_AGENT_KEYS = {"agent_name", "agent_resident_number", "agent_mobile", "agent_address",
+               "agent_driver_license_number", "agent_freight_qualification_number", "agent_start_date"}
+
+_AGENT_INPUT_FIELDS = frozenset(_AGENT_KEYS) | {"agent_end_date"}
 
 
 @router.put("/{mid}")
@@ -363,6 +417,7 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
     if data.get("region"):
         from app.excel_utils import _normalize_region
         data["region"] = _normalize_region(data["region"])
+    normalize_in_dict_or_400(data)  # 화물운송종사자격증 번호 형식(0-00-000000) 검증/정규화
 
     new_mgmt = data.get("management_number")
     if new_mgmt is not None and str(new_mgmt).strip() and str(new_mgmt).strip() != (m.management_number or ""):
@@ -393,6 +448,19 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
                     f"자격증명발급번호 {new_cert_clean}는 이미 {tname}에서 사용 중입니다"
                     f"(대상: {uname or lid}). 다른 번호를 입력하거나 기존 자료를 먼저 확인하세요."
                 )
+        # 5개 저장소 전체 확인 + 번호 잠금(저장까지 유지). 위 검사가 못 보는 폐업/양도양수/발급대장도 본다.
+        guard_certificate_number(
+            db, new_cert_clean, member_id=mid, candidate_id=getattr(m, "candidate_id", None),
+            name=str(data.get("name") or m.name or ""),
+            vehicle_number=str(data.get("vehicle_number") or m.vehicle_number or ""))
+
+    # 택배는 대리인을 둘 수 없다는 협회 업무규칙을 API에서 강제한다.
+    # 미입력 폼이 보내는 빈 문자열은 호환성을 위해 무시하되 기존 DB를 삭제하지 않는다.
+    effective_category = str(data.get("category") or m.category or "").strip()
+    if effective_category == "택배":
+        if any(str(data.get(k) or "").strip() for k in _AGENT_INPUT_FIELDS):
+            raise HTTPException(400, "택배 회원에게 대리인 정보를 등록하거나 변경할 수 없습니다.")
+        data = {k: v for k, v in data.items() if k not in _AGENT_INPUT_FIELDS}
 
     # 허용 필드만 필터링
     filtered_data = {k: v for k, v in data.items() if k in _ALLOWED_UPDATE_FIELDS}
@@ -407,7 +475,9 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
 
     # 새로 추가된 컬럼이 실제 DB에 없을 경우 안전하게 제거
     _new_cols = {"reapproval_date", "official_address", "agent_name",
-                 "agent_resident_number", "agent_mobile", "agent_address", "structure_change"}
+                 "agent_resident_number", "agent_mobile", "agent_address", "structure_change",
+                 "agent_driver_license_number", "agent_freight_qualification_number", "agent_start_date",
+                 "owner_driver_license_number", "owner_freight_qualification_number"}
     for col in list(_new_cols):
         if col in filtered_data and not hasattr(m, col):
             filtered_data.pop(col)
@@ -416,6 +486,20 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
     # 변경 전 값 스냅샷 (자동기록 + 내부기록 대상 모두)
     all_track_fields = set(_AUTO_CHANGE_FIELDS) | _INTERNAL_LOG_ONLY_FIELDS | _STRUCT_FIELDS
     before_snap = {f: getattr(m, f, "") or "" for f in all_track_fields}
+
+    # 탈퇴 감지: 기존 가입일자가 있었는데 수정 후 사라지는 경우에만 (빈칸→빈칸, 빈칸→입력, 날짜→다른 날짜는 해당 없음).
+    # 저장 전에 확인한다(변경 전 아무것도 수정되지 않은 상태에서 409).
+    withdrawal_prior = None
+    if "membership_date" in filtered_data:
+        _old_md = (m.membership_date or "").strip()
+        _new_md = str(filtered_data.get("membership_date") or "").strip()
+        if _old_md and is_association_member(_old_md) and not is_association_member(_new_md):
+            if not data.get("confirm_withdrawal"):
+                raise HTTPException(409, detail={
+                    "code": "WITHDRAWAL_CONFIRM_REQUIRED",
+                    "message": "가입일자를 삭제하면 탈퇴 처리됩니다. 탈퇴 처리하시겠습니까?",
+                    "prior_membership_date": _old_md})
+            withdrawal_prior = _old_md
 
     # 기본 필드 업데이트
     for k, v in filtered_data.items():
@@ -426,56 +510,83 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
 
     m.updated_at = datetime.datetime.now(datetime.timezone.utc)
 
-    # 변경된 필드 분류
+    # 대리인 이력: 대리인이 바뀌면 기존 대리인은 '종료'로 보존하고 새 이력을 만든다(덮어쓰기·삭제 금지).
+    # ChangeHistory(월례보고서 실적)에는 기록하지 않는다. 같은 트랜잭션이라 아래 commit 과 함께 저장/롤백된다.
+    if (_AGENT_KEYS & set(filtered_data.keys())) or data.get("agent_end_date"):
+        try:
+            old_agent = {f: before_snap.get(c, "") for f, c in
+                         zip(agent_history.AGENT_FIELDS, [agent_history._MEMBER_COL[x] for x in agent_history.AGENT_FIELDS])}
+            # 대리인 성명이 바뀌었는데 나머지 칸이 이번 요청에 없으면, 이전 대리인의 값이 새 대리인에게
+            # 딸려 가지 않도록 비운다(이전 대리인 값은 이력에 그대로 보존된다).
+            if "agent_name" in filtered_data and \
+               re.sub(r"\s+", "", str(filtered_data.get("agent_name") or "")) != re.sub(r"\s+", "", str(old_agent.get("name") or "")):
+                for _f, _c in agent_history._MEMBER_COL.items():
+                    if _c != "agent_name" and _c not in filtered_data:
+                        setattr(m, _c, None)
+            new_agent = agent_history.from_prefixed({c: getattr(m, c, None) for c in agent_history._MEMBER_COL.values()})
+            agent_history.set_current_agent(
+                db, m, new_agent, source="member_edit", created_by=getattr(current_user, "username", ""),
+                previous_end_date=str(data.get("agent_end_date") or ""), old=old_agent)
+        except Exception as ex:
+            logger.error(f"대리인 이력 저장 실패: {ex}")
+            db.rollback()
+            raise HTTPException(500, f"대리인 이력 저장 오류: {ex}")
+
+    # 변경된 필드 분류 (판정: 정상변경/최초등록/표기정정/오류정정/확인필요 — 정상변경만 실적에 합산)
     today = datetime.datetime.now().strftime("%Y-%m-%d")
-    changes_by_type: dict = {}
+    changes_by_key: dict = {}   # (change_type, judgement) -> [(field, old, new, reason)]
     internal_logs = []
+    recorded_fields = set()
 
     for field in all_track_fields:
         old_val = (before_snap.get(field) or "").strip()
         new_val = str(filtered_data.get(field, old_val) or "").strip()
-
-        # 정규화 비교: 형식만 다른 경우 무시
-        if _normalize_for_compare(field, old_val) == _normalize_for_compare(field, new_val):
+        if old_val == new_val:
             continue
+        norm_equal = _normalize_for_compare(field, old_val) == _normalize_for_compare(field, new_val)
         if not new_val:
             continue
 
-        # 원본이 미기재(공백)였다가 이번에 값이 채워지는 경우 - 변경등록대장에는 기록하지 않음
-        # (실제 값이 바뀐 '변경'이 아니라 누락된 정보를 처음 채우는 것이므로).
-        # 단, 내부 수정로그(MemberEditLog)에는 그대로 남긴다.
+        # 원본이 미기재(공백)였다가 이번에 값이 채워지는 경우: 변경이 아니라 누락정보 입력.
         is_blank_fill = not old_val
+        internal_logs.append((field, old_val, new_val, is_blank_fill))   # 내부 수정로그(MemberEditLog)는 항상 기록
 
-        # 내부 수정로그 항상 기록
-        internal_logs.append((field, old_val, new_val, is_blank_fill))
-
-        if field in _STRUCT_FIELDS:
-            # 차종/구조 변경: auto_change_type 파라미터로만 기록
-            auto_ct = data.get("auto_change_type")  # 'structureChange'/'vehicleTypeCorrection'/'vehicleReplacement'
+        if field in ("mobile", "phone"):
+            if norm_equal or is_blank_fill:
+                continue
+            changes_by_key.setdefault(("연락처변경", NORMAL), []).append((field, old_val, new_val, "연락처 변경"))
+        elif field == "vehicle_number":
+            # 최초 차량번호 등록(임시값/빈칸→번호)·오타정정·표기정정은 차량번호변경 실적에서 분리
+            j, why = classify_plate(old_val, new_val)
+            ct = "최초번호등록" if j == FIRST_J else "차량번호변경"
+            changes_by_key.setdefault((ct, j), []).append((field, old_val, new_val, why))
+        elif field == "vehicle_type":
+            # 차종이 실제로 달라지면 차량변경(대폐차) 1건. 공백·표기만 다르면 표기정정(실적 제외).
+            if is_blank_fill:
+                continue
+            j, why = classify_text(old_val, new_val)
+            ct = "대폐차" if j == NORMAL else "차종변경"
+            changes_by_key.setdefault((ct, j), []).append((field, old_val, new_val, why))
+        elif field in _STRUCT_FIELDS:
+            # 연료/구조변경: 기존과 동일하게 auto_change_type 파라미터로만 기록
+            auto_ct = data.get("auto_change_type")
             if auto_ct and not is_blank_fill:
-                ct_map = {"structureChange": "구조변경", "vehicleTypeCorrection": "차종정정",
-                          "vehicleReplacement": "대폐차"}
-                change_type = ct_map.get(auto_ct, "구조변경")
-                if change_type not in changes_by_type:
-                    changes_by_type[change_type] = []
-                changes_by_type[change_type].append((field, old_val, new_val))
-            # auto_change_type 없거나 미기재→채움인 경우 변경등록대장 기록 안 함
-
+                ct = {"structureChange": "구조변경", "vehicleTypeCorrection": "차종정정",
+                      "vehicleReplacement": "대폐차"}.get(auto_ct, "구조변경")
+                changes_by_key.setdefault((ct, NORMAL), []).append((field, old_val, new_val, "구조/연료 변경"))
         elif field in _INTERNAL_LOG_ONLY_FIELDS:
             pass  # 내부 수정로그만
-
         elif field in _AUTO_CHANGE_FIELDS:
-            if not is_blank_fill:
-                change_type = _AUTO_CHANGE_FIELDS[field]
-                if change_type not in changes_by_type:
-                    changes_by_type[change_type] = []
-                changes_by_type[change_type].append((field, old_val, new_val))
-            # else: 미기재→채움은 내부 수정로그만 남기고 변경등록대장 기록 제외
+            if is_blank_fill:
+                continue   # 미기재→채움은 변경등록대장 기록 제외
+            ct = _AUTO_CHANGE_FIELDS[field]
+            j, why = classify_text(old_val, new_val)
+            changes_by_key.setdefault((ct, j), []).append((field, old_val, new_val, why))
 
-    # 내부 수정로그 저장
+    # 내부 수정로그 저장 (기존 MemberEditLog 유지)
+    _recorded_fields = {f for lst in changes_by_key.values() for (f, *_r) in lst}
     for field, old_val, new_val, is_blank_fill in internal_logs:
-        recorded = (field in _AUTO_CHANGE_FIELDS or (
-            field in _STRUCT_FIELDS and bool(data.get("auto_change_type")))) and not is_blank_fill
+        recorded = field in _recorded_fields
         try:
             log = models.MemberEditLog(
                 member_id=mid, vehicle_number=getattr(m, "vehicle_number", "") or "",
@@ -489,16 +600,28 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
         except Exception as ex:
             logger.warning(f"내부 수정로그 저장 실패: {ex}")
 
-    # 변경등록대장 자동기록
-    for change_type, field_changes in changes_by_type.items():
+    # 변경등록대장 자동기록 (한 번의 저장에서 같은 유형·판정은 1건, 동일 저장 중복 방지)
+    for (change_type, judgement), field_changes in changes_by_key.items():
         try:
             if len(field_changes) == 1:
-                _, old_val, new_val = field_changes[0]
+                _, old_val, new_val, why = field_changes[0]
                 bv, av = old_val or "", new_val
             else:
-                bv = " / ".join(ov for _, ov, _ in field_changes if ov)
-                av = " / ".join(nv for _, _, nv in field_changes)
-            ch = models.ChangeHistory(
+                bv = " / ".join(ov for _, ov, _, _ in field_changes if ov)
+                av = " / ".join(nv for _, _, nv, _ in field_changes)
+                why = field_changes[0][3]
+            dup = db.query(models.ChangeHistory).filter(
+                models.ChangeHistory.member_id == mid,
+                models.ChangeHistory.change_type == change_type,
+                models.ChangeHistory.before_value == bv,
+                models.ChangeHistory.after_value == av,
+                models.ChangeHistory.change_date == today,
+                models.ChangeHistory.memo == "회원정보 수정 자동기록",
+                models.ChangeHistory.deleted_at.is_(None),
+            ).first()
+            if dup:
+                continue
+            db.add(models.ChangeHistory(
                 change_type=change_type,
                 region=getattr(m, "region", "") or "",
                 vehicle_number=getattr(m, "vehicle_number", "") or "",
@@ -507,11 +630,34 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
                 change_date=today,
                 memo="회원정보 수정 자동기록",
                 member_id=mid,
-                raw_data={"source": "member_auto_log"},
-            )
-            db.add(ch)
+                judgement=judgement, judge_reason=why,
+                raw_data={"source": "member_auto_log",
+                          "processed_by": getattr(current_user, "username", "")},
+            ))
         except Exception as ex:
             logger.warning(f"변경이력 저장 실패: {ex}")
+
+    # 탈퇴 기록 (가입일자 삭제 확인을 받은 경우): 식별정보·기존 가입일자·처리일자·처리자
+    if withdrawal_prior:
+        try:
+            db.add(models.ChangeHistory(
+                change_type="탈퇴",
+                region=getattr(m, "region", "") or "",
+                vehicle_number=getattr(m, "vehicle_number", "") or "",
+                name=getattr(m, "name", "") or "",
+                before_value=withdrawal_prior, after_value="",
+                change_date=today,
+                memo="가입일자 삭제에 따른 탈퇴 처리",
+                member_id=mid,
+                judgement=NORMAL, judge_reason="기존 가입일자 삭제(탈퇴)",
+                raw_data={"source": "member_withdrawal",
+                          "member_id": mid,
+                          "prior_membership_date": withdrawal_prior,
+                          "processed_date": today,
+                          "processed_by": getattr(current_user, "username", "")},
+            ))
+        except Exception as ex:
+            logger.warning(f"탈퇴 기록 저장 실패: {ex}")
 
     # transfer_ledger 동기화 (양도양수에서 온 회원인 경우)
     _TRANSFER_SYNC_FIELDS = {

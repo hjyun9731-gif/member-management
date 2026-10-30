@@ -10,6 +10,8 @@ from app.database import get_db
 from app.auth import get_current_user, require_admin
 from app import models, crud
 from app.excel_utils import records_to_excel, parse_date_sort, normalize_closure_type, is_association_member
+from app.services.certificate_number_guard import guard_certificate_number
+from app.services.certificate_number_rules import canonical_number
 
 router = APIRouter()
 
@@ -361,6 +363,12 @@ async def create_closure(data: dict, db: Session = Depends(get_db),
     mgmt = data.get("management_number")
     if mgmt and crud.check_mgmt_dup(db, models.Closure, mgmt):
         raise HTTPException(400, f"관리번호 {mgmt}가 이미 존재합니다.")
+    # 폐업현황도 5개 저장소 중 하나다 (certificate_number_guard._SPECS에 이미 포함).
+    # 폐업 등록은 기존 회원의 번호를 그대로 옮겨 적는 경우가 대부분이라 name+vehicle_number가
+    # 같으면(같은 대상) 중복으로 보지 않는다 — guard_certificate_number의 기본 동작.
+    guard_certificate_number(
+        db, data.get("certificate_number"),
+        name=str(data.get("name") or ""), vehicle_number=str(data.get("vehicle_number") or ""))
     return _fmt(crud.create_item(db, models.Closure, data))
 
 
@@ -377,6 +385,12 @@ async def update_closure(cid: int, data: dict, db: Session = Depends(get_db),
     if new_mgmt and new_mgmt != c.management_number:
         if crud.check_mgmt_dup(db, models.Closure, new_mgmt, exclude_id=cid):
             raise HTTPException(400, f"관리번호 {new_mgmt}가 이미 존재합니다.")
+    # 번호를 새로 넣거나 바꾸는 경우에만 검사한다 (기존 데이터 저장이 막히지 않도록).
+    if "certificate_number" in data and canonical_number(data.get("certificate_number")) != canonical_number(c.certificate_number):
+        guard_certificate_number(
+            db, data.get("certificate_number"), closure_id=c.id,
+            name=str(data.get("name") or c.name or ""),
+            vehicle_number=str(data.get("vehicle_number") or c.vehicle_number or ""))
     return _fmt(crud.update_item(db, c, data))
 
 

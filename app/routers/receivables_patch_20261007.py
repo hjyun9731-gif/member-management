@@ -25,11 +25,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
 
 from app import crud, models
-from app.auth import get_current_user, require_admin
+from app.auth import get_current_user, require_admin, admin_for_writes
 from app.database import Base, SessionLocal, engine, get_db
 from app.receivables_models import ReceivableCharge, ReceivableSystemState
 
-router = APIRouter(prefix="/api/receivables/patch-20261007", tags=["수납미수금-20261007"])
+router = APIRouter(prefix="/api/receivables/patch-20261007", tags=["수납미수금-20261007"], dependencies=[Depends(admin_for_writes)])
 
 PATCH_ID = "receivables_patch_20261007_giro_closures_v1"
 STATE_KEY = PATCH_ID

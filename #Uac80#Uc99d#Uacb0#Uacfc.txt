@@ -1,23 +1,8 @@
-자격증명 발급대장 추가 전용 검증 결과
-
-1. 신규 파일
-- app/certificate_ledger_models.py
-- app/services/certificate_ledger_service.py
-- app/routers/certificate_ledger.py
-- app/static/certificate-ledger.js
-- app/static/certificate-form.html
-- migrations/20260904_add_certificate_ledger.sql
-
-2. 기존 파일 연결 범위
-- app/main.py: 신규 모델 import 2줄, 신규 router include 1줄
-- app/routers/candidates.py: 등록 성공 후 상태 연동용 오류격리 훅 7줄
-- app/static/index.html: 독립 UI 스크립트 로더 1줄
-- 기존 줄 삭제: 0줄
-
-3. 확인 완료
-- 설치기 기존 프로젝트 백업본 적용 성공
-- 설치기 2회 실행 시 중복 삽입 없음
-- Python py_compile 통과
-- certificate-ledger.js node --check 통과
-- 화면 상태값은 인가대기 / 인가완료 / 발급완료 세 개만 사용
-- 기존 테이블 ALTER / UPDATE / DELETE / DROP 없음
+V2 패치 정적 검증
+- 지로희망 원장 대상: 47건
+- 종료자 원장 대상: 202건
+- DB 반영 매칭 규칙: 성명+차량번호 정규화 정확일치만
+- 종료자 처리 트랜잭션: 건별 commit (1건 실패 시 전체 롤백 방지)
+- 입금/연락/V4 보정/수동잔액 수정 코드 없음
+- PostgreSQL psycopg2 URL 정규화 포함
+- Python py_compile / JavaScript node --check 검증 대상

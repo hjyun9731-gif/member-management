@@ -16,6 +16,7 @@ from app import models, crud
 from app.excel_utils import normalize_fuel, is_association_member as _is_association_member, has_value as _has_val
 
 logger = logging.getLogger(__name__)
+from app.services.change_judgement import mask_rrn  # 주민번호 형식 값 표시 제한
 router = APIRouter()
 
 
@@ -112,6 +113,14 @@ def _parse_ym_generic(date_str) -> tuple:
         yy = int(m.group(1))
         return (2000 + yy if yy <= 30 else 1900 + yy), int(m.group(2))
     return None, None
+
+
+def _fee_closure_count(db, year, month):
+    try:
+        from app.services.fee_closure import fee_closure_candidates
+        return len(fee_closure_candidates(db, year, month))
+    except Exception:
+        return None
 
 
 def _le_cutoff(date_str, target_year: int, target_month: int) -> Optional[bool]:
@@ -422,7 +431,8 @@ async def full_stats(
         "폐업누계": closed_count,         # 폐업 누계 (선택한 달까지)
         "탈퇴": None,  # 데이터 없음
         "택배신규": delivery_new_count,
-        "관리비폐지": None,  # 데이터 없음
+        # 관리비폐지 확인필요: 폐업 처리된 택배회원 수 (부과 중단 여부는 검증불가 — 확정 아님)
+        "관리비폐지": _fee_closure_count(db, year, month),
         "70세": over_70,
         "협회기본대수": total,   # 선택한 달(또는 현재) 유효 사업자 기준
         "총부과대수": total,     # 선택한 달(또는 현재) 유효 사업자 기준
@@ -578,7 +588,7 @@ async def recent_by_type(
                      for c in closures],
         "changes": [{"change_type": c.change_type, "region": c.region,
                       "vehicle_number": c.vehicle_number, "name": c.name,
-                      "after_value": c.after_value, "change_date": c.change_date}
+                      "after_value": c.after_value, "change_date": mask_rrn(c.change_date)}
                     for c in changes],
     }
 
@@ -726,9 +736,18 @@ async def monthly_report_auto(
         models.Closure.deleted_at.is_(None)).all()
         if matches((c.receipt_date or c.closure_date or ''))]
 
-    month_changes = [c for c in db.query(models.ChangeHistory).filter(
-        models.ChangeHistory.deleted_at.is_(None)).all()
-        if matches(c.change_date or c.receipt_date or '')]
+    # 변경이력: 월별 통계 화면과 동일한 인정 기준(change_judgement.view_row)을 사용한다.
+    #  - 기준일: 유효한 변경일자 → 유효한 접수일자 (둘 다 없으면 확인필요, 어느 달에도 넣지 않음)
+    #  - 실적 합계에는 '정상변경'만 포함 (최초등록·표기정정·오류정정·확인필요는 별도)
+    from app.services.change_judgement import view_row as _view_row
+    month_changes = []
+    month_changes_other = []   # 최초등록/정정/확인필요 (실적 제외, 참고용)
+    for c in db.query(models.ChangeHistory).filter(
+            models.ChangeHistory.deleted_at.is_(None)).all():
+        _v = _view_row(c)
+        if _v.ymd and _v.ymd[0] == target_year and _v.ymd[1] == target_month:
+            (month_changes if _v.judgement == "정상변경" else month_changes_other).append((c, _v))
+    month_changes = [c for c, _ in month_changes]
 
     month_changes_auto = []  # 구분용 (집계에는 포함)
 
@@ -739,9 +758,11 @@ async def monthly_report_auto(
 
     admin_work = {
         # 변경등록대장 기반
-        "상호변경":    change_by_type.get("상호변경", 0),
+        # 상호변경 = 상호변경 + 소속업체(전속계약 업체변경) 변경 (협회 운영 집계 기준)
+        "상호변경":    change_by_type.get("상호변경", 0) + change_by_type.get("전속계약 업체변경", 0),
         "대표자변경":   change_by_type.get("대표자변경", 0),
-        "차량변경":    change_by_type.get("구조변경", 0) + change_by_type.get("번호변경", 0),
+        # 차량변경(대폐차) = 차종 변경(대폐차) + 구조변경(기존 기준 유지). 차량번호변경은 포함하지 않는다.
+        "차량변경":    change_by_type.get("대폐차", 0) + change_by_type.get("차종변경", 0) + change_by_type.get("구조변경", 0),
         "주소변경":    change_by_type.get("주소지변경", 0),
         "자격증재교부":  change_by_type.get("자격증재교부", 0) or change_by_type.get("자격재교부", 0),
         "이전전출":    change_by_type.get("이전전출", 0) + change_by_type.get("등록이관", 0),
@@ -764,6 +785,9 @@ async def monthly_report_auto(
         "_자동기록유형별": {ct: sum(1 for c in month_changes_auto if (c.change_type or '') == ct)
                         for ct in set(c.change_type or '기타' for c in month_changes_auto)},
         "_변경유형별":    change_by_type,
+        # 실적 제외 건수(최초등록·정정·확인필요): 월별 통계 화면과 동일 기준
+        "_실적제외":      {j: sum(1 for _, v in month_changes_other if v.judgement == j)
+                         for j in ("최초등록", "표기정정", "오류정정", "확인필요")},
     }
 
     # 관리번호 자연정렬 (숫자 기준 내림차순)
@@ -1047,7 +1071,7 @@ async def year_detail(
         return {"total": len(result), "year": year, "category": "변경",
                 "items": [{"region": r.region, "vehicle_number": r.vehicle_number,
                             "name": r.name, "change_type": r.change_type,
-                            "change_date": r.change_date, "after_value": r.after_value}
+                            "change_date": mask_rrn(r.change_date), "after_value": r.after_value}
                            for r in result[:200]]}
 
     return {"error": "unknown category"}

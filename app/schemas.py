@@ -41,6 +41,7 @@ class MemberBase(BaseModel):
     certificate_number: Optional[str] = None
     permit_number: Optional[str] = None
     driver_license_number: Optional[str] = None
+    freight_qualification_number: Optional[str] = None
     vehicle_type: Optional[str] = None
     fuel_type: Optional[str] = None
     business_number: Optional[str] = None
@@ -78,6 +79,7 @@ class CandidateBase(BaseModel):
     certificate_issue_date: Optional[str] = None
     certificate_number: Optional[str] = None
     driver_license_number: Optional[str] = None
+    freight_qualification_number: Optional[str] = None
     vehicle_type: Optional[str] = None
     fuel_type: Optional[str] = None
     business_number: Optional[str] = None

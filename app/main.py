@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
 load_dotenv()  # .env 파일 로딩 (Railway에서는 환경변수가 자동 주입됨)
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,10 +12,10 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 from app.database import Base, engine, SessionLocal, DATABASE_URL
-from app.auth import create_default_admin
+from app.auth import create_default_admin, require_admin
 from app.routers import (auth, dashboard, reports, excel)
 from app.routers import (candidates, members, transfer_ledger,
-                          closures, change_history, allocation, admin)
+                          closures, change_history, allocation, admin, change_stats)
 from app.routers import sms as sms_router
 import app.models as _models
 
@@ -82,11 +82,32 @@ def _run_migrations():
         ("structure_change",      "license_holders",  "TEXT"),
         ("pinned",                "license_holders",  "BOOLEAN"),
         ("agent_address",         "license_holders",  "TEXT"),  # 대리인 주소 (개인회원 전용)
+        # 화물운송종사자격증 번호 (회원/예정자/양도양수대장 공통, 선택 입력)
+        ("freight_qualification_number", "license_holders", "VARCHAR(20)"),
+        ("freight_qualification_number", "candidates",      "VARCHAR(20)"),
+        ("freight_qualification_number", "transfer_ledger", "VARCHAR(20)"),
+        # 변경이력 판정 (기존 이력은 NULL 유지 — 소급 변경 없음)
+        ("judgement",    "change_history", "VARCHAR(20)"),
+        ("judge_reason", "change_history", "TEXT"),
         # 도내 양도양수 등록 기능: 양도자/양수자 회원 ID 연결
         ("transferor_member_id",  "transfer_ledger",  "INTEGER"),
         ("transferee_member_id",  "transfer_ledger",  "INTEGER"),
         ("transferee_member_id",  "closures",         "INTEGER"),
         ("transfer_ledger_id",    "closures",         "INTEGER"),
+        # 대리인 이력/차주·대리인 자격정보 분리 (컬럼 추가만, 기존 값 이전·삭제 없음)
+        ("agent_driver_license_number",       "license_holders", "VARCHAR(100)"),
+        ("agent_freight_qualification_number","license_holders", "VARCHAR(20)"),
+        ("agent_start_date",                  "license_holders", "VARCHAR(50)"),
+        ("owner_driver_license_number",       "license_holders", "VARCHAR(100)"),
+        ("owner_freight_qualification_number","license_holders", "VARCHAR(20)"),
+        ("agent_name",                        "transfer_ledger", "VARCHAR(100)"),
+        ("agent_resident_number",             "transfer_ledger", "VARCHAR(30)"),
+        ("agent_mobile",                      "transfer_ledger", "VARCHAR(50)"),
+        ("agent_address",                     "transfer_ledger", "TEXT"),
+        ("agent_driver_license_number",       "transfer_ledger", "VARCHAR(100)"),
+        ("agent_freight_qualification_number","transfer_ledger", "VARCHAR(20)"),
+        ("agent_start_date",                  "transfer_ledger", "VARCHAR(50)"),
+        ("agent_end_date",                    "transfer_ledger", "VARCHAR(50)"),
         # glosign_documents
         ("contract_method",       "glosign_documents","VARCHAR(30)"),
         ("deleted_at",            "glosign_documents","DATETIME"),
@@ -291,7 +312,9 @@ def _run_deferred_db_maintenance():
         return
     try:
         jobs = [
+            ("필수 테이블 보장(member_agents)", lambda: _schema_guard.ensure_tables(engine)),
             ("DB 테이블 생성", lambda: _models.Base.metadata.create_all(bind=engine, checkfirst=True)),
+            ("변경이력 판정 컬럼 보장", lambda: _schema_guard.ensure_columns(engine)),
             ("컬럼 마이그레이션", _run_migrations),
             ("수납/미수금 인덱스", _ensure_receivables_indexes),
             ("Receivables 2026-09-16 V4 reconcile", _receivables_reconcile_v4.apply_receivables_reconcile_20260916_v4),
@@ -313,7 +336,12 @@ def _run_deferred_db_maintenance():
         _maintenance_lock.release()
 
 
-app = FastAPI(title="강원도 개인소형화물협회 업무관리 시스템", version="3.0.0")
+from app.services import schema_guard as _schema_guard
+
+# 변경이력 판정 컬럼(judgement, judge_reason)이 없으면 요청 처리 전에 한 번 추가한다(멱등·비파괴).
+# 백그라운드 마이그레이션이 끝나기 전/실패했을 때 발생하는 UndefinedColumn 500 방지용.
+app = FastAPI(title="강원도 개인소형화물협회 업무관리 시스템", version="3.0.0",
+              dependencies=[Depends(_schema_guard.guard_dependency)])
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
                    allow_methods=["*"], allow_headers=["*"])
@@ -325,6 +353,7 @@ app.include_router(transfer_ledger.router,prefix="/api/transfer-ledger",tags=["�
 app.include_router(closures.router,       prefix="/api/closures",       tags=["폐지현황"])
 app.include_router(change_history.router, prefix="/api/change-history", tags=["변경이력"])
 app.include_router(allocation.router,     prefix="/api/allocation",     tags=["부과대수"])
+app.include_router(change_stats.router,   prefix="/api/change-stats",   tags=["변경이력 통계"])
 app.include_router(dashboard.router,      prefix="/api/dashboard",      tags=["대시보드"])
 app.include_router(reports.router,        prefix="/api/reports",        tags=["보고서"])
 app.include_router(excel.router,          prefix="/api/excel",          tags=["엑셀"])
@@ -332,6 +361,10 @@ app.include_router(admin.router,          prefix="/api/admin",          tags=["�
 
 # === RECEIVABLES MODULE ROUTER ===
 app.include_router(receivables.router)
+from app.routers import receivables_workspace  # 통합 원장(읽기 전용)
+app.include_router(receivables_workspace.router)
+from app.routers import receivables_adjustments  # 미수금 정정(관리자)
+app.include_router(receivables_adjustments.router)
 
 # 자격증명 발급대장: 신규 API만 추가
 app.include_router(certificate_ledger.router)
@@ -413,11 +446,11 @@ async def startup():
 
 
 @app.get("/api/receivables/reconcile-20260916-v4")
-def receivables_reconcile_20260916_v4_status():
+def receivables_reconcile_20260916_v4_status(_admin=Depends(require_admin)):
     return _receivables_reconcile_v4.get_receivables_reconcile_v4_status()
 
 @app.post("/api/receivables/reconcile-20260916-v4/apply")
-def receivables_reconcile_20260916_v4_apply():
+def receivables_reconcile_20260916_v4_apply(_admin=Depends(require_admin)):
     try:
         return _receivables_reconcile_v4.apply_receivables_reconcile_20260916_v4()
     except Exception as exc:
@@ -426,6 +459,20 @@ def receivables_reconcile_20260916_v4_apply():
 
 @app.get("/health")
 async def health(): return {"status": "ok"}
+
+
+@app.get("/api/admin/schema-status")
+def schema_status(_admin=Depends(require_admin)):
+    """배포 후 운영 DB 스키마 검증용(관리자 전용, 읽기 전용): 누락 테이블/컬럼만 반환한다. 접속정보·데이터는 노출하지 않는다."""
+    from sqlalchemy import inspect as _inspect
+    insp = _inspect(engine)
+    miss_t = _schema_guard.missing_tables(engine)
+    miss_c = []
+    for table, col, _t in _schema_guard.REQUIRED_COLUMNS:
+        if insp.has_table(table) and col not in {c["name"] for c in insp.get_columns(table)}:
+            miss_c.append(f"{table}.{col}")
+    return {"ok": not miss_t and not miss_c, "missing_tables": miss_t, "missing_columns": miss_c,
+            "guard_ready": _schema_guard.is_ready(), "last_error": _schema_guard.last_error}
 
 _NO_CACHE_HEADERS = {"Cache-Control": "no-cache"}
 # index.html/login.html은 <script src="...?v=...">로 실제 JS 버전을 고정한다.

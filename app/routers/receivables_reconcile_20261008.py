@@ -19,7 +19,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app import crud, models
-from app.auth import get_current_user, require_admin
+from app.auth import get_current_user, require_admin, admin_for_writes
 from app.database import SessionLocal, get_db
 from app.receivables_models import (
     ReceivableProfile,
@@ -30,6 +30,7 @@ from app.receivables_models import (
 )
 
 router = APIRouter(
+    dependencies=[Depends(admin_for_writes)],
     prefix="/api/receivables/reconcile-20261008",
     tags=["수납미수금-20261008-monthly-v4"],
 )

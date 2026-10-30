@@ -1,0 +1,379 @@
+{
+  "patch_id": "receivables_reconcile_20261008_monthly_v2",
+  "source_counts": {
+    "active_rows": 3237,
+    "active_unique": 3223,
+    "duplicate_source_keys": 7,
+    "giro_preferred": 47,
+    "closures": 204,
+    "certificate_holds": 28,
+    "exclusions": 2
+  },
+  "hanin_group": [
+    {
+      "name": "박달원",
+      "vehicle": "85자 8670",
+      "months": [
+        {
+          "month": 1,
+          "billed_total": 5000,
+          "monthly_charge": 5000,
+          "payment": 10000,
+          "payment_date": "2026-01-07",
+          "arrears": -5000,
+          "balance_adjustment": 0
+        },
+        {
+          "month": 2,
+          "billed_total": 0,
+          "monthly_charge": 5000,
+          "payment": null,
+          "payment_date": null,
+          "arrears": 0,
+          "balance_adjustment": 0
+        },
+        {
+          "month": 3,
+          "billed_total": 5000,
+          "monthly_charge": 5000,
+          "payment": 10000,
+          "payment_date": "2026-03-03",
+          "arrears": -5000,
+          "balance_adjustment": 0
+        },
+        {
+          "month": 4,
+          "billed_total": 0,
+          "monthly_charge": 5000,
+          "payment": null,
+          "payment_date": null,
+          "arrears": 0,
+          "balance_adjustment": 0
+        },
+        {
+          "month": 5,
+          "billed_total": 5000,
+          "monthly_charge": 5000,
+          "payment": 10000,
+          "payment_date": "2026-05-06",
+          "arrears": -5000,
+          "balance_adjustment": 0
+        },
+        {
+          "month": 6,
+          "billed_total": 0,
+          "monthly_charge": 5000,
+          "payment": null,
+          "payment_date": null,
+          "arrears": 0,
+          "balance_adjustment": 0
+        },
+        {
+          "month": 7,
+          "billed_total": 5000,
+          "monthly_charge": 5000,
+          "payment": 10000,
+          "payment_date": "2026-07-01",
+          "arrears": -5000,
+          "balance_adjustment": 0
+        },
+        {
+          "month": 8,
+          "billed_total": 0,
+          "monthly_charge": 5000,
+          "payment": null,
+          "payment_date": null,
+          "arrears": 0,
+          "balance_adjustment": 0
+        },
+        {
+          "month": 9,
+          "billed_total": 5000,
+          "monthly_charge": 5000,
+          "payment": 10000,
+          "payment_date": "2026-09-01",
+          "arrears": -5000,
+          "balance_adjustment": 0
+        }
+      ],
+      "sep": -5000
+    },
+    {
+      "name": "신명한",
+      "vehicle": "85자 2400",
+      "months": [
+        {
+          "month": 1,
+          "billed_total": 5000,
+          "monthly_charge": 5000,
+          "payment": 10000,
+          "payment_date": "2026-01-07",
+          "arrears": -5000,
+          "balance_adjustment": 0
+        },
+        {
+          "month": 2,
+          "billed_total": 0,
+          "monthly_charge": 5000,
+          "payment": null,
+          "payment_date": null,
+          "arrears": 0,
+          "balance_adjustment": 0
+        },
+        {
+          "month": 3,
+          "billed_total": 5000,
+          "monthly_charge": 5000,
+          "payment": 10000,
+          "payment_date": "2026-03-03",
+          "arrears": -5000,
+          "balance_adjustment": 0
+        },
+        {
+          "month": 4,
+          "billed_total": 0,
+          "monthly_charge": 5000,
+          "payment": null,
+          "payment_date": null,
+          "arrears": 0,
+          "balance_adjustment": 0
+        },
+        {
+          "month": 5,
+          "billed_total": 5000,
+          "monthly_charge": 5000,
+          "payment": 10000,
+          "payment_date": "2026-05-06",
+          "arrears": -5000,
+          "balance_adjustment": 0
+        },
+        {
+          "month": 6,
+          "billed_total": 0,
+          "monthly_charge": 5000,
+          "payment": null,
+          "payment_date": null,
+          "arrears": 0,
+          "balance_adjustment": 0
+        },
+        {
+          "month": 7,
+          "billed_total": 5000,
+          "monthly_charge": 5000,
+          "payment": 10000,
+          "payment_date": "2026-07-01",
+          "arrears": -5000,
+          "balance_adjustment": 0
+        },
+        {
+          "month": 8,
+          "billed_total": 0,
+          "monthly_charge": 5000,
+          "payment": null,
+          "payment_date": null,
+          "arrears": 0,
+          "balance_adjustment": 0
+        },
+        {
+          "month": 9,
+          "billed_total": 5000,
+          "monthly_charge": 5000,
+          "payment": 10000,
+          "payment_date": "2026-09-01",
+          "arrears": -5000,
+          "balance_adjustment": 0
+        }
+      ],
+      "sep": -5000
+    },
+    {
+      "name": "정의진",
+      "vehicle": "85자 8657",
+      "months": [
+        {
+          "month": 1,
+          "billed_total": 5000,
+          "monthly_charge": 5000,
+          "payment": 10000,
+          "payment_date": "2026-01-07",
+          "arrears": -5000,
+          "balance_adjustment": 0
+        },
+        {
+          "month": 2,
+          "billed_total": 0,
+          "monthly_charge": 5000,
+          "payment": null,
+          "payment_date": null,
+          "arrears": 0,
+          "balance_adjustment": 0
+        },
+        {
+          "month": 3,
+          "billed_total": 5000,
+          "monthly_charge": 5000,
+          "payment": 10000,
+          "payment_date": "2026-03-03",
+          "arrears": -5000,
+          "balance_adjustment": 0
+        },
+        {
+          "month": 4,
+          "billed_total": 0,
+          "monthly_charge": 5000,
+          "payment": null,
+          "payment_date": null,
+          "arrears": 0,
+          "balance_adjustment": 0
+        },
+        {
+          "month": 5,
+          "billed_total": 5000,
+          "monthly_charge": 5000,
+          "payment": 10000,
+          "payment_date": "2026-05-06",
+          "arrears": -5000,
+          "balance_adjustment": 0
+        },
+        {
+          "month": 6,
+          "billed_total": 0,
+          "monthly_charge": 5000,
+          "payment": null,
+          "payment_date": null,
+          "arrears": 0,
+          "balance_adjustment": 0
+        },
+        {
+          "month": 7,
+          "billed_total": 5000,
+          "monthly_charge": 5000,
+          "payment": 10000,
+          "payment_date": "2026-07-01",
+          "arrears": -5000,
+          "balance_adjustment": 0
+        },
+        {
+          "month": 8,
+          "billed_total": 0,
+          "monthly_charge": 5000,
+          "payment": null,
+          "payment_date": null,
+          "arrears": 0,
+          "balance_adjustment": 0
+        },
+        {
+          "month": 9,
+          "billed_total": 5000,
+          "monthly_charge": 5000,
+          "payment": 10000,
+          "payment_date": "2026-09-01",
+          "arrears": -5000,
+          "balance_adjustment": 0
+        }
+      ],
+      "sep": -5000
+    },
+    {
+      "name": "한인교",
+      "vehicle": "85자 2046",
+      "months": [
+        {
+          "month": 1,
+          "billed_total": 5000,
+          "monthly_charge": 5000,
+          "payment": 10000,
+          "payment_date": "2026-01-07",
+          "arrears": -5000,
+          "balance_adjustment": 0
+        },
+        {
+          "month": 2,
+          "billed_total": 0,
+          "monthly_charge": 5000,
+          "payment": null,
+          "payment_date": null,
+          "arrears": 0,
+          "balance_adjustment": 0
+        },
+        {
+          "month": 3,
+          "billed_total": 5000,
+          "monthly_charge": 5000,
+          "payment": 10000,
+          "payment_date": "2026-03-03",
+          "arrears": -5000,
+          "balance_adjustment": 0
+        },
+        {
+          "month": 4,
+          "billed_total": 0,
+          "monthly_charge": 5000,
+          "payment": null,
+          "payment_date": null,
+          "arrears": 0,
+          "balance_adjustment": 0
+        },
+        {
+          "month": 5,
+          "billed_total": 5000,
+          "monthly_charge": 5000,
+          "payment": 10000,
+          "payment_date": "2026-05-06",
+          "arrears": -5000,
+          "balance_adjustment": 0
+        },
+        {
+          "month": 6,
+          "billed_total": 0,
+          "monthly_charge": 5000,
+          "payment": null,
+          "payment_date": null,
+          "arrears": 0,
+          "balance_adjustment": 0
+        },
+        {
+          "month": 7,
+          "billed_total": 5000,
+          "monthly_charge": 5000,
+          "payment": 10000,
+          "payment_date": "2026-07-01",
+          "arrears": -5000,
+          "balance_adjustment": 0
+        },
+        {
+          "month": 8,
+          "billed_total": 0,
+          "monthly_charge": 5000,
+          "payment": null,
+          "payment_date": null,
+          "arrears": 0,
+          "balance_adjustment": 0
+        },
+        {
+          "month": 9,
+          "billed_total": 5000,
+          "monthly_charge": 5000,
+          "payment": 10000,
+          "payment_date": "2026-09-01",
+          "arrears": -5000,
+          "balance_adjustment": 0
+        }
+      ],
+      "sep": -5000
+    }
+  ],
+  "iminhang": {
+    "vehicle": "97자 1025",
+    "month9": {
+      "month": 9,
+      "billed_total": 60000,
+      "monthly_charge": 5000,
+      "payment": 60000,
+      "payment_date": "2026-09-01",
+      "arrears": 0,
+      "balance_adjustment": 0
+    },
+    "sep": 0
+  }
+}
