@@ -35,6 +35,41 @@ REQUIRED_COLUMNS = [
     ("transfer_ledger", "agent_end_date", "VARCHAR(50)"),
 ]
 _RETRY_SECONDS = 15
+_LOCK_WAIT_SECONDS = 20     # 다른 스레드(백그라운드 유지보수)가 보강 중이면 500 대신 잠시 기다린다
+_PROBLEM = "필수 스키마"
+
+# ORM 모델이 직접 조회하는 신규 테이블. create_all 한 줄에만 의존하면 앞 단계 실패/락 대기 시 영구 누락되므로
+# 이 목록의 테이블은 요청 처리 전에 개별적으로(CREATE TABLE IF NOT EXISTS) 보장한다. 기존 데이터는 건드리지 않는다.
+def _required_tables():
+    from app import models
+    return [models.MemberAgent.__table__]
+
+
+def missing_tables(engine) -> list:
+    insp = sa_inspect(engine)
+    return [t.name for t in _required_tables() if not insp.has_table(t.name)]
+
+
+def ensure_tables(engine) -> bool:
+    """필수 테이블이 모두 있으면 True. 없는 테이블만 생성(checkfirst). 데이터 삭제/재생성 없음."""
+    global last_error
+    try:
+        for t in _required_tables():
+            if sa_inspect(engine).has_table(t.name):
+                continue
+            try:
+                t.create(bind=engine, checkfirst=True)      # 인덱스 포함, IF NOT EXISTS 의미
+                logger.info(f"스키마 보장: 테이블 {t.name} 생성")
+            except Exception as e:
+                # 다른 스레드/워커가 동시에 만들었을 수 있으니 다시 확인
+                if not sa_inspect(engine).has_table(t.name):
+                    raise
+                logger.info(f"스키마 보장: 테이블 {t.name} 이미 생성됨({type(e).__name__})")
+        return not missing_tables(engine)
+    except Exception as e:
+        last_error = f"{type(e).__name__}: {e}"
+        logger.warning(f"테이블 보장 실패(재시도 예정): {last_error}")
+        return False
 
 _lock = threading.Lock()
 _ready = False
@@ -56,6 +91,8 @@ def ensure_columns(engine) -> bool:
     """필요한 컬럼이 모두 있으면 True. 없으면 추가하고 다시 확인한다. 실패해도 예외를 던지지 않는다."""
     global _ready, last_error
     try:
+        if not ensure_tables(engine):      # member_agents 등 신규 테이블 먼저 보장 (없으면 아래 컬럼 확인도 의미 없음)
+            return False
         insp = sa_inspect(engine)
         pending = []
         for table, col, ctype in REQUIRED_COLUMNS:
@@ -92,7 +129,7 @@ def guard_dependency():
     now = time.monotonic()
     if now - _last_attempt < _RETRY_SECONDS and _last_attempt:
         return
-    if not _lock.acquire(blocking=False):
+    if not _lock.acquire(timeout=_LOCK_WAIT_SECONDS):
         return
     try:
         if _ready:

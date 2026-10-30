@@ -312,6 +312,7 @@ def _run_deferred_db_maintenance():
         return
     try:
         jobs = [
+            ("필수 테이블 보장(member_agents)", lambda: _schema_guard.ensure_tables(engine)),
             ("DB 테이블 생성", lambda: _models.Base.metadata.create_all(bind=engine, checkfirst=True)),
             ("변경이력 판정 컬럼 보장", lambda: _schema_guard.ensure_columns(engine)),
             ("컬럼 마이그레이션", _run_migrations),
@@ -458,6 +459,20 @@ def receivables_reconcile_20260916_v4_apply(_admin=Depends(require_admin)):
 
 @app.get("/health")
 async def health(): return {"status": "ok"}
+
+
+@app.get("/api/admin/schema-status")
+def schema_status(_admin=Depends(require_admin)):
+    """배포 후 운영 DB 스키마 검증용(관리자 전용, 읽기 전용): 누락 테이블/컬럼만 반환한다. 접속정보·데이터는 노출하지 않는다."""
+    from sqlalchemy import inspect as _inspect
+    insp = _inspect(engine)
+    miss_t = _schema_guard.missing_tables(engine)
+    miss_c = []
+    for table, col, _t in _schema_guard.REQUIRED_COLUMNS:
+        if insp.has_table(table) and col not in {c["name"] for c in insp.get_columns(table)}:
+            miss_c.append(f"{table}.{col}")
+    return {"ok": not miss_t and not miss_c, "missing_tables": miss_t, "missing_columns": miss_c,
+            "guard_ready": _schema_guard.is_ready(), "last_error": _schema_guard.last_error}
 
 _NO_CACHE_HEADERS = {"Cache-Control": "no-cache"}
 # index.html/login.html은 <script src="...?v=...">로 실제 JS 버전을 고정한다.
