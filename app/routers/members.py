@@ -259,6 +259,8 @@ async def member_agent_history(mid: int, db: Session = Depends(get_db), user=Dep
     m = crud.get_by_id(db, models.LicenseHolder, mid)
     if not m:
         raise HTTPException(404, "회원을 찾을 수 없습니다.")
+    if (m.category or "").strip() == "택배":
+        return {"member_id": mid, "items": []}
     items = agent_history.list_history(db, mid, member=m, created_by=getattr(user, "username", ""))
     db.commit()   # 기존 대리인 정보를 이력으로 전환한 경우(시작일 미상) 보존
     return {"member_id": mid, "items": items}
@@ -323,6 +325,9 @@ async def create_member(data: dict, db: Session = Depends(get_db), _=Depends(get
     normalize_in_dict_or_400(data)  # 화물운송종사자격증 번호 형식(0-00-000000) 검증/정규화
     data.setdefault("category", crud.detect_category(data.get("vehicle_number", "")))
     data.setdefault("status", "active")
+    # 택배 회원에게 대리인 개인정보가 등록되는 것을 서버에서도 차단한다.
+    if data.get("category") == "택배" and any(str(data.get(k) or "").strip() for k in _AGENT_INPUT_FIELDS):
+        raise HTTPException(400, "택배 회원에게 대리인 정보를 등록할 수 없습니다.")
     # 지역 정규화
     if data.get("region"):
         from app.excel_utils import _normalize_region
@@ -396,6 +401,8 @@ _ALLOWED_UPDATE_FIELDS = {
 _AGENT_KEYS = {"agent_name", "agent_resident_number", "agent_mobile", "agent_address",
                "agent_driver_license_number", "agent_freight_qualification_number", "agent_start_date"}
 
+_AGENT_INPUT_FIELDS = frozenset(_AGENT_KEYS) | {"agent_end_date"}
+
 
 @router.put("/{mid}")
 async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
@@ -446,6 +453,14 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
             db, new_cert_clean, member_id=mid, candidate_id=getattr(m, "candidate_id", None),
             name=str(data.get("name") or m.name or ""),
             vehicle_number=str(data.get("vehicle_number") or m.vehicle_number or ""))
+
+    # 택배는 대리인을 둘 수 없다는 협회 업무규칙을 API에서 강제한다.
+    # 미입력 폼이 보내는 빈 문자열은 호환성을 위해 무시하되 기존 DB를 삭제하지 않는다.
+    effective_category = str(data.get("category") or m.category or "").strip()
+    if effective_category == "택배":
+        if any(str(data.get(k) or "").strip() for k in _AGENT_INPUT_FIELDS):
+            raise HTTPException(400, "택배 회원에게 대리인 정보를 등록하거나 변경할 수 없습니다.")
+        data = {k: v for k, v in data.items() if k not in _AGENT_INPUT_FIELDS}
 
     # 허용 필드만 필터링
     filtered_data = {k: v for k, v in data.items() if k in _ALLOWED_UPDATE_FIELDS}
