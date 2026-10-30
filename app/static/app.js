@@ -344,9 +344,12 @@ function fi(name,label,val='',req=false){
 function _maskRrnView(v){const d=String(v||'').replace(/\D/g,'');return d.length>=13?d.slice(0,6)+'-'+d.slice(6,13):(v||'');}
 function agentFormSection(r,memberId,context='member'){
   r=r||{};
-  const hasAgent=Boolean(String(r.agent_name||'').trim());
+  // 기존 대리인 데이터가 하나라도 있으면 수정 화면에서 값을 확인할 수 있도록 펼친다.
+  const agentKeys=['agent_name','agent_resident_number','agent_mobile','agent_address',
+    'agent_driver_license_number','agent_freight_qualification_number','agent_start_date'];
+  const hasAgent=agentKeys.some(k=>String(r[k]||'').trim());
   const title=context==='transfer'?'대리인 정보 (양수인)':'대리인 정보';
-  const hist=memberId?`<button type="button" class="btn bo btn-sm" onclick="showAgentHistory(${memberId})" style="white-space:nowrap">◷ 변경이력 보기</button>`:'';
+  const hist=memberId?`<button type="button" class="btn bo btn-sm" onclick="showAgentHistory(${memberId})" style="white-space:nowrap;flex-shrink:0">변경이력 보기</button>`:'';
   const fields=`${fi('agent_name','대리인 성명',r.agent_name||'')}
     ${frn('agent_resident_number','대리인 주민등록번호',r.agent_resident_number||'')}
     ${fph('agent_mobile','대리인 연락처',r.agent_mobile||'')}
@@ -354,29 +357,24 @@ function agentFormSection(r,memberId,context='member'){
     ${fi('agent_driver_license_number','대리인 운전면허번호',r.agent_driver_license_number||'')}
     ${fi('agent_freight_qualification_number','대리인 화물운송종사자격증 번호',r.agent_freight_qualification_number||'')}
     ${fi('agent_start_date','대리 시작일',r.agent_start_date||'')}`;
-  return `<div class="fi cs4 agent-toggle-wrap" style="margin:12px 0 0;padding:12px 14px;border:1px solid #ddd6fe;border-radius:10px 10px ${hasAgent?'0 0':'10px 10px'};background:${hasAgent?'#f5f3ff':'#fff'};display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
-    <div style="display:flex;flex-direction:column;gap:8px;flex:1;min-width:180px">
-      <strong style="color:#4c1d95;font-size:13px">${title}</strong>
-      <label style="display:inline-flex;align-items:center;gap:9px;font-weight:600;cursor:pointer;color:#334155;width:max-content">
-        <input type="checkbox" class="agent-present-check" style="width:16px;height:16px;accent-color:#7c3aed" ${hasAgent?'checked':''} onchange="toggleAgentFields(this)">
-        <span>대리인 정보 입력</span>
-      </label>
-    </div>${hist}</div>
-    <fieldset class="fg agent-detail-fields" style="grid-column:1/-1;width:100%;box-sizing:border-box;border:1px solid #ddd6fe;border-top:0;border-radius:0 0 10px 10px;background:#fff;padding:14px;margin:0 0 12px;min-width:0;display:${hasAgent?'grid':'none'}" ${hasAgent?'':'hidden disabled'}>${fields}</fieldset>`;
+  return `<div class="fi cs4 agent-toggle-wrap" style="margin:8px 0 ${hasAgent?'0':'10px'};padding:8px 12px;border:1px solid #e5e7eb;border-radius:${hasAgent?'8px 8px 0 0':'8px'};background:#fff;display:flex;justify-content:space-between;align-items:center;gap:10px">
+    <label style="display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;cursor:pointer;color:#374151;min-width:0">
+      <input type="checkbox" class="agent-present-check" style="width:15px;height:15px;margin:0;accent-color:#7c3aed" ${hasAgent?'checked':''} onchange="toggleAgentFields(this)">
+      <span>${title} 입력</span>
+    </label>${hist}</div>
+    <fieldset class="fg agent-detail-fields" style="grid-column:1/-1;width:100%;box-sizing:border-box;border:1px solid #e5e7eb;border-top:0;border-radius:0 0 8px 8px;background:#fff;padding:12px;margin:0 0 10px;min-width:0;display:${hasAgent?'grid':'none'} !important" ${hasAgent?'':'hidden disabled'}>${fields}</fieldset>`;
 }
-// 대리인 체크박스 상태와 폼 필드셋을 함께 변경. 초기화(reset) 시에도 동기화한다.
+// .fg의 CSS display 선언보다 숨김 상태가 우선하도록 inline !important로 처리한다.
 window.toggleAgentFields=(check)=>{
-  const panel=check?.closest('.agent-toggle-wrap')?.nextElementSibling;
-  if(!panel) return;
-  panel.hidden=!check.checked;
-  panel.disabled=!check.checked;
-  panel.style.display=check.checked?'grid':'none';
-  const wrapper=check.closest('.agent-toggle-wrap');
-  if(wrapper){
-    wrapper.style.background=check.checked?'#f5f3ff':'#fff';
-    wrapper.style.borderRadius=check.checked?'10px 10px 0 0':'10px';
-    wrapper.style.marginBottom=check.checked?'0':'12px';
-  }
+  const wrapper=check?.closest('.agent-toggle-wrap');
+  const panel=wrapper?.nextElementSibling;
+  if(!panel || !panel.classList.contains('agent-detail-fields')) return;
+  const show=Boolean(check.checked);
+  panel.hidden=!show;
+  panel.disabled=!show;
+  panel.style.setProperty('display',show?'grid':'none','important');
+  wrapper.style.borderRadius=show?'8px 8px 0 0':'8px';
+  wrapper.style.marginBottom=show?'0':'10px';
 };
 function bindAgentForm(form){
   if(!form) return;
