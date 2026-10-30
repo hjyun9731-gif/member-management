@@ -1356,10 +1356,14 @@ window.editMember=async(id,defaultCat='개인')=>{
 
   // 개인 전용 섹션 HTML
   const indSection=agentFormSection(r,id);
-  const ownerSection=sec('차주/대리인 자격정보 구분',`
-    ${fi('owner_driver_license_number','차주 운전면허번호',r.owner_driver_license_number||'')}
-    ${fi('owner_freight_qualification_number','차주 화물운송종사자격증 번호',r.owner_freight_qualification_number||'')}
-    <div class="fi cs4" style="font-size:11.5px;color:#64748b">아래 '운전면허번호/화물운송종사자격증 번호' 기존 값은 차주·대리인 중 누구 것인지 <b>미확인</b> 상태로 그대로 보존됩니다(자동 이전·삭제 없음).</div>`,'🪪','yellow');
+  // 기존 원장에 별도로 저장한 차주 자격정보는 삭제하지 않고, 평소에는 접어 화면을 간결하게 유지한다.
+  const ownerSection=`<details class="fi cs4" style="margin:8px 0 12px">
+    <summary style="cursor:pointer;font-weight:600;padding:8px 10px;background:var(--c-bg-alt,#f7f8fa);border-radius:6px">차주 자격정보 상세 (필요할 때 펼치기)</summary>
+    <div class="fg" style="margin-top:10px">
+      ${fi('owner_driver_license_number','차주 운전면허번호',r.owner_driver_license_number||'')}
+      ${fi('owner_freight_qualification_number','차주 화물운송종사자격증 번호',r.owner_freight_qualification_number||'')}
+    </div>
+  </details>`;
 
   const relationSection=(id&&(r.transfer_info||r.transfer_out_info))?sec('양도양수 관계정보 (읽기 전용)',`
     ${r.transfer_info?`
