@@ -54,7 +54,7 @@ async def list_candidates(
     filters = {"region": region, "is_registered": False}
     items, total = crud.get_list(db, models.Candidate, skip=(page-1)*limit, limit=limit,
                                   search=search, search_fields=SEARCH, filters=filters)
-    return {"items": [agent_history.mask_row_rrn(_fmt(i)) for i in items], "total": total,
+    return {"items": [_fmt(i) for i in items], "total": total,
             "page": page, "pages": max(1, (total+limit-1)//limit), "limit": limit}
 
 

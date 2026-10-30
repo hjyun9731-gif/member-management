@@ -225,7 +225,7 @@ async def list_members(
         )
 
     pages = max(1, (total + limit - 1) // limit)
-    return {"items": [agent_history.mask_row_rrn(_fmt(i)) for i in items], "total": total,
+    return {"items": [_fmt(i) for i in items], "total": total,
             "page": page, "pages": pages, "limit": limit}
 
 

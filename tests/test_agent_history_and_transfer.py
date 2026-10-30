@@ -64,7 +64,7 @@ def test_agent_history_preserved_and_not_counted_as_change(client):
     assert [i["name"] for i in items] == ["박민수", "이영희", "김철수"]
     assert [i["status"] for i in items] == ["현재", "종료", "종료"]
     legacy = items[-1]; assert legacy["start_date"] == ""                    # 시작일 임의 생성 금지
-    assert "1234567" not in str(items) and "333333" not in str(items)       # 마스킹
+    assert any(i.get("resident_number") == "800101-1234567" for i in items) and "333333" not in str(items)   # 주민번호 전체 표시, 면허번호는 마스킹 유지
     assert [h for h in hist(db, m.id) if h.change_type in ("대폐차", "상호변경", "차량번호변경")] == []
     assert client.get(f"/api/members/{m.id}").json()["agent_name"] == "박민수"
     # 같은 값 재저장 → 이력 늘지 않음
@@ -93,7 +93,7 @@ def test_domestic_transfer_links_agent_and_masks_lists(client):
     ag = client.get(f"/api/members/{tee.id}/agents").json()["items"]
     assert len(ag) == 1 and ag[0]["status"] == "현재"
     tl = client.get("/api/transfer-ledger").json()["items"]
-    assert len(tl) == 1 and "1234567" not in str(tl) and "2345678" not in str(tl)
+    assert len(tl) == 1 and tl[0]["resident_number"] == "900101-1234567" and tl[0]["agent_resident_number"] == "700101-2345678"   # 화면 목록: 주민번호 전체 표시
     assert client.get(f"/api/transfer-ledger/{tl[0]['id']}").json()["resident_number"] == "900101-1234567"  # 수정 폼용 원본
     # 일반 대장 수정(대리인 칸 비움)이 현재 대리인을 종료시키지 않는다
     client.put(f"/api/transfer-ledger/{tl[0]['id']}", json={"memo": "x", "agent_name": ""})

@@ -326,7 +326,7 @@ async def list_transfers(
 
     formatted = []
     for t in items:
-        d = agent_history.mask_row_rrn(_fmt(t))     # 목록: 주민등록번호·대리인 주민등록번호 마스킹
+        d = _fmt(t)     # 화면 목록: 주민등록번호 전체 표시(엑셀 다운로드만 마스킹)
         tor_status, tor_date = _member_status(getattr(t, "transferor_member_id", None))
         tee_id = getattr(t, "transferee_member_id", None) or getattr(t, "member_id", None)
         tee_status, tee_date = _member_status(tee_id, t.membership_date or "", allow_fallback=True)

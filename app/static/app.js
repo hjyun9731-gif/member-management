@@ -336,7 +336,7 @@ function fi(name,label,val='',req=false){
 }
 
 // ── 대리인 입력 섹션 / 이력 (회원 수정 · 양도양수 등록 · 도내 양도양수 공통) ──
-function _maskRrnView(v){const d=String(v||'').replace(/\D/g,'');return d.length>=7?d.slice(0,6)+'-*******':(v?'(표시 제한)':'');}
+function _maskRrnView(v){const d=String(v||'').replace(/\D/g,'');return d.length>=13?d.slice(0,6)+'-'+d.slice(6,13):(v||'');}
 function agentFormSection(r,memberId){
   r=r||{};
   const hist=memberId?`<div class="fi cs4"><button type="button" class="btn bo btn-sm" onclick="showAgentHistory(${memberId})">대리인 변경이력 보기</button>

@@ -183,7 +183,7 @@ def list_history(db, member_id: int, member=None, created_by: str = "") -> list:
     for r in rows:
         out.append({
             "id": r.id, "name": r.name or "", "mobile": r.mobile or "", "address": r.address or "",
-            "resident_number": mask_agent_rrn(r.resident_number),
+            "resident_number": r.resident_number,
             "driver_license_number": mask_license(r.driver_license_number),
             "freight_qualification_number": mask_license(r.freight_qualification_number),
             "start_date": r.start_date or "", "end_date": r.end_date or "",
