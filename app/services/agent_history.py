@@ -14,12 +14,13 @@ from app import models
 from app.services.change_judgement import mask_rrn  # noqa: F401  (재사용 가능하도록 노출)
 
 AGENT_FIELDS = ("name", "resident_number", "mobile", "address",
-                "driver_license_number", "freight_qualification_number", "start_date")
+                "driver_license_number", "freight_qualification_number", "certificate_number", "start_date")
 # license_holders / transfer_ledger 의 컬럼명 접두 매핑
 _MEMBER_COL = {
     "name": "agent_name", "resident_number": "agent_resident_number", "mobile": "agent_mobile",
     "address": "agent_address", "driver_license_number": "agent_driver_license_number",
-    "freight_qualification_number": "agent_freight_qualification_number", "start_date": "agent_start_date",
+    "freight_qualification_number": "agent_freight_qualification_number",
+    "certificate_number": "agent_certificate_number", "start_date": "agent_start_date",
 }
 
 
@@ -186,6 +187,7 @@ def list_history(db, member_id: int, member=None, created_by: str = "") -> list:
             "resident_number": r.resident_number,
             "driver_license_number": mask_license(r.driver_license_number),
             "freight_qualification_number": mask_license(r.freight_qualification_number),
+            "certificate_number": r.certificate_number or "",
             "start_date": r.start_date or "", "end_date": r.end_date or "",
             "status": r.status or "", "source": r.source or "",
             "start_date_known": bool(r.start_date),

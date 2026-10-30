@@ -1920,7 +1920,7 @@ def process_domestic_transfer(db: Session, *, transferor_member_id: int,
         # 양수자의 대리인 정보를 대장에 보존 (예정자로 등록된 경우 이후 회원등록 때 자동 연동된다)
         _ag = {k: str(v).strip() for k, v in (agent or {}).items() if v is not None}
         for _k in ("name", "resident_number", "mobile", "address", "driver_license_number",
-                   "freight_qualification_number", "start_date", "end_date"):
+                   "freight_qualification_number", "certificate_number", "start_date", "end_date"):
             if _ag.get(_k):
                 setattr(ledger, "agent_" + _k, _ag[_k])
         db.add(ledger)
