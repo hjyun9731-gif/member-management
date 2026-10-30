@@ -320,6 +320,11 @@ function chBadge(t){const m={'주소지변경':'b-sky','상호변경':'b-pri','�
 
 // FORM HELPERS
 function rsel(name,sel=''){return `<select name="${name}" class="fc"><option value="">선택</option>${REGIONS.map(r=>`<option value="${r}" ${r===sel?'selected':''}>${r}</option>`).join('')}</select>`;}
+// 지역은 예정자 화면과 동일하게 목록 선택 및 직접 입력 모두 허용.
+function regionEditable(name,sel=''){
+  const id='regions-'+name.replace(/[^a-z0-9_-]/gi,'');
+  return `<input class="fc" name="${name}" list="${id}" value="${e_(sel)}" placeholder="직접 입력 또는 선택" autocomplete="off"><datalist id="${id}">${REGIONS.map(r=>`<option value="${e_(r)}"></option>`).join('')}</datalist>`;
+}
 function rselflt(id,sel=''){return `<select id="${id}" class="fsel"><option value="">전체 지역</option>${REGIONS.map(r=>`<option value="${r}" ${r===sel?'selected':''}>${r}</option>`).join('')}</select>`;}
 function ssel(name,opts,sel=''){return `<select name="${name}" class="fc">${opts.map(o=>`<option value="${o}" ${o===sel?'selected':''}>${o}</option>`).join('')}</select>`;}
 function fi(name,label,val='',req=false){
@@ -339,18 +344,35 @@ function fi(name,label,val='',req=false){
 function _maskRrnView(v){const d=String(v||'').replace(/\D/g,'');return d.length>=13?d.slice(0,6)+'-'+d.slice(6,13):(v||'');}
 function agentFormSection(r,memberId){
   r=r||{};
-  const hist=memberId?`<div class="fi cs4"><button type="button" class="btn bo btn-sm" onclick="showAgentHistory(${memberId})">대리인 변경이력 보기</button>
-    <span style="font-size:11px;color:#64748b;margin-left:8px">새 대리인을 입력하면 기존 대리인은 삭제되지 않고 '종료'로 보존됩니다.</span></div>`:'';
-  return sec('대리인 정보 (없으면 비워 두세요)',`
-    ${fi('agent_name','대리인 성명',r.agent_name||'')}
+  const hasAgent=Boolean(String(r.agent_name||'').trim());
+  const hist=memberId?`<div class="fi cs4"><button type="button" class="btn bo btn-sm" onclick="showAgentHistory(${memberId})">대리인 변경이력 보기</button></div>`:'';
+  const fields=`${fi('agent_name','대리인 성명',r.agent_name||'')}
     ${frn('agent_resident_number','대리인 주민등록번호',r.agent_resident_number||'')}
     ${fph('agent_mobile','대리인 연락처',r.agent_mobile||'')}
     <div class="fi cs2"><label>대리인 주소</label><input class="fc" name="agent_address" value="${e_(r.agent_address||'')}"></div>
     ${fi('agent_driver_license_number','대리인 운전면허번호',r.agent_driver_license_number||'')}
     ${fi('agent_freight_qualification_number','대리인 화물운송종사자격증 번호',r.agent_freight_qualification_number||'')}
-    ${fi('agent_start_date','대리 시작일',r.agent_start_date||'')}
-    ${fi('agent_end_date','대리 종료일 (종료 시 입력)',r.agent_end_date||'')}
-    ${hist}`,'🧾','pink');
+    ${fi('agent_start_date','대리 시작일',r.agent_start_date||'')}`;
+  return `<div class="fi cs4" style="margin:10px 0"><label style="display:flex;align-items:center;gap:8px;font-weight:600;cursor:pointer">
+    <input type="checkbox" class="agent-present-check" ${hasAgent?'checked':''}
+    onchange="toggleAgentFields(this)"> 대리인 있음</label></div>
+    <fieldset class="fg agent-detail-fields" style="border:0;padding:0;margin:0;min-width:0;display:${hasAgent?'grid':'none'}" ${hasAgent?'':'hidden disabled'}>${fields}</fieldset>
+    ${hist}`;
+}
+// 대리인 체크박스 상태와 폼 필드셋을 함께 변경. 초기화(reset) 시에도 동기화한다.
+window.toggleAgentFields=(check)=>{
+  const panel=check?.closest('.fi')?.nextElementSibling;
+  if(!panel) return;
+  panel.hidden=!check.checked;
+  panel.disabled=!check.checked;
+  panel.style.display=check.checked?'grid':'none';
+};
+function bindAgentForm(form){
+  if(!form) return;
+  const check=form.querySelector('.agent-present-check');
+  if(!check) return;
+  toggleAgentFields(check);
+  form.addEventListener('reset',()=>setTimeout(()=>toggleAgentFields(check),0));
 }
 window.showAgentHistory=async(mid)=>{
   const res=await api('GET',`/api/members/${mid}/agents`).catch(()=>null);if(!res)return;
@@ -396,8 +418,8 @@ function _bindCertIssueBtn(form, apiPath){
     btn.disabled=true; // 요청 중 중복클릭 방지
     btn.textContent='발급 중...';
     try{
-      const nameInp=form.querySelector('[name="name"]')||form.querySelector('[name="transferee_name"]')||form.querySelector('[name="transferee"]');
-      const vehicleInp=form.querySelector('[name="vehicle_number"]')||form.querySelector('[name="transferee_vehicle_number"]');
+      const nameInp=form.querySelector('[name="transferee_name"]')||form.querySelector('[name="transferee"]')||form.querySelector('[name="name"]');
+      const vehicleInp=form.querySelector('[name="transferee_vehicle_number"]')||form.querySelector('[name="vehicle_number"]');
       const payload={
         current_number:(inp.value||'').trim(),
         name:(nameInp?.value||'').trim(),
@@ -935,7 +957,7 @@ async function renderCandidateSection(){
       <div class="card-hd"><div class="card-hd-l"><span class="card-ico">✏️</span><span class="card-ttl">예정자 입력</span></div></div>
       <div class="card-bd"><form id="candForm">
         ${sec('기본정보',`
-        <div class="fi"><label>지역</label>${rsel('region','')}</div>
+        <div class="fi"><label>지역</label>${regionEditable('region','')}</div>
         ${fi('vehicle_number','차량번호')} ${fi('name','성명')}
         ${frn('resident_number','주민등록번호')}
         `,'👤','sky')}
@@ -947,7 +969,7 @@ async function renderCandidateSection(){
         ${fi('certificate_issue_date','자격증명발급일자')} ${certNumField('certificate_number','자격증명번호')}
         ${fi('driver_license_number','운전면허번호')}
         ${fi('freight_qualification_number','화물운송종사자격증 번호')}
-        <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" placeholder="예: 22,포터Ⅱ내장탑차 / 봉고 / 냉동탑차"></div>
+        <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" placeholder="예: 22.포터Ⅱ냉동탑차"></div>
         ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),'')}
         `,'🪪','yellow')}
         ${sec('사업정보',`
@@ -1084,7 +1106,7 @@ window.editCandidate=async(id)=>{
   }catch(e){toast('서버 연결 오류','err');return;}
   if(!r)return;
   openModal('예정자 수정',`<form id="cEditForm"><div class="fg">
-    <div class="fi"><label>지역</label>${rsel('region',r.region||'')}</div>
+    <div class="fi"><label>지역</label>${regionEditable('region',r.region||'')}</div>
     ${fi('vehicle_number','차량번호',r.vehicle_number||'')} ${fi('name','성명',r.name||'')}
     ${frn('resident_number','주민등록번호',r.resident_number||'')}
     ${fi('phone','전화번호',r.phone||'')} ${fph('mobile','핸드폰',r.mobile||'')}
@@ -1092,7 +1114,7 @@ window.editCandidate=async(id)=>{
     ${fi('certificate_issue_date','자격증명발급일자',r.certificate_issue_date||'')} ${certNumField('certificate_number','자격증명번호',r.certificate_number||'')}
     ${fi('driver_license_number','운전면허번호',r.driver_license_number||'')}
     ${fi('freight_qualification_number','화물운송종사자격증 번호',r.freight_qualification_number||'')}
-    <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||'')}" placeholder="예: 22,포터Ⅱ내장탑차 / 봉고 / 냉동탑차"></div>
+    <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||'')}" placeholder="예: 22.포터Ⅱ냉동탑차"></div>
     ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),r.fuel_type||'')}
     ${fi('business_number','사업자번호',r.business_number||'')} ${fi('affiliated_company','소속업체',r.affiliated_company||'')}
     ${fi('membership_date','가입일자',r.membership_date||'')}
@@ -1147,7 +1169,7 @@ async function renderTransferSection(){
       <div class="card-hd"><div class="card-hd-l"><span class="card-ico">✏️</span><span class="card-ttl">양도양수 등록 (타 지역→강원도 전입)</span></div></div>
       <div class="card-bd"><form id="trSecForm">
         ${sec('기본정보',`
-        <div class="fi"><label>지역</label>${rsel('region','')}</div>
+        <div class="fi"><label>지역</label>${regionEditable('region','')}</div>
         ${fi('vehicle_number','차량번호','')}
         ${fi('transferor','양도인(성명)','')}
         ${fi('name','양수자(성명)','')}
@@ -1163,12 +1185,13 @@ async function renderTransferSection(){
         <div class="fi cs4"><label>주소</label><input class="fc" name="address"></div>
         `,'📞','purple')}
         ${sec('자격증·면허정보',`
-        ${fi('certificate_issue_date','자격증명발급일자','')} ${fi('certificate_number','자격증명번호','')}
+        ${fi('certificate_issue_date','자격증명발급일자','')} ${certNumField('certificate_number','자격증명번호','')}
         ${fi('driver_license_number','운전면허번호','')}
         ${fi('freight_qualification_number','화물운송종사자격증 번호(양수자)','')}
-        <div class="fi"><label>차종 (직접입력)</label><input class="fc" name="vehicle_type" placeholder="예: 22,포터Ⅱ내장탑차 / 1톤 냉동탑차"></div>
+        <div class="fi"><label>차종 (직접입력)</label><input class="fc" name="vehicle_type" placeholder="예: 22.포터Ⅱ냉동탑차"></div>
         ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),'')}
         `,'🪪','yellow')}
+        ${agentFormSection({})}
         ${sec('사업정보',`
         ${fi('business_number','사업자번호','')} ${fi('affiliated_company','소속업체','')}
         `,'🏢','teal')}
@@ -1178,7 +1201,7 @@ async function renderTransferSection(){
         <button type="button" class="btn bg btn-sm" id="trSecSave">+ 저장</button>
       </div></form></div>
     </div>`;
-  setTimeout(()=>_bindFmt(document.getElementById('trSecForm')),0);
+  setTimeout(()=>{const f=document.getElementById('trSecForm');_bindFmt(f);bindAgentForm(f);_bindCertIssueBtn(f,'/api/transfer-ledger/issue-certificate-number');},0);
   document.getElementById('trSecSave').onclick=async()=>{
     const fd=_normFormDates(Object.fromEntries(new FormData(document.getElementById('trSecForm'))));
     if(!fd.vehicle_number){toast('차량번호를 입력하세요','warn');return;}
@@ -1197,7 +1220,11 @@ async function renderTransferSection(){
       freight_qualification_number:fd.freight_qualification_number||'',
       vehicle_type:fd.vehicle_type||'',fuel_type:fd.fuel_type||'',
       business_number:fd.business_number||'',affiliated_company:fd.affiliated_company||'',
-      memo:fd.memo};
+      agent_name:fd.agent_name||'',agent_resident_number:fd.agent_resident_number||'',
+      agent_mobile:fd.agent_mobile||'',agent_address:fd.agent_address||'',
+      agent_driver_license_number:fd.agent_driver_license_number||'',
+      agent_freight_qualification_number:fd.agent_freight_qualification_number||'',
+      agent_start_date:fd.agent_start_date||'',memo:fd.memo};
     const trRec=await api('POST','/api/transfer-ledger',tl).catch(()=>null);
     if(!trRec)return;
     const mr=await api('POST',`/api/transfer-ledger/${trRec.id}/register-member`,{management_number:nn?.next_number||''}).catch(()=>null);
@@ -1359,7 +1386,7 @@ window.editMember=async(id,defaultCat='개인')=>{
     <input type="hidden" name="category" value="${e_(cat)}">
     ${sec('회원정보',`
       ${fi('management_number','관리번호',r.management_number||'')}
-      <div class="fi"><label>지역</label>${rsel('region',r.region||'')}</div>
+      <div class="fi"><label>지역</label>${regionEditable('region',r.region||'')}</div>
       ${fi('vehicle_number','차량번호',r.vehicle_number||'',true)} ${fi('name','성명',r.name||'',true)}
       ${fi('phone','전화번호',r.phone||'')} ${fph('mobile','핸드폰',r.mobile||'')}
       <div class="fi cs2"><label>주소</label><input class="fc" name="address" value="${e_(r.address||'')}"></div>
@@ -1372,16 +1399,15 @@ window.editMember=async(id,defaultCat='개인')=>{
     ${sec('면허정보',`
       ${fi('driver_license_number','운전면허번호(소유자 미확인 기존값)',r.driver_license_number||'')}
       ${fi('freight_qualification_number','화물운송종사자격증 번호',r.freight_qualification_number||'')}
-      <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||'')}" placeholder="예: 22,포터Ⅱ내장탑차"></div>
+      <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||'')}" placeholder="예: 22.포터Ⅱ냉동탑차"></div>
       ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),r.fuel_type||'')}
       ${fi('business_number','사업자번호',r.business_number||'')} ${fi('affiliated_company','소속업체',r.affiliated_company||'')}
       ${frn('resident_number','주민등록번호',r.resident_number||'')}
       <div class="fi cs2"><label>구조변경</label><input class="fc" name="structure_change" value="${e_(r.structure_change||'')}" placeholder="예: 윙바디 변경, 냉동기 장착, 호로→윙바디"></div>
     `,'🪪','yellow')}
     ${isTaxi?taxiSection:''}
-    ${ownerSection}
+    ${isInd?ownerSection:''}
     ${isInd?indSection:''}
-    ${(!id)?(taxiSection+indSection):''}
     ${relationSection}
     ${sec('기타',`${fta('memo','비고',r.memo||'','cs4')}`,'📝')}
   </form>`;
@@ -1395,7 +1421,7 @@ window.editMember=async(id,defaultCat='개인')=>{
   openModal(id?'회원 수정':'회원 등록',missingLedgerBox+formHtml,
     `<button class="btn bg btn-sm" id="_mSave">${id?'저장':'등록'}</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
 
-  setTimeout(()=>{const mf=document.getElementById('mForm');if(mf&&id)mf.dataset.memberId=String(id);_bindFmt(mf);},0);
+  setTimeout(()=>{const mf=document.getElementById('mForm');if(mf&&id)mf.dataset.memberId=String(id);_bindFmt(mf);bindAgentForm(mf);},0);
   document.getElementById('_mSave').onclick=async()=>{
     const form=document.getElementById('mForm');
     const fd=_normFormDates(Object.fromEntries(new FormData(form)));
@@ -1416,7 +1442,7 @@ window.editMember=async(id,defaultCat='개인')=>{
       const res=await api(id?'PUT':'POST',id?`/api/members/${id}`:'/api/members',fd);
       if(res){toast(id?'수정되었습니다.':'등록되었습니다.');closeModal();navigate(ST.cat,ST.sub);}
     }catch(e){
-      console.error('회원 저장 오류:', e, '전송 데이터:', fd);
+      console.error('회원 저장 오류:', (e&&e.message)||'서버 오류');
       toast('저장 실패: '+((e&&e.message)||'서버 오류'),'err');
     }finally{btn.disabled=false; btn.textContent=id?'저장':'등록';}
   };
@@ -1497,7 +1523,7 @@ window.openDomesticTransfer=async(id)=>{
         </div>
       </details>
       ${sec('차량정보',`
-      <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(m.vehicle_type||'')}"></div>
+      <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(m.vehicle_type||'')}" placeholder="예: 22.포터Ⅱ냉동탑차"></div>
       ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),m.fuel_type||'')}
       <div class="fi cs2"><label>구조변경</label><input class="fc" name="structure_change" value=""></div>
       <div class="fi"><label>소속업체</label><input class="fc" name="affiliated_company" value="${e_(m.affiliated_company||'')}"></div>
@@ -1509,7 +1535,7 @@ window.openDomesticTransfer=async(id)=>{
           <label><input type="radio" name="transferee_target" value="candidate">예정자로 등록</label>
         </div>
       </div>
-      <div class="fi"><label>지역</label>${rsel('transferee_region',m.region||'')}</div>
+      <div class="fi"><label>지역</label>${regionEditable('transferee_region',m.region||'')}</div>
       ${fi('transferee_name','성명','',true)}
       ${frn('transferee_resident_number','주민등록번호','')}
       <div class="fi"><label>차량번호</label><input class="fc" name="transferee_vehicle_number" value="${e_(m.vehicle_number||'')}"></div>
@@ -1525,7 +1551,7 @@ window.openDomesticTransfer=async(id)=>{
     </form>
     <div id="dtDupBox"></div>`,
     `<button class="btn bg btn-sm" id="_dtSave">저장</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
-  setTimeout(()=>{_bindFmt(document.getElementById('dtForm'));_bindCertIssueBtn(document.getElementById('dtForm'),'/api/transfer-ledger/issue-certificate-number');},0);
+  setTimeout(()=>{_bindFmt(document.getElementById('dtForm'));bindAgentForm(document.getElementById('dtForm'));_bindCertIssueBtn(document.getElementById('dtForm'),'/api/transfer-ledger/issue-certificate-number');},0);
 
   let linkExisting=null; // {id,type}
 
@@ -1901,7 +1927,7 @@ window.editTransfer=async(id)=>{
     ${sec('처리정보',`
       ${fi('management_number','관리번호',r.management_number||'')}
       ${fi('receipt_date','접수일자',r.receipt_date||'')}
-      <div class="fi"><label>지역</label>${rsel('region',r.region||'')}</div>
+      <div class="fi"><label>지역</label>${regionEditable('region',r.region||'')}</div>
     `,'📋','sky')}
     ${sec('회원정보',`
       ${fi('vehicle_number','차량번호',r.vehicle_number||'',true)}
@@ -1921,7 +1947,7 @@ window.editTransfer=async(id)=>{
       ${fi('driver_license_number','운전면허번호(차주)',r.driver_license_number||'')}
       ${fi('freight_qualification_number','화물운송종사자격증 번호(양수자)',r.freight_qualification_number||'')}
       ${frn('resident_number','주민등록번호',r.resident_number||'')}
-      ${fi('vehicle_type','차종',r.vehicle_type||raw_tl['차종']||'')}
+      <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||raw_tl['차종']||'')}" placeholder="예: 22.포터Ⅱ냉동탑차"></div>
       ${fri('fuel_type','유종',['','경유','LPG','전기','휘발유','CNG','하이브리드'],r.fuel_type||raw_tl['유종']||'')}
       ${fi('affiliated_company','소속업체',r.affiliated_company||raw_tl['소속업체']||raw_tl['업체명']||'')}
       <div class="fi cs2"><label>구조변경</label><input class="fc" name="structure_change" value="${e_(r.structure_change||'')}"></div>
@@ -1933,7 +1959,7 @@ window.editTransfer=async(id)=>{
     ${sec('기타',`${fta('memo','비고',r.memo||'','cs4')}`,'📝')}
   </form>`,
   `<button class="btn bg btn-sm" id="_tlS">${id?'저장':'등록'}</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
-  setTimeout(()=>{const tf=document.getElementById('tlForm');if(tf&&id)tf.dataset.transferId=String(id);_bindCertIssueBtn(tf,'/api/transfer-ledger/issue-certificate-number');},0);
+  setTimeout(()=>{const tf=document.getElementById('tlForm');if(tf&&id)tf.dataset.transferId=String(id);bindAgentForm(tf);_bindFmt(tf);_bindCertIssueBtn(tf,'/api/transfer-ledger/issue-certificate-number');},0);
   document.getElementById('_tlS').onclick=async()=>{
     const form=document.getElementById('tlForm');if(!form.checkValidity()){form.reportValidity();return;}
     const fd=_normFormDates(Object.fromEntries(new FormData(form)));
@@ -2093,7 +2119,7 @@ window.editClosure=async(id)=>{
       ${fi('receipt_date','접수일자',r.receipt_date||'')} ${fi('closure_date','처리일자',r.closure_date||'')}
     `,'📋','sky')}
     ${sec('회원정보',`
-      <div class="fi"><label>지역</label>${rsel('region',r.region||'')}</div>
+      <div class="fi"><label>지역</label>${regionEditable('region',r.region||'')}</div>
       ${fi('vehicle_number','차량번호',r.vehicle_number||'',true)} ${fi('name','성명',r.name||'')} ${fi('company_name','상호',r.company_name||'')}
       ${fi('phone','전화번호',r.phone||'')} ${fph('mobile','핸드폰',r.mobile||'')}
       <div class="fi cs2"><label>주소</label><input class="fc" name="address" value="${e_(r.address||'')}"></div>
@@ -2109,7 +2135,7 @@ window.editClosure=async(id)=>{
     ${sec('면허정보',`
       ${frn('resident_number','주민등록번호',r.resident_number||'')}
       ${fi('driver_license_number','운전면허번호',r.driver_license_number||'')}
-      <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||raw['차종']||'')}" placeholder="예: 22,포터Ⅱ내장탑차"></div>
+      <div class="fi"><label>차종</label><input class="fc" name="vehicle_type" value="${e_(r.vehicle_type||raw['차종']||'')}" placeholder="예: 22.포터Ⅱ냉동탑차"></div>
       ${fri('fuel_type','유종',['','경유','LPG','전기','휘발유','CNG','하이브리드'],r.fuel_type||raw['유종']||'')}
       ${fi('affiliated_company','소속업체',r.affiliated_company||'')}
       <div class="fi cs2"><label>구조변경</label><input class="fc" name="structure_change" value="${e_(r.structure_change||'')}"></div>
@@ -2311,7 +2337,7 @@ window.editChange=async(id)=>{
   if(id){r=await api('GET',`/api/change-history/${id}`).catch(()=>null);if(!r)return;}
   openModal(id?'변경이력 수정':'변경이력 등록',`<form id="chForm"><div class="fg">
     <div class="fi"><label>변경유형</label>${ssel('change_type',CHANGE_TYPES,r.change_type||'주소지변경')}</div>
-    <div class="fi"><label>지역</label>${rsel('region',r.region||'')}</div>
+    <div class="fi"><label>지역</label>${regionEditable('region',r.region||'')}</div>
     ${fi('vehicle_number','차량번호',r.vehicle_number||'',true)} ${fi('name','성명',r.name||'')}
     <div class="fi cs2"><label>변경 전</label><input class="fc" name="before_value" value="${e_(r.before_value||'')}"></div>
     <div class="fi cs2"><label>변경 후</label><input class="fc" name="after_value" value="${e_(r.after_value||'')}"></div>
