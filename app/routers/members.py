@@ -73,6 +73,7 @@ def _fmt(m):
         "agent_address": getattr(m, "agent_address", None) or "",
         "agent_driver_license_number": getattr(m, "agent_driver_license_number", None) or "",
         "agent_freight_qualification_number": getattr(m, "agent_freight_qualification_number", None) or "",
+        "agent_certificate_number": getattr(m, "agent_certificate_number", None) or "",
         "agent_start_date": getattr(m, "agent_start_date", None) or "",
         # 차주/대리인 자격정보 분리. 위 driver_license_number/freight_qualification_number 는 소유자 미확인 기존값.
         "owner_driver_license_number": getattr(m, "owner_driver_license_number", None) or "",
@@ -363,6 +364,7 @@ _INTERNAL_LOG_ONLY_FIELDS = {
     "driver_license_number", "freight_qualification_number", "resident_number", "business_number",
     "reapproval_date", "agent_name", "agent_resident_number", "agent_mobile",
     "agent_address", "agent_driver_license_number", "agent_freight_qualification_number",
+    "agent_certificate_number",
     "agent_start_date", "owner_driver_license_number", "owner_freight_qualification_number",
     "category",
 }
@@ -393,13 +395,14 @@ _ALLOWED_UPDATE_FIELDS = {
     "reapproval_date", "official_address",
     # 개인 전용
     "agent_name", "agent_resident_number", "agent_mobile", "agent_address",
-    "agent_driver_license_number", "agent_freight_qualification_number", "agent_start_date",
+    "agent_driver_license_number", "agent_freight_qualification_number", "agent_certificate_number", "agent_start_date",
     "owner_driver_license_number", "owner_freight_qualification_number",
     "structure_change",
 }
 
 _AGENT_KEYS = {"agent_name", "agent_resident_number", "agent_mobile", "agent_address",
-               "agent_driver_license_number", "agent_freight_qualification_number", "agent_start_date"}
+               "agent_driver_license_number", "agent_freight_qualification_number",
+               "agent_certificate_number", "agent_start_date"}
 
 _AGENT_INPUT_FIELDS = frozenset(_AGENT_KEYS) | {"agent_end_date"}
 
@@ -476,7 +479,8 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
     # 새로 추가된 컬럼이 실제 DB에 없을 경우 안전하게 제거
     _new_cols = {"reapproval_date", "official_address", "agent_name",
                  "agent_resident_number", "agent_mobile", "agent_address", "structure_change",
-                 "agent_driver_license_number", "agent_freight_qualification_number", "agent_start_date",
+                 "agent_driver_license_number", "agent_freight_qualification_number",
+                 "agent_certificate_number", "agent_start_date",
                  "owner_driver_license_number", "owner_freight_qualification_number"}
     for col in list(_new_cols):
         if col in filtered_data and not hasattr(m, col):

@@ -111,6 +111,7 @@ def _fmt(t):
         "agent_address":         getattr(t, "agent_address", None) or "",
         "agent_driver_license_number": getattr(t, "agent_driver_license_number", None) or "",
         "agent_freight_qualification_number": getattr(t, "agent_freight_qualification_number", None) or "",
+        "agent_certificate_number": getattr(t, "agent_certificate_number", None) or "",
         "agent_start_date":      getattr(t, "agent_start_date", None) or "",
         "agent_end_date":        getattr(t, "agent_end_date", None) or "",
         "member_id":             t.member_id,

@@ -346,15 +346,16 @@ function agentFormSection(r,memberId,context='member'){
   r=r||{};
   // 기존 대리인 데이터가 하나라도 있으면 수정 화면에서 값을 확인할 수 있도록 펼친다.
   const agentKeys=['agent_name','agent_resident_number','agent_mobile','agent_address',
-    'agent_driver_license_number','agent_freight_qualification_number','agent_start_date'];
+    'agent_driver_license_number','agent_freight_qualification_number','agent_certificate_number','agent_start_date'];
   const hasAgent=agentKeys.some(k=>String(r[k]||'').trim());
   const hist=memberId?`<button type="button" class="btn bo btn-sm" onclick="showAgentHistory(${memberId})" style="white-space:nowrap;flex-shrink:0">변경이력 보기</button>`:'';
   const fields=`${fi('agent_name','대리인 성명',r.agent_name||'')}
     ${frn('agent_resident_number','대리인 주민등록번호',r.agent_resident_number||'')}
     ${fph('agent_mobile','대리인 연락처',r.agent_mobile||'')}
-    <div class="fi cs4"><label>대리인 주소</label><input class="fc" name="agent_address" value="${e_(r.agent_address||'')}"></div>
+    <div class="fi"><label>대리인 주소</label><input class="fc" name="agent_address" value="${e_(r.agent_address||'')}"></div>
     ${fi('agent_driver_license_number','대리인 운전면허번호',r.agent_driver_license_number||'')}
     ${fi('agent_freight_qualification_number','대리인 화물운송종사자격증 번호',r.agent_freight_qualification_number||'')}
+    ${context!=='transfer'?fi('agent_certificate_number','대리인 자격증명발급번호',r.agent_certificate_number||''):''}
     ${fi('agent_start_date','대리 시작일',r.agent_start_date||'')}`;
   // 모든 화면에서 동일한 연연두 라벨 + 한 줄 선택 컨트롤을 사용한다.
   return `<div class="cs4 agent-toggle-wrap" style="grid-column:1/-1;width:100%;box-sizing:border-box;margin:9px 0 6px">
@@ -1205,7 +1206,7 @@ async function renderTransferSection(){
         <div class="fi"><label>차종 (직접입력)</label><input class="fc" name="vehicle_type" placeholder="예: 22.포터Ⅱ냉동탑차"></div>
         ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),'')}
         `,'🪪','yellow')}
-        ${agentFormSection({},null,'transfer')}
+        ${agentFormSection({},null,'candidate-transfer')}
         ${sec('사업정보',`
         ${fi('business_number','사업자번호','')} ${fi('affiliated_company','소속업체','')}
         `,'🏢','teal')}
@@ -1238,6 +1239,7 @@ async function renderTransferSection(){
       agent_mobile:fd.agent_mobile||'',agent_address:fd.agent_address||'',
       agent_driver_license_number:fd.agent_driver_license_number||'',
       agent_freight_qualification_number:fd.agent_freight_qualification_number||'',
+      agent_certificate_number:fd.agent_certificate_number||'',
       agent_start_date:fd.agent_start_date||'',memo:fd.memo};
     const trRec=await api('POST','/api/transfer-ledger',tl).catch(()=>null);
     if(!trRec)return;
