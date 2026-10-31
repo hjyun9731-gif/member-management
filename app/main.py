@@ -98,6 +98,10 @@ def _run_migrations():
         ("agent_driver_license_number",       "license_holders", "VARCHAR(100)"),
         ("agent_freight_qualification_number","license_holders", "VARCHAR(20)"),
         ("agent_start_date",                  "license_holders", "VARCHAR(50)"),
+        # 대리인 자격증명발급번호 (차주 자격증명번호·대리인 화물운송종사자격증 번호와 별개 필드, 컬럼 추가만)
+        ("agent_certificate_number",          "license_holders", "VARCHAR(100)"),
+        ("agent_certificate_number",          "transfer_ledger", "VARCHAR(100)"),
+        ("certificate_number",                "member_agents",   "VARCHAR(100)"),
         ("owner_driver_license_number",       "license_holders", "VARCHAR(100)"),
         ("owner_freight_qualification_number","license_holders", "VARCHAR(20)"),
         ("agent_name",                        "transfer_ledger", "VARCHAR(100)"),

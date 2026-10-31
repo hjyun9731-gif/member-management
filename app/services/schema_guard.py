@@ -33,6 +33,10 @@ REQUIRED_COLUMNS = [
     ("transfer_ledger", "agent_freight_qualification_number", "VARCHAR(20)"),
     ("transfer_ledger", "agent_start_date", "VARCHAR(50)"),
     ("transfer_ledger", "agent_end_date", "VARCHAR(50)"),
+    # 대리인 자격증명발급번호 (컬럼 추가만)
+    ("license_holders", "agent_certificate_number", "VARCHAR(100)"),
+    ("transfer_ledger", "agent_certificate_number", "VARCHAR(100)"),
+    ("member_agents", "certificate_number", "VARCHAR(100)"),
 ]
 _RETRY_SECONDS = 15
 _LOCK_WAIT_SECONDS = 20     # 다른 스레드(백그라운드 유지보수)가 보강 중이면 500 대신 잠시 기다린다
