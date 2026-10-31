@@ -346,15 +346,16 @@ function agentFormSection(r,memberId,context='member'){
   r=r||{};
   // 기존 대리인 데이터가 하나라도 있으면 수정 화면에서 값을 확인할 수 있도록 펼친다.
   const agentKeys=['agent_name','agent_resident_number','agent_mobile','agent_address',
-    'agent_driver_license_number','agent_freight_qualification_number','agent_start_date'];
+    'agent_driver_license_number','agent_freight_qualification_number','agent_certificate_number','agent_start_date'];
   const hasAgent=agentKeys.some(k=>String(r[k]||'').trim());
   const hist=memberId?`<button type="button" class="btn bo btn-sm" onclick="showAgentHistory(${memberId})" style="white-space:nowrap;flex-shrink:0">변경이력 보기</button>`:'';
   const fields=`${fi('agent_name','대리인 성명',r.agent_name||'')}
     ${frn('agent_resident_number','대리인 주민등록번호',r.agent_resident_number||'')}
     ${fph('agent_mobile','대리인 연락처',r.agent_mobile||'')}
-    <div class="fi cs4"><label>대리인 주소</label><input class="fc" name="agent_address" value="${e_(r.agent_address||'')}"></div>
+    <div class="fi"><label>대리인 주소</label><input class="fc" name="agent_address" value="${e_(r.agent_address||'')}"></div>
     ${fi('agent_driver_license_number','대리인 운전면허번호',r.agent_driver_license_number||'')}
     ${fi('agent_freight_qualification_number','대리인 화물운송종사자격증 번호',r.agent_freight_qualification_number||'')}
+    ${context!=='transfer'?fi('agent_certificate_number','대리인 자격증명발급번호',r.agent_certificate_number||''):''}
     ${fi('agent_start_date','대리 시작일',r.agent_start_date||'')}`;
   // 모든 화면에서 동일한 연연두 라벨 + 한 줄 선택 컨트롤을 사용한다.
   return `<div class="cs4 agent-toggle-wrap" style="grid-column:1/-1;width:100%;box-sizing:border-box;margin:9px 0 6px">
@@ -391,9 +392,9 @@ function bindAgentForm(form){
 window.showAgentHistory=async(mid)=>{
   const res=await api('GET',`/api/members/${mid}/agents`).catch(()=>null);if(!res)return;
   const rows=(res.items||[]).map(a=>`<tr><td>${e_(a.name)}</td><td>${e_(a.start_date||'미상')}</td><td>${e_(a.end_date||'-')}</td>
-    <td>${a.status==='현재'?'<b style="color:#2563eb">현재</b>':'종료'}</td><td>${e_(a.mobile)}</td><td>${e_(a.resident_number)}</td></tr>`).join('');
-  openModal('대리인 변경이력',`<div class="tw"><table><thead><tr><th>대리인</th><th>시작일</th><th>종료일</th><th>상태</th><th>연락처</th><th>주민등록번호</th></tr></thead>
-    <tbody>${rows||'<tr><td colspan="6" style="text-align:center;color:#94a3b8">대리인 이력이 없습니다</td></tr>'}</tbody></table></div>
+    <td>${a.status==='현재'?'<b style="color:#2563eb">현재</b>':'종료'}</td><td>${e_(a.mobile)}</td><td>${e_(a.resident_number)}</td><td>${e_(a.certificate_number||'')}</td></tr>`).join('');
+  openModal('대리인 변경이력',`<div class="tw"><table><thead><tr><th>대리인</th><th>시작일</th><th>종료일</th><th>상태</th><th>연락처</th><th>주민등록번호</th><th>자격증명발급번호</th></tr></thead>
+    <tbody>${rows||'<tr><td colspan="7" style="text-align:center;color:#94a3b8">대리인 이력이 없습니다</td></tr>'}</tbody></table></div>
     <p style="font-size:11px;color:#64748b;margin-top:8px">시작일을 알 수 없는 기존 대리인은 '미상'으로 표시되며 임의로 날짜를 만들지 않습니다.</p>`,
     `<button class="btn bo btn-sm" onclick="closeModal()">닫기</button>`,'mlg');
 };
@@ -756,7 +757,7 @@ window.viewMember=async(id)=>{
 
   const sections=[
     {title:'기본 정보',fields:[['관리번호',r.management_number],['지역',r.region],['차량번호',r.vehicle_number],['성명',r.name],['개인/택배',r.category],['가입여부',r.membership_status]]},
-    {title:'연락처 / 주소',fields:[['전화번호',r.phone],['핸드폰',r.mobile],['주소',r.address,true],['공문주소',rawAddr,true],['대리인',rawAgent],['대리인 주민등록번호',rawAgentRes],['대리인 핸드폰',rawAgentMob]]},
+    {title:'연락처 / 주소',fields:[['전화번호',r.phone],['핸드폰',r.mobile],['주소',r.address,true],['공문주소',rawAddr,true],['대리인',rawAgent],['대리인 주민등록번호',rawAgentRes],['대리인 핸드폰',rawAgentMob],['대리인 자격증명발급번호',r.agent_certificate_number]]},
     {title:'인허가 정보',fields:[['인가일자',r.approval_date],['가입일자',r.membership_date],['재허가',rawReapproval],['자격증명발급일자',r.certificate_issue_date],['자격증명번호',r.certificate_number],['운전면허번호',r.driver_license_number],['화물운송종사자격증 번호',r.freight_qualification_number],['주민등록번호',_maskRrnView(r.resident_number)],['사업자번호',r.business_number]]},
     {title:'차량 정보',fields:[['차종',r.vehicle_type],['유종',r.fuel_type],['소속업체',r.affiliated_company],['구조변경',r.structure_change||rawStruct,true],['전속업체 변경',rawCompChg,true]]},
     ...(rehasa.length?[{title:'재허가 이력',fields:rehasa}]:[]),
@@ -1205,7 +1206,7 @@ async function renderTransferSection(){
         <div class="fi"><label>차종 (직접입력)</label><input class="fc" name="vehicle_type" placeholder="예: 22.포터Ⅱ냉동탑차"></div>
         ${fri('fuel_type','유종',[''].concat(FUEL_TYPES),'')}
         `,'🪪','yellow')}
-        ${agentFormSection({},null,'transfer')}
+        ${agentFormSection({},null,'candidate-transfer')}
         ${sec('사업정보',`
         ${fi('business_number','사업자번호','')} ${fi('affiliated_company','소속업체','')}
         `,'🏢','teal')}
@@ -1238,6 +1239,7 @@ async function renderTransferSection(){
       agent_mobile:fd.agent_mobile||'',agent_address:fd.agent_address||'',
       agent_driver_license_number:fd.agent_driver_license_number||'',
       agent_freight_qualification_number:fd.agent_freight_qualification_number||'',
+      agent_certificate_number:fd.agent_certificate_number||'',
       agent_start_date:fd.agent_start_date||'',memo:fd.memo};
     const trRec=await api('POST','/api/transfer-ledger',tl).catch(()=>null);
     if(!trRec)return;

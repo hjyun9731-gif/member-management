@@ -87,6 +87,7 @@ class LicenseHolder(Base):
     agent_address = Column(Text)                      # 대리인 주소
     agent_driver_license_number = Column(String(100))          # 대리인 운전면허번호
     agent_freight_qualification_number = Column(String(20))    # 대리인 화물운송종사자격증 번호
+    agent_certificate_number = Column(String(100))             # 대리인 자격증명발급번호
     agent_start_date = Column(String(50))                      # 현재 대리인 대리 시작일
     # 차주/대리인 자격정보 분리: 기존 driver_license_number / freight_qualification_number 는
     # 소유자 미확인 기존값으로 그대로 보존하고(삭제·이전 금지), 아래는 소유자가 확인된 값만 별도 저장한다.
@@ -116,6 +117,7 @@ class MemberAgent(Base):
     address = Column(Text)
     driver_license_number = Column(String(100))
     freight_qualification_number = Column(String(20))
+    certificate_number = Column(String(100))                    # 대리인 변경이력 발급번호
     start_date = Column(String(50))
     end_date = Column(String(50))
     status = Column(String(10), default="현재", index=True)       # 현재 / 종료
@@ -196,6 +198,7 @@ class TransferLedger(Base):
     agent_address = Column(Text)
     agent_driver_license_number = Column(String(100))
     agent_freight_qualification_number = Column(String(20))
+    agent_certificate_number = Column(String(100))             # 양수자 대리인 자격증명발급번호
     agent_start_date = Column(String(50))
     agent_end_date = Column(String(50))
     upload_id = Column(Integer, nullable=True)     # 업로드 이력 ID
