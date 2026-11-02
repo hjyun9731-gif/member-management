@@ -61,3 +61,17 @@ def test_build_rejects_unmapped_and_keeps_all_originals(tmp_path):
     items, problems, _, _ = fa.build(snap, mapping, Old)
     assert len(items) == 2 and [i["id"] for i in items] == [1, 2]
     assert all(i["rep"] == "exclude" for i in items) and any("구조변경 순번" in p for p in problems)
+
+
+def test_hyphen_proof_requires_numeric_detail_on_right():
+    # 오른쪽이 독립 주소처럼 한글로 시작하면 하이픈 분리로 단정하지 않는다
+    assert hyphen_split_proof("춘주로 1", "안현로 274", {"변 경 내 용": "춘주로 1-안현로 274"}) is None
+    assert hyphen_split_proof("춘주로 1", "2 (가동)", {"변 경 내 용": "춘주로 1-2 (가동)"})
+
+
+def test_pending_by_type_counts_only_review():
+    from types import SimpleNamespace as S
+    from app.routers.dashboard import _pending_by_type
+    rows = [(S(change_type="주소지변경"), S(judgement="확인필요")), (S(change_type="주소지변경"), S(judgement="최초등록")),
+            (S(change_type=None), S(judgement="확인필요"))]
+    assert _pending_by_type(rows) == {"주소지변경": 1, "기타": 1}

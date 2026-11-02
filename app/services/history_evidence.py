@@ -83,6 +83,9 @@ def hyphen_split_proof(before, after, raw):
     cell = raw.get("변 경 내 용")
     if cell is None or not _k(before) or not _k(after):
         return None
+    # 오른쪽은 번지·동·호수처럼 숫자로 시작하는 상세값이어야 한다(독립된 주소 두 개를 잇는 형태 배제).
+    if not re.match(r"\s*\d", str(after)):
+        return None
     if _k(cell) == _k(str(before) + "-" + str(after)):
         return {"raw_cell": "변 경 내 용", "reconstructed": True}
     return None

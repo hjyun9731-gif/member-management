@@ -547,6 +547,16 @@ async def activity_by_year(db: Session = Depends(get_db), _=Depends(get_current_
 
     return sorted(result.values(), key=lambda x: x["year"])
 
+def _pending_by_type(rows):
+    """(변경이력, 판정) 목록에서 확인필요만 변경유형별로 센다."""
+    out = {}
+    for c, v in rows:
+        if v.judgement == "확인필요":
+            ct = c.change_type or "기타"
+            out[ct] = out.get(ct, 0) + 1
+    return out
+
+
 @router.get("/recent-by-type")
 async def recent_by_type(
     limit: int = Query(5, ge=1, le=20),
@@ -792,6 +802,8 @@ async def monthly_report_auto(
                         for ct in set(c.change_type or '기타' for c in month_changes_auto)},
         "_변경유형별":    change_by_type,
         # 실적 제외 건수(최초등록·정정·확인필요): 월별 통계 화면과 동일 기준
+        # 실적 0건이 '업무 없음'이 아니라 '근거 확인 대기'일 수 있으므로 확인필요를 유형별로도 노출한다.
+        "_확인필요유형별": _pending_by_type(month_changes_other),
         "_실적제외":      {j: sum(1 for _, v in month_changes_other if v.judgement == j)
                          for j in ("최초등록", "표기정정", "오류정정", "확인필요", "중복", "실적제외")},
     }
