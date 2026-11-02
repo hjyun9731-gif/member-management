@@ -20,6 +20,7 @@ env/
 *.db
 *.sqlite3
 server_err.txt
+railway_readonly_snapshot*.json
 
 # OS / editor
 .DS_Store

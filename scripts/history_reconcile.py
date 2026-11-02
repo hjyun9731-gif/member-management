@@ -19,6 +19,7 @@ from app.services.change_judgement import (
     SOURCE_FIELDS, RULE_VERSION, NORMAL, FIRST, REVIEW, ERROR_FIX, NOTATION, EXCLUDED,
     classify_for_type, source_hash, bucket_of, pick_report_date,
 )
+from app.services.history_evidence import classify_record
 
 SOURCE_SHA256 = "4ae4ccae17610156c3e9e08814aa2e5c98cc34692e448fb627c5a10088bdcc1e"
 
@@ -46,6 +47,54 @@ def match_rows(source, database):
         output.append({"source_row": row["source_row"], "db_id": ids[0] if status == "MATCH_UNIQUE" else None,
                        "match_status": status, "db_match_count": len(ids), "candidate_db_ids": ids,
                        "source_hash": source_hash(row)})
+    return output
+
+
+LINKED_STATUSES = {"MATCH_UNIQUE", "MATCH_CANONICAL"}
+
+
+def canonical_key(row):
+    """알려진 유형 별칭·유효 날짜 표기·차량번호 공백/'호'만 정규화한다.
+    주소/상호/메모/변경 전후 내용은 글자 하나도 삭제하지 않는다.
+    """
+    values = list(exact_key(row))
+    aliases = {"차량번호변경": "번호변경", "주소변경": "주소지변경", "자격재교부": "자격증재교부"}
+    values[0] = aliases.get(values[0], values[0])
+    index = SOURCE_FIELDS.index("vehicle_number")
+    plate = re.sub(r"\s+", "", values[index])
+    if re.fullmatch(r"(?:[가-힣]{2})?\d{2,3}[가-힣]\d{4}호?", plate):
+        values[index] = plate.removesuffix("호")
+    from app.services.change_judgement import parse_ymd
+    for name in ("change_date", "receipt_date"):
+        index = SOURCE_FIELDS.index(name)
+        date = parse_ymd(values[index])
+        if date: values[index] = "%04d-%02d-%02d" % date
+    return tuple(values)
+
+
+def match_rows_semantic(source, database):
+    output = match_rows(source, database)
+    active = [r for r in database if not r.get("deleted_at")]
+    candidates = defaultdict(list)
+    source_counts = Counter(canonical_key(r) for r in source)
+    by_id = {r["id"]: r for r in active}
+    for r in active: candidates[canonical_key(r)].append(r["id"])
+    claimed = {m["db_id"] for m in output if m["match_status"] == "MATCH_UNIQUE"}
+    for r, m in zip(source, output):
+        m["normalizations_applied"] = []
+        if m["match_status"] == "MISSING":
+            ids = candidates[canonical_key(r)]
+            if ids:
+                m["candidate_db_ids"], m["db_match_count"] = ids, len(ids)
+                if source_counts[canonical_key(r)] != 1:
+                    m["match_status"] = "SOURCE_CANONICAL_DUPLICATE"
+                elif len(ids) != 1 or ids[0] in claimed:
+                    m["match_status"] = "CANONICAL_AMBIGUOUS"
+                else:
+                    m["match_status"], m["db_id"] = "MATCH_CANONICAL", ids[0]
+                    m["normalizations_applied"] = [k for k in SOURCE_FIELDS if str(r.get(k) or "") != str(by_id[ids[0]].get(k) or "")]
+                    claimed.add(ids[0])
+        m["expected_db_source_hash"] = source_hash(by_id[m["db_id"]]) if m["match_status"] in LINKED_STATUSES else None
     return output
 
 
@@ -98,7 +147,7 @@ def read_workbooks(source_path, draft_path):
     return rows, {r[0]: dict(zip(draft[0], r)) for r in draft[1:]}
 
 
-def review_rows(rows, drafts):
+def review_rows(rows, drafts, policy="evidence-v2"):
     type_ordinals = defaultdict(list)
     for r in rows:
         type_ordinals[r["change_type"]].append(r)
@@ -136,7 +185,11 @@ def review_rows(rows, drafts):
     for r in rows:
         j, why = classify_for_type(r["change_type"], r["before_value"], r["after_value"])
         status, report = ("pending", "hold") if j == REVIEW else ("automatic", "include" if j == NORMAL else "exclude")
-        if r["change_type"] == "말소/폐차":
+        proposed = classify_record(r) if policy == "evidence-v2" else None
+        if proposed:
+            j, why, report = proposed.judgement, proposed.reason, proposed.report_decision
+            status = "pending" if report == "hold" else "automatic"
+        if r["change_type"] == "말소/폐차" and not proposed:
             why = "폐업 관련 유형 유지. 번호변경말소인지 실제 사업폐업인지 확인 후 중복 검증"
         if r["source_row"] in overrides:
             j, why = overrides[r["source_row"]]; status, report = "confirmed", "exclude"
@@ -159,6 +212,9 @@ def review_rows(rows, drafts):
             "report_decision": report, "review_reason": why, "report_bucket": bucket_of(r["change_type"]),
             "basis_date": "%04d-%02d-%02d" % date if date else None, "date_source": date_source,
             "source_hash": source_hash(r), "rule_version": RULE_VERSION,
+            "automation_rule": "USER_CONFIRMED_EXCLUSION" if r["source_row"] in overrides else proposed.rule if proposed else "CONSERVATIVE_V1",
+            "work_queue": "DB_DUPLICATE" if r["source_row"] in transfer_candidates else "AUTO" if r["source_row"] in overrides or empty_record else proposed.queue if proposed else "UNCLASSIFIED",
+            "automation_evidence": proposed.evidence if proposed else {},
             "empty_record": empty_record,
             "cross_type_event_source_rows": cross,
             "exact_duplicate_source_rows": group if len(group) > 1 and not empty_record else [],
@@ -184,10 +240,11 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--source", required=True); p.add_argument("--draft", required=True)
     p.add_argument("--out", required=True)
+    p.add_argument("--policy", choices=("conservative-v1", "evidence-v2"), default="evidence-v2")
     db = p.add_mutually_exclusive_group(); db.add_argument("--connect", action="store_true"); db.add_argument("--snapshot")
     a = p.parse_args()
     rows, drafts = read_workbooks(a.source, a.draft)
-    plan = review_rows(rows, drafts)
+    plan = review_rows(rows, drafts, a.policy)
     db_rows = (read_database(os.environ["DATABASE_URL"]) if a.connect else
                [json.loads(x) for x in Path(a.snapshot).read_text(encoding="utf-8-sig").splitlines() if x.strip()] if a.snapshot else None)
     matches = (match_rows(rows, db_rows) if db_rows is not None else

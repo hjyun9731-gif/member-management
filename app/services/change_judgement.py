@@ -14,7 +14,7 @@ NORMAL, FIRST, NOTATION, ERROR_FIX, REVIEW = "정상변경", "최초등록", "�
 DUPLICATE = "중복"
 EXCLUDED = "실적제외"
 JUDGEMENTS = (NORMAL, FIRST, NOTATION, ERROR_FIX, REVIEW, DUPLICATE, EXCLUDED)
-RULE_VERSION = "history-2026-11-02-v1"
+RULE_VERSION = "history-2026-11-02-v2"
 SOURCE_FIELDS = ("change_type", "region", "vehicle_number", "name", "before_value",
                  "after_value", "change_date", "receipt_date", "memo")
 
@@ -200,10 +200,11 @@ def view_row(c) -> RowView:
     v = RowView()
     stored = getattr(c, "judgement", None)
     v.legacy = not stored
-    v.judgement, v.reason = classify_for_type(getattr(c, "change_type", ""),
-                                            getattr(c, "before_value", ""), getattr(c, "after_value", ""))
-    v.status = "pending" if v.judgement == REVIEW else "automatic"
-    v.report_decision = "hold" if v.judgement in (NORMAL, REVIEW) else "exclude"
+    from app.services.history_evidence import classify_record
+    proposed = classify_record(c)
+    v.judgement, v.reason = proposed.judgement, proposed.reason
+    v.status = "pending" if proposed.report_decision == "hold" else "automatic"
+    v.report_decision = proposed.report_decision
     v.decision_id = None
     if not any(getattr(c, k, None) for k in SOURCE_FIELDS if k != "change_type"):
         v.judgement, v.reason, v.status, v.report_decision = EXCLUDED, "업무 내용·대상·일자가 없는 빈 기록", "automatic", "exclude"

@@ -116,7 +116,7 @@ async def stats_summary(year: Optional[int] = Query(None), month: Optional[int] 
     rows, undated = collect(db, year, month or None, region, change_type, date_from, date_to)
     out = summarize(rows, undated)
     out["period"] = {"year": year, "month": month or None, "date_from": date_from, "date_to": date_to}
-    out["note"] = "실적 포함 판정이 저장된 정상변경만 합산합니다. 미확정 기존 이력은 보류하며 구조변경·등록이관·이전전출을 별도 집계합니다."
+    out["note"] = "저장된 명시 판정을 우선하며, 기존 이력은 업무 유형·명시된 변경사유로 자동판정합니다. 근거가 부족하면 DB 일괄검증으로 보류하고 구조변경·등록이관·이전전출을 별도 집계합니다."
     return out
 
 
