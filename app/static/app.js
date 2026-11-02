@@ -94,6 +94,8 @@ async function api(method,url,body=null,isForm=false){
     let msg='';
     try{const j=JSON.parse(errBody);msg=Array.isArray(j.detail)?j.detail.map(x=>(x.loc?x.loc.join('.')+': ':'')+x.msg).join(' | '):(j.detail||j.message||errBody);}
     catch{msg=errBody||res.statusText;}
+    if(msg&&typeof msg==='object'){msg=msg.message||JSON.stringify(msg);}
+    msg=String(msg||res.statusText);
     const fullMsg=`[${res.status}] ${method} ${url}\n${msg}`;
     console.error('API Error:', fullMsg);
     toast(`${res.status} 오류: ${msg.slice(0,120)}`,'err');
@@ -1347,6 +1349,20 @@ window.togglePin=async(id,el)=>{
   el.title=next?'클릭하여 해제':'클릭하여 고정';
 };
 
+function bindHistoryReasonChoices(form, original){
+  const labels={vehicle_number:'차량번호',address:'주소',official_address:'공문주소',company_name:'상호',affiliated_company:'소속업체',vehicle_type:'차종',fuel_type:'유종',structure_change:'구조변경'};
+  const box=document.createElement('div');box.className='fg';
+  for(const [field,label] of Object.entries(labels)){
+    const input=form.elements.namedItem(field);if(!input)continue;
+    const item=document.createElement('div');item.className='fi cs2';item.hidden=true;
+    const actual=field==='vehicle_number'?'실제 번호변경':'실제 변경';
+    item.innerHTML=`<label>${label} 변경 사유</label><select class="fc" name="_reason_${field}"><option value="">자동판정 / 보류</option value="correction">입력 오류정정</option value="actual">${actual}</option>${field==='vehicle_number'?'':'<option value="supplement">최초등록·정보보완</option>'}</select>`;
+    const sync=()=>{const key=v=>String(v||'').replace(/\s/g,'');item.hidden=key(input.value)===key(original[field]);if(item.hidden)item.querySelector('select').value='';};
+    input.addEventListener('input',sync);box.appendChild(item);sync();
+  }
+  form.appendChild(box);
+}
+
 window.editMember=async(id,defaultCat='개인')=>{
   let r={management_number:'',region:'',vehicle_number:'',name:'',company_name:'',
     address:'',phone:'',mobile:'',category:defaultCat,
@@ -1433,13 +1449,15 @@ window.editMember=async(id,defaultCat='개인')=>{
   openModal(id?'회원 수정':'회원 등록',missingLedgerBox+formHtml,
     `<button class="btn bg btn-sm" id="_mSave">${id?'저장':'등록'}</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
 
-  setTimeout(()=>{const mf=document.getElementById('mForm');if(mf&&id)mf.dataset.memberId=String(id);_bindFmt(mf);bindAgentForm(mf);},0);
+  setTimeout(()=>{const mf=document.getElementById('mForm');if(mf&&id){mf.dataset.memberId=String(id);bindHistoryReasonChoices(mf,r);}_bindFmt(mf);bindAgentForm(mf);},0);
   document.getElementById('_mSave').onclick=async()=>{
     const form=document.getElementById('mForm');
     const fd=_normFormDates(Object.fromEntries(new FormData(form)));
     if(!fd.vehicle_number||!fd.name){toast('차량번호와 성명은 필수입니다','warn');return;}
     // category 재계산 (신규 등록 및 수정 시 차량번호 기준)
     fd.category=fd.vehicle_number?.includes('배')?'택배':'개인';
+    fd.change_reasons={};
+    for(const k of Object.keys(fd)){if(k.startsWith('_reason_')){if(fd[k])fd.change_reasons[k.slice(8)]=fd[k];delete fd[k];}}
     // 가입일자 삭제 = 탈퇴: 기존 가입일자가 있었는데 비우는 경우에만 확인 (서버에서도 한 번 더 검증)
     if(id){
       const oldMd=String((r&&r.membership_date)||'').trim(), newMd=String(fd.membership_date||'').trim();
@@ -2305,7 +2323,7 @@ async function renderChangeHistory(){
     </div>`;
 
   const sk='ch';
-  const hdrs=[{field:'change_type',label:'변경유형'},{field:'change_date',label:'처리일자'},{field:'region',label:'지역'},{field:'vehicle_number',label:'차량번호'},{field:'name',label:'성명'},{field:'before_value',label:'변경 전'},{field:'after_value',label:'변경 후'},{field:'memo',label:'비고'},{label:'관리',noSort:true}];
+  const hdrs=[{field:'change_type',label:'변경유형'},{field:'change_date',label:'처리일자'},{field:'region',label:'지역'},{field:'vehicle_number',label:'차량번호'},{field:'name',label:'성명'},{field:'before_value',label:'변경 전'},{field:'after_value',label:'변경 후'},{field:'memo',label:'비고'},{label:'판정·실적',noSort:true},{label:'관리',noSort:true}];
 
   const doSearch=async(pg=1)=>{
     ST.fl.ch={region:document.getElementById('chRegF').value,change_type:document.getElementById('chTypF').value,source:document.getElementById('chSrcF')?.value||'',date_order:document.getElementById('chSortF').value,search:document.getElementById('chSrch').value.trim()};
@@ -2325,9 +2343,9 @@ async function renderChangeHistory(){
         <td title="${e_(r.before_value)}" style="max-width:160px;overflow:hidden;text-overflow:ellipsis">${r.before_value?fv(r.before_value):'<span style="color:var(--c-text-4);font-size:11px">원본 미기재</span>'}</td>
         <td title="${e_(r.after_value)}" style="max-width:160px;overflow:hidden;text-overflow:ellipsis">${r.after_value?fv(r.after_value):'<span style="color:var(--c-text-4);font-size:11px">원본 미기재</span>'}</td>
         <td title="${e_(r.memo)}">${fv(r.memo)}</td>
+        <td title="${e_(r.effective_reason||'')}">${e_(r.effective_judgement||'확인필요')}<br>${({confirmed:'확정',automatic:'자동판정',pending:'보류'})[r.review_status]||'보류'} · ${({include:'포함',exclude:'제외',hold:'보류'})[r.report_decision]||'보류'}</td>
         <td class="td-act">
-          <button class="btn bp btn-xs" onclick="editChange(${r.id})">수정</button>
-          ${isAdmin()?`<button class="btn br btn-xs" onclick="deleteChange(${r.id})">삭제</button>`:''}
+          ${isAdmin()?`<button class="btn bp btn-xs" onclick="reviewChange(${r.id})">판정</button>`:''}
         </td></tr>`).join('')}</tbody>
     </table></div>${pgn(d,doSearch)}`;
     bindPgn('chTbl',doSearch);
@@ -2344,7 +2362,27 @@ async function renderChangeHistory(){
   await doSearch(1);
 }
 
+window.reviewChange=async(id)=>{
+  const r=await api('GET',`/api/change-history/${id}`);if(!r)return;
+  openModal('변경이력 판정',`<form id="historyReviewForm"><div class="fg">
+    <div class="fi cs4">${e_(r.change_type)} · ${e_(r.name)} · ${e_(r.change_date)}<br>${e_(r.before_value)} → ${e_(r.after_value)}</div>
+    <div class="fi"><label>판정</label>${ssel('judgement',['정상변경','최초등록','표기정정','오류정정','중복','실적제외','확인필요'],r.effective_judgement)}</div>
+    <div class="fi"><label>월례보고 실적</label><select class="fc" name="report_decision"><option value="hold">보류</option><option value="exclude">제외</option><option value="include">포함</option></select></div>
+    <div class="fi"><label>중복 기준 이력 ID</label><input class="fc" type="number" min="1" name="duplicate_of_id"></div>
+    <div class="fi cs4"><label>판정근거 (필수)</label><textarea class="fc" name="reason" required>${e_(r.effective_reason||'')}</textarea></div>
+  </div></form>`,`<button class="btn bg btn-sm" id="saveHistoryReview">판정 저장</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`);
+  document.getElementById('saveHistoryReview').onclick=async()=>{
+    const f=document.getElementById('historyReviewForm');if(!f.reportValidity())return;
+    const d=Object.fromEntries(new FormData(f));
+    d.duplicate_of_id=d.duplicate_of_id?Number(d.duplicate_of_id):null;
+    d.expected_source_hash=r.source_hash;d.expected_decision_id=r.decision_id;
+    const res=await api('POST',`/api/change-history/${id}/decisions`,d).catch(()=>null);
+    if(res){toast('판정을 저장했습니다.');closeModal();renderChangeHistory();}
+  };
+};
+
 window.editChange=async(id)=>{
+  if(id){return reviewChange(id);}
   let r={change_type:'주소지변경',region:'',vehicle_number:'',name:'',before_value:'',after_value:'',change_date:'',memo:''};
   if(id){r=await api('GET',`/api/change-history/${id}`).catch(()=>null);if(!r)return;}
   openModal(id?'변경이력 수정':'변경이력 등록',`<form id="chForm"><div class="fg">
@@ -2354,6 +2392,7 @@ window.editChange=async(id)=>{
     <div class="fi cs2"><label>변경 전</label><input class="fc" name="before_value" value="${e_(r.before_value||'')}"></div>
     <div class="fi cs2"><label>변경 후</label><input class="fc" name="after_value" value="${e_(r.after_value||'')}"></div>
     ${fi('change_date','처리일자',r.change_date||'')}
+    <div class="fi"><label>업무 사유</label><select class="fc" name="change_reason"><option value="">자동판정 / 보류</option><option value="actual">실제 업무 변경</option><option value="correction">입력 오류정정</option><option value="supplement">최초등록·정보보완</option></select></div>
     ${fta('memo','비고',r.memo||'','cs3')}
   </div></form>`,
   `<button class="btn bg btn-sm" id="_chS">${id?'저장':'등록'}</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`);
@@ -2496,14 +2535,13 @@ async function renderMonthlyReportPrint(){
 
   function cellInput(f,extraClass){
     if(!f) return '';
-    // 자동계산 항목도 포함해 모든 숫자 항목을 클릭 후 바로 수정 가능한 입력칸으로 표시.
-    // 저장된 수정값이 있으면 그 값이 우선 표시됨(is_overridden=true), 없으면 자동계산/기본값이 표시됨.
+    // 변경이력 연동 항목은 판정 결과를 사용한다. 다른 직접입력 항목은 기존대로 저장한다.
     const overriddenCls=f.is_overridden?' mrp-overridden':'';
-    return `<input class="mrp-cell-input${overriddenCls} ${extraClass||''}" data-key="${e_(f.key)}" value="${e_(f.value??'')}" title="${f.field_type==='auto'?'자동계산값 - 직접 수정 가능':''}">`;
+    return `<input class="mrp-cell-input${overriddenCls} ${extraClass||''}" data-key="${e_(f.key)}" value="${e_(f.value??'')}" ${f.locked_by_history_policy?'readonly':''} title="${f.locked_by_history_policy?'변경이력 판정에서 수정':f.field_type==='auto'?'자동계산값 - 직접 수정 가능':''}">`;
   }
   function cellInputAttrs(f){
     if(!f) return 'disabled';
-    return `data-key="${e_(f.key)}" value="${e_(f.value??'')}"`;
+    return `data-key="${e_(f.key)}" value="${e_(f.value??'')}" ${f.locked_by_history_policy?'readonly':''}`;
   }
   // 월계/누계 페어링: key가 _month / _cum 로 끝나는 항목을 같은 행으로 묶어서 표시 (새 항목도 이 규칙만 따르면 자동 반영)
   function pairRows(list){
@@ -2549,6 +2587,7 @@ async function renderMonthlyReportPrint(){
         <div class="mrp-tag">월례보고용</div>
       </div>
       <h1>${y}년 ${m}월 월례 업무현황 보고서</h1>
+      ${(d.history_override_conflicts||[]).length?`<p class="warn-box">기존 수기 저장값과 변경이력 집계가 다른 항목 ${(d.history_override_conflicts||[]).length}개가 있어 현재 판정 결과를 표시합니다. 기존 저장값은 보존됩니다.</p>`:''}
       <hr class="mrp-divider">
 
       <div class="mrp-meta">
@@ -2798,6 +2837,11 @@ async function renderMonthlyReportDetail(){
             <tr><td class="rl">상호변경</td><td>${aw.상호변경||0}</td></tr>
             <tr><td class="rl">대표자변경</td><td>${aw.대표자변경||0}</td></tr>
             <tr><td class="rl">차량변경(대폐차)</td><td>${aw.차량변경||0}</td></tr>
+            <tr><td class="rl">구조변경</td><td>${aw.구조변경||0}</td></tr>
+            <tr><td class="rl">차량번호변경</td><td>${aw.차량번호변경||0}</td></tr>
+            <tr><td class="rl">등록이관</td><td>${aw.등록이관||0}</td></tr>
+            <tr><td class="rl">이전전출</td><td>${aw.이전전출||0}</td></tr>
+            <tr><td class="rl">말소/폐차 (폐업 관련 검토)</td><td>${aw['말소/폐차']||0}</td></tr>
             <tr><td class="rl">주소변경</td><td>${aw.주소변경||0}</td></tr>
             <tr><td class="rl">자격증재교부</td><td>${aw.자격증재교부||0}</td></tr>
           </tbody>

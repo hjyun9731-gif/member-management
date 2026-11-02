@@ -10,7 +10,7 @@ from openpyxl import load_workbook
 from app import models
 from app.auth import get_current_user, require_admin
 from app.database import Base, engine, SessionLocal, get_db
-from app.routers import allocation, change_history, change_stats, dashboard, members
+from app.routers import allocation, change_history, change_stats, dashboard, members, reports
 from app.services.change_judgement import (classify_plate, classify_text, mask_rrn, parse_ymd, pick_report_date,
                                            NORMAL, FIRST, NOTATION, ERROR_FIX, REVIEW)
 
@@ -26,6 +26,7 @@ def client():
     app.include_router(change_stats.router, prefix="/api/change-stats")
     app.include_router(dashboard.router, prefix="/api/dashboard")
     app.include_router(allocation.router, prefix="/api/allocation")
+    app.include_router(reports.router, prefix="/api/reports")
 
     def _db():
         s = SessionLocal()
@@ -79,8 +80,8 @@ def test_plate_typo_notation_and_ambiguous_cases():
     assert classify_plate("강원 83자 5192호", "강원83자 5192호")[0] == NOTATION
     assert classify_plate("강원83자 5192호", "강원83자 5193호")[0] == REVIEW      # 숫자 한 글자 → 확인필요
     assert classify_plate("강원83자 5192호", "강원83바 5192호")[0] == REVIEW      # 용도문자 한 글자 → 확인필요
-    assert classify_plate("강원83자 5188호", "강원83자 5190호")[0] == NORMAL      # 실제 번호 변경
-    assert classify_plate("강원81자 2791호", "강원82자 2414호")[0] == NORMAL
+    assert classify_plate("강원83자 5188호", "강원83자 5190호")[0] == REVIEW      # 실제 변경 사유 필요
+    assert classify_plate("강원81자 2791호", "강원82자 2414호")[0] == REVIEW
     assert classify_plate("택배", "강원 배")[0] == REVIEW                         # 임시값 → 불완전 번호
 
 
@@ -114,7 +115,7 @@ def test_vehicle_type_change_is_one_replacement_and_resave_is_not(client):
 
 def test_plate_only_change_is_not_vehicle_replacement(client):
     mid = _member()
-    client.put(f"/api/members/{mid}", json={"vehicle_number": "강원80배1099호"})     # 실제 번호 변경(2글자 이상 상이)
+    assert client.put(f"/api/members/{mid}", json={"vehicle_number": "강원80배1099호", "change_reasons": {"vehicle_number": "actual"}}).status_code == 200
     types = [(r[0], r[1]) for r in _rows(member_id=mid)]
     assert ("차량번호변경", NORMAL) in types and not [t for t in types if t[0] in ("대폐차", "차종변경")]
 
@@ -127,8 +128,8 @@ def test_first_plate_typo_and_ambiguous_plate_edits(client):
     client.put(f"/api/members/{m2}", json={"vehicle_number": "강원83자 5192호"})
     assert [(r[0], r[1]) for r in _rows(member_id=m2)] == [("차량번호변경", ERROR_FIX)]
     m3 = _member(vehicle_number="강원83자 5192호", name="모호", category="개인")
-    client.put(f"/api/members/{m3}", json={"vehicle_number": "강원83자 5193호"})
-    assert [(r[0], r[1]) for r in _rows(member_id=m3)] == [("차량번호변경", REVIEW)]
+    assert client.put(f"/api/members/{m3}", json={"vehicle_number": "강원83자 5193호"}).status_code == 409
+    assert _rows(member_id=m3) == []
     m4 = _member(vehicle_number="강원83자 5192호", name="표기", category="개인")
     client.put(f"/api/members/{m4}", json={"vehicle_number": "강원 83자 5192호"})
     assert not _rows(member_id=m4, judgement=NORMAL)
@@ -136,11 +137,11 @@ def test_first_plate_typo_and_ambiguous_plate_edits(client):
 
 def test_address_company_changes_and_single_record_per_save(client):
     mid = _member(address="동내면 1번지", official_address="동내면 1번지", affiliated_company="가나다물류")
-    client.put(f"/api/members/{mid}", json={"address": "동내면 2번지", "official_address": "동내면 2번지"})
+    client.put(f"/api/members/{mid}", json={"address": "동내면 2번지", "official_address": "동내면 2번지", "change_reasons": {"address": "actual", "official_address": "actual"}})
     assert len(_rows(member_id=mid, change_type="주소지변경")) == 1                  # 주소+공문주소 → 1건
     client.put(f"/api/members/{mid}", json={"address": "동내면  2번지"})
     assert [r[1] for r in _rows(member_id=mid, change_type="주소지변경")] == [NORMAL, NOTATION]
-    client.put(f"/api/members/{mid}", json={"affiliated_company": "라마바운송"})
+    client.put(f"/api/members/{mid}", json={"affiliated_company": "라마바운송", "change_reasons": {"affiliated_company": "actual"}})
     assert [(r[0], r[1]) for r in _rows(member_id=mid, change_type="전속계약 업체변경")] == [("전속계약 업체변경", NORMAL)]
     db = SessionLocal()
     try:   # 기존 MemberEditLog 는 그대로 기록
@@ -152,7 +153,8 @@ def test_address_company_changes_and_single_record_per_save(client):
 def test_blank_fill_is_not_a_change(client):
     mid = _member(address="", vehicle_type="")
     client.put(f"/api/members/{mid}", json={"address": "동내면 3번지", "vehicle_type": "1톤 카고"})
-    assert _rows(member_id=mid) == []
+    assert len(_rows(member_id=mid)) == 2
+    assert all(r[1] == FIRST for r in _rows(member_id=mid))
 
 
 # ───────── 탈퇴 감지 ─────────
@@ -176,9 +178,14 @@ def test_withdrawal_detection_and_non_cases(client):
 
 # ───────── 월례보고서 ↔ 월별 통계 일치 / 기준일 / 주민번호 ─────────
 def _add_hist(**kw):
+    confirmed = kw.pop("confirmed", False)
     db = SessionLocal()
     try:
-        db.add(models.ChangeHistory(**kw)); db.commit()
+        c = models.ChangeHistory(**kw); db.add(c); db.flush()
+        if confirmed:
+            from app.services.history_decisions import append_decision
+            append_decision(db, c, judgement=NORMAL, status="confirmed", report_decision="include", reason="증빙 확인", created_by="tester")
+        db.commit()
     finally:
         db.close()
 
@@ -186,11 +193,11 @@ def _add_hist(**kw):
 def test_report_and_stats_agree_and_date_rules(client):
     ym = (TODAY.year, TODAY.month)
     d = f"{ym[0]}.{ym[1]:02d}.10"
-    _add_hist(change_type="전속계약 업체변경", region="춘천시", vehicle_number="강원80배1", name="가", before_value="A", after_value="B", change_date=d)  # 기존(미분류) → 상호변경 집계
-    _add_hist(change_type="상호변경", region="원주시", vehicle_number="강원80배2", name="나", before_value="C", after_value="D", change_date=d, judgement=NORMAL)
-    _add_hist(change_type="대폐차", region="춘천시", vehicle_number="강원80배3", name="다", before_value="a", after_value="b", change_date=d, judgement=NORMAL)
-    _add_hist(change_type="번호변경", region="춘천시", vehicle_number="강원80배4", name="라", before_value="강원80배4", after_value="강원80배5", change_date=d)   # 차량번호변경 → 차량변경 아님
-    _add_hist(change_type="주소지변경", region="춘천시", vehicle_number="강원80배6", name="마", before_value="x", after_value="y", change_date="581018-1543610", receipt_date=d)  # 주민번호 → 접수일자 사용
+    _add_hist(confirmed=True, change_type="전속계약 업체변경", region="춘천시", vehicle_number="강원80배1", name="가", before_value="A", after_value="B", change_date=d)
+    _add_hist(confirmed=True, change_type="상호변경", region="원주시", vehicle_number="강원80배2", name="나", before_value="C", after_value="D", change_date=d, judgement=NORMAL)
+    _add_hist(confirmed=True, change_type="대폐차", region="춘천시", vehicle_number="강원80배3", name="다", before_value="18.포터II", after_value="26.포터II", change_date=d, judgement=NORMAL)
+    _add_hist(confirmed=True, change_type="번호변경", region="춘천시", vehicle_number="강원80배4", name="라", before_value="강원80배4", after_value="강원80배5", change_date=d)
+    _add_hist(confirmed=True, change_type="주소지변경", region="춘천시", vehicle_number="강원80배6", name="마", before_value="x", after_value="y", change_date="581018-1543610", receipt_date=d)
     _add_hist(change_type="주소지변경", region="춘천시", vehicle_number="강원80배7", name="바", before_value="x", after_value="y", change_date="", receipt_date="")        # 날짜 없음 → 어느 달에도 미포함
     _add_hist(change_type="차량번호변경", region="춘천시", vehicle_number="강원80배8", name="사", before_value="택배", after_value="강원80배8", change_date=d, judgement=FIRST)    # 실적 제외
     _add_hist(change_type="주소지변경", region="춘천시", vehicle_number="강원80배9", name="아", before_value="a b", after_value="ab", change_date=d, judgement=NOTATION)       # 실적 제외

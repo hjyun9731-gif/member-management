@@ -532,12 +532,14 @@ async def activity_by_year(db: Session = Depends(get_db), _=Depends(get_current_
         if y and min_year <= y <= cur_year:
             _r(y)["closure"] += 1
 
-    # 4. 변경: change_date 기준
+    # 4. 변경: 월례보고서와 같은 판정 및 기준일 사용
+    from app.services.change_judgement import view_row
     for c in db.query(models.ChangeHistory).filter(
         models.ChangeHistory.deleted_at.is_(None),
     ).all():
-        y = _ext_year(c.change_date or "")
-        if y and min_year <= y <= cur_year:
+        v = view_row(c)
+        y = v.ymd[0] if v.ymd else None
+        if v.judgement == "정상변경" and y and min_year <= y <= cur_year:
             _r(y)["change"] += 1
 
     for yr in range(min_year, cur_year + 1):
@@ -761,11 +763,15 @@ async def monthly_report_auto(
         # 상호변경 = 상호변경 + 소속업체(전속계약 업체변경) 변경 (협회 운영 집계 기준)
         "상호변경":    change_by_type.get("상호변경", 0) + change_by_type.get("전속계약 업체변경", 0),
         "대표자변경":   change_by_type.get("대표자변경", 0),
-        # 차량변경(대폐차) = 차종 변경(대폐차) + 구조변경(기존 기준 유지). 차량번호변경은 포함하지 않는다.
-        "차량변경":    change_by_type.get("대폐차", 0) + change_by_type.get("차종변경", 0) + change_by_type.get("구조변경", 0),
+        # 대폐차는 차종 변경만. 구조변경·번호변경·이관은 별도 항목이다.
+        "차량변경":    change_by_type.get("대폐차", 0) + change_by_type.get("차종변경", 0),
+        "구조변경":    change_by_type.get("구조변경", 0),
+        "차량번호변경": change_by_type.get("차량번호변경", 0) + change_by_type.get("번호변경", 0),
+        "등록이관":    change_by_type.get("등록이관", 0),
+        "말소/폐차":   change_by_type.get("말소/폐차", 0),
         "주소변경":    change_by_type.get("주소지변경", 0),
         "자격증재교부":  change_by_type.get("자격증재교부", 0) or change_by_type.get("자격재교부", 0),
-        "이전전출":    change_by_type.get("이전전출", 0) + change_by_type.get("등록이관", 0),
+        "이전전출":    change_by_type.get("이전전출", 0),
         "전속업체변경":  change_by_type.get("전속계약 업체변경", 0),
         # 신규등록대장 = 취업신고
         "취업신고":    len(month_new),
@@ -787,7 +793,7 @@ async def monthly_report_auto(
         "_변경유형별":    change_by_type,
         # 실적 제외 건수(최초등록·정정·확인필요): 월별 통계 화면과 동일 기준
         "_실적제외":      {j: sum(1 for _, v in month_changes_other if v.judgement == j)
-                         for j in ("최초등록", "표기정정", "오류정정", "확인필요")},
+                         for j in ("최초등록", "표기정정", "오류정정", "확인필요", "중복", "실적제외")},
     }
 
     # 관리번호 자연정렬 (숫자 기준 내림차순)
@@ -1067,7 +1073,8 @@ async def year_detail(
         rows = db.query(models.ChangeHistory).filter(
             models.ChangeHistory.deleted_at.is_(None),
         ).all()
-        result = [r for r in rows if _ext_year(r.change_date or "") == year]
+        from app.services.change_judgement import view_row
+        result = [r for r in rows if (v := view_row(r)).judgement == "정상변경" and v.ymd and v.ymd[0] == year]
         return {"total": len(result), "year": year, "category": "변경",
                 "items": [{"region": r.region, "vehicle_number": r.vehicle_number,
                             "name": r.name, "change_type": r.change_type,

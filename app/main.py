@@ -202,12 +202,11 @@ def _renormalize_change_types():
                     detected = _norm_ct(txt)
                     if detected and detected not in ('기타', ''):
                         if detected != rec.change_type:
-                            rec.change_type = detected
+                            # 과거 원본 유형은 보존한다. 정규화는 읽기전용 검토 대상으로만 계산한다.
                             updated += 1
                         break
         if updated:
-            db.commit()
-            logger.info(f"변경이력 재정규화: {updated}건 업데이트")
+            logger.info(f"변경이력 재정규화 미리보기: {updated}건 후보(원본 수정 없음)")
     except Exception as e:
         logger.warning(f"변경이력 재정규화 오류 (무시): {e}")
     finally:

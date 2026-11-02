@@ -17,12 +17,12 @@ from app.auth import get_current_user
 from app.database import get_db
 from app.services.change_judgement import (
     BUCKET_ORDER, FIRST, NOTATION, ERROR_FIX, REVIEW, NORMAL,
-    classify_for_type, legacy_address_split_suspect, mask_rrn, parse_ymd, view_row,
+    classify_for_type, legacy_address_split_suspect, mask_rrn, parse_ymd, view_row, DUPLICATE, EXCLUDED,
 )
 
 router = APIRouter()
 
-SEPARATE = [FIRST, NOTATION, ERROR_FIX, REVIEW]
+SEPARATE = [FIRST, NOTATION, ERROR_FIX, REVIEW, DUPLICATE, EXCLUDED]
 _SRC_LABEL = {"change_date": "변경일자", "receipt_date": "접수일자", None: "없음"}
 
 
@@ -70,6 +70,7 @@ def _item(c, v):
         "id": c.id, "name": c.name or "", "vehicle_number": c.vehicle_number or "", "region": c.region or "",
         "change_type": c.change_type or "", "bucket": v.bucket, "judgement": v.judgement, "reason": v.reason,
         "legacy_unclassified": bool(v.legacy),
+        "review_status": v.status, "report_decision": v.report_decision, "decision_id": v.decision_id,
         "change_date": mask_rrn(c.change_date or ""), "receipt_date": mask_rrn(c.receipt_date or ""),
         "basis_date": ("%04d-%02d-%02d" % v.ymd) if v.ymd else "",
         "basis_source": _SRC_LABEL[v.date_source],
@@ -100,7 +101,7 @@ def summarize(rows, undated):
         "total": total,
         "buckets": buckets,
         "separate": {"최초등록": sep[FIRST], "표기정정": sep[NOTATION], "오류정정": sep[ERROR_FIX],
-                     "확인필요": sep[REVIEW], "월귀속불가(날짜 없음/불량)": len(undated)},
+                     "확인필요": sep[REVIEW], "중복": sep[DUPLICATE], "실적제외": sep[EXCLUDED], "월귀속불가(날짜 없음/불량)": len(undated)},
         "by_type": dict(sorted(by_type.items(), key=lambda x: -x[1])),
         "by_region": by_region,
         "legacy_unclassified_in_total": legacy,
@@ -115,8 +116,7 @@ async def stats_summary(year: Optional[int] = Query(None), month: Optional[int] 
     rows, undated = collect(db, year, month or None, region, change_type, date_from, date_to)
     out = summarize(rows, undated)
     out["period"] = {"year": year, "month": month or None, "date_from": date_from, "date_to": date_to}
-    out["note"] = ("정상변경만 변경실적 합계에 포함합니다. 기존(판정 미저장) 이력은 정상변경으로 간주하되 "
-                   "재분류 미리보기·승인 전까지 확정하지 않습니다.")
+    out["note"] = "실적 포함 판정이 저장된 정상변경만 합산합니다. 미확정 기존 이력은 보류하며 구조변경·등록이관·이전전출을 별도 집계합니다."
     return out
 
 
@@ -179,15 +179,12 @@ async def reclassify_preview(db: Session = Depends(get_db), _=Depends(get_curren
     samples = []
     for c in db.query(models.ChangeHistory).filter(models.ChangeHistory.deleted_at.is_(None),
                                                     models.ChangeHistory.judgement.is_(None)).all():
-        j, why = classify_for_type(c.change_type, c.before_value, c.after_value) \
-            if (c.change_type or "") in ("차량번호변경", "번호변경", "주소지변경", "상호변경", "전속계약 업체변경", "대폐차", "차종변경") \
-            else (NORMAL, "비교 대상 아님")
-        if (c.change_type or "") == "주소지변경" and j == NORMAL and legacy_address_split_suspect(c.before_value, c.after_value):
-            j, why = REVIEW, "주소가 상세값만 분리 저장된 것으로 의심(업로드 열 어긋남)"
+        if c.decisions:
+            continue
         v = view_row(c)
+        j, why = v.judgement, v.reason
         if v.ymd is None:
             no_date += 1
-            j, why = REVIEW, "변경일자·접수일자 모두 유효하지 않음"
         cnt[j] += 1
         if j != NORMAL and len(samples) < 200:
             samples.append(_item(c, v) | {"proposed_judgement": j, "proposed_reason": why})

@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, JSON
+from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, JSON, ForeignKey
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from datetime import datetime
 from app.database import Base
@@ -280,6 +281,27 @@ class ChangeHistory(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     deleted_at = Column(DateTime(timezone=True), nullable=True)
+    # 원본 필드/기존 판정은 보존. 판정 변경은 별도 테이블에 추가만 한다.
+    decisions = relationship("ChangeHistoryDecision", lazy="selectin",
+                             order_by="desc(ChangeHistoryDecision.id)",
+                             foreign_keys="ChangeHistoryDecision.history_id")
+
+
+class ChangeHistoryDecision(Base):
+    """변경이력 판정 감사기록. 기존 행을 수정하지 않고 새 판정을 추가한다."""
+    __tablename__ = "change_history_decisions"
+    id = Column(Integer, primary_key=True)
+    history_id = Column(Integer, ForeignKey("change_history.id"), nullable=False, index=True)
+    judgement = Column(String(20), nullable=False)
+    status = Column(String(20), nullable=False)  # confirmed / automatic / pending
+    report_decision = Column(String(10), nullable=False)  # include / exclude / hold
+    reason = Column(Text, nullable=False)
+    evidence = Column(JSON)
+    source_hash = Column(String(64), nullable=False)
+    rule_version = Column(String(40), nullable=False)
+    duplicate_of_id = Column(Integer, ForeignKey("change_history.id"), nullable=True)
+    created_by = Column(String(100), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class AllocationCount(Base):

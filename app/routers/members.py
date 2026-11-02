@@ -17,6 +17,8 @@ from app.services.freight_qualification import normalize_in_dict_or_400
 from app.services.change_judgement import classify_plate, classify_text, NORMAL, FIRST as FIRST_J
 from app.excel_utils import is_association_member
 from app.services import agent_history
+from app.services.history_decisions import member_change_reasons, chosen_judgement, append_decision
+from app.services.change_judgement import REVIEW
 
 router = APIRouter()
 
@@ -490,6 +492,8 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
     # 변경 전 값 스냅샷 (자동기록 + 내부기록 대상 모두)
     all_track_fields = set(_AUTO_CHANGE_FIELDS) | _INTERNAL_LOG_ONLY_FIELDS | _STRUCT_FIELDS
     before_snap = {f: getattr(m, f, "") or "" for f in all_track_fields}
+    # 사유 검증은 회원/대리인/양도양수 자료를 변경하기 전에 한다.
+    change_reasons = member_change_reasons(data, before_snap)
 
     # 탈퇴 감지: 기존 가입일자가 있었는데 수정 후 사라지는 경우에만 (빈칸→빈칸, 빈칸→입력, 날짜→다른 날짜는 해당 없음).
     # 저장 전에 확인한다(변경 전 아무것도 수정되지 않은 상태에서 409).
@@ -548,43 +552,37 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
         if old_val == new_val:
             continue
         norm_equal = _normalize_for_compare(field, old_val) == _normalize_for_compare(field, new_val)
-        if not new_val:
-            continue
-
         # 원본이 미기재(공백)였다가 이번에 값이 채워지는 경우: 변경이 아니라 누락정보 입력.
         is_blank_fill = not old_val
         internal_logs.append((field, old_val, new_val, is_blank_fill))   # 내부 수정로그(MemberEditLog)는 항상 기록
 
         if field in ("mobile", "phone"):
-            if norm_equal or is_blank_fill:
+            if norm_equal or is_blank_fill or not new_val:
                 continue
             changes_by_key.setdefault(("연락처변경", NORMAL), []).append((field, old_val, new_val, "연락처 변경"))
         elif field == "vehicle_number":
             # 최초 차량번호 등록(임시값/빈칸→번호)·오타정정·표기정정은 차량번호변경 실적에서 분리
-            j, why = classify_plate(old_val, new_val)
+            j, why = chosen_judgement("차량번호변경", old_val, new_val, change_reasons.get(field))
             ct = "최초번호등록" if j == FIRST_J else "차량번호변경"
             changes_by_key.setdefault((ct, j), []).append((field, old_val, new_val, why))
         elif field == "vehicle_type":
             # 차종이 실제로 달라지면 차량변경(대폐차) 1건. 공백·표기만 다르면 표기정정(실적 제외).
-            if is_blank_fill:
-                continue
-            j, why = classify_text(old_val, new_val)
+            j, why = chosen_judgement("대폐차", old_val, new_val, change_reasons.get(field))
             ct = "대폐차" if j == NORMAL else "차종변경"
             changes_by_key.setdefault((ct, j), []).append((field, old_val, new_val, why))
         elif field in _STRUCT_FIELDS:
-            # 연료/구조변경: 기존과 동일하게 auto_change_type 파라미터로만 기록
+            # 구조·연료 수정도 최초등록/정정/실제 업무를 분리한다. 차종 변경 없이 대폐차로 기록하지 않는다.
             auto_ct = data.get("auto_change_type")
-            if auto_ct and not is_blank_fill:
-                ct = {"structureChange": "구조변경", "vehicleTypeCorrection": "차종정정",
-                      "vehicleReplacement": "대폐차"}.get(auto_ct, "구조변경")
-                changes_by_key.setdefault((ct, NORMAL), []).append((field, old_val, new_val, "구조/연료 변경"))
+            reason = change_reasons.get(field) or ("correction" if auto_ct == "vehicleTypeCorrection" else None)
+            j, why = chosen_judgement("구조변경", old_val, new_val, reason)
+            if auto_ct in ("structureChange", "vehicleReplacement") and not reason and j == REVIEW and old_val and new_val:
+                j, why = NORMAL, "사용자가 선택한 구조/연료 변경 업무"
+            changes_by_key.setdefault(("구조변경", j), []).append((field, old_val, new_val, why))
         elif field in _INTERNAL_LOG_ONLY_FIELDS:
             pass  # 내부 수정로그만
         elif field in _AUTO_CHANGE_FIELDS:
-            if is_blank_fill:
-                continue   # 미기재→채움은 변경등록대장 기록 제외
             ct = _AUTO_CHANGE_FIELDS[field]
-            j, why = classify_text(old_val, new_val)
+            j, why = chosen_judgement(ct, old_val, new_val, change_reasons.get(field))
             changes_by_key.setdefault((ct, j), []).append((field, old_val, new_val, why))
 
     # 내부 수정로그 저장 (기존 MemberEditLog 유지)
@@ -614,18 +612,8 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
                 bv = " / ".join(ov for _, ov, _, _ in field_changes if ov)
                 av = " / ".join(nv for _, _, nv, _ in field_changes)
                 why = field_changes[0][3]
-            dup = db.query(models.ChangeHistory).filter(
-                models.ChangeHistory.member_id == mid,
-                models.ChangeHistory.change_type == change_type,
-                models.ChangeHistory.before_value == bv,
-                models.ChangeHistory.after_value == av,
-                models.ChangeHistory.change_date == today,
-                models.ChangeHistory.memo == "회원정보 수정 자동기록",
-                models.ChangeHistory.deleted_at.is_(None),
-            ).first()
-            if dup:
-                continue
-            db.add(models.ChangeHistory(
+            # 같은 날 A→B→A→B는 별도 저장 사건이다. 재저장은 스냅샷 비교로 이미 제외된다.
+            history = models.ChangeHistory(
                 change_type=change_type,
                 region=getattr(m, "region", "") or "",
                 vehicle_number=getattr(m, "vehicle_number", "") or "",
@@ -637,9 +625,22 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
                 judgement=judgement, judge_reason=why,
                 raw_data={"source": "member_auto_log",
                           "processed_by": getattr(current_user, "username", "")},
-            ))
+            )
+            db.add(history)
+            selected = any(change_reasons.get(f) for f, *_ in field_changes)
+            append_decision(db, history, judgement=judgement,
+                status=("pending" if judgement == REVIEW else "confirmed" if selected else "automatic"),
+                report_decision=("include" if judgement == NORMAL else "hold" if judgement == REVIEW else "exclude"),
+                reason=why, created_by=getattr(current_user, "username", ""),
+                evidence={"source": "member_edit", "fields": [f for f, *_ in field_changes],
+                          "change_reasons": {f: change_reasons[f] for f, *_ in field_changes if f in change_reasons}})
+        except HTTPException:
+            db.rollback()
+            raise
         except Exception as ex:
-            logger.warning(f"변경이력 저장 실패: {ex}")
+            db.rollback()
+            logger.error("변경이력 저장 실패: %s", type(ex).__name__)
+            raise HTTPException(500, "변경이력 저장 실패로 회원 수정을 취소했습니다.")
 
     # 탈퇴 기록 (가입일자 삭제 확인을 받은 경우): 식별정보·기존 가입일자·처리일자·처리자
     if withdrawal_prior:

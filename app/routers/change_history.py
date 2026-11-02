@@ -20,12 +20,15 @@ from app.database import get_db
 from app.auth import get_current_user, require_admin
 from app import models, crud
 from app.excel_utils import records_to_excel
-from app.services.change_judgement import mask_rrn, view_row
+from app.services.change_judgement import mask_rrn, view_row, source_hash, SOURCE_FIELDS, NORMAL, REVIEW
+from app.services.history_decisions import append_decision, chosen_judgement
 
 router = APIRouter()
 
 CHANGE_TYPES = ["주소지변경","상호변경","구조변경","전속계약 업체변경","등록이관",
-                "이전전출","대표자변경","성명변경","번호변경","변동변경","양도","폐업","기타"]
+                "이전전출","대표자변경","성명변경","번호변경","차량번호변경","최초번호등록",
+                "대폐차","차종변경","말소/폐차","연락처변경","업종변경","상속","영업소변경",
+                "운행정지","변동변경","양도","폐업","기타"]
 
 SEARCH = ["name", "vehicle_number", "management_number", "region", "before_value", "after_value", "change_type"]
 
@@ -63,6 +66,7 @@ def normalize_change_type(val: str) -> str:
 
 def _fmt(c):
     """목록용 - raw_data 접근 없음 (성능 최적화)"""
+    v = view_row(c)
     return {
         "id": c.id,
         "change_type": c.change_type or "",
@@ -79,6 +83,9 @@ def _fmt(c):
         "is_future_date": _is_future_date(c.change_date or ""),  # 미래 날짜 여부
         "judgement": getattr(c, "judgement", None) or "",
         "judge_reason": getattr(c, "judge_reason", None) or "",
+        "effective_judgement": v.judgement, "effective_reason": mask_rrn(v.reason),
+        "review_status": v.status, "report_decision": v.report_decision,
+        "decision_id": v.decision_id, "source_hash": source_hash(c), "report_bucket": v.bucket,
     }
 
 
@@ -101,7 +108,7 @@ def _fmt_detail(c):
     change_date = c.change_date or _extract_raw(raw, _DATE_KEYS_CH)
     before_value = c.before_value or _extract_raw(raw, _BEFORE_KEYS)
     after_value  = c.after_value  or _extract_raw(raw, _AFTER_KEYS)
-    return {
+    return {**_fmt(c),
         "id": c.id,
         "change_type": c.change_type or "",
         "region": c.region or "",
@@ -164,7 +171,7 @@ async def export_excel(
 ):
     items, _ = crud.get_list(db, models.ChangeHistory, skip=0, limit=9999,
                               filters={"region": region, "change_type": change_type})
-    content = records_to_excel([_fmt(i) for i in items], exclude=["id"])
+    content = records_to_excel([_fmt(i) for i in items])
     return StreamingResponse(
         io.BytesIO(content),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -183,7 +190,7 @@ async def get_change(cid: int, db: Session = Depends(get_db), _=Depends(get_curr
 @router.post("/renormalize-types")
 async def renormalize_change_types(db: Session = Depends(get_db), _=Depends(get_current_user)):
     """DB에 '기타'로 저장된 변경이력의 change_type을 memo/before_value/after_value에서 재탐지해 업데이트"""
-    updated_count = 0
+    proposals = []
     records = db.query(models.ChangeHistory).filter(
         models.ChangeHistory.deleted_at.is_(None),
     ).all()
@@ -214,20 +221,52 @@ async def renormalize_change_types(db: Session = Depends(get_db), _=Depends(get_
                     break
 
         if new_type and new_type != rec.change_type:
-            rec.change_type = new_type
-            updated_count += 1
+            proposals.append({"id": rec.id, "before_type": rec.change_type, "proposed_type": new_type})
 
-    if updated_count:
-        db.commit()
-    return {"updated": updated_count, "total": len(records)}
+    return {"updated": 0, "read_only": True, "proposals": proposals, "total": len(records)}
 
 
 @router.post("")
 async def create_change(data: dict, db: Session = Depends(get_db),
-                         _=Depends(get_current_user)):
+                         current_user=Depends(get_current_user)):
     if data.get("change_type"):
         data["change_type"] = normalize_change_type(data["change_type"])
-    return _fmt(crud.create_item(db, models.ChangeHistory, data))
+    row = models.ChangeHistory(**{k: data[k] for k in SOURCE_FIELDS if k in data})
+    db.add(row)
+    j, why = chosen_judgement(row.change_type, row.before_value, row.after_value, data.get("change_reason"))
+    # 명시적 업무 등록도 사유를 선택해야 실적 포함. 비교 없는 별도 유형은 실제 업무 선택으로 확인한다.
+    try:
+        append_decision(db, row, judgement=j,
+            status="pending" if j == REVIEW else "confirmed" if data.get("change_reason") else "automatic",
+            report_decision="include" if j == NORMAL else "hold" if j == REVIEW else "exclude",
+            reason=why, created_by=current_user.username,
+            evidence={"source": "manual_registration", "change_reason": data.get("change_reason")})
+        db.commit(); db.refresh(row)
+    except Exception:
+        db.rollback(); raise
+    return _fmt(row)
+
+
+@router.post("/{cid}/decisions")
+async def decide_change(cid: int, data: dict, db: Session = Depends(get_db),
+                        current_user=Depends(require_admin)):
+    c = db.query(models.ChangeHistory).filter_by(id=cid, deleted_at=None).with_for_update().first()
+    if not c:
+        raise HTTPException(404)
+    latest = c.decisions[0].id if c.decisions else None
+    if (data.get("expected_source_hash") != source_hash(c)
+            or "expected_decision_id" not in data or data["expected_decision_id"] != latest):
+        raise HTTPException(409, "원본 또는 판정이 변경됐습니다. 다시 조회한 뒤 판정하세요.")
+    try:
+        append_decision(db, c, judgement=data.get("judgement"),
+            status="pending" if data.get("report_decision") == "hold" else "confirmed",
+            report_decision=data.get("report_decision"), reason=data.get("reason"),
+            created_by=current_user.username, evidence=data.get("evidence"),
+            duplicate_of_id=data.get("duplicate_of_id"))
+        db.commit(); db.expire(c, ["decisions"])
+    except Exception:
+        db.rollback(); raise
+    return _fmt(c)
 
 
 @router.put("/{cid}")
@@ -236,9 +275,7 @@ async def update_change(cid: int, data: dict, db: Session = Depends(get_db),
     c = crud.get_by_id(db, models.ChangeHistory, cid)
     if not c:
         raise HTTPException(404)
-    if data.get("change_type"):
-        data["change_type"] = normalize_change_type(data["change_type"])
-    return _fmt(crud.update_item(db, c, data))
+    raise HTTPException(409, "기존 이력 원본은 보존합니다. 판정 기능에서 실적 포함·제외·보류를 기록하세요.")
 
 
 @router.delete("/{cid}")
@@ -247,5 +284,4 @@ async def delete_change(cid: int, db: Session = Depends(get_db),
     c = crud.get_by_id(db, models.ChangeHistory, cid)
     if not c:
         raise HTTPException(404)
-    crud.soft_delete(db, c)
-    return {"ok": True}
+    raise HTTPException(409, "기존 이력 원본은 보존합니다. 중복·오류는 판정으로 제외하세요.")

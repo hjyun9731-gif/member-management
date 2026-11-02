@@ -53,9 +53,9 @@ def test_reproduces_500_without_guard_then_guard_fixes_without_touching_data(old
         assert sorted(r.change_type for r in rows) == ["번호변경", "상호변경", "주소지변경"]
     finally:
         db.close()
-    # 월례보고서: 기존 이력은 그대로 집계(상호변경 1, 주소변경 1)
+    # 원본은 보존하지만 근거 없는 기존 이력을 정상 실적으로 간주하지 않는다.
     aw = client.get("/api/dashboard/monthly-report-auto?year=2026&month=10").json()["admin_work"]
-    assert aw["상호변경"] == 1 and aw["주소변경"] == 1 and aw["차량변경"] == 0
+    assert aw["상호변경"] == 0 and aw["주소변경"] == 0 and aw["차량변경"] == 0
 
 
 def test_ensure_columns_is_idempotent_and_non_destructive(old_schema_db):

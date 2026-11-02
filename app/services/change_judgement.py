@@ -6,19 +6,30 @@
 """
 import datetime as _dt
 import re
+import hashlib
+import json
+import unicodedata
 
 NORMAL, FIRST, NOTATION, ERROR_FIX, REVIEW = "정상변경", "최초등록", "표기정정", "오류정정", "확인필요"
-JUDGEMENTS = (NORMAL, FIRST, NOTATION, ERROR_FIX, REVIEW)
+DUPLICATE = "중복"
+EXCLUDED = "실적제외"
+JUDGEMENTS = (NORMAL, FIRST, NOTATION, ERROR_FIX, REVIEW, DUPLICATE, EXCLUDED)
+RULE_VERSION = "history-2026-11-02-v1"
+SOURCE_FIELDS = ("change_type", "region", "vehicle_number", "name", "before_value",
+                 "after_value", "change_date", "receipt_date", "memo")
 
 # 집계 구분(월례보고서·통계 공통)
 B_COMPANY, B_VEHICLE, B_ADDRESS, B_PLATE = "상호변경", "차량변경(대폐차)", "주소변경", "차량번호변경"
 B_REP, B_CERT, B_OTHER = "대표자변경", "자격증재교부", "기타"
-BUCKET_ORDER = [B_COMPANY, B_VEHICLE, B_ADDRESS, B_PLATE, B_REP, B_CERT, B_OTHER]
+B_STRUCTURE, B_TRANSFER, B_OUT, B_CLOSURE = "구조변경", "등록이관", "이전전출", "말소/폐차"
+BUCKET_ORDER = [B_COMPANY, B_VEHICLE, B_ADDRESS, B_PLATE, B_STRUCTURE, B_TRANSFER, B_OUT,
+                B_CLOSURE, B_REP, B_CERT, B_OTHER]
 
 _BUCKET_BY_TYPE = {
     "상호변경": B_COMPANY, "전속계약 업체변경": B_COMPANY,          # 소속업체 변경 = 상호변경 실적
-    "대폐차": B_VEHICLE, "차종변경": B_VEHICLE, "구조변경": B_VEHICLE,  # 구조변경: 기존 집계 기준 유지
-    "주소지변경": B_ADDRESS,
+    "대폐차": B_VEHICLE, "차종변경": B_VEHICLE, "구조변경": B_STRUCTURE,
+    "등록이관": B_TRANSFER, "이전전출": B_OUT, "말소/폐차": B_CLOSURE,
+    "주소지변경": B_ADDRESS, "주소변경": B_ADDRESS,
     "차량번호변경": B_PLATE, "번호변경": B_PLATE, "최초번호등록": B_PLATE,
     "대표자변경": B_REP, "자격증재교부": B_CERT, "자격재교부": B_CERT,
 }
@@ -83,7 +94,7 @@ _WS = re.compile(r"\s+")
 
 
 def _k(s) -> str:
-    return _WS.sub("", str(s or ""))
+    return _WS.sub("", unicodedata.normalize("NFKC", str(s or "")))
 
 
 def _plate_key(s) -> str:
@@ -112,6 +123,8 @@ def classify_plate(before, after):
     nb, na = _plate_key(before), _plate_key(after)
     if nb == na:
         return NOTATION, "공백·'호' 표기 차이"
+    if re.fullmatch(r"\d{2}[가-힣]\d{4}", nb) and na == "강원" + nb:
+        return NOTATION, "동일 차량번호에 강원 지역명 표기 보완"
     if not na:
         return REVIEW, "변경 후 차량번호가 비어 있음"
     if is_placeholder_plate(nb):
@@ -124,7 +137,7 @@ def classify_plate(before, after):
             return ERROR_FIX, "지역명 오타 정정(번호 동일)"
         if len(nb) == len(na) and sum(a != b for a, b in zip(nb, na)) == 1:
             return REVIEW, "한 글자 차이: 오타인지 실제 번호변경인지 불확실"
-        return NORMAL, "차량번호 변경"
+        return REVIEW, "실제 번호변경/입력 오류정정 사유 선택 필요(대폐차 근거 아님)"
     return REVIEW, "차량번호 형식이 달라 자동 판정 불가"
 
 
@@ -133,8 +146,10 @@ def classify_text(before, after):
     kb, ka = _k(before).lower(), _k(after).lower()
     if kb == ka:
         return NOTATION, "공백·표기 차이만 있음"
-    if kb in ("", "-"):
+    if kb in ("", "-", "미상", "미기재", "알수없음"):
         return FIRST, "이전 값 없음(-)에서 최초 입력"
+    if not ka or ka in ("-", "미상", "미기재"):
+        return REVIEW, "변경 후 값 불완전"
     return NORMAL, "내용 변경"
 
 
@@ -149,25 +164,71 @@ def legacy_address_split_suspect(before, after) -> bool:
 def classify_for_type(change_type, before, after):
     if (change_type or "") in ("차량번호변경", "번호변경", "최초번호등록"):
         return classify_plate(before, after)
-    return classify_text(before, after)
+    if change_type in ("등록이관", "이전전출", "말소/폐차", "폐업"):
+        return REVIEW, "업무 사실·동일 사건 중복 확인 필요(빈값은 최초등록 근거가 아님)"
+    if change_type not in ("주소지변경", "주소변경", "상호변경", "전속계약 업체변경", "대폐차", "차종변경",
+                           "연락처변경", "성명변경", "대표자변경", "업종변경", "영업소변경"):
+        return REVIEW, "별도 업무 유형 유지. 전후값만으로 업무 포함·제외 확정 불가"
+    j, why = classify_text(before, after)
+    if j == NORMAL and change_type in ("주소지변경", "주소변경", "상호변경", "전속계약 업체변경"):
+        return REVIEW, "전후값 차이만으로 실제 변경을 확정할 수 없음"
+    if j == NORMAL and change_type not in ("대폐차", "차종변경"):
+        return REVIEW, "기존 업무 유형 유지, 업무 사실 확인 필요"
+    if change_type in ("대폐차", "차종변경") and (_is_plate_shape(before) or _is_plate_shape(after)):
+        return REVIEW, "차량번호는 차종 변경 근거가 아님"
+    return j, why
+
+
+def source_hash(row):
+    def get(k):
+        return row.get(k) if isinstance(row, dict) else getattr(row, k, None)
+    payload = [str(get(k) or "") for k in SOURCE_FIELDS]
+    return hashlib.sha256(json.dumps(payload, ensure_ascii=False).encode()).hexdigest()
 
 
 # ───────── 저장된 이력 한 건의 '집계상 상태' ─────────
 class RowView:
-    __slots__ = ("judgement", "reason", "ymd", "date_source", "legacy", "bucket")
+    __slots__ = ("judgement", "reason", "ymd", "date_source", "legacy", "bucket",
+                 "status", "report_decision", "decision_id")
 
 
 def view_row(c) -> RowView:
     """저장된 ChangeHistory 한 건을 월례보고서/통계 공통 기준으로 해석한다 (DB 수정 없음).
-    - 판정값이 저장돼 있으면 그대로, 없으면(기존 이력) 정상변경으로 보되 legacy=True 로 표시.
+    - 최신 별도 판정을 우선한다. 원본이 바뀌었거나 미확정인 기록은 보류한다.
+    - 기존 판정 미저장 기록은 정상변경으로 간주하지 않는다.
     - 유효한 날짜(변경일자→접수일자)가 하나도 없으면 확인필요(월 귀속 불가)."""
     v = RowView()
     stored = getattr(c, "judgement", None)
     v.legacy = not stored
-    v.judgement = stored if stored in JUDGEMENTS else NORMAL
-    v.reason = getattr(c, "judge_reason", None) or ""
+    v.judgement, v.reason = classify_for_type(getattr(c, "change_type", ""),
+                                            getattr(c, "before_value", ""), getattr(c, "after_value", ""))
+    v.status = "pending" if v.judgement == REVIEW else "automatic"
+    v.report_decision = "hold" if v.judgement in (NORMAL, REVIEW) else "exclude"
+    v.decision_id = None
+    if not any(getattr(c, k, None) for k in SOURCE_FIELDS if k != "change_type"):
+        v.judgement, v.reason, v.status, v.report_decision = EXCLUDED, "업무 내용·대상·일자가 없는 빈 기록", "automatic", "exclude"
+    decisions = getattr(c, "decisions", None) or []
+    if decisions:
+        d = decisions[0]
+        v.decision_id = d.id
+        if d.source_hash != source_hash(c):
+            v.judgement, v.reason, v.status, v.report_decision = REVIEW, "판정 후 원본 변경: 재확인 필요", "pending", "hold"
+        else:
+            v.judgement, v.reason, v.status, v.report_decision = d.judgement, d.reason, d.status, d.report_decision
+    elif stored in JUDGEMENTS and stored != NORMAL:
+        v.judgement = stored
+        v.reason = getattr(c, "judge_reason", None) or v.reason
+        v.report_decision = "hold" if stored == REVIEW else "exclude"
+    # 확정 근거가 없는 정상변경은 합계에 넣지 않는다. 자동 제외는 안전하게 적용한다.
+    if v.report_decision == "include" and (v.judgement != NORMAL or v.status not in ("confirmed", "automatic")):
+        v.judgement, v.status, v.report_decision = REVIEW, "pending", "hold"
+    if v.report_decision == "hold":
+        v.judgement, v.status = REVIEW, "pending"
+    elif v.report_decision == "exclude" and v.judgement == NORMAL:
+        v.judgement = EXCLUDED
     v.ymd, v.date_source = pick_report_date(getattr(c, "change_date", ""), getattr(c, "receipt_date", ""))
     if v.ymd is None and v.judgement == NORMAL:
         v.judgement, v.reason = REVIEW, "변경일자·접수일자 모두 유효하지 않아 월 귀속 불가"
+        v.report_decision = "hold"
     v.bucket = bucket_of(getattr(c, "change_type", ""))
     return v

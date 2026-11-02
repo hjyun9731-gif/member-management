@@ -315,10 +315,15 @@ async def delete_report_field_group(base_key: str, db: Session = Depends(get_db)
     return {"ok": True}
 
 
+HISTORY_AUTO_PATHS = {"admin_work." + k for k in (
+    "상호변경", "대표자변경", "차량변경", "주소변경", "자격증재교부", "이전전출",
+    "구조변경", "등록이관", "차량번호변경", "말소/폐차", "전속업체변경", "_변경등록전체")}
+
+
 @router.get("/monthly-report/full")
 async def monthly_report_full(year: int = Query(...), month: int = Query(...),
                                db: Session = Depends(get_db), _=Depends(get_current_user)):
-    """월례_업무현황_보고서.html 양식용 통합 데이터: 항목정의 + 자동집계값 + 저장된 직접수정값(있으면 최우선)"""
+    """변경이력 연동 항목은 판정 집계를 우선하고, 나머지 항목은 저장된 직접수정값을 유지한다."""
     _seed_default_report_fields(db)
     fields = db.query(models.ReportFieldDef).filter(models.ReportFieldDef.is_active == True) \
         .order_by(models.ReportFieldDef.display_order, models.ReportFieldDef.id).all()
@@ -333,19 +338,29 @@ async def monthly_report_full(year: int = Query(...), month: int = Query(...),
     manual_values = dict(entry.custom_data or {}) if entry else {}
 
     field_list = []
+    override_conflicts = []
     for f in fields:
-        if f.key in manual_values:
+        locked = f.field_type == "auto" and f.auto_path in HISTORY_AUTO_PATHS
+        auto_value = _resolve_path(auto_data, f.auto_path or "") if f.field_type == "auto" else None
+        if locked:
+            val = auto_value
+            if f.key in manual_values and str(manual_values[f.key]) != str(val):
+                override_conflicts.append({"key": f.key, "label": f.label,
+                    "saved_value": manual_values[f.key], "current_auto_value": val})
+        elif f.key in manual_values:
             # 사용자가 직접 수정/저장한 값이 있으면 자동계산이든 아니든 그 값을 최우선으로 사용
             val = manual_values.get(f.key)
         elif f.field_type == "auto":
             val = _resolve_path(auto_data, f.auto_path or "")
         else:
             val = f.default_value if f.default_value is not None else ""
-        field_list.append({**_field_out(f), "value": val, "is_overridden": f.key in manual_values})
+        field_list.append({**_field_out(f), "value": val, "is_overridden": f.key in manual_values and not locked,
+                           "locked_by_history_policy": locked, "auto_value": auto_value})
 
     return {
         "year": year, "month": month,
         "fields": field_list,
+        "history_override_conflicts": override_conflicts,
         "meta": {
             "writer": manual_values.get("_writer", ""),
             "checker": manual_values.get("_checker", ""),
@@ -363,8 +378,7 @@ async def monthly_report_full(year: int = Query(...), month: int = Query(...),
 async def save_monthly_report_full(year: int = Query(...), month: int = Query(...),
                                     data: dict = None, db: Session = Depends(get_db),
                                     _=Depends(get_current_user)):
-    """모든 항목(자동계산 포함) 직접수정 값 + 작성자/확인자/기준일 저장.
-    한 번 저장된 값은 자동계산이 다시 실행되어도 덮어쓰지 않고 그 값을 그대로 유지한다."""
+    """직접수정 값/작성자를 저장한다. 변경이력 연동 항목은 판정 결과를 사용하며 기존 저장값을 보존한다."""
     data = data or {}
     values = data.get("values", {}) or {}
     meta = data.get("meta", {}) or {}
@@ -377,8 +391,11 @@ async def save_monthly_report_full(year: int = Query(...), month: int = Query(..
         db.add(entry)
 
     merged = dict(entry.custom_data or {})
+    protected = {f.key for f in db.query(models.ReportFieldDef).all()
+                 if f.field_type == "auto" and f.auto_path in HISTORY_AUTO_PATHS}
     for k, v in values.items():
-        merged[k] = v
+        if k not in protected:
+            merged[k] = v
     if "writer" in meta:
         merged["_writer"] = meta["writer"]
     if "checker" in meta:

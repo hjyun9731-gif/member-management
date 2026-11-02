@@ -46,7 +46,7 @@ _PROBLEM = "필수 스키마"
 # 이 목록의 테이블은 요청 처리 전에 개별적으로(CREATE TABLE IF NOT EXISTS) 보장한다. 기존 데이터는 건드리지 않는다.
 def _required_tables():
     from app import models
-    return [models.MemberAgent.__table__]
+    return [models.MemberAgent.__table__, models.ChangeHistoryDecision.__table__]
 
 
 def missing_tables(engine) -> list:
@@ -107,11 +107,16 @@ def ensure_columns(engine) -> bool:
         if pending:
             is_sqlite = engine.dialect.name == "sqlite"
             for table, col, ctype in pending:
-                with engine.begin() as conn:
-                    if not is_sqlite:
-                        conn.execute(text("SET LOCAL lock_timeout = '5s'"))
-                    clause = "" if is_sqlite else "IF NOT EXISTS "
-                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {clause}{col} {ctype}"))
+                try:
+                    with engine.begin() as conn:
+                        if not is_sqlite:
+                            conn.execute(text("SET LOCAL lock_timeout = '5s'"))
+                        clause = "" if is_sqlite else "IF NOT EXISTS "
+                        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {clause}{col} {ctype}"))
+                except Exception:
+                    # 별도 startup 스레드가 같은 컬럼을 이미 추가한 경우만 성공으로 인정한다.
+                    if col not in {c["name"] for c in sa_inspect(engine).get_columns(table)}:
+                        raise
                 logger.info(f"스키마 보장: {table}.{col} 추가")
             insp = sa_inspect(engine)
             for table, col, _ in pending:
