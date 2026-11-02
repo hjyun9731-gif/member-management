@@ -73,6 +73,21 @@ def address_layout_proof(before, after, raw):
     return None
 
 
+def hyphen_split_proof(before, after, raw):
+    """원본 단일 셀(`변 경 내 용`)이 변경전-변경후를 하이픈으로 이은 값과 정확히 같으면,
+    한 개의 주소가 업로드 때 첫 하이픈에서 둘로 쪼개진 것이다(과거 주소가 아님).
+    복원 값 일치 + 오른쪽이 완전한 주소가 아닌 경우 또는 일치만으로도 이전 주소가 없는 단일 셀임을 증명한다.
+    """
+    if not isinstance(raw, dict):
+        return None
+    cell = raw.get("변 경 내 용")
+    if cell is None or not _k(before) or not _k(after):
+        return None
+    if _k(cell) == _k(str(before) + "-" + str(after)):
+        return {"raw_cell": "변 경 내 용", "reconstructed": True}
+    return None
+
+
 def _phone_set(s):
     numbers = re.findall(r"(?<!\d)(?:0\d{1,2})[- ]?\d{3,4}[- ]?\d{4}(?!\d)", str(s or ""))
     return {re.sub(r"\D", "", x) for x in numbers}
@@ -121,6 +136,10 @@ def classify_record(row):
         proof = address_layout_proof(before, after, raw)
         if proof:
             return _auto(FIRST, "원본의 기본주소/상세주소 열이 각각 연결됨: 최초주소등록·정보보완", "ADDRESS_SOURCE_COLUMNS", {**ev, **proof})
+        split = hyphen_split_proof(before, after, raw)
+        if split:
+            return _auto(FIRST, "원본 단일 주소 셀이 하이픈에서 분리 저장됨(변경전+'-'+변경후=원본 셀): 과거 주소 없음, 최초주소등록·정보보완",
+                         "ADDRESS_HYPHEN_SPLIT_PROOF", {**ev, **split})
         if re.search(r"(?:실제\s*주소\s*이전|거주지\s*이전|주소\s*이전\s*(?:신고|완료)|주사무소\s*변경)", memo):
             if str(before or "").strip() and str(after or "").strip() and _k(before) != _k(after):
                 return _auto(NORMAL, "기록에 명시된 주소 이전·주사무소 변경 사유 확인", "EXPLICIT_ADDRESS_MOVE", {**ev, "memo": memo})
