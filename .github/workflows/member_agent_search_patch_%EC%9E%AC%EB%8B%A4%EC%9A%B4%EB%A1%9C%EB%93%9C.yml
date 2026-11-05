@@ -1,0 +1,199 @@
+name: Member and agent unified search patch
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-search-patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: true
+      - name: Apply narrow source patch (no database edits)
+        shell: bash
+        run: |
+          python3 - <<'PY_PATCH'
+          #!/usr/bin/env python3
+          """Apply a narrow, idempotent unified member/agent search patch to member-management.
+          
+          Does not access the database or modify member data.
+          Run in the member-management repository root, or supply --repo.
+          """
+          from __future__ import annotations
+          
+          import argparse
+          import ast
+          import re
+          import sys
+          from pathlib import Path
+          
+          ROUTE_MEMBER = Path('app/routers/members.py')
+          ROUTE_LICENSE = Path('app/routers/license_holders.py')
+          CRUD = Path('app/crud.py')
+          
+          # The model has these fields (app/models.py); preserve all existing search fields.
+          ADDITIONAL_SEARCH_FIELDS = (
+              'agent_name', 'agent_mobile', 'agent_address',
+              'company_name', 'business_number', 'region',
+              'official_address', 'permit_number', 'driver_license_number',
+              'freight_qualification_number',
+          )
+          
+          HELPER_START = '# MEMBER_SEARCH_UNIFIED_V1_START'
+          HELPER_END = '# MEMBER_SEARCH_UNIFIED_V1_END'
+          HELPER = r'''# MEMBER_SEARCH_UNIFIED_V1_START
+          # Search across owner/agent/contact fields; phone queries also accept missing separators.
+          # All terms are bound through SQLAlchemy expressions; this is SELECT-only.
+          def _build_search_conditions(model, search, search_fields):
+              import re
+              from sqlalchemy import func
+              term = str(search or "").strip()
+              if not term or not search_fields:
+                  return []
+          
+              # Escape LIKE wildcards so '%' and '_' in user input do not match every row.
+              escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+              conditions = []
+              for field in dict.fromkeys(search_fields):
+                  col = getattr(model, field, None)
+                  if col is not None:
+                      conditions.append(col.ilike(f"%{escaped}%", escape="\\"))
+          
+              # 01037715552 == 010-3771-5552 == 010 3771 5552.
+              # Only do separator-tolerant searches for number-like queries (min. 4 digits).
+              digits = re.sub(r"\D", "", term)
+              if len(digits) >= 4 and re.fullmatch(r"[\d\s\-()+]+", term):
+                  number_fields = {
+                      'phone', 'mobile', 'agent_mobile', 'business_number',
+                      'certificate_number', 'permit_number',
+                      'driver_license_number', 'freight_qualification_number',
+                  }
+                  for field in dict.fromkeys(search_fields):
+                      if field not in number_fields:
+                          continue
+                      col = getattr(model, field, None)
+                      if col is None:
+                          continue
+                      compact = func.replace(func.replace(func.replace(func.replace(
+                          col, '-', ''), ' ', ''), '(', ''), ')', '')
+                      conditions.append(compact.like(f"%{digits}%"))
+              return conditions
+          # MEMBER_SEARCH_UNIFIED_V1_END'''
+          
+          SEARCH_EXPRESSION = 'conds = [getattr(model, f).ilike(f"%{search}%") for f in search_fields if hasattr(model, f)]'
+          NEW_EXPRESSION = 'conds = _build_search_conditions(model, search, search_fields)'
+          
+          
+          def patch_field_list(source: str, variable: str) -> str:
+              pat = re.compile(rf'(?m)^({re.escape(variable)})\s*=\s*\[([^\]]*)\]')
+              match = pat.search(source)
+              if not match:
+                  raise ValueError(f'Cannot find {variable} list; check current repository version')
+              old_content = match.group(2)
+              fields = re.findall(r'[\'\"]([A-Za-z0-9_]+)[\'\"]', old_content)
+              if not fields:
+                  raise ValueError(f'{variable} appears empty or unexpected')
+              # Keep existing fields/order; add known, nonsensitive related fields only.
+              for field in ADDITIONAL_SEARCH_FIELDS:
+                  if field not in fields:
+                      fields.append(field)
+              new_block = f'{variable} = [\n'
+              for i in range(0, len(fields), 4):
+                  new_block += '    ' + ', '.join(repr(field) for field in fields[i:i + 4]) + ',\n'
+              new_block += ']'
+              return source[:match.start()] + new_block + source[match.end():]
+          
+          
+          def patch_crud(source: str) -> str:
+              if HELPER_START in source:
+                  if HELPER_END not in source:
+                      raise ValueError('Partial previous search patch found in crud.py')
+                  if NEW_EXPRESSION not in source:
+                      raise ValueError('Unified search helper present but never used')
+                  return source
+              if source.count(SEARCH_EXPRESSION) != 2:
+                  raise ValueError(f'Expected 2 common search expressions; found {source.count(SEARCH_EXPRESSION)}. Refusing unsafe edit.')
+              pivot = '\ndef get_list('
+              if source.count(pivot) != 1:
+                  raise ValueError('Cannot uniquely locate crud.get_list')
+              source = source.replace(pivot, '\n' + HELPER + '\n\n' + 'def get_list(', 1)
+              return source.replace(SEARCH_EXPRESSION, NEW_EXPRESSION)
+          
+          
+          def compile_check(path: Path, source: str) -> None:
+              ast.parse(source, filename=str(path))
+          
+          
+          def main(argv=None):
+              parser = argparse.ArgumentParser(description='Patch agent + all contact field search safely.')
+              parser.add_argument('--repo', type=Path, default=Path.cwd(), help='member-management git root')
+              parser.add_argument('--check', action='store_true', help='verify patchability without writing files')
+              args = parser.parse_args(argv)
+              root = args.repo.expanduser().resolve()
+              files = [ROUTE_MEMBER, ROUTE_LICENSE, CRUD]
+              for rel in files:
+                  if not (root / rel).is_file():
+                      parser.error(f'Missing {rel}. Run from the member-management repository folder.')
+              before = {p: (root / p).read_text(encoding='utf-8') for p in files}
+              after = {
+                  ROUTE_MEMBER: patch_field_list(before[ROUTE_MEMBER], 'SEARCH'),
+                  ROUTE_LICENSE: patch_field_list(before[ROUTE_LICENSE], 'SEARCH_FIELDS'),
+                  CRUD: patch_crud(before[CRUD]),
+              }
+              for rel in files:
+                  compile_check(root / rel, after[rel])
+          
+              changed = [p for p in files if after[p] != before[p]]
+              if args.check:
+                  print(f'CHECK OK: {len(changed)} file(s) would change; no files written.')
+                  for p in changed: print(f' - {p}')
+                  return 0
+          
+              # Validate *all* three files before writing any file; write only when patchable.
+              for rel in changed:
+                  path = root / rel
+                  temp = path.with_suffix(path.suffix + '.search-temp')
+                  temp.write_text(after[rel], encoding='utf-8')
+                  temp.replace(path)
+              print('SUCCESS: member/agent search enabled (database unchanged)')
+              for p in changed: print(f' - {p}')
+              if not changed: print('Already applied; no changes needed.')
+              return 0
+          
+          
+          if __name__ == '__main__':
+              try:
+                  sys.exit(main())
+              except (OSError, SyntaxError, ValueError) as ex:
+                  print(f'ERROR: {ex}', file=sys.stderr)
+                  sys.exit(1)
+          PY_PATCH
+          python3 -m py_compile app/crud.py app/routers/members.py app/routers/license_holders.py
+      - name: Commit changes to a review branch
+        shell: bash
+        env:
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          BRANCH="feature/member-agent-search-${RUN_ID}"
+          git switch -c "$BRANCH"
+          git add app/crud.py app/routers/members.py app/routers/license_holders.py
+          if git diff --cached --quiet; then
+            echo "No changes required: patch already exists on main."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "feat: search members by agents and normalized contact numbers"
+          git push -u origin "$BRANCH"
+          {
+            echo "### Search patch ready for review"
+            echo "Branch: \`$BRANCH\`"
+            echo "Open GitHub > Pull requests > New pull request and compare against main."
+          } >> "$GITHUB_STEP_SUMMARY"
