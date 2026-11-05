@@ -20,8 +20,13 @@ from app.services import agent_history
 
 router = APIRouter()
 
-SEARCH = ["name", "vehicle_number", "phone", "mobile", "management_number",
-          "certificate_number", "address", "affiliated_company", "resident_number"]
+
+SEARCH = [
+    "name", "vehicle_number", "phone", "mobile",
+    "management_number", "certificate_number",
+    "address", "affiliated_company", "resident_number",
+    "agent_name", "agent_mobile"
+]
 
 
 _HIDDEN_FIELDS = {'허가번호', 'permit_number', 'status', 'active', '등록구분', 'registration_type'}
