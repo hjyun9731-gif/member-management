@@ -26,6 +26,7 @@ from app import crud, models
 from app.auth import get_current_user, require_admin
 from app.database import get_db
 from app.services import certificate_number_guard as number_guard
+from app.services import safe_corrections as correction_guard
 from app.services.certificate_ledger_service import (
     APPROVED,
     ISSUED,
@@ -1518,64 +1519,22 @@ async def relink_ledger(
     ledger_id: int,
     body: RelinkLedgerBody,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(require_admin),
 ):
-    """발급대장 행이 잘못된 예정자/회원과 연결됐을 때 다른 대상으로 바꿔 연결한다.
+    """기존 단건 재연결 경로 역시 관리자 권한/백업 확인/소유자 검증을 거친다.
 
-    예정자가 삭제됐거나(soft-delete) 애초에 동명이인/오연결로 잘못 붙은 경우,
-    예정자를 지우거나 새로 만들 필요 없이 이 API로 연결 대상만 바꾼다.
-    발급번호(document_number) 자체는 여기서 바꾸지 않는다.
+    새 정정 API와 동일한 검증을 통과하지 않으면 기존 연결과 발급이력을 보존한다.
     """
-    row = _get_row(db, ledger_id)
-    actor = operator_name(user)
-    previous_label = f"{row.name or ''}({row.vehicle_number or ''})".strip()
-
-    if body.target_type == "candidate":
-        target = db.query(models.Candidate).filter(
-            models.Candidate.id == body.target_id, models.Candidate.deleted_at.is_(None)
-        ).first()
-        if not target:
-            raise HTTPException(404, "연결할 예정자를 찾을 수 없습니다.")
-        dup = db.query(ledger_models.CertificateIssuanceLedger.id).filter(
-            ledger_models.CertificateIssuanceLedger.candidate_id == target.id,
-            ledger_models.CertificateIssuanceLedger.id != row.id,
-            ledger_models.CertificateIssuanceLedger.deleted_at.is_(None),
-        ).first()
-        if dup:
-            raise HTTPException(400, f"이 예정자는 이미 다른 발급대장(#{dup[0]})에 연결되어 있습니다.")
-        row.candidate_id = target.id
-        row.member_id = target.member_id
-        row.region = target.region or row.region
-        row.vehicle_number = target.vehicle_number or row.vehicle_number
-        row.name = target.name or row.name
-    elif body.target_type == "member":
-        target = db.query(models.LicenseHolder).filter(
-            models.LicenseHolder.id == body.target_id, models.LicenseHolder.deleted_at.is_(None)
-        ).first()
-        if not target:
-            raise HTTPException(404, "연결할 회원을 찾을 수 없습니다.")
-        row.member_id = target.id
-        row.candidate_id = getattr(target, "candidate_id", None)
-        row.region = target.region or row.region
-        row.vehicle_number = target.vehicle_number or row.vehicle_number
-        row.name = target.name or row.name
-    else:
-        raise HTTPException(400, "target_type은 candidate 또는 member여야 합니다.")
-
-    row.latest_operator = actor
-    add_history(db, row.id, "연결대상변경", row.status, row.status, actor,
-                f"{previous_label} → {row.name or ''}({row.vehicle_number or ''})로 재연결")
     try:
-        db.commit()
-    except IntegrityError as exc:
-        db.rollback()
-        raise HTTPException(400, "이 대상은 이미 다른 발급대장과 연결되어 있습니다.") from exc
-    except Exception as exc:
-        db.rollback()
-        raise HTTPException(500, f"재연결 저장 중 오류가 발생했습니다: {exc}") from exc
-    db.refresh(row)
+        correction_guard.apply_certificate_relink(
+            db, ledger_id, body.target_type, body.target_id,
+            "기존 재연결 화면에서 관리자가 연결 대상 검증 후 승인함",
+            operator_name(user),
+        )
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
     _invalidate_stats_cache()
-    return _item(db, row)
+    return _item(db, _get_row(db, ledger_id))
 
 
 @router.get("/debug/{number}")

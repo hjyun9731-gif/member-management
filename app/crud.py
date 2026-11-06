@@ -811,7 +811,8 @@ def _scan_certificate_number_usage(db: Session, certificate_number: str):
 
 def sync_certificate_number_usage(db: Session, certificate_number: str,
                                    linked_table: str, linked_id: int,
-                                   target_name: str = "", vehicle_number: str = ""):
+                                   target_name: str = "", vehicle_number: str = "",
+                                   issued_by: str | None = None):
     """레코드 저장 시점에 발급이력과 실사용 여부를 연결. 로그가 없으면(수기 입력 등) 새로 만든다."""
     certificate_number = normalize_certificate_number(certificate_number)
     if not certificate_number:
@@ -823,6 +824,8 @@ def sync_certificate_number_usage(db: Session, certificate_number: str,
         log.linked_id = linked_id
         log.target_name = target_name
         log.vehicle_number = vehicle_number
+        if issued_by and not log.issued_by:
+            log.issued_by = issued_by
     else:
         try:
             yy, n = certificate_number.split("-", 1)
@@ -831,7 +834,7 @@ def sync_certificate_number_usage(db: Session, certificate_number: str,
             yy_i, n_i = None, None
         db.add(models.CertificateNumberLog(
             year=yy_i, number=n_i, certificate_number=certificate_number,
-            status="used", issued_by=None,
+            status="used", issued_by=issued_by,
             linked_table=linked_table, linked_id=linked_id,
             target_name=target_name, vehicle_number=vehicle_number,
             memo="수동입력(발급이력 없음, 저장 시점에 자동 생성)",
@@ -1249,6 +1252,18 @@ def get_next_closure_number(db: Session, closure_type: str) -> str:
     return f"{prefix}{max_n + 1}"
 
 
+def validate_management_number_format(value: str) -> None:
+    """신·양 관리번호의 새 입력 형식을 검증한다. 과거 DB 값은 변경하지 않는다.
+
+    '양26-100.' 등을 임시 관리번호로 재등록하는 방식은 관리번호 충돌을 숨기므로 차단.
+    다른 유형의 관리번호는 각 업무의 기존 규칙을 유지한다.
+    """
+    mgmt = str(value or "").strip()
+    if mgmt and mgmt[:1] in {"신", "양"} and not re.fullmatch(r"[신양]\d{2}-\d+", mgmt):
+        raise ValueError("신규/양도양수 관리번호는 '신YY-N' 또는 '양YY-N' 형식으로 입력해야 합니다. "
+                         "기존 번호를 임시로 바꾸지 말고 중복 점유 원인을 확인하세요.")
+
+
 def check_mgmt_dup(db: Session, model: Type, mgmt_num: str, exclude_id: int = None) -> bool:
     if not mgmt_num:
         return False
@@ -1277,6 +1292,7 @@ def register_candidate_as_member(db: Session, candidate_id: int,
 
     새로운 UI/선택항목/구분필드는 추가하지 않는다 - 관리번호 문자열의 접두어만으로 판단한다.
     """
+    validate_management_number_format(management_number)
     try:
         # 동시 중복등록 방지: PostgreSQL에서는 예정자 행을 잠그고 진행 (개발환경 SQLite는 통과)
         q = db.query(models.Candidate).filter(models.Candidate.id == candidate_id)
@@ -1300,7 +1316,7 @@ def register_candidate_as_member(db: Session, candidate_id: int,
         ms = normalize_membership_status(final_membership_date)
         member = models.LicenseHolder(
             management_number=management_number,
-            registration_type="신규",
+            registration_type="양도양수" if str(management_number or "").strip().startswith("양") else "신규",
             status="active",
             category=cat,
             region=cand.region,
@@ -1429,6 +1445,7 @@ def register_candidate_as_member(db: Session, candidate_id: int,
 
 def register_transfer_as_member(db: Session, transfer_id: int,
                                   management_number: str) -> models.LicenseHolder:
+    validate_management_number_format(management_number)
     tr = get_by_id(db, models.TransferLedger, transfer_id)
     if not tr:
         raise ValueError("양도양수 기록을 찾을 수 없습니다.")

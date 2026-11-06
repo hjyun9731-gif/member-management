@@ -65,7 +65,7 @@ const VEH_TYPES = ['1톤','1톤미만','카고형','밴형','특장차','냉동�
 const CATS = {
   members:   {label:'회원관리',   tabs:[{id:'candidates',label:'예정자/양도양수'},{id:'individual',label:'개인회원'},{id:'delivery',label:'택배회원'}]},
   permits:   {label:'인허가/변경', tabs:[{id:'new-registrations',label:'신규등록대장'},{id:'transfer-ledger',label:'양도양수대장'},{id:'closures',label:'폐업현황'},{id:'change-history',label:'변경이력대장'}]},
-  reports:   {label:'보고/집계',   tabs:[{id:'dashboard',label:'회원대시보드'},{id:'monthly-report',label:'월례보고서'},{id:'monthly-report-fields',label:'월례보고서 항목관리'}]},
+  reports:   {label:'보고/집계',   tabs:[{id:'dashboard',label:'회원대시보드'},{id:'monthly-report',label:'월례보고서'},{id:'monthly-report-fields',label:'월례보고서 항목관리'},{id:'data-integrity',label:'데이터 정합성 점검'}]},
   deadlines: {label:'기한관리',    tabs:[{id:'deadlines',label:'기한관리'}]},
   excel:     {label:'엑셀 업로드', tabs:[{id:'upload',label:'파일 업로드'},{id:'history',label:'업로드 이력'},{id:'errors',label:'오류 확인'}]},
   sms:       {label:'명단추출',    tabs:[{id:'sms-send',label:'명단추출'}]},
@@ -717,12 +717,12 @@ window.showStatList=async(statType)=>{
 // ===== DETAIL VIEW (섹션별, no raw_data JSON) =====
 function buildDetailSections(sections){
   return `<div class="dtl-sections">${sections.map(sec=>{
-    const visFields=sec.fields.filter(([,v])=>v&&fv(v)!=='-');
+    const visFields=_expandPhoneFields(sec.fields.filter(([,v])=>v&&fv(v)!=='-'));
     if(!visFields.length) return '';
-    const body=`<div class="dtl-grid">${visFields.map(([l,v,full])=>`
+    const body=`<div class="dtl-grid">${visFields.map(([l,v,full,,phoneRaw])=>`
         <div class="dtl-item ${full?'full':''}">
           <div class="dtl-lbl">${l}</div>
-          <div class="dtl-val${l==='관리번호'||l==='자격증번호'?' mono':''}">${e_(l==='사업자번호'?_autoBizNo(String(v)):fv(v))}</div>
+          <div class="dtl-val${l==='관리번호'||l==='자격증번호'?' mono':''}">${e_(l==='사업자번호'?_autoBizNo(String(v)):fv(v))}${phoneRaw?` <button type="button" class="btn bo btn-xs" title="복사" onclick="copyPhoneText('${e_(String(v))}')">복사</button>`:''}</div>
         </div>`).join('')}</div>`;
     if(sec.title==='원본 엑셀 데이터')
       return `<details class="dtl-sec"><summary class="dtl-sec-hd" style="cursor:pointer">📄 원본 엑셀 데이터 보기</summary>${body}</details>`;
@@ -936,7 +936,7 @@ function navigate(cat,sub){
     candidates:renderCandidates, individual:()=>renderMember('개인'), delivery:()=>renderMember('택배'),
     'new-registrations':renderNewRegistrations,
     'transfer-ledger':renderTransferLedger, closures:renderClosures, 'change-history':renderChangeHistory,
-    dashboard:renderDashboard, 'monthly-report':renderMonthlyReport, 'monthly-report-fields':renderMonthlyReportFields,
+    dashboard:renderDashboard, 'monthly-report':renderMonthlyReport, 'monthly-report-fields':renderMonthlyReportFields, 'data-integrity':renderDataIntegrity,
     upload:renderUpload, history:renderUploadHistory, errors:renderUploadErrors,
     deadlines:renderDeadlines,
     'dl-today':()=>renderDeadlines('오늘'),
@@ -1452,7 +1452,16 @@ window.editMember=async(id,defaultCat='개인')=>{
     btn.disabled=true; btn.textContent='저장 중...';
     try{
       const res=await api(id?'PUT':'POST',id?`/api/members/${id}`:'/api/members',fd);
-      if(res){toast(id?'수정되었습니다.':'등록되었습니다.');closeModal();navigate(ST.cat,ST.sub);}
+      if(res){
+        if(res.certificate_sync_warning){
+          // 회원 저장은 성공했으나 자격증명 발급대장 연결이 실패한 경우에는 성공 메시지만 보여주지 않는다.
+          alert(res.certificate_sync_warning);
+          toast('자격증명 연결 확인 필요','err');
+        }else{
+          toast(id?'수정되었습니다.':'등록되었습니다.');
+        }
+        closeModal();navigate(ST.cat,ST.sub);
+      }
     }catch(e){
       console.error('회원 저장 오류:', (e&&e.message)||'서버 오류');
       toast('저장 실패: '+((e&&e.message)||'서버 오류'),'err');
@@ -4253,3 +4262,203 @@ window._smsHistRefresh=async(id)=>{
   document.addEventListener('focusout',e=>schedule(e,0));
   document.addEventListener('change',e=>schedule(e,0));
 })();
+
+// ===== 연락처 복수 번호 분리 표시 (화면 전용, 저장된 원본 값은 변경하지 않음) =====
+const _PH_RE=/(?<!\d)(?:01[016789][-.\s]?\d{3,4}[-.\s]?\d{4}|(?:02|0[3-6]\d)[-.\s]?\d{3,4}[-.\s]?\d{4})(?!\d)/g;
+function _fmtPhone(d){
+  if(d.length===11)return `${d.slice(0,3)}-${d.slice(3,7)}-${d.slice(7)}`;
+  if(d.length===10)return d.startsWith('02')?`${d.slice(0,2)}-${d.slice(2,6)}-${d.slice(6)}`:`${d.slice(0,3)}-${d.slice(3,6)}-${d.slice(6)}`;
+  if(d.length===9&&d.startsWith('02'))return `${d.slice(0,2)}-${d.slice(2,5)}-${d.slice(5)}`;
+  return d;
+}
+// 번호가 정확히 해석될 때만 나눈다. 번호 외 문구가 섞였거나 번호가 1개면 null(= 원문 그대로 표시).
+function _splitPhones(v){
+  const t=String(v==null?'':v);
+  const ms=t.match(_PH_RE);
+  if(!ms)return null;
+  const resid=t.replace(_PH_RE,' ').replace(/[\s,;/|·•()\[\]\-.~]+/g,'');
+  if(resid)return null;
+  const seen=new Set(),out=[];
+  ms.forEach(m=>{const d=m.replace(/\D/g,'');if(!seen.has(d)){seen.add(d);out.push(_fmtPhone(d));}});
+  return out.length>=2?out:null;
+}
+function _expandPhoneFields(fields){
+  const PH=new Set(['전화번호','핸드폰','대리인 핸드폰']);
+  const out=[];
+  fields.forEach(f=>{
+    const parts=PH.has(f[0])?_splitPhones(f[1]):null;
+    if(!parts){out.push(f);return;}
+    parts.forEach((n,i)=>out.push([`${f[0]} ${i+1}`,n,false,undefined,true]));   // 대표 연락처는 임의 지정하지 않음(입력 순서만 표시)
+  });
+  return out;
+}
+window.copyPhoneText=async(t)=>{try{await navigator.clipboard.writeText(t);toast('복사되었습니다');}catch{toast('복사 실패','err');}};
+
+// ===== 데이터 정합성 점검 (관리자 전용 · 읽기 전용) =====
+const DI_ST={page:1,size:50,f:{}};
+async function renderDataIntegrity(){
+  const body=document.getElementById('content');
+  if(!isAdmin()){body.innerHTML=`<div class="empty-box"><div class="empty-ico">🔒</div><p class="empty-txt">관리자만 접근할 수 있습니다</p></div>`;return;}
+  body.innerHTML=`<div class="loading-box"><div class="spin"></div><p>정합성을 점검하는 중... (읽기 전용)</p></div>`;
+  const s=await api('GET','/api/admin/data-integrity/summary').catch(()=>null);
+  if(!s){body.innerHTML=`<div class="empty-box"><p class="empty-txt">불러오기 실패</p></div>`;return;}
+  const names=s.check_names||{};
+  const card=(l,v)=>`<div class="card" style="flex:1;min-width:130px;padding:12px;text-align:center"><div style="font-size:12px;color:var(--c-text-3)">${l}</div><div style="font-size:22px;font-weight:700">${(v??0).toLocaleString()}</div></div>`;
+  body.innerHTML=`
+    <div class="card"><div class="card-hd"><div class="card-hd-l"><span class="card-ico">🔎</span><span class="card-ttl">데이터 정합성 점검</span></div>
+      <div><button class="btn bo btn-sm" id="diRefresh">정합성 다시 검사</button> <button class="btn bo btn-sm" id="diCsv">엑셀(CSV) 다운로드</button></div></div>
+      <p style="font-size:12px;color:var(--c-text-3);margin:6px 12px">이 화면은 조회만 합니다. 어떤 자료도 수정·삭제하지 않습니다. (정정 기능은 운영 DB 백업과 관리자 승인 전까지 제공하지 않음)</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;padding:8px 12px">
+        ${card('점검 회원',s.members_checked)}${card('정상 회원',s.normal_members)}${card('오류 확정',s.confirmed)}${card('확인 필요',s.review)}${card('자동 정리 가능',s.auto_fixable)}${card('중복·연결 충돌',s.conflicts)}
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;padding:4px 12px 8px">
+        <select id="diCode"><option value="">오류유형 전체</option>${Object.entries(names).map(([k,v])=>`<option value="${k}">${k} ${e_(v)} (${(s.by_code[k]?.['오류 확정']||0)+(s.by_code[k]?.['확인 필요']||0)})</option>`).join('')}</select>
+        <select id="diSev"><option value="">판정 전체</option><option>오류 확정</option><option>확인 필요</option></select>
+        <select id="diCat"><option value="">개인/택배</option><option>개인</option><option>택배</option></select>
+        <input id="diName" placeholder="성명" style="width:90px"><input id="diMgmt" placeholder="관리번호" style="width:100px"><input id="diVeh" placeholder="차량번호" style="width:110px">
+        <button class="btn bp btn-sm" id="diSearch">검색</button>
+      </div>
+      <div style="display:flex;gap:6px;padding:0 12px 10px"><input id="diNum" placeholder="관리번호 점유 진단 (예: 양26-100)" style="width:240px"><button class="btn bo btn-sm" id="diDiag">점유 진단</button></div>
+      <div id="diDiagOut" style="padding:0 12px"></div>
+      <section style="margin:12px;padding:14px;border:1px solid var(--c-border,#ddd);border-radius:10px">
+        <strong>관리번호 정정 사전 검증</strong>
+        <p style="font-size:12px;color:var(--c-text-3)">기존 회원·대장·예정자 ID와 관리번호 충돌을 확인합니다. 운영 DB 변경은 백업 확인 전까지 차단됩니다.</p>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          <input id="diFixMember" type="number" min="1" placeholder="정정할 회원 ID" style="width:135px">
+          <input id="diFixNumber" placeholder="목표 번호 (양26-100)" style="width:170px">
+          <button class="btn bo btn-sm" id="diFixPreview">정정 영향 미리보기</button>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">
+          <input id="diFixReason" placeholder="정정 사유 (10자 이상)" style="min-width:280px;flex:1">
+          <button class="btn bp btn-sm" id="diFixApply" disabled>백업 확인 후 정정 실행</button>
+        </div>
+        <div id="diFixOut" style="margin-top:8px;font-size:12px;white-space:pre-wrap"></div>
+      </section>
+      <section style="margin:12px;padding:14px;border:1px solid var(--c-border,#ddd);border-radius:10px">
+        <strong>자격증명발급대장 재연결 진단</strong>
+        <p style="font-size:12px;color:var(--c-text-3)">발급번호·회원 신원·다른 발급대장 연결 여부를 확인합니다.</p>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          <input id="diCertLedger" type="number" min="1" placeholder="발급대장 ID" style="width:130px">
+          <select id="diCertType"><option value="member">회원</option><option value="candidate">예정자</option></select>
+          <input id="diCertTarget" type="number" min="1" placeholder="연결 대상 ID" style="width:130px">
+          <button class="btn bo btn-sm" id="diCertPreview">재연결 미리보기</button>
+          <button class="btn bo btn-sm" id="diCertList">미연결 후보 조회</button>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">
+          <input id="diCertReason" placeholder="재연결 사유 (10자 이상)" style="min-width:280px;flex:1">
+          <button class="btn bp btn-sm" id="diCertApply" disabled>백업 확인 후 재연결</button>
+        </div>
+        <div id="diCertOut" style="margin-top:8px;font-size:12px;white-space:pre-wrap"></div>
+      </section>
+      <div id="diList" style="padding:0 12px 12px"></div></div>`;
+  const q=()=>{const g=id=>document.getElementById(id).value.trim();
+    return {code:g('diCode'),severity:g('diSev'),category:g('diCat'),name:g('diName'),management_number:g('diMgmt'),vehicle_number:g('diVeh')};};
+  const load=async(page=1)=>{
+    DI_ST.page=page;DI_ST.f=q();
+    const p=new URLSearchParams({page,page_size:DI_ST.size});Object.entries(DI_ST.f).forEach(([k,v])=>v&&p.set(k,v));
+    const d=await api('GET','/api/admin/data-integrity/findings?'+p).catch(()=>null);
+    const box=document.getElementById('diList');
+    if(!d){box.innerHTML='불러오기 실패';return;}
+    const pages=Math.max(1,Math.ceil(d.total/d.page_size));
+    box.innerHTML=`<p style="font-size:12px;color:var(--c-text-3)">총 ${d.total.toLocaleString()}건 · ${d.page}/${pages} 페이지</p>
+      <div class="tbl-wrap"><table><thead><tr><th>오류유형</th><th>판정</th><th>대상자</th><th>데이터 위치</th><th>현재 값</th><th>문제 내용</th><th>권장 처리</th></tr></thead><tbody>
+      ${d.items.map(r=>`<tr><td>${e_(r.code)} ${e_(r.type)}</td><td>${e_(r.severity)}</td>
+        <td>${e_(r.name)}<br><small>${e_(r.management_number)} ${e_(r.vehicle_number)}</small></td>
+        <td>${e_(r.table)} #${e_(r.record_id)}<br><small>${e_(r.field)}</small>${r.table==='license_holders'?` <button class="btn bo btn-xs" onclick="viewMember(${Number(r.record_id)})">상세</button>`:''}</td>
+        <td style="max-width:200px;word-break:break-all">${e_(r.current_value)}</td><td>${e_(r.message)}</td><td>${e_(r.recommendation)}</td></tr>`).join('')||'<tr><td colspan="7">결과 없음</td></tr>'}
+      </tbody></table></div>
+      <div style="margin-top:8px"><button class="btn bo btn-xs" ${d.page<=1?'disabled':''} id="diPrev">이전</button> <button class="btn bo btn-xs" ${d.page>=pages?'disabled':''} id="diNext">다음</button></div>`;
+    document.getElementById('diPrev').onclick=()=>load(d.page-1);document.getElementById('diNext').onclick=()=>load(d.page+1);
+  };
+  const diGet = id => (document.getElementById(id)?.value||'').trim();
+  let diTransferPlan=null,diCertificatePlan=null;
+  for(const id of ['diFixMember','diFixNumber']) document.getElementById(id).oninput=()=>{
+    diTransferPlan=null;document.getElementById('diFixApply').disabled=true;
+  };
+  for(const id of ['diCertLedger','diCertTarget','diCertType']) document.getElementById(id).oninput=()=>{
+    diCertificatePlan=null;document.getElementById('diCertApply').disabled=true;
+  };
+  document.getElementById('diFixPreview').onclick=async()=>{
+    const id=Number(diGet('diFixMember')),num=diGet('diFixNumber'),out=document.getElementById('diFixOut');
+    if(!Number.isSafeInteger(id)||id<1||!num){out.textContent='회원 ID와 목표 관리번호를 입력하세요.';return;}
+    const d=await api('GET','/api/admin/data-corrections/transfer/preview?member_id='+id+'&desired_number='+encodeURIComponent(num)).catch(()=>null);
+    if(!d){out.textContent='조회 실패';return;}
+    diTransferPlan=d.allowed&&d.writes_enabled?d:null;
+    document.getElementById('diFixApply').disabled=!diTransferPlan;
+    const b=[d.allowed?'정정 가능 조건 확인':'정정 차단', '회원 '+e_(d.member?.name||'')+' #'+id,
+      '현재: '+(d.member?.management_number||'')+' → 목표: '+num,
+      '예정자 ID: '+(d.related?.candidate_id??'-')+' / 양도양수대장 ID: '+(d.related?.transfer_ledger_id??'-'),
+      ...(d.blocked||[]).map(x=>'차단: '+x),...(d.warnings||[]).map(x=>'주의: '+x),
+      d.writes_enabled?'백업 확인 후 관리자만 정정 실행 가능':'운영 정정 실행 비활성화(백업 확인 필요)'];
+    out.textContent=b.join('\n');
+  };
+  document.getElementById('diCertPreview').onclick=async()=>{
+    const id=Number(diGet('diCertLedger')),target=Number(diGet('diCertTarget')),
+      typ=diGet('diCertType'),out=document.getElementById('diCertOut');
+    if(!Number.isSafeInteger(id)||id<1||!Number.isSafeInteger(target)||target<1){out.textContent='발급대장 ID와 대상 ID를 입력하세요.';return;}
+    const d=await api('GET',`/api/admin/data-corrections/certificate/preview?ledger_id=${id}&target_type=${typ}&target_id=${target}`).catch(()=>null);
+    if(!d){out.textContent='조회 실패';return;}
+    diCertificatePlan=d.allowed&&d.writes_enabled?d:null;
+    document.getElementById('diCertApply').disabled=!diCertificatePlan;
+    out.textContent=[d.allowed?'재연결 가능 조건 확인':'재연결 차단','발급번호: '+(d.document_number||'없음'),
+      ...(d.reasons||[]).map(x=>'차단: '+x),
+      d.writes_enabled?'백업 확인 후 관리자만 실행 가능':'운영 재연결 실행 비활성화(백업 확인 필요)'].join('\n');
+  };
+  document.getElementById('diFixApply').onclick=async()=>{
+    const p=diTransferPlan,reason=diGet('diFixReason'),out=document.getElementById('diFixOut');
+    if(!p||!p.allowed||!p.writes_enabled)return;
+    if(reason.length<10){out.textContent='정정 사유를 10자 이상 입력하세요.';return;}
+    // 미리보기 이후 값이 바뀌었을 수 있으므로 실행 직전 서버에서 다시 검증한다.
+    const latest=await api('GET','/api/admin/data-corrections/transfer/preview?member_id='+p.member_id+
+      '&desired_number='+encodeURIComponent(p.desired_number)).catch(()=>null);
+    if(!latest?.allowed||latest.member?.management_number!==p.member?.management_number){
+      out.textContent='미리보기 이후 데이터가 변경됐거나 충돌이 발생했습니다. 다시 확인하세요.';return;
+    }
+    if(!await cfm(`회원 #${p.member_id}의 관리번호 ${p.member?.management_number}를 ${p.desired_number}로 정정할까요?\n관련 예정자·양도양수대장도 함께 변경됩니다.`))return;
+    try{
+      const r=await api('POST','/api/admin/data-corrections/transfer/apply',{
+        member_id:p.member_id,desired_number:p.desired_number,expected_old:p.member.management_number,reason});
+      out.textContent=`정정 완료: 회원 #${r.member_id}, 변경 ${r.changed}항목`;
+      diTransferPlan=null;document.getElementById('diFixApply').disabled=true;
+    }catch(e){out.textContent='정정 실패. 번호 점유·연결 관계를 다시 검사하세요.';}
+  };
+  document.getElementById('diCertApply').onclick=async()=>{
+    const p=diCertificatePlan,reason=diGet('diCertReason'),out=document.getElementById('diCertOut');
+    if(!p||!p.allowed||!p.writes_enabled)return;
+    if(reason.length<10){out.textContent='재연결 사유를 10자 이상 입력하세요.';return;}
+    const latest=await api('GET',`/api/admin/data-corrections/certificate/preview?ledger_id=${p.ledger_id}`+
+      `&target_type=${p.target_type}&target_id=${p.target_id}`).catch(()=>null);
+    if(!latest?.allowed||latest.document_number!==p.document_number){
+      out.textContent='미리보기 이후 충돌이 발생했습니다. 다시 확인하세요.';return;
+    }
+    if(!await cfm(`발급대장 #${p.ledger_id}을 ${p.target_type} #${p.target_id}에 재연결할까요?\n자격증명번호는 변경하지 않습니다.`))return;
+    try{
+      const r=await api('POST','/api/admin/data-corrections/certificate/apply',{
+        ledger_id:p.ledger_id,target_type:p.target_type,target_id:p.target_id,reason});
+      out.textContent=`재연결 완료: 발급대장 #${r.ledger_id}, 회원 ID ${r.member_id||'-'}, 예정자 ID ${r.candidate_id||'-'}`;
+      diCertificatePlan=null;document.getElementById('diCertApply').disabled=true;
+    }catch(e){out.textContent='재연결 실패. 발급이력과 회원 연결을 다시 검사하세요.';}
+  };
+  document.getElementById('diCertList').onclick=async()=>{
+    const out=document.getElementById('diCertOut');
+    const d=await api('GET','/api/admin/data-corrections/certificate/candidates?limit=30').catch(()=>null);
+    if(!d){out.textContent='조회 실패';return;}
+    out.textContent='미연결 후보 전체 '+d.total+'건 / 1차 30건\n'+d.items.map(x=>
+      `발급대장 #${x.ledger_id}, 번호 ${x.document_number}, ${x.result}, 대상 ${x.target?.type||'-'} #${x.target?.id||'-'}, ${x.reason||''}`).join('\n');
+  };
+  document.getElementById('diSearch').onclick=()=>load(1);
+  document.getElementById('diRefresh').onclick=async()=>{await api('GET','/api/admin/data-integrity/summary?refresh=true').catch(()=>null);renderDataIntegrity();};
+  document.getElementById('diCsv').onclick=()=>{const f=q();const p=new URLSearchParams();if(f.code)p.set('code',f.code);if(f.severity)p.set('severity',f.severity);dl('/api/admin/data-integrity/export?'+p,'data_integrity.csv');};
+  document.getElementById('diDiag').onclick=async()=>{
+    const n=document.getElementById('diNum').value.trim();if(!n)return;
+    const d=await api('GET','/api/admin/data-integrity/mgmt-number?number='+encodeURIComponent(n)).catch(()=>null);
+    const out=document.getElementById('diDiagOut');if(!d){out.innerHTML='조회 실패';return;}
+    out.innerHTML=`<div class="warn-box" style="margin-bottom:8px"><b>${e_(d.number)}</b> (정규화: ${e_(d.normalized)}) · 신규등록을 막는 점유 ${d.blocking_count}건
+      ${(d.causes||[]).map(c=>`<div>• ${e_(c)}</div>`).join('')}</div>
+      <div class="tbl-wrap"><table><thead><tr><th>테이블</th><th>ID</th><th>관리번호</th><th>성명</th><th>상태</th><th>삭제</th><th>연결 ID</th><th>번호 점유</th></tr></thead><tbody>
+      ${d.records.map(r=>`<tr><td>${e_(r.table)}</td><td>${e_(r.id)}</td><td>${e_(r.management_number)}</td><td>${e_(r.name)}</td><td>${e_(r.status)}</td><td>${r.deleted?'삭제됨':'-'}</td>
+      <td><small>${['member_id','candidate_id','transfer_ledger_id','closure_id','transferor_member_id','transferee_member_id'].filter(k=>r[k]).map(k=>k+'='+r[k]).join(', ')}</small></td><td>${r.blocks_new_registration?'점유':'-'}</td></tr>`).join('')}
+      </tbody></table></div><p style="font-size:12px;color:var(--c-text-3)">${e_(d.note)}</p>`;
+  };
+  load(1);
+}

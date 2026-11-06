@@ -318,10 +318,65 @@ def ensure_member_ledger(db: Session, member: models.LicenseHolder, user=None):
         .order_by(ledger_models.CertificateIssuanceLedger.id.desc())
         .all()
     )
-    entry = next(
-        (r for r in prefix_matches if crud.normalize_certificate_number(r.document_number or "") == number),
-        None,
-    )
+    matching_ledgers = [
+        row for row in prefix_matches
+        if crud.normalize_certificate_number(row.document_number or "") == number
+    ]
+    # The original code selected the newest match and silently reassigned its
+    # member_id.  When 26-085 and 26-85 coexist this is not a safe choice.
+    if len(matching_ledgers) > 1:
+        raise ValueError("같은 표준화 번호를 사용하는 발급대장이 여러 건입니다. 수동 확인이 필요합니다.")
+    entry = matching_ledgers[0] if matching_ledgers else None
+    if entry is not None:
+        if entry.deleted_at is not None:
+            raise ValueError("삭제된 발급대장을 자동으로 복구할 수 없습니다. 관리자가 이력을 확인해야 합니다.")
+        if entry.member_id is not None and entry.member_id != member.id:
+            raise ValueError("발급대장이 다른 회원에게 연결되어 있습니다. 기존 연결을 덮어쓸 수 없습니다.")
+        if entry.candidate_id is not None:
+            related_candidate = db.get(models.Candidate, entry.candidate_id)
+            if not related_candidate or not _same_candidate_member(related_candidate, member):
+                raise ValueError("발급대장의 예정자 연결이 다른 회원과 충돌합니다. 수동 확인이 필요합니다.")
+        if entry.member_id is None and entry.candidate_id is None:
+            same_name = (entry.name or "").strip() == (member.name or "").strip()
+            same_vehicle = (_norm_vehicle(entry.vehicle_number or "")
+                            == _norm_vehicle(member.vehicle_number or ""))
+            if not (same_name and same_vehicle and entry.vehicle_number):
+                raise ValueError("연결 대상이 없는 발급대장의 성명·차량번호가 일치하지 않아 자동 연결할 수 없습니다.")
+
+    # Validate certificate-number logs before modifying any ledger fields.  A
+    # valid log belonging to a different member must never be reassigned.
+    year, serial = (int(v) for v in number.split("-", 1))
+    candidate_ids = {getattr(member, "candidate_id", None)}
+    candidate_ids.discard(None)
+    # A candidate may reference the member even if member.candidate_id is null.
+    connected_candidates = db.query(models.Candidate.id).filter(
+        models.Candidate.member_id == member.id,
+        models.Candidate.deleted_at.is_(None),
+    ).all()
+    candidate_ids.update(cid for (cid,) in connected_candidates)
+    log_rows = db.query(models.CertificateNumberLog).filter(
+        models.CertificateNumberLog.year == year,
+        models.CertificateNumberLog.number == serial,
+    ).all()
+    # Historical rows may have incomplete year/number columns.  Only include
+    # those whose recorded text normalizes to the same certificate number.
+    text_candidates = db.query(models.CertificateNumberLog).filter(
+        sa_or_(*(models.CertificateNumberLog.certificate_number.ilike(f"{v}%") for v in variants))
+    ).all()
+    known_ids = {r.id for r in log_rows}
+    for row in text_candidates:
+        if row.id not in known_ids and crud.normalize_certificate_number(row.certificate_number or "") == number:
+            log_rows.append(row)
+    for log in log_rows:
+        if log.status == "cancelled":
+            raise ValueError("취소된 발급번호 이력이 있어 자동으로 재사용할 수 없습니다.")
+        if log.linked_table and log.linked_id is not None:
+            belongs_to_member = log.linked_table == "license_holders" and log.linked_id == member.id
+            belongs_to_candidate = log.linked_table == "candidates" and log.linked_id in candidate_ids
+            if not (belongs_to_member or belongs_to_candidate):
+                raise ValueError("발급번호 이력이 다른 대상과 연결돼 있습니다. 기존 연결을 덮어쓸 수 없습니다.")
+    if len(log_rows) > 1:
+        raise ValueError("표준화 번호가 같은 발급번호 이력이 여러 건입니다. 수동 확인이 필요합니다.")
 
     if entry is None:
         entry = ledger_models.CertificateIssuanceLedger(
@@ -345,26 +400,27 @@ def ensure_member_ledger(db: Session, member: models.LicenseHolder, user=None):
         add_history(db, entry.id, "회원수기발급", None, APPROVED, actor,
                     "개인/택배회원 자격증명번호 수기입력에서 자동 연결")
     else:
-        # 과거에 삭제 처리된 같은 발급번호 행이면 다시 활성화한다.
-        if getattr(entry, "deleted_at", None) is not None:
-            entry.deleted_at = None
         entry.member_id = member.id
         if not entry.candidate_id:
             entry.candidate_id = getattr(member, "candidate_id", None)
         entry.region = getattr(member, "region", "") or entry.region or ""
         entry.vehicle_number = getattr(member, "vehicle_number", "") or entry.vehicle_number or ""
         entry.name = getattr(member, "name", "") or entry.name or ""
-        entry.document_number = display_number
+        # Preserve an existing printed document number (including leading
+        # zeros and legacy annotations).  Its normalized value was verified.
         entry.approval_date = getattr(member, "approval_date", "") or entry.approval_date or ""
         entry.certificate_issue_date = getattr(member, "certificate_issue_date", "") or entry.certificate_issue_date or ""
-        entry.status = APPROVED
+        if entry.status != ISSUED:
+            entry.status = APPROVED
         entry.latest_operator = actor
         if not entry.approved_at:
             entry.approved_at = datetime.now(timezone.utc)
         if not entry.issued_at:
             entry.issued_at = datetime.now(timezone.utc)
 
-    # 발급번호 이력도 즉시 사용중으로 연결한다.
+    # The shared sync helper commits.  All ownership/cancellation checks above
+    # must finish before it is called, so a rejected relink cannot partially
+    # overwrite the original ledger or number-use history.
     crud.sync_certificate_number_usage(
         db, number, "license_holders", member.id,
         getattr(member, "name", "") or "",

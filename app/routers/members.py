@@ -339,6 +339,10 @@ async def create_member(data: dict, db: Session = Depends(get_db), _=Depends(get
         from app.excel_utils import _normalize_region
         data["region"] = _normalize_region(data["region"])
     mgmt = (data.get("management_number") or "").strip()
+    try:
+        crud.validate_management_number_format(mgmt)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
     if mgmt and crud.check_mgmt_dup(db, models.LicenseHolder, mgmt):
         raise HTTPException(400, f"관리번호 {mgmt}가 이미 존재합니다.")
     # 이미 다른 대상이 쓰는 자격증명발급번호면 저장하지 않는다 (409). 예정자에서 전환하는 경우
@@ -428,6 +432,11 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
     normalize_in_dict_or_400(data)  # 화물운송종사자격증 번호 형식(0-00-000000) 검증/정규화
 
     new_mgmt = data.get("management_number")
+    if new_mgmt is not None and str(new_mgmt).strip() != str(m.management_number or "").strip():
+        try:
+            crud.validate_management_number_format(new_mgmt)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
     if new_mgmt is not None and str(new_mgmt).strip() and str(new_mgmt).strip() != (m.management_number or ""):
         if crud.check_mgmt_dup(db, models.LicenseHolder, str(new_mgmt).strip(), exclude_id=mid):
             raise HTTPException(400, f"관리번호 {new_mgmt}가 이미 존재합니다.")
@@ -715,21 +724,30 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
     # 자격증명발급번호가 이번 저장에서 채워지거나 바뀐 경우, 발급이력(certificate_number_logs)에도
     # 실제 대상자로 연결 - 이전에는 이 경로(회원 직접수정)로 입력하면 발급이력이 갱신되지 않아
     # 발급이력 화면에는 계속 대상자 미연결(발급/미사용)로 남는 문제가 있었음.
+    certificate_sync_warning = False
     if "certificate_number" in filtered_data:
         cert_val = (m.certificate_number or "").strip()
         if cert_val and crud._is_valid_certificate_number_format(cert_val):
             try:
+                # 기존 이력 소유자·대장 연결을 먼저 검증한다.
+                # 이 순서를 지키지 않으면 resync가 다른 사람의 발급번호 로그를 먼저 덮어쓸 수 있다.
+                ensure_member_ledger(db, m, current_user)
+                # 유효한 연결이 확인된 다음 이전 번호 사용이력만 정리한다.
                 crud.resync_certificate_number_change(
                     db, old_cert_before, cert_val, "license_holders", m.id,
                     m.name or "", m.vehicle_number or ""
                 )
-                # 과거 인가가 먼저 끝난 개인/택배회원도 회원 수정에서 번호를 넣는 즉시
-                # 자격증명발급대장에 생성/연결한다. (박영민 26-370 같은 케이스)
-                ensure_member_ledger(db, m, current_user)
-            except Exception as ex:
-                logger.warning(f"자격증명번호/발급대장 재동기화 실패: {ex}")
+            except Exception:
+                db.rollback()  # 실패한 DB 트랜잭션은 다음 요청에 전파하지 않는다.
+                certificate_sync_warning = True
+                logger.exception("회원 #%s 저장 후 자격증명 이력/발급대장 동기화 실패", mid)
 
-    return _fmt(m)
+    result = _fmt(m)
+    if certificate_sync_warning:
+        # 회원 필드 저장은 이미 commit됐으므로 실패(500)로 응답하면 재저장 중복을 유도한다.
+        # 대신 프런트에서 후속 확인 필요를 분명하게 표시한다. 세부 DB 예외는 노출하지 않는다.
+        result["certificate_sync_warning"] = "회원정보는 저장됐지만 자격증명 발급이력/발급대장 연결에 실패했습니다. 관리자 확인이 필요합니다."
+    return result
 
 
 @router.delete("/{mid}")

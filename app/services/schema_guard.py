@@ -92,36 +92,74 @@ def is_ready() -> bool:
 
 
 def ensure_columns(engine) -> bool:
-    """필요한 컬럼이 모두 있으면 True. 없으면 추가하고 다시 확인한다. 실패해도 예외를 던지지 않는다."""
+    """필수 컬럼 보장. SQLite에서는 검사와 ALTER를 같은 쓰기 트랜잭션에서 실행한다.
+
+    과거 구현은 Inspector로 누락 컬럼을 확인한 후 각 컬럼을 별도
+    트랜잭션에서 추가했다. 다른 요청/마이그레이션이 그 사이에 컬럼을
+    생성하면 SQLite에서 duplicate column 예외가 발생하고, 나머지
+    누락 컬럼은 복구하지 못해 이어지는 SELECT가 500을 반환할 수 있다.
+    SQLite의 BEGIN IMMEDIATE는 컬럼 검사 전에 쓰기 잠금을 선점하여
+    이 두 작업을 원자적으로 직렬화한다. PostgreSQL은 기존처럼
+    ADD COLUMN IF NOT EXISTS를 사용한다.
+    """
     global _ready, last_error
     try:
-        if not ensure_tables(engine):      # member_agents 등 신규 테이블 먼저 보장 (없으면 아래 컬럼 확인도 의미 없음)
+        if not ensure_tables(engine):
             return False
-        insp = sa_inspect(engine)
-        pending = []
-        for table, col, ctype in REQUIRED_COLUMNS:
-            if not insp.has_table(table):
-                return False            # 테이블 자체가 아직 없으면 create_all 이 만든 뒤 다시 확인
-            if col not in {c["name"] for c in insp.get_columns(table)}:
-                pending.append((table, col, ctype))
-        if pending:
-            is_sqlite = engine.dialect.name == "sqlite"
+        is_sqlite = engine.dialect.name == "sqlite"
+        if is_sqlite:
+            # SQLite는 ADD COLUMN IF NOT EXISTS를 지원하지 않는다.
+            # BEGIN IMMEDIATE를 컬럼 조회 전에 실행해 동시에 추가하는
+            # 다른 요청과 경쟁하지 않도록 한다.
+            with engine.connect() as conn:
+                conn.exec_driver_sql("BEGIN IMMEDIATE")
+                try:
+                    for table, col, ctype in REQUIRED_COLUMNS:
+                        insp = sa_inspect(conn)  # 각 DDL 뒤에는 반드시 새 Inspector 사용
+                        if not insp.has_table(table):
+                            conn.rollback()
+                            return False
+                        if col not in {c["name"] for c in insp.get_columns(table)}:
+                            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {ctype}"))
+                            logger.info("스키마 보장: %s.%s 추가", table, col)
+                    insp = sa_inspect(conn)
+                    valid = all(
+                        insp.has_table(table)
+                        and col in {c["name"] for c in insp.get_columns(table)}
+                        for table, col, _ in REQUIRED_COLUMNS
+                    )
+                    if not valid:
+                        conn.rollback()
+                        return False
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+                    raise
+        else:
+            insp = sa_inspect(engine)
+            pending = []
+            for table, col, ctype in REQUIRED_COLUMNS:
+                if not insp.has_table(table):
+                    return False
+                if col not in {c["name"] for c in insp.get_columns(table)}:
+                    pending.append((table, col, ctype))
             for table, col, ctype in pending:
                 with engine.begin() as conn:
-                    if not is_sqlite:
-                        conn.execute(text("SET LOCAL lock_timeout = '5s'"))
-                    clause = "" if is_sqlite else "IF NOT EXISTS "
-                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {clause}{col} {ctype}"))
-                logger.info(f"스키마 보장: {table}.{col} 추가")
+                    conn.execute(text("SET LOCAL lock_timeout = '5s'"))
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {ctype}"))
+                logger.info("스키마 보장: %s.%s 확인", table, col)
             insp = sa_inspect(engine)
-            for table, col, _ in pending:
-                if col not in {c["name"] for c in insp.get_columns(table)}:
-                    return False
+            if any(
+                not insp.has_table(table)
+                or col not in {c["name"] for c in insp.get_columns(table)}
+                for table, col, _ in REQUIRED_COLUMNS
+            ):
+                return False
         _ready, last_error = True, None
         return True
-    except Exception as e:     # 락 대기 초과 등 — 다음 요청에서 재시도
+    except Exception as e:
         last_error = f"{type(e).__name__}: {e}"
-        logger.warning(f"스키마 보장 실패(재시도 예정): {last_error}")
+        logger.warning("스키마 보장 실패(재시도 예정): %s", last_error)
         return False
 
 
