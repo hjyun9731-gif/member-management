@@ -1,7 +1,7 @@
 import re
 from typing import Type, List, Optional, Tuple, Any
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, func
 from datetime import datetime, timezone
 
 from app import models
@@ -45,13 +45,34 @@ def detect_category(vehicle_number: str) -> str:
     return "택배" if vehicle_number and "배" in vehicle_number else "개인"
 
 
+def _search_conditions(model, search, search_fields):
+    """텍스트 부분일치 + 연락처 번호의 하이픈/공백 무시 검색.
+
+    DB 값을 고치지 않으며 검색 결과를 Python에서 다시 필터링하지 않아
+    페이지네이션/전체 건수에 같은 조건이 적용된다.
+    """
+    conds = [getattr(model, field).ilike(f"%{search}%")
+             for field in search_fields if hasattr(model, field)]
+    digits = re.sub(r"\D", "", search)
+    # 숫자가 충분히 길고 전화번호형 입력인 경우에만 번호 정규화 검색을 추가한다.
+    if len(digits) >= 7 and re.fullmatch(r"[0-9\s()./＋+\-]+", search):
+        for field in ("phone", "mobile", "agent_mobile"):
+            if field not in search_fields or not hasattr(model, field):
+                continue
+            normalized = func.coalesce(getattr(model, field), "")
+            for separator in ("-", " ", ".", "/", "(", ")", "+", "\t", "\n"):
+                normalized = func.replace(normalized, separator, "")
+            conds.append(normalized.like(f"%{digits}%"))
+    return conds
+
+
 def get_list(db: Session, model: Type, *, skip=0, limit=50,
              search=None, search_fields=None, filters=None,
              sort_by: str = None, sort_dir: str = "asc",
              nonempty_any: list = None) -> Tuple[List, int]:
     query = db.query(model).filter(model.deleted_at.is_(None))
     if search and search_fields:
-        conds = [getattr(model, f).ilike(f"%{search}%") for f in search_fields if hasattr(model, f)]
+        conds = _search_conditions(model, search, search_fields)
         if conds:
             query = query.filter(or_(*conds))
     if filters:
@@ -91,7 +112,7 @@ def _apply_common_filters(query, model, search, search_fields, filters, nonempty
     """공통 필터 적용 헬퍼"""
     from sqlalchemy import and_
     if search and search_fields:
-        conds = [getattr(model, f).ilike(f"%{search}%") for f in search_fields if hasattr(model, f)]
+        conds = _search_conditions(model, search, search_fields)
         if conds:
             query = query.filter(or_(*conds))
     if filters:

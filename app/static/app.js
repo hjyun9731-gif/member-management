@@ -719,10 +719,10 @@ function buildDetailSections(sections){
   return `<div class="dtl-sections">${sections.map(sec=>{
     const visFields=_expandPhoneFields(sec.fields.filter(([,v])=>v&&fv(v)!=='-'));
     if(!visFields.length) return '';
-    const body=`<div class="dtl-grid">${visFields.map(([l,v,full,,phoneRaw])=>`
+    const body=`<div class="dtl-grid">${visFields.map(([l,v,full,,phoneRaw,note])=>`
         <div class="dtl-item ${full?'full':''}">
           <div class="dtl-lbl">${l}</div>
-          <div class="dtl-val${l==='관리번호'||l==='자격증번호'?' mono':''}">${e_(l==='사업자번호'?_autoBizNo(String(v)):fv(v))}${phoneRaw?` <button type="button" class="btn bo btn-xs" title="복사" onclick="copyPhoneText('${e_(String(v))}')">복사</button>`:''}</div>
+          <div class="dtl-val${l==='관리번호'||l==='자격증번호'?' mono':''}">${e_(l==='사업자번호'?_autoBizNo(String(v)):fv(v))}${note?` <span title="원문 표기(의미 미확인)" style="font-size:11px;color:var(--c-text-3)">${e_(note)}</span>`:''}${phoneRaw?` <button type="button" class="btn bo btn-xs" title="복사" onclick="copyPhoneText('${e_(String(v))}')">복사</button>`:''}</div>
         </div>`).join('')}</div>`;
     if(sec.title==='원본 엑셀 데이터')
       return `<details class="dtl-sec"><summary class="dtl-sec-hd" style="cursor:pointer">📄 원본 엑셀 데이터 보기</summary>${body}</details>`;
@@ -1051,7 +1051,7 @@ async function renderCandidateSection(){
           <td>${fv(r.vehicle_number)}</td>
           <td><a class="click-link" onclick="editCandidate(${r.id});return false">${fv(r.name)}</a></td>
           <td style="font-size:11px">${fv(r.resident_number)}</td>
-          <td>${fv(r.mobile)}</td>
+          <td>${_phoneListCell(r.mobile)}</td>
           <td>${fv(r.vehicle_type)}</td>
           <td>${fv(r.certificate_number)}</td><td>${fv(r.affiliated_company)}</td>
           <td class="td-act">
@@ -1310,7 +1310,7 @@ async function renderMember(category){
           <a class="tbl-link" onclick="viewMember(${r.id});return false">${fv(r.name)}</a>
         </td>
         <td style="font-size:11px">${fv(r.resident_number)}</td>
-        <td>${fv(r.mobile)}</td>
+        <td>${_phoneListCell(r.mobile)}</td>
         <td>${fv(r.approval_date)}</td>
         <td>${memBadge(r.membership_status)}</td>
         <td>${fv(r.membership_date)}</td>
@@ -1735,7 +1735,7 @@ async function renderNewRegistrations(){
         <td><a class="tbl-link" onclick="viewMember(${r.id});return false">${fv(r.vehicle_number)}</a></td>
         <td><a class="tbl-link" onclick="viewMember(${r.id});return false">${fv(r.name)}</a></td>
         <td>${catBadge(r.category)}</td><td>${memBadge(r.membership_status)}</td>
-        <td>${fv(r.mobile)}</td>
+        <td>${_phoneListCell(r.mobile)}</td>
         <td><strong>${fv(r.approval_date)}</strong></td><td>${fv(r.membership_date)}</td>
         <td>${fv(r.certificate_issue_date)}</td><td>${fv(r.certificate_number)}</td>
         <td title="${e_(r.vehicle_type)}">${fv(r.vehicle_type)}</td><td>${fv(r.fuel_type)}</td>
@@ -1832,7 +1832,7 @@ async function renderTransferLedger(){
           <td><a class="tbl-link" onclick="viewTransfer(${r.id});return false">${fv(r.vehicle_number)}</a></td>
           <td class="member-focus-cell">${teeName}</td>
           <td>${memBadge(teeStatus||'미확인')}</td>
-          <td>${fv(r.mobile)}</td>
+          <td>${_phoneListCell(r.mobile)}</td>
           <td><span class="ledger-date">${fv(r.receipt_date)}</span></td>
           <td>${fv(r.approval_date)}</td>
           <td>${fv(teeJoin)}</td>
@@ -2070,7 +2070,7 @@ async function renderClosures(){
             <td><strong>${fv(r.name)}</strong></td>
             <td><span class="badge b-yellow">폐업취소</span></td>
             <td>${memBadge(memStatus)}</td>
-            <td>${fv(r.mobile||r.phone)}</td>
+            <td>${_phoneListCell(r.mobile||r.phone)}</td>
             <td>${fv(r.receipt_date)}</td>
             <td><span class="ledger-date">${fv(r.closure_date)}</span></td>
             <td>${fv(joinDate)}</td>
@@ -2092,7 +2092,7 @@ async function renderClosures(){
           <td><a class="tbl-link ledger-member-name" onclick="viewClosure(${r.id});return false">${fv(r.name)}</a></td>
           <td>${ctBadge(r.closure_type)}</td>
           <td>${memBadge(memStatus)}</td>
-          <td>${fv(r.mobile||r.phone)}</td>
+          <td>${_phoneListCell(r.mobile||r.phone)}</td>
           <td>${fv(r.receipt_date)}</td>
           <td><span class="ledger-date">${fv(r.closure_date)}</span></td>
           <td>${fv(joinDate)}</td>
@@ -4271,24 +4271,46 @@ function _fmtPhone(d){
   if(d.length===9&&d.startsWith('02'))return `${d.slice(0,2)}-${d.slice(2,5)}-${d.slice(5)}`;
   return d;
 }
-// 번호가 정확히 해석될 때만 나눈다. 번호 외 문구가 섞였거나 번호가 1개면 null(= 원문 그대로 표시).
-function _splitPhones(v){
-  const t=String(v==null?'':v);
-  const ms=t.match(_PH_RE);
-  if(!ms)return null;
-  const resid=t.replace(_PH_RE,' ').replace(/[\s,;/|·•()\[\]\-.~]+/g,'');
-  if(resid)return null;
-  const seen=new Set(),out=[];
-  ms.forEach(m=>{const d=m.replace(/\D/g,'');if(!seen.has(d)){seen.add(d);out.push(_fmtPhone(d));}});
-  return out.length>=2?out:null;
+// 화면 표시용 해석: 번호 옆의 (대), (본인) 등은 의미를 추측하지 않고 원문 메모로 보존한다.
+// 나머지 문자가 남거나 위치를 확정할 수 없으면 기존처럼 원문을 그대로 표시한다.
+function _phoneDisplayParts(value){
+  const t=String(value==null?'':value);
+  const matches=[...t.matchAll(_PH_RE)];
+  if(matches.length<2)return null;
+  const checkGap=(gap)=>{
+    const notes=[...gap.matchAll(/\(([^()\r\n]{1,24})\)/g)];
+    if(notes.length>1)return {ok:false};
+    const bare=gap.replace(/\([^()\r\n]{1,24}\)/g,'').replace(/[\s,;/|·•\[\]\-.~]+/g,'');
+    return {ok:bare==='',note:notes.length?notes[0][0]:''};
+  };
+  const out=[];
+  let last=0;
+  for(const m of matches){
+    const gap=checkGap(t.slice(last,m.index));
+    if(!gap.ok || (gap.note&&!out.length))return null;
+    if(gap.note)out[out.length-1].note=gap.note;
+    out.push({number:_fmtPhone(m[0].replace(/\D/g,'')),note:''});
+    last=m.index+m[0].length;
+  }
+  const tail=checkGap(t.slice(last));
+  if(!tail.ok)return null;
+  if(tail.note)out[out.length-1].note=tail.note;
+  return out;
+}
+function _phoneListCell(v){
+  const parts=_phoneDisplayParts(v);
+  if(!parts)return fv(v);
+  return `<div style="display:grid;gap:3px;min-width:125px">${parts.map((p,i)=>
+    `<div style="white-space:nowrap"><span style="color:var(--c-text-3);font-size:11px">${i+1}.</span> ${e_(p.number)}${p.note?` <span title="원문 표기(의미 미확인)" style="font-size:11px;color:var(--c-text-3)">${e_(p.note)}</span>`:''}</div>`
+  ).join('')}</div>`;
 }
 function _expandPhoneFields(fields){
   const PH=new Set(['전화번호','핸드폰','대리인 핸드폰']);
   const out=[];
   fields.forEach(f=>{
-    const parts=PH.has(f[0])?_splitPhones(f[1]):null;
+    const parts=PH.has(f[0])?_phoneDisplayParts(f[1]):null;
     if(!parts){out.push(f);return;}
-    parts.forEach((n,i)=>out.push([`${f[0]} ${i+1}`,n,false,undefined,true]));   // 대표 연락처는 임의 지정하지 않음(입력 순서만 표시)
+    parts.forEach((p,i)=>out.push([`${f[0]} ${i+1}`,p.number,false,undefined,true,p.note]));
   });
   return out;
 }
