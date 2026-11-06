@@ -722,7 +722,7 @@ function buildDetailSections(sections){
     const body=`<div class="dtl-grid">${visFields.map(([l,v,full,,phoneRaw,note])=>`
         <div class="dtl-item ${full?'full':''}">
           <div class="dtl-lbl">${l}</div>
-          <div class="dtl-val${l==='관리번호'||l==='자격증번호'?' mono':''}">${e_(l==='사업자번호'?_autoBizNo(String(v)):fv(v))}${note?` <span title="원문 표기(의미 미확인)" style="font-size:11px;color:var(--c-text-3)">${e_(note)}</span>`:''}${phoneRaw?` <button type="button" class="btn bo btn-xs" title="복사" onclick="copyPhoneText('${e_(String(v))}')">복사</button>`:''}</div>
+          <div class="dtl-val${l==='관리번호'||l==='자격증번호'?' mono':''}">${_phoneDetailValue(l,v,phoneRaw)}${note?` <span title="원문 표기(의미 미확인)" style="font-size:11px;color:var(--c-text-3)">${e_(note)}</span>`:''}</div>
         </div>`).join('')}</div>`;
     if(sec.title==='원본 엑셀 데이터')
       return `<details class="dtl-sec"><summary class="dtl-sec-hd" style="cursor:pointer">📄 원본 엑셀 데이터 보기</summary>${body}</details>`;
@@ -1401,7 +1401,7 @@ window.editMember=async(id,defaultCat='개인')=>{
       ${fi('management_number','관리번호',r.management_number||'')}
       <div class="fi"><label>지역</label>${regionEditable('region',r.region||'')}</div>
       ${fi('vehicle_number','차량번호',r.vehicle_number||'',true)} ${fi('name','성명',r.name||'',true)}
-      ${fi('phone','전화번호',r.phone||'')} ${fph('mobile','핸드폰',r.mobile||'')}
+      ${fi('phone','전화번호',r.phone||'')} ${_memberMobileEditFields(r.mobile||'',isInd)}
       <div class="fi cs2"><label>주소</label><input class="fc" name="address" value="${e_(r.address||'')}"></div>
     `,'👤','pri')}
     ${sec('가입정보',`
@@ -1433,10 +1433,11 @@ window.editMember=async(id,defaultCat='개인')=>{
   openModal(id?'회원 수정':'회원 등록',missingLedgerBox+formHtml,
     `<button class="btn bg btn-sm" id="_mSave">${id?'저장':'등록'}</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'mlg');
 
-  setTimeout(()=>{const mf=document.getElementById('mForm');if(mf&&id)mf.dataset.memberId=String(id);_bindFmt(mf);bindAgentForm(mf);},0);
+  setTimeout(()=>{const mf=document.getElementById('mForm');if(mf&&id)mf.dataset.memberId=String(id);_bindFmt(mf);bindAgentForm(mf);_bindMemberMobileEdit(mf);},0);
   document.getElementById('_mSave').onclick=async()=>{
     const form=document.getElementById('mForm');
     const fd=_normFormDates(Object.fromEntries(new FormData(form)));
+    if(!_collectMemberMobileEdit(form,fd,r))return;
     if(!fd.vehicle_number||!fd.name){toast('차량번호와 성명은 필수입니다','warn');return;}
     // category 재계산 (신규 등록 및 수정 시 차량번호 기준)
     fd.category=fd.vehicle_number?.includes('배')?'택배':'개인';
@@ -4263,6 +4264,98 @@ window._smsHistRefresh=async(id)=>{
   document.addEventListener('change',e=>schedule(e,0));
 })();
 
+// 회원 수정: 다중 연락처는 표시뿐 아니라 번호별로 편집한다.
+// 이전의 name="mobile" 한 칸(maxlength=13) 방식은 두 번호를 입력할 때 잘릴 수 있었다.
+function _phoneAttr(v){return e_(v).replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+function _memberMobileEditFields(value,individual){
+  const parts=_phoneDisplayParts(value);
+  if(!parts){
+    // 파싱이 애매한 원문은 잘라서 저장하지 않는다. 번호 하나 또는 레거시 원문으로 보존.
+    if(String(value).length>13 || /\([^)]*\)/.test(String(value))){
+      return `<div class="fi"><label>핸드폰 (원문 확인 필요)</label><input class="fc" name="mobile" maxlength="50" value="${_phoneAttr(value)}"><small style="color:var(--c-text-3)">불명확한 표기이므로 임의 분리하지 않았습니다. 저장 전 확인하세요.</small></div>`;
+    }
+    return fph('mobile','핸드폰',value);
+  }
+  const inputs=parts.map((p,i)=>`<div class="fi" style="min-width:0"><label>핸드폰 ${i+1}${p.note?` <span title="원문에 붙어 있던 표시">${e_(p.note)}</span>`:''}</label>
+    <input class="fc fmt-phone" name="mobile_part_${i+1}" data-mobile-part="${i}" value="${_phoneAttr(p.number)}" maxlength="13" placeholder="010-0000-0000">
+    ${p.note==='(대)'?`<small style="color:var(--c-text-3)">원문에 (대) 표시가 있습니다. 대리인 여부 확인 필요</small>`:''}</div>`).join('');
+  const marked=parts.findIndex(p=>p.note==='(대)');
+  const action=marked>=0?`<div class="fi cs4" style="grid-column:1/-1"><label style="display:flex;gap:7px;align-items:center;cursor:pointer">
+    <input type="checkbox" data-confirm-agent-move data-marked-index="${marked}" ${individual?'':'disabled'}>
+    확인된 (대) 번호를 대리인 핸드폰으로 이동 (수동 승인)
+  </label><small style="color:var(--c-text-3)">${individual?'대리인 성명을 입력하고 저장해야 이동합니다. 기존 이력은 보존됩니다.':'개인회원 대리인 입력 화면에서만 이전 가능합니다. 현재는 원문을 보존합니다.'}</small></div>`:'';
+  return `<div class="fi cs4" data-mobile-editor data-original-mobile="${_phoneAttr(value)}" style="grid-column:1/-1;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px">
+    ${inputs}${action}</div>`;
+}
+function _bindMemberMobileEdit(form){
+  const box=form?.querySelector('[data-mobile-editor]');
+  const check=box?.querySelector('[data-confirm-agent-move]');
+  if(!check)return;
+  check.addEventListener('change',()=>{
+    if(!check.checked)return;
+    const agent=form.querySelector('.agent-present-check');
+    if(agent&&!agent.checked){agent.checked=true;toggleAgentFields(agent);}
+    // 체크만으로 대리인 데이터를 변경하지 않는다. 실제 이전은 저장 시 최종 확인 후 수행.
+  });
+}
+function _collectMemberMobileEdit(form,fd,original){
+  const box=form.querySelector('[data-mobile-editor]');
+  if(!box)return true;
+  const old=String(original?.mobile||'');
+  const parts=_phoneDisplayParts(old);
+  if(!parts)return true;
+  const inputs=[...box.querySelectorAll('[data-mobile-part]')];
+  if(inputs.length!==parts.length)return false;
+  const values=[];
+  for(const input of inputs){
+    const val=input.value.trim();
+    if(val&&!/^(?:01[016789]\d{7,8}|02\d{7,8}|0[3-6]\d\d{7,8})$/.test(val.replace(/\D/g,''))){
+      toast('핸드폰 번호 형식을 확인하세요: '+val,'err');input.focus();return false;
+    }
+    values.push(val? _fmtPhone(val.replace(/\D/g,'')):'');
+  }
+  if(new Set(values.filter(Boolean)).size!==values.filter(Boolean).length){toast('동일한 번호를 두 번 입력했습니다','err');return false;}
+  const move=box.querySelector('[data-confirm-agent-move]');
+  const moving=Boolean(move?.checked);
+  const moveIndex=moving?Number(move.dataset.markedIndex):-1;
+  if(moving){
+    const agentName=String(fd.agent_name||'').trim();
+    if(!agentName){toast('대리인 성명부터 확인·입력해야 합니다','err');form.querySelector('[name="agent_name"]')?.focus();return false;}
+    const candidate=values[moveIndex];
+    if(!candidate){toast('이전할 대리인 전화번호가 없습니다','err');return false;}
+    const current=String(fd.agent_mobile||'').trim();
+    if(current&&current.replace(/\D/g,'')!==candidate.replace(/\D/g,'')){
+      toast('기존 대리인 번호와 충돌합니다. 대리인 이력을 먼저 확인하세요','err');return false;
+    }
+    if(!window.confirm(`(대) 표시 번호 ${candidate}를 대리인 ${agentName}의 연락처로 이전할까요?\n기존 회원 핸드폰 목록에서는 제외됩니다.`))return false;
+    fd.agent_mobile=candidate;
+    fd.contact_annotation_reclassification=true; // 서버에서 (대) 원본을 재검증하고 오류정정 이력으로 남긴다.
+  }
+  // 편집하지 않았으면 사용자가 가진 원문(공백·메모)을 100% 유지.
+  const unchanged=!moving&&values.every((v,i)=>v===parts[i].number);
+  if(unchanged){fd.mobile=old;}else{
+    const removed=parts.filter((p,i)=>!values[i]||i===moveIndex);
+    if(removed.length&&!moving){
+      if(!window.confirm(`원래 등록된 번호 ${removed.length}개가 회원 연락처에서 제외됩니다. 계속할까요?`))return false;
+    }
+    fd.mobile=values.map((v,i)=>v&&i!==moveIndex?v+(parts[i].note&&i!==moveIndex?parts[i].note:''):'').filter(Boolean).join(' ');
+  }
+  inputs.forEach(i=>delete fd[i.name]);
+  return true;
+}
+function _phoneDetailValue(label,value,phonePart){
+  const v=label==='사업자번호'?_autoBizNo(String(value)):fv(value);
+  if(!phonePart&&!['전화번호','핸드폰','대리인 핸드폰'].includes(label))return e_(v);
+  const digits=String(v).replace(/\D/g,'');
+  // 순수 전화번호에만 클릭 복사 기능을 제공. 단일/복수 모두 동일 방식.
+  if(!/^(?:01[016789]\d{7,8}|02\d{7,8}|0[3-6]\d\d{7,8})$/.test(digits)||!/^\s*[0-9.\-\s]+\s*$/.test(String(v)))return e_(v);
+  return `<button type="button" data-copy-phone="${_phoneAttr(_fmtPhone(digits))}" title="번호 클릭 시 복사" style="border:0;background:none;padding:0;font:inherit;color:inherit;cursor:copy;text-align:left">${e_(v)}</button>`;
+}
+if(typeof document!=='undefined')document.addEventListener('click',e=>{
+  const btn=e.target.closest('[data-copy-phone]');
+  if(btn)copyPhoneText(btn.dataset.copyPhone);
+});
+
 // ===== 연락처 복수 번호 분리 표시 (화면 전용, 저장된 원본 값은 변경하지 않음) =====
 const _PH_RE=/(?<!\d)(?:01[016789][-.\s]?\d{3,4}[-.\s]?\d{4}|(?:02|0[3-6]\d)[-.\s]?\d{3,4}[-.\s]?\d{4})(?!\d)/g;
 function _fmtPhone(d){
@@ -4310,7 +4403,11 @@ function _expandPhoneFields(fields){
   fields.forEach(f=>{
     const parts=PH.has(f[0])?_phoneDisplayParts(f[1]):null;
     if(!parts){out.push(f);return;}
-    parts.forEach((p,i)=>out.push([`${f[0]} ${i+1}`,p.number,false,undefined,true,p.note]));
+    parts.forEach((p,i)=>{
+      // (대)는 대리인 표기 후보일 뿐 확인된 DB 대리인과 동일하다고 단정하지 않는다.
+      const label=f[0]==='핸드폰'&&p.note==='(대)'?'대리인 핸드폰 후보 (미확인)':`${f[0]} ${i+1}`;
+      out.push([label,p.number,false,undefined,true,p.note]);
+    });
   });
   return out;
 }

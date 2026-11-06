@@ -14,9 +14,10 @@ from app.excel_utils import records_to_excel, normalize_fuel, normalize_membersh
 from app.services.certificate_ledger_service import ensure_member_ledger
 from app.services.certificate_number_guard import guard_certificate_number
 from app.services.freight_qualification import normalize_in_dict_or_400
-from app.services.change_judgement import classify_plate, classify_text, NORMAL, FIRST as FIRST_J
+from app.services.change_judgement import classify_plate, classify_text, NORMAL, ERROR_FIX, FIRST as FIRST_J
 from app.excel_utils import is_association_member
 from app.services import agent_history
+from app.services.contact_reclassification import verified_agent_phone_move
 
 router = APIRouter()
 
@@ -479,6 +480,17 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
             raise HTTPException(400, "택배 회원에게 대리인 정보를 등록하거나 변경할 수 없습니다.")
         data = {k: v for k, v in data.items() if k not in _AGENT_INPUT_FIELDS}
 
+    # (대) 메모를 대리인 번호로 분리하는 행위는 관리자 명시적 승인과
+    # 기존 번호 보존 검증을 모두 통과한 경우에만 오류정정으로 기록한다.
+    agent_contact_move = data.get("contact_annotation_reclassification") is True
+    if agent_contact_move:
+        if getattr(current_user, 'role', None) != 'admin':
+            raise HTTPException(403, "대리인 연락처 이전은 관리자만 할 수 있습니다.")
+        if not str(data.get('agent_name') or '').strip() or not verified_agent_phone_move(
+            m.mobile, data.get('mobile'), data.get('agent_mobile')
+        ):
+            raise HTTPException(400, "(대) 표기 원본과 이전할 번호가 일치하지 않습니다. 원본을 다시 확인하세요.")
+
     # 허용 필드만 필터링
     filtered_data = {k: v for k, v in data.items() if k in _ALLOWED_UPDATE_FIELDS}
 
@@ -571,6 +583,11 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
 
         if field in ("mobile", "phone"):
             if norm_equal or is_blank_fill:
+                continue
+            if field == "mobile" and agent_contact_move:
+                # 기존 연락처의 단순 분류 오류 정정이므로 월례 정상변경 실적에 포함하지 않는다.
+                changes_by_key.setdefault(("연락처변경", ERROR_FIX), []).append(
+                    (field, old_val, new_val, "(대) 표시 연락처의 대리인 필드 이전 (관리자 확인)"))
                 continue
             changes_by_key.setdefault(("연락처변경", NORMAL), []).append((field, old_val, new_val, "연락처 변경"))
         elif field == "vehicle_number":
