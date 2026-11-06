@@ -236,27 +236,57 @@
         const data = await request('GET', `/api/certificate-ledger/link-targets?q=${encodeURIComponent(q)}`);
         const items = data.items || [];
         if (!items.length) { results.innerHTML = '<div style="padding:8px;color:var(--c-text-3);font-size:12px">검색 결과가 없습니다.</div>'; return; }
-        results.innerHTML = items.map((it, idx) => `
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 8px;border:1px solid var(--c-border);border-radius:7px;margin-bottom:6px">
-            <div style="font-size:12px">
-              <span class="badge ${it.type === 'candidate' ? 'b-sky' : 'b-green'}" style="font-size:10px">${it.type === 'candidate' ? '예정자' : '회원'}</span>
-              <strong style="margin-left:4px">${esc(it.name)}</strong> · ${esc(it.vehicle_number)} · ${esc(it.region || '-')}
-              ${it.certificate_number ? ` · 발급번호 ${esc(it.certificate_number)}` : ''}
-            </div>
-            <button class="btn bp btn-xs" data-relink-pick="${idx}">이 대상으로 연결</button>
-          </div>`).join('');
+        // 동명이인 후보라도 번호/차량이 다른 대상에는 연결 동작을 제공하지 않는다.
+        const cleanVehicle = value => String(value || '').replace(/[\s-]/g, '').replace(/호$/, '');
+        const cleanCert = value => {
+          const m = String(value || '').trim().match(/^(\d{2})-0*(\d+)(?:$|[\s(])/);
+          return m ? `${m[1]}-${Number(m[2])}` : '';
+        };
+        const sourceCert = cleanCert(row?.document_number);
+        const sourceVehicle = cleanVehicle(row?.vehicle_number);
+        const status = it => {
+          if (!sourceCert || !cleanCert(it.certificate_number)) return '발급번호 확인 필요';
+          if (sourceCert !== cleanCert(it.certificate_number)) return '발급번호 불일치';
+          if (!sourceVehicle || !cleanVehicle(it.vehicle_number) || sourceVehicle !== cleanVehicle(it.vehicle_number)) return '차량번호 불일치';
+          return '';
+        };
+        results.innerHTML = `<p style="font-size:11px;color:var(--c-text-3);padding:4px 0 8px">동명이인은 자동 연결하지 않습니다. 발급번호·차량번호가 일치하는 경우에도 서버 검증이 필요합니다.</p>` +
+          items.map((it, idx) => {
+            const reason = status(it);
+            return `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 8px;border:1px solid var(--c-border);border-radius:7px;margin-bottom:6px">
+              <div style="font-size:12px">
+                <span class="badge ${it.type === 'candidate' ? 'b-sky' : 'b-green'}" style="font-size:10px">${it.type === 'candidate' ? '예정자' : '회원'}</span>
+                <strong style="margin-left:4px">${esc(it.name)}</strong> · ${esc(it.vehicle_number)} · ${esc(it.region || '-')}
+                ${it.certificate_number ? ` · 발급번호 ${esc(it.certificate_number)}` : ''}
+                ${reason ? `<span style="color:#b45309;display:block">${esc(reason)} — 자동 연결 금지</span>` : ''}
+              </div>
+              <button class="btn ${reason ? 'bo' : 'bp'} btn-xs" data-relink-pick="${idx}" ${reason ? 'disabled' : ''}>${reason ? '연결 불가' : '연결 검증'}</button>
+            </div>`;
+          }).join('');
         results.querySelectorAll('[data-relink-pick]').forEach(btn => {
           btn.onclick = async () => {
             const item = items[Number(btn.dataset.relinkPick)];
-            if (!confirm(`"${item.name} / ${item.vehicle_number}"(으)로 재연결할까요?`)) return;
+            if (status(item)) return;
             btn.disabled = true;
             try {
+              const preview = await request('GET', `/api/admin/data-corrections/certificate/preview?ledger_id=${ledgerId}&target_type=${item.type}&target_id=${item.id}`);
+              if (!preview.allowed) {
+                if (typeof toast === 'function') toast(`재연결 차단: ${(preview.reasons || []).join(' / ')}`, 'err');
+                return;
+              }
+              if (!preview.writes_enabled) {
+                if (typeof toast === 'function') toast('연결 대상 검증 완료. 실제 재연결은 백업 확인 후 관리자 설정이 필요합니다.', 'warn');
+                return;
+              }
+              if (!confirm(`발급번호 ${row?.document_number || ''} · 차량 ${row?.vehicle_number || ''}\n대상: ${item.name} / ${item.vehicle_number}\n이 대상과 연결을 변경할까요?`)) return;
               await request('POST', `/api/certificate-ledger/${ledgerId}/relink`, { target_type: item.type, target_id: item.id });
               if (typeof window.closeModal === 'function') window.closeModal();
               if (typeof toast === 'function') toast('재연결되었습니다.');
               statsCache = null; statsCacheAt = 0;
               await render(state.page || 1, target);
             } catch (_) {
+              // API가 차단한 경우 기존 연결은 유지된다.
+            } finally {
               btn.disabled = false;
             }
           };
