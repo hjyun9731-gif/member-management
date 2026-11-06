@@ -17,8 +17,12 @@ from app.auth import require_admin
 from app.database import get_db
 from app.services import data_integrity as di
 from app.services.contact_parser import parse_contact
+from app.services.csv_security import safe_csv_cell as _csv_cell
 
 router = APIRouter(prefix="/api/admin/data-integrity", tags=["데이터 정합성"])
+
+
+
 
 _CACHE = {"at": 0.0, "data": None}
 _LOCK = threading.Lock()
@@ -77,7 +81,7 @@ def findings(
 
 
 @router.get("/mgmt-number")
-def mgmt_number(number: str = Query(..., min_length=1), db: Session = Depends(get_db), _=Depends(require_admin)):
+def mgmt_number(number: str = Query(..., min_length=1, max_length=64), db: Session = Depends(get_db), _=Depends(require_admin)):
     return di.diagnose_mgmt_number(db, number)
 
 
@@ -100,8 +104,10 @@ def export_csv(
     w = csv.writer(buf)
     w.writerow(["오류유형", "판정", "대상자", "관리번호", "차량번호", "테이블", "레코드ID", "필드", "현재값", "문제내용", "권장처리"])
     for f in rows:
-        w.writerow([f"{f['code']} {f['type']}", f["severity"], f["name"], f["management_number"], f["vehicle_number"],
-                    f["table"], f["record_id"], f["field"], f["current_value"], f["message"], f["recommendation"]])
+        w.writerow([_csv_cell(v) for v in (
+            f"{f['code']} {f['type']}", f["severity"], f["name"], f["management_number"], f["vehicle_number"],
+            f["table"], f["record_id"], f["field"], f["current_value"], f["message"], f["recommendation"],
+        )])
     out = io.BytesIO(("\ufeff" + buf.getvalue()).encode("utf-8"))
     return StreamingResponse(out, media_type="text/csv; charset=utf-8",
                              headers={"Content-Disposition": "attachment; filename=data_integrity.csv"})

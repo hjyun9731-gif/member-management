@@ -202,6 +202,21 @@ def test_mask_rrn():
     assert di.mask_rrn("800101-1234567") == "800101-1******"
 
 
+def test_real_calendar_validation():
+    assert di._date_ok("2024-02-29") is True
+    assert di._date_ok("2026-02-29") is False
+    assert di._date_ok("2026-02-31") is False
+    assert di._date_ok("13. 6.11.") is True   # 과거 표기의 공백은 정상 허용, 원본 보존
+
+
+def test_csv_formula_prefix():
+    from app.routers.data_integrity import _csv_cell
+    for raw in ("=HYPERLINK(\"x\")", "+1+2", "-1+2", "@SUM(A1)", "  =SUM(A1)", "\t=cmd"):
+        assert _csv_cell(raw).startswith("'"), raw
+    assert _csv_cell("010-1234-5678") == "010-1234-5678"
+    assert _csv_cell(None) == ""
+
+
 # ───────────── API 권한 ─────────────
 def test_api_requires_admin(db):
     client = TestClient(app, raise_server_exceptions=False)

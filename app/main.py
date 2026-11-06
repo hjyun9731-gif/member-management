@@ -18,6 +18,7 @@ from app.routers import (candidates, members, transfer_ledger,
                           closures, change_history, allocation, admin, change_stats)
 from app.routers import sms as sms_router
 from app.routers import data_integrity as data_integrity_router
+from app.routers import data_corrections as data_corrections_router
 import app.models as _models
 
 # === RECEIVABLES MODULE IMPORT ===
@@ -364,6 +365,7 @@ app.include_router(reports.router,        prefix="/api/reports",        tags=["�
 app.include_router(excel.router,          prefix="/api/excel",          tags=["엑셀"])
 app.include_router(admin.router,          prefix="/api/admin",          tags=["관리자"])
 app.include_router(data_integrity_router.router)  # 읽기 전용 정합성 점검(관리자 전용)
+app.include_router(data_corrections_router.router)  # 정정 미리보기 및 안전한 관리자 승인 처리
 
 # === RECEIVABLES MODULE ROUTER ===
 app.include_router(receivables.router)

@@ -1452,7 +1452,16 @@ window.editMember=async(id,defaultCat='개인')=>{
     btn.disabled=true; btn.textContent='저장 중...';
     try{
       const res=await api(id?'PUT':'POST',id?`/api/members/${id}`:'/api/members',fd);
-      if(res){toast(id?'수정되었습니다.':'등록되었습니다.');closeModal();navigate(ST.cat,ST.sub);}
+      if(res){
+        if(res.certificate_sync_warning){
+          // 회원 저장은 성공했으나 자격증명 발급대장 연결이 실패한 경우에는 성공 메시지만 보여주지 않는다.
+          alert(res.certificate_sync_warning);
+          toast('자격증명 연결 확인 필요','err');
+        }else{
+          toast(id?'수정되었습니다.':'등록되었습니다.');
+        }
+        closeModal();navigate(ST.cat,ST.sub);
+      }
     }catch(e){
       console.error('회원 저장 오류:', (e&&e.message)||'서버 오류');
       toast('저장 실패: '+((e&&e.message)||'서버 오류'),'err');
@@ -4311,6 +4320,36 @@ async function renderDataIntegrity(){
       </div>
       <div style="display:flex;gap:6px;padding:0 12px 10px"><input id="diNum" placeholder="관리번호 점유 진단 (예: 양26-100)" style="width:240px"><button class="btn bo btn-sm" id="diDiag">점유 진단</button></div>
       <div id="diDiagOut" style="padding:0 12px"></div>
+      <section style="margin:12px;padding:14px;border:1px solid var(--c-border,#ddd);border-radius:10px">
+        <strong>관리번호 정정 사전 검증</strong>
+        <p style="font-size:12px;color:var(--c-text-3)">기존 회원·대장·예정자 ID와 관리번호 충돌을 확인합니다. 운영 DB 변경은 백업 확인 전까지 차단됩니다.</p>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          <input id="diFixMember" type="number" min="1" placeholder="정정할 회원 ID" style="width:135px">
+          <input id="diFixNumber" placeholder="목표 번호 (양26-100)" style="width:170px">
+          <button class="btn bo btn-sm" id="diFixPreview">정정 영향 미리보기</button>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">
+          <input id="diFixReason" placeholder="정정 사유 (10자 이상)" style="min-width:280px;flex:1">
+          <button class="btn bp btn-sm" id="diFixApply" disabled>백업 확인 후 정정 실행</button>
+        </div>
+        <div id="diFixOut" style="margin-top:8px;font-size:12px;white-space:pre-wrap"></div>
+      </section>
+      <section style="margin:12px;padding:14px;border:1px solid var(--c-border,#ddd);border-radius:10px">
+        <strong>자격증명발급대장 재연결 진단</strong>
+        <p style="font-size:12px;color:var(--c-text-3)">발급번호·회원 신원·다른 발급대장 연결 여부를 확인합니다.</p>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          <input id="diCertLedger" type="number" min="1" placeholder="발급대장 ID" style="width:130px">
+          <select id="diCertType"><option value="member">회원</option><option value="candidate">예정자</option></select>
+          <input id="diCertTarget" type="number" min="1" placeholder="연결 대상 ID" style="width:130px">
+          <button class="btn bo btn-sm" id="diCertPreview">재연결 미리보기</button>
+          <button class="btn bo btn-sm" id="diCertList">미연결 후보 조회</button>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">
+          <input id="diCertReason" placeholder="재연결 사유 (10자 이상)" style="min-width:280px;flex:1">
+          <button class="btn bp btn-sm" id="diCertApply" disabled>백업 확인 후 재연결</button>
+        </div>
+        <div id="diCertOut" style="margin-top:8px;font-size:12px;white-space:pre-wrap"></div>
+      </section>
       <div id="diList" style="padding:0 12px 12px"></div></div>`;
   const q=()=>{const g=id=>document.getElementById(id).value.trim();
     return {code:g('diCode'),severity:g('diSev'),category:g('diCat'),name:g('diName'),management_number:g('diMgmt'),vehicle_number:g('diVeh')};};
@@ -4330,6 +4369,82 @@ async function renderDataIntegrity(){
       </tbody></table></div>
       <div style="margin-top:8px"><button class="btn bo btn-xs" ${d.page<=1?'disabled':''} id="diPrev">이전</button> <button class="btn bo btn-xs" ${d.page>=pages?'disabled':''} id="diNext">다음</button></div>`;
     document.getElementById('diPrev').onclick=()=>load(d.page-1);document.getElementById('diNext').onclick=()=>load(d.page+1);
+  };
+  const diGet = id => (document.getElementById(id)?.value||'').trim();
+  let diTransferPlan=null,diCertificatePlan=null;
+  for(const id of ['diFixMember','diFixNumber']) document.getElementById(id).oninput=()=>{
+    diTransferPlan=null;document.getElementById('diFixApply').disabled=true;
+  };
+  for(const id of ['diCertLedger','diCertTarget','diCertType']) document.getElementById(id).oninput=()=>{
+    diCertificatePlan=null;document.getElementById('diCertApply').disabled=true;
+  };
+  document.getElementById('diFixPreview').onclick=async()=>{
+    const id=Number(diGet('diFixMember')),num=diGet('diFixNumber'),out=document.getElementById('diFixOut');
+    if(!Number.isSafeInteger(id)||id<1||!num){out.textContent='회원 ID와 목표 관리번호를 입력하세요.';return;}
+    const d=await api('GET','/api/admin/data-corrections/transfer/preview?member_id='+id+'&desired_number='+encodeURIComponent(num)).catch(()=>null);
+    if(!d){out.textContent='조회 실패';return;}
+    diTransferPlan=d.allowed&&d.writes_enabled?d:null;
+    document.getElementById('diFixApply').disabled=!diTransferPlan;
+    const b=[d.allowed?'정정 가능 조건 확인':'정정 차단', '회원 '+e_(d.member?.name||'')+' #'+id,
+      '현재: '+(d.member?.management_number||'')+' → 목표: '+num,
+      '예정자 ID: '+(d.related?.candidate_id??'-')+' / 양도양수대장 ID: '+(d.related?.transfer_ledger_id??'-'),
+      ...(d.blocked||[]).map(x=>'차단: '+x),...(d.warnings||[]).map(x=>'주의: '+x),
+      d.writes_enabled?'백업 확인 후 관리자만 정정 실행 가능':'운영 정정 실행 비활성화(백업 확인 필요)'];
+    out.textContent=b.join('\n');
+  };
+  document.getElementById('diCertPreview').onclick=async()=>{
+    const id=Number(diGet('diCertLedger')),target=Number(diGet('diCertTarget')),
+      typ=diGet('diCertType'),out=document.getElementById('diCertOut');
+    if(!Number.isSafeInteger(id)||id<1||!Number.isSafeInteger(target)||target<1){out.textContent='발급대장 ID와 대상 ID를 입력하세요.';return;}
+    const d=await api('GET',`/api/admin/data-corrections/certificate/preview?ledger_id=${id}&target_type=${typ}&target_id=${target}`).catch(()=>null);
+    if(!d){out.textContent='조회 실패';return;}
+    diCertificatePlan=d.allowed&&d.writes_enabled?d:null;
+    document.getElementById('diCertApply').disabled=!diCertificatePlan;
+    out.textContent=[d.allowed?'재연결 가능 조건 확인':'재연결 차단','발급번호: '+(d.document_number||'없음'),
+      ...(d.reasons||[]).map(x=>'차단: '+x),
+      d.writes_enabled?'백업 확인 후 관리자만 실행 가능':'운영 재연결 실행 비활성화(백업 확인 필요)'].join('\n');
+  };
+  document.getElementById('diFixApply').onclick=async()=>{
+    const p=diTransferPlan,reason=diGet('diFixReason'),out=document.getElementById('diFixOut');
+    if(!p||!p.allowed||!p.writes_enabled)return;
+    if(reason.length<10){out.textContent='정정 사유를 10자 이상 입력하세요.';return;}
+    // 미리보기 이후 값이 바뀌었을 수 있으므로 실행 직전 서버에서 다시 검증한다.
+    const latest=await api('GET','/api/admin/data-corrections/transfer/preview?member_id='+p.member_id+
+      '&desired_number='+encodeURIComponent(p.desired_number)).catch(()=>null);
+    if(!latest?.allowed||latest.member?.management_number!==p.member?.management_number){
+      out.textContent='미리보기 이후 데이터가 변경됐거나 충돌이 발생했습니다. 다시 확인하세요.';return;
+    }
+    if(!await cfm(`회원 #${p.member_id}의 관리번호 ${p.member?.management_number}를 ${p.desired_number}로 정정할까요?\n관련 예정자·양도양수대장도 함께 변경됩니다.`))return;
+    try{
+      const r=await api('POST','/api/admin/data-corrections/transfer/apply',{
+        member_id:p.member_id,desired_number:p.desired_number,expected_old:p.member.management_number,reason});
+      out.textContent=`정정 완료: 회원 #${r.member_id}, 변경 ${r.changed}항목`;
+      diTransferPlan=null;document.getElementById('diFixApply').disabled=true;
+    }catch(e){out.textContent='정정 실패. 번호 점유·연결 관계를 다시 검사하세요.';}
+  };
+  document.getElementById('diCertApply').onclick=async()=>{
+    const p=diCertificatePlan,reason=diGet('diCertReason'),out=document.getElementById('diCertOut');
+    if(!p||!p.allowed||!p.writes_enabled)return;
+    if(reason.length<10){out.textContent='재연결 사유를 10자 이상 입력하세요.';return;}
+    const latest=await api('GET',`/api/admin/data-corrections/certificate/preview?ledger_id=${p.ledger_id}`+
+      `&target_type=${p.target_type}&target_id=${p.target_id}`).catch(()=>null);
+    if(!latest?.allowed||latest.document_number!==p.document_number){
+      out.textContent='미리보기 이후 충돌이 발생했습니다. 다시 확인하세요.';return;
+    }
+    if(!await cfm(`발급대장 #${p.ledger_id}을 ${p.target_type} #${p.target_id}에 재연결할까요?\n자격증명번호는 변경하지 않습니다.`))return;
+    try{
+      const r=await api('POST','/api/admin/data-corrections/certificate/apply',{
+        ledger_id:p.ledger_id,target_type:p.target_type,target_id:p.target_id,reason});
+      out.textContent=`재연결 완료: 발급대장 #${r.ledger_id}, 회원 ID ${r.member_id||'-'}, 예정자 ID ${r.candidate_id||'-'}`;
+      diCertificatePlan=null;document.getElementById('diCertApply').disabled=true;
+    }catch(e){out.textContent='재연결 실패. 발급이력과 회원 연결을 다시 검사하세요.';}
+  };
+  document.getElementById('diCertList').onclick=async()=>{
+    const out=document.getElementById('diCertOut');
+    const d=await api('GET','/api/admin/data-corrections/certificate/candidates?limit=30').catch(()=>null);
+    if(!d){out.textContent='조회 실패';return;}
+    out.textContent='미연결 후보 전체 '+d.total+'건 / 1차 30건\n'+d.items.map(x=>
+      `발급대장 #${x.ledger_id}, 번호 ${x.document_number}, ${x.result}, 대상 ${x.target?.type||'-'} #${x.target?.id||'-'}, ${x.reason||''}`).join('\n');
   };
   document.getElementById('diSearch').onclick=()=>load(1);
   document.getElementById('diRefresh').onclick=async()=>{await api('GET','/api/admin/data-integrity/summary?refresh=true').catch(()=>null);renderDataIntegrity();};

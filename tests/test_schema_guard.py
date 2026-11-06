@@ -40,7 +40,7 @@ def test_reproduces_500_without_guard_then_guard_fixes_without_touching_data(old
     assert broken.status_code == 500                                              # 원인 재현 (no such column: judgement)
     del app.dependency_overrides[schema_guard.guard_dependency]
 
-    client = TestClient(app, raise_server_exceptions=False)                      # 보호장치 켬
+    client = TestClient(app, raise_server_exceptions=True)                       # 보호장치 켬: 실패 시 실제 예외 표시
     for url in ["/api/change-history", "/api/change-stats/summary?year=2026&month=10", "/api/change-stats/detail?bucket=전체&year=2026&month=10",
                 "/api/dashboard/monthly-report-auto?year=2026&month=10", "/api/dashboard/full-stats"]:
         r = client.get(url)

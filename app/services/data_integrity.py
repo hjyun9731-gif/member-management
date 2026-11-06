@@ -9,9 +9,11 @@
 from __future__ import annotations
 
 import re
+from datetime import date
 from collections import defaultdict
 from typing import Dict, Iterable, List, Optional
 
+from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
 from app import models
@@ -380,12 +382,23 @@ def check_links(db: Session, members: List[dict]) -> List[dict]:
 def check_certificates(db: Session, members: List[dict]) -> List[dict]:
     out: List[dict] = []
     L, C = models.LicenseHolder, models.Candidate
-    logs = {}
-    for r in db.query(models.CertificateNumberLog.certificate_number, models.CertificateNumberLog.status,
-                      models.CertificateNumberLog.linked_table, models.CertificateNumberLog.linked_id):
-        key = canonical_number(r[0])
+    logs: Dict[str, List] = defaultdict(list)
+    for r in _batched(db.query(models.CertificateNumberLog.id, models.CertificateNumberLog.certificate_number,
+                               models.CertificateNumberLog.status, models.CertificateNumberLog.linked_table,
+                               models.CertificateNumberLog.linked_id)):
+        key = canonical_number(r[1])
         if key:
-            logs[key] = r
+            logs[key].append(r)
+    # 고유 문자열에 대한 UNIQUE 제약이 있어도 '26-085'와 '26-85'는 함께 존재할 수 있음.
+    # 이 경우 마지막 로그로 덮어쓰면 취소 여부를 조회 순서에 따라 잘못 확정할 위험이 있다.
+    for key, group in logs.items():
+        if len(group) > 1:
+            for r in group:
+                out.append(_f("DQ-09", REVIEW, "certificate_number_logs",
+                              {"id": r[0]}, "certificate_number", r[1],
+                              f"표준화 번호({key})가 같은 발급번호 이력 {len(group)}건이 존재",
+                              "취소·사용 상태와 실사용자를 확인(자동 재연결 금지)",
+                              duplicate_ids=[v[0] for v in group]))
     ledger_by_num: Dict[str, List] = defaultdict(list)
     Lg = CertificateIssuanceLedger
     ledger_rows = db.query(Lg.id, Lg.document_number, Lg.name, Lg.vehicle_number, Lg.region, Lg.member_id,
@@ -408,6 +421,12 @@ def check_certificates(db: Session, members: List[dict]) -> List[dict]:
         elif r[5] and mem_state.get(r[5]) is not None:
             out.append(_f("DQ-09", REVIEW, "certificate_issuance_ledger", rec, "member_id", r[5],
                           "삭제 처리된 회원을 참조", "활성 회원으로 재연결 필요 여부 검토"))
+        if r[6] and r[6] not in cand_member:
+            out.append(_f("DQ-15", CONFIRMED, "certificate_issuance_ledger", rec, "candidate_id", r[6],
+                          "존재하지 않는 예정자를 참조", "발급이력과 예정자 대조 후 연결 정정"))
+        elif r[6] and cand_member[r[6]][1] is not None:
+            out.append(_f("DQ-09", REVIEW, "certificate_issuance_ledger", rec, "candidate_id", r[6],
+                          "삭제된 예정자와 연결됨", "과거 발급 이력 여부 확인"))
         if r[6] and r[6] in cand_member:
             cm, cdel = cand_member[r[6]]
             if cm and r[5] and cm != r[5]:
@@ -427,14 +446,18 @@ def check_certificates(db: Session, members: List[dict]) -> List[dict]:
         if not key:
             continue
         owner_by_num[key].append(m)
-        log = logs.get(key)
-        if log is None:
+        number_logs = logs.get(key, [])
+        if not number_logs:
             out.append(_f("DQ-09", REVIEW, "license_holders", m, "certificate_number", m["certificate_number"],
                           "회원에 자격증명번호가 있으나 발급번호 이력(certificate_number_logs)에 없음",
                           "이력 보충 여부 확인"))
-        elif log[1] == "cancelled":
+        elif len(number_logs) == 1 and number_logs[0][2] == "cancelled":
             out.append(_f("DQ-09", CONFIRMED, "license_holders", m, "certificate_number", m["certificate_number"],
                           "취소된 발급번호를 회원이 사용 중", "번호 확인"))
+        elif len(number_logs) > 1:
+            out.append(_f("DQ-09", REVIEW, "license_holders", m, "certificate_number", m["certificate_number"],
+                          "동일 표준번호의 발급이력이 여러 개여서 상태가 불확실함",
+                          "발급번호 이력 및 실제 사용 여부 확인(자동 재연결 금지)"))
         if key not in ledger_by_num:
             out.append(_f("DQ-09", REVIEW, "license_holders", m, "certificate_number", m["certificate_number"],
                           "회원에 자격증명번호가 있으나 발급대장(certificate_issuance_ledger)에 없음",
@@ -466,27 +489,36 @@ def _date_ok(v: str) -> bool:
     s = str(v or "").strip()
     if not s:
         return True
-    if not _DATE_OK.match(s):
+    # 과거 자료에는 '13. 6.11.' 같이 구분자 뒤 공백이 들어간 정상 일자가 많다.
+    # 공백만 제거한 사본으로 파싱하며, 저장된 원본 표기는 변경하지 않는다.
+    compact = re.sub(r"\s+", "", s)
+    if not _DATE_OK.match(compact):
         return False
-    digits = re.findall(r"\d+", s)
+    digits = re.findall(r"\d+", compact)
     if len(digits) == 1 and len(digits[0]) == 8:
         y, mo, d = int(digits[0][:4]), int(digits[0][4:6]), int(digits[0][6:])
     else:
         y, mo, d = int(digits[0]), int(digits[1]), int(digits[2])
         if y < 100:
             y += 2000
-    return 1 <= mo <= 12 and 1 <= d <= 31 and 1950 <= y <= 2100
+    if not 1950 <= y <= 2100:
+        return False
+    try:
+        date(y, mo, d)  # 2월 30일·윤년 오류 등 실제 달력에 없는 날짜 차단
+        return True
+    except ValueError:
+        return False
 
 
 def check_member_fields(db: Session, members: List[dict]) -> List[dict]:
     out: List[dict] = []
     A = models.MemberAgent
     current_by_member: Dict[int, int] = defaultdict(int)
-    try:
-        for mid, cnt in db.query(A.member_id, A.id).filter(A.deleted_at.is_(None), A.status == "현재"):
+    # 임의 SQL 예외를 잡아 무시하면 PostgreSQL에서는 트랜잭션이 aborted 상태로 남는다.
+    # 선택적 테이블이 없는지만 메타데이터로 확인하고, 그 밖의 DB 오류는 호출자에게 전달한다.
+    if inspect(db.get_bind()).has_table(A.__tablename__):
+        for mid, _ in db.query(A.member_id, A.id).filter(A.deleted_at.is_(None), A.status == "현재"):
             current_by_member[mid] += 1
-    except Exception:
-        current_by_member = defaultdict(int)     # member_agents 테이블이 없는 환경 방어
     for m in members:
         has_date = bool(str(m["membership_date"] or "").strip())
         ms = (m["membership_status"] or "").strip()
