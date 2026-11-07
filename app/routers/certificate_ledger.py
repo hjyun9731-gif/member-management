@@ -1487,6 +1487,9 @@ async def search_link_targets(
     items = []
     for c in db.query(models.Candidate).filter(
         models.Candidate.deleted_at.is_(None),
+        # 인가 완료 후 회원으로 전환된 예정자는 이력으로만 보존한다.
+        # 재연결 대상 검색에서는 미전환 예정자만 노출한다.
+        models.Candidate.is_registered.is_(False),
         or_(
             models.Candidate.name.ilike(pattern),
             models.Candidate.vehicle_number.ilike(pattern),
