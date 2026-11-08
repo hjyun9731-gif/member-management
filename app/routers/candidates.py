@@ -14,6 +14,7 @@ from app.services import agent_history
 from app.services.certificate_number_guard import guard_certificate_number
 from app.services.certificate_number_rules import canonical_number
 from app.services.freight_qualification import normalize_in_dict_or_400
+from app.services.similar_records import candidate_approval_date
 
 router = APIRouter()
 
@@ -42,6 +43,20 @@ async def issue_certificate_number(body: IssueCertificateNumberBody,
         raise HTTPException(400, str(e))
 
 
+class SimilarRecordsBody(BaseModel):
+    management_number: Optional[str] = ""
+    name: Optional[str] = ""
+    approval_date: Optional[str] = ""
+    region: Optional[str] = ""
+
+
+@router.post("/similar-records")
+async def similar_records(body: SimilarRecordsBody,
+                          db: Session = Depends(get_db), _=Depends(get_current_user)):
+    from app.services.similar_records import find_similar
+    return find_similar(db, **body.model_dump())
+
+
 @router.get("")
 async def list_candidates(
     search: Optional[str] = Query(None),
@@ -60,7 +75,9 @@ async def list_candidates(
 
 def _fmt(c):
     return {
-        "id": c.id, "region": c.region, "vehicle_number": c.vehicle_number, "name": c.name,
+        "id": c.id, "management_number": c.management_number or "",
+        "approval_date": candidate_approval_date(c),
+        "region": c.region, "vehicle_number": c.vehicle_number, "name": c.name,
         "resident_number": c.resident_number, "address": c.address, "phone": c.phone, "mobile": c.mobile,
         "certificate_issue_date": c.certificate_issue_date, "certificate_number": c.certificate_number,
         "driver_license_number": c.driver_license_number, "vehicle_type": c.vehicle_type,
@@ -106,6 +123,8 @@ async def restore_candidate(cid: int, db: Session = Depends(get_db), _=Depends(g
 @router.post("")
 async def create_candidate(data: dict, db: Session = Depends(get_db), user=Depends(get_current_user)):
     normalize_in_dict_or_400(data)  # 화물운송종사자격증 번호 형식 검증/정규화
+    from app.services.similar_records import set_candidate_approval_date
+    set_candidate_approval_date(data)
     # 이미 다른 대상이 쓰는 자격증명발급번호면 저장하지 않는다 (409). 확인~저장은 번호 잠금으로 직렬화.
     guard_certificate_number(db, data.get("certificate_number"),
                              name=str(data.get("name") or ""), vehicle_number=str(data.get("vehicle_number") or ""))
@@ -138,6 +157,23 @@ async def update_candidate(cid: int, data: dict, db: Session = Depends(get_db), 
     item = crud.get_by_id(db, models.Candidate, cid)
     if not item:
         raise HTTPException(404, "예정자를 찾을 수 없습니다.")
+    from app.services.similar_records import set_candidate_approval_date
+    set_candidate_approval_date(data, item.raw_data)
+    if "management_number" in data:
+        from app.services import member_integrity
+        if member_integrity.mgmt_key(data.get("management_number")) != member_integrity.mgmt_key(item.management_number):
+            member_integrity.lock_registration(db)
+            try:
+                crud.validate_management_number_format(data.get("management_number"))
+                member_integrity.assert_registration_safe(
+                    db, {"name": data.get("name", item.name),
+                         "vehicle_number": data.get("vehicle_number", item.vehicle_number),
+                         "certificate_number": data.get("certificate_number", item.certificate_number),
+                         "resident_number": data.get("resident_number", item.resident_number)},
+                    data.get("management_number"), member_id=item.member_id, candidate_id=item.id)
+            except ValueError as exc:
+                db.rollback()
+                raise HTTPException(409, str(exc))
     # 번호를 새로 넣거나 바꾸는 경우에만 검사한다 (기존 데이터 저장이 막히지 않도록).
     if "certificate_number" in data and canonical_number(data.get("certificate_number")) != canonical_number(item.certificate_number):
         guard_certificate_number(
