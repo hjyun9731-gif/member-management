@@ -75,6 +75,16 @@ async def create_license_holder(data: LicenseHolderCreate, db: Session = Depends
     normalize_in_dict_or_400(payload)  # 화물운송종사자격증 번호 형식 검증/정규화
     guard_certificate_number(db, payload.get("certificate_number"), candidate_id=payload.get("candidate_id"),
                              name=str(payload.get("name") or ""), vehicle_number=str(payload.get("vehicle_number") or ""))
+    from app.services import member_integrity
+    member_integrity.lock_registration(db)
+    try:
+        crud.validate_management_number_format(payload.get("management_number"))
+        if payload.get("candidate_id"):
+            raise ValueError("예정자와 연결된 회원은 예정자 등록완료 기능을 사용하세요.")
+        member_integrity.assert_registration_safe(db, payload, payload.get("management_number"))
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(409, str(exc))
     return crud.create_item(db, models.LicenseHolder, payload)
 
 
@@ -87,6 +97,19 @@ async def update_license_holder(item_id: int, data: LicenseHolderUpdate,
         raise HTTPException(status_code=404, detail="데이터를 찾을 수 없습니다.")
     payload = data.model_dump(exclude_none=True)
     normalize_in_dict_or_400(payload)  # 화물운송종사자격증 번호 형식 검증/정규화
+    if "management_number" in payload and payload["management_number"] != item.management_number:
+        from app.services import member_integrity
+        member_integrity.lock_registration(db)
+        try:
+            crud.validate_management_number_format(payload["management_number"])
+            conflicts = member_integrity.management_conflicts(
+                db, payload["management_number"], member_id=item.id,
+                candidate_id=getattr(item, "candidate_id", None))
+            if conflicts:
+                raise ValueError("관리번호 중복: " + ", ".join(conflicts))
+        except ValueError as exc:
+            db.rollback()
+            raise HTTPException(409, str(exc))
     if "certificate_number" in payload and canonical_number(payload.get("certificate_number")) != canonical_number(item.certificate_number):
         guard_certificate_number(db, payload.get("certificate_number"), member_id=item.id,
                                  candidate_id=getattr(item, "candidate_id", None),

@@ -25,13 +25,23 @@ ISSUED = "발급완료"
 _SCHEMA_READY = set()  # 스키마 점검을 끝낸 DB 엔진(id). 요청마다 반복하던 점검 쿼리를 없앤다.
 
 
-def ensure_ledger_schema(db: Session) -> None:
+def ensure_ledger_schema(db: Session, *, read_only: bool = False) -> None:
     """발급대장 전용 테이블만 없을 때 안전하게 생성한다.
 
     기존 DB 테이블은 수정/삭제하지 않는다. Railway 운영 DB에서 테이블 누락으로
     조회 API가 500이 되는 상황을 막기 위한 최소 안전장치다.
     """
     bind = db.get_bind()
+    if read_only:
+        # 세션의 현재 트랜잭션 연결을 재사용한다. 특히 SQLite에서 Engine 자체를
+        # inspect하면 동일 DBAPI 연결이 잠시 닫혀 진행 중인 UPDATE가 rollback될 수 있다.
+        inspector = inspect(db.connection())
+        if not inspector.has_table("certificate_issuance_ledger"):
+            raise RuntimeError("발급대장 스키마가 없어 저장을 중단합니다. 관리자가 마이그레이션을 확인해야 합니다.")
+        columns = {c["name"]: c for c in inspector.get_columns("certificate_issuance_ledger")}
+        if "remark" not in columns or not columns.get("document_number", {}).get("nullable", False):
+            raise RuntimeError("발급대장 스키마가 예상과 달라 저장을 중단합니다.")
+        return
     if id(bind) in _SCHEMA_READY:
         return
     ledger_models.CertificateIssuanceLedger.__table__.create(bind=bind, checkfirst=True)
@@ -269,7 +279,7 @@ def ensure_candidate_ledger(db: Session, candidate: models.Candidate, user=None)
     return entry
 
 
-def ensure_member_ledger(db: Session, member: models.LicenseHolder, user=None):
+def ensure_member_ledger(db: Session, member: models.LicenseHolder, user=None, *, commit: bool = True):
     """개인/택배회원에 직접 입력된 자격증명번호도 발급대장에 즉시 반영한다.
 
     과거 인가가 먼저 끝난 회원(예: 2021 인가, 2026 자격증명 발급)이
@@ -289,7 +299,7 @@ def ensure_member_ledger(db: Session, member: models.LicenseHolder, user=None):
     # 발급대장에 남긴다. 중복확인/기존 행 검색은 계속 정규화된 number 기준으로 한다.
     display_number = raw_number or number
 
-    ensure_ledger_schema(db)
+    ensure_ledger_schema(db, read_only=not commit)
     actor = operator_name(user)
 
     # 같은 번호는 26-085/26-85처럼 표기가 달라도 한 건으로 취급한다.
@@ -400,6 +410,12 @@ def ensure_member_ledger(db: Session, member: models.LicenseHolder, user=None):
         add_history(db, entry.id, "회원수기발급", None, APPROVED, actor,
                     "개인/택배회원 자격증명번호 수기입력에서 자동 연결")
     else:
+        if not commit and entry.member_id not in (None, member.id):
+            raise ValueError("발급대장이 다른 회원에 연결돼 있어 저장을 취소합니다.")
+        if not commit and entry.candidate_id and entry.candidate_id != getattr(member, "candidate_id", None):
+            related = db.get(models.Candidate, entry.candidate_id)
+            if not related or related.member_id != member.id:
+                raise ValueError("발급대장의 예정자 연결이 다른 회원을 참조합니다.")
         entry.member_id = member.id
         if not entry.candidate_id:
             entry.candidate_id = getattr(member, "candidate_id", None)
@@ -425,9 +441,12 @@ def ensure_member_ledger(db: Session, member: models.LicenseHolder, user=None):
         db, number, "license_holders", member.id,
         getattr(member, "name", "") or "",
         getattr(member, "vehicle_number", "") or "",
-        issued_by=actor,
+        issued_by=actor, commit=commit,
     )
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     db.refresh(entry)
     return entry
 

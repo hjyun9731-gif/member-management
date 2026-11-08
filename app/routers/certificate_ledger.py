@@ -1490,6 +1490,7 @@ async def search_link_targets(
         # 인가 완료 후 회원으로 전환된 예정자는 이력으로만 보존한다.
         # 재연결 대상 검색에서는 미전환 예정자만 노출한다.
         models.Candidate.is_registered.is_(False),
+        models.Candidate.member_id.is_(None),
         or_(
             models.Candidate.name.ilike(pattern),
             models.Candidate.vehicle_number.ilike(pattern),

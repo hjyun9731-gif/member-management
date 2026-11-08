@@ -340,12 +340,17 @@ async def create_member(data: dict, db: Session = Depends(get_db), _=Depends(get
         from app.excel_utils import _normalize_region
         data["region"] = _normalize_region(data["region"])
     mgmt = (data.get("management_number") or "").strip()
+    from app.services import member_integrity
+    member_integrity.lock_registration(db)
     try:
         crud.validate_management_number_format(mgmt)
+        # 예정자 전환은 /candidates/{id}/register 경로에서 기존 예정자를 재사용해야 함.
+        if data.get("candidate_id"):
+            raise ValueError("예정자 연결 신규등록은 예정자 등록완료 기능을 이용하세요.")
+        member_integrity.assert_registration_safe(db, data, mgmt)
     except ValueError as exc:
-        raise HTTPException(400, str(exc))
-    if mgmt and crud.check_mgmt_dup(db, models.LicenseHolder, mgmt):
-        raise HTTPException(400, f"관리번호 {mgmt}가 이미 존재합니다.")
+        db.rollback()
+        raise HTTPException(409, str(exc))
     # 이미 다른 대상이 쓰는 자격증명발급번호면 저장하지 않는다 (409). 예정자에서 전환하는 경우
     # candidate_id가 넘어오면 같은 사람으로 보고 허용한다.
     guard_certificate_number(
@@ -439,8 +444,13 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
         except ValueError as exc:
             raise HTTPException(400, str(exc))
     if new_mgmt is not None and str(new_mgmt).strip() and str(new_mgmt).strip() != (m.management_number or ""):
-        if crud.check_mgmt_dup(db, models.LicenseHolder, str(new_mgmt).strip(), exclude_id=mid):
-            raise HTTPException(400, f"관리번호 {new_mgmt}가 이미 존재합니다.")
+        from app.services import member_integrity
+        member_integrity.lock_registration(db)
+        conflicts = member_integrity.management_conflicts(
+            db, new_mgmt, member_id=mid, candidate_id=getattr(m, "candidate_id", None))
+        if conflicts:
+            db.rollback()
+            raise HTTPException(409, "관리번호 중복: " + ", ".join(conflicts))
 
     old_cert_before = (m.certificate_number or "").strip()
     new_cert = data.get("certificate_number")
@@ -513,6 +523,23 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
             filtered_data.pop(col)
             logger.warning(f"컬럼 {col} 없어서 제거됨")
 
+    # 자격증명 변경일 때만, 회원 데이터 쓰기 전에 발급대장 스키마를 읽기 전용으로 검사.
+    # 새 동기화 경로에서 암묵적인 DDL/commit을 막아 부분 저장을 방지한다.
+    _cert_change = (
+        "certificate_number" in filtered_data and
+        (crud.normalize_certificate_number(old_cert_before) or old_cert_before) !=
+        (crud.normalize_certificate_number(filtered_data.get("certificate_number") or "") or
+         str(filtered_data.get("certificate_number") or "").strip())
+    )
+    if _cert_change and crud._is_valid_certificate_number_format(str(filtered_data.get("certificate_number") or "")):
+        from app.services.certificate_ledger_service import ensure_ledger_schema
+        try:
+            ensure_ledger_schema(db, read_only=True)
+        except Exception:
+            db.rollback()
+            logger.exception("회원 #%s 자격증명 변경 사전검사 실패", mid)
+            raise HTTPException(503, "발급대장 연결 상태를 확인할 수 없어 회원정보를 저장하지 않았습니다.")
+
     # 변경 전 값 스냅샷 (자동기록 + 내부기록 대상 모두)
     all_track_fields = set(_AUTO_CHANGE_FIELDS) | _INTERNAL_LOG_ONLY_FIELDS | _STRUCT_FIELDS
     before_snap = {f: getattr(m, f, "") or "" for f in all_track_fields}
@@ -539,6 +566,14 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
             logger.warning(f"setattr {k}={v} 실패: {ex}")
 
     m.updated_at = datetime.datetime.now(datetime.timezone.utc)
+
+    # '(대)' 전화번호는 동일 회원의 현재 대리인 이력과 유일하게 일치할 때만 자동 연결.
+    # 원문 연락처는 보존하고, 다수 후보/과거 대리인/다른 회원의 번호는 건드리지 않는다.
+    agent_phone_link_status = "not_applicable"
+    if "mobile" in filtered_data or "phone" in filtered_data:
+        from app.services.agent_phone_link import link_known_current_agent
+        agent_phone_link_status = link_known_current_agent(
+            db, m, m.mobile, m.phone)
 
     # 대리인 이력: 대리인이 바뀌면 기존 대리인은 '종료'로 보존하고 새 이력을 만든다(덮어쓰기·삭제 금지).
     # ChangeHistory(월례보고서 실적)에는 기록하지 않는다. 같은 트랜잭션이라 아래 commit 과 함께 저장/롤백된다.
@@ -729,41 +764,31 @@ async def update_member(mid: int, data: dict, db: Session = Depends(get_db),
         if str(final_vehicle).strip() and str(final_name).strip():
             m.status = "active"
 
+    # 회원·발급번호이력·발급대장을 하나의 트랜잭션에서 확정한다.
+    # 동기화 실패 시 회원 변경도 rollback되므로 저장됐는데 연결만 실패하는 상태가 발생하지 않는다.
     try:
-        db.commit()
-        db.refresh(m)
-        logger.info(f"PUT /api/members/{mid} 저장 성공")
-    except Exception as e:
-        db.rollback()
-        logger.error(f"PUT /api/members/{mid} DB 저장 실패: {e}")
-        raise HTTPException(500, f"DB 저장 오류: {str(e)}")
-
-    # 자격증명발급번호가 이번 저장에서 채워지거나 바뀐 경우, 발급이력(certificate_number_logs)에도
-    # 실제 대상자로 연결 - 이전에는 이 경로(회원 직접수정)로 입력하면 발급이력이 갱신되지 않아
-    # 발급이력 화면에는 계속 대상자 미연결(발급/미사용)로 남는 문제가 있었음.
-    certificate_sync_warning = False
-    if "certificate_number" in filtered_data:
-        cert_val = (m.certificate_number or "").strip()
-        if cert_val and crud._is_valid_certificate_number_format(cert_val):
-            try:
-                # 기존 이력 소유자·대장 연결을 먼저 검증한다.
-                # 이 순서를 지키지 않으면 resync가 다른 사람의 발급번호 로그를 먼저 덮어쓸 수 있다.
-                ensure_member_ledger(db, m, current_user)
-                # 유효한 연결이 확인된 다음 이전 번호 사용이력만 정리한다.
+        db.flush()
+        if _cert_change and (m.certificate_number or "").strip():
+            cert_val = (m.certificate_number or "").strip()
+            if crud._is_valid_certificate_number_format(cert_val):
+                # 기존 회원의 발급대장 행을 우선 갱신하고, 없을 때만 새 발급대장을 보장한다.
+                # 순서를 바꾸면 이전 번호의 대장을 둔 채 신규 대장이 만들어져 중복될 수 있다.
                 crud.resync_certificate_number_change(
                     db, old_cert_before, cert_val, "license_holders", m.id,
-                    m.name or "", m.vehicle_number or ""
+                    m.name or "", m.vehicle_number or "", commit=False, strict=True,
                 )
-            except Exception:
-                db.rollback()  # 실패한 DB 트랜잭션은 다음 요청에 전파하지 않는다.
-                certificate_sync_warning = True
-                logger.exception("회원 #%s 저장 후 자격증명 이력/발급대장 동기화 실패", mid)
+                ensure_member_ledger(db, m, current_user, commit=False)
+        db.commit()
+        db.refresh(m)
+        logger.info("PUT /api/members/%s 저장 및 필요한 자격증명 동기화 성공", mid)
+    except Exception:
+        db.rollback()
+        logger.exception("회원 #%s 저장/자격증명 동기화 실패: 전체 rollback", mid)
+        raise HTTPException(500, "회원정보 또는 발급대장 동기화 오류로 저장 전체를 취소했습니다. 관리자 확인이 필요합니다.")
 
     result = _fmt(m)
-    if certificate_sync_warning:
-        # 회원 필드 저장은 이미 commit됐으므로 실패(500)로 응답하면 재저장 중복을 유도한다.
-        # 대신 프런트에서 후속 확인 필요를 분명하게 표시한다. 세부 DB 예외는 노출하지 않는다.
-        result["certificate_sync_warning"] = "회원정보는 저장됐지만 자격증명 발급이력/발급대장 연결에 실패했습니다. 관리자 확인이 필요합니다."
+    if agent_phone_link_status != "not_applicable":
+        result["agent_phone_link_status"] = agent_phone_link_status
     return result
 
 

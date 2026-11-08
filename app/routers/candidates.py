@@ -109,6 +109,15 @@ async def create_candidate(data: dict, db: Session = Depends(get_db), user=Depen
     # 이미 다른 대상이 쓰는 자격증명발급번호면 저장하지 않는다 (409). 확인~저장은 번호 잠금으로 직렬화.
     guard_certificate_number(db, data.get("certificate_number"),
                              name=str(data.get("name") or ""), vehicle_number=str(data.get("vehicle_number") or ""))
+    from app.services import member_integrity
+    member_integrity.lock_registration(db)
+    try:
+        mgmt = data.get("management_number") or ""
+        crud.validate_management_number_format(mgmt)
+        member_integrity.assert_registration_safe(db, data, mgmt)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(409, str(exc))
     item = crud.create_item(db, models.Candidate, data)
     if item.certificate_number:
         crud.sync_certificate_number_usage(db, item.certificate_number, "candidates", item.id,
@@ -166,9 +175,11 @@ class RegisterBody(BaseModel):
 @router.post("/{cid}/register")
 async def register_as_member(cid: int, body: RegisterBody,
                               db: Session = Depends(get_db), user=Depends(get_current_user)):
+    from app.services import member_integrity
+    member_integrity.lock_registration(db)
     mgmt = body.management_number or crud.get_next_new_member_number(db)
-    if crud.check_mgmt_dup(db, models.LicenseHolder, mgmt):
-        raise HTTPException(400, f"관리번호 {mgmt}가 이미 존재합니다.")
+    # 전환 대상 예정자의 관리번호는 중복 점유로 간주하지 않는다.
+    # 다른 회원·예정자와의 충돌은 CRUD 내부에서 검사한다.
     try:
         member = crud.register_candidate_as_member(
             db, cid, body.approval_date, mgmt,

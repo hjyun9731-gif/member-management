@@ -205,19 +205,30 @@ def guard_certificate_number(db: Session, value, **subject) -> str:
     cert = rules.canonical_number(value)
     if not cert:
         return ""
+    # 폐업현황 작성에서는 이미 같은 회원이 사용한 번호를 '인용'하는 정상 업무가 있다.
+    # 일반 회원/예정자 등록에는 절대 적용하지 않는 명시적 예외다.
+    # 같은 이름·차량번호·발급번호의 실제 회원 사용처가 정확히 1건일 때만
+    # 그 회원 사용처를 제외하고, 나머지 중복은 그대로 차단한다.
+    closure_workflow = subject.pop("closure_workflow", False) is True
     try:
         lock_number(db, cert)
         ctx = build_context(db, **subject)
-        hits = find_conflicts(db, cert, ctx)
+        if closure_workflow:
+            uses = scan_usages(db, cert)
+            matched = [h for h in uses if h.get("source") == "license_holders" and
+                       rules.same_subject(h.get("name"), h.get("vehicle_number"),
+                                          ctx.name, ctx.vehicle_number)]
+            if len(matched) == 1:
+                ctx.member_ids.add(matched[0]["id"])
+            hits = rules.conflicts(uses, ctx)
+        else:
+            hits = find_conflicts(db, cert, ctx)
     except HTTPException:
         raise
     except Exception:
-        logger.exception("자격증명발급번호 중복검사 오류(검사 생략): %s", cert)
-        try:
-            db.rollback()
-        except Exception:
-            pass
-        return cert
+        logger.exception("자격증명발급번호 중복검사 오류(등록 중단): %s", cert)
+        db.rollback()
+        raise HTTPException(503, "자격증명 중복 검사를 완료하지 못해 저장하지 않았습니다. 다시 확인하세요.")
     if hits:
         raise CertificateNumberDuplicate(cert, hits)
     return cert

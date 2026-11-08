@@ -833,8 +833,8 @@ def _scan_certificate_number_usage(db: Session, certificate_number: str):
 def sync_certificate_number_usage(db: Session, certificate_number: str,
                                    linked_table: str, linked_id: int,
                                    target_name: str = "", vehicle_number: str = "",
-                                   issued_by: str | None = None):
-    """레코드 저장 시점에 발급이력과 실사용 여부를 연결. 로그가 없으면(수기 입력 등) 새로 만든다."""
+                                   issued_by: str | None = None, *, commit: bool = True):
+    """레코드 저장 시점에 발급이력과 실사용 여부를 연결. commit=False면 호출자가 확정."""
     certificate_number = normalize_certificate_number(certificate_number)
     if not certificate_number:
         return
@@ -860,12 +860,14 @@ def sync_certificate_number_usage(db: Session, certificate_number: str,
             target_name=target_name, vehicle_number=vehicle_number,
             memo="수동입력(발급이력 없음, 저장 시점에 자동 생성)",
         ))
-    db.commit()
+    if commit:
+        db.commit()
 
 
 def resync_certificate_number_change(db: Session, old_number: str, new_number: str,
                                      linked_table: str, linked_id: int,
-                                     target_name: str = "", vehicle_number: str = ""):
+                                     target_name: str = "", vehicle_number: str = "",
+                                     *, commit: bool = True, strict: bool = False):
     """개인/택배회원에서 자격증명번호를 수기로 고쳤을 때 번호이력과 발급대장을 즉시 재연결한다.
 
     새 번호는 현재 대상자에게 ``used``로 연결하고, 이전 번호가 더 이상 실제 데이터에서
@@ -875,7 +877,8 @@ def resync_certificate_number_change(db: Session, old_number: str, new_number: s
     old_cert = normalize_certificate_number(old_number)
     new_cert = normalize_certificate_number(new_number)
     if new_cert:
-        sync_certificate_number_usage(db, new_cert, linked_table, linked_id, target_name, vehicle_number)
+        sync_certificate_number_usage(db, new_cert, linked_table, linked_id, target_name, vehicle_number,
+                                      commit=commit)
 
     if old_cert and old_cert != new_cert:
         old_log = get_certificate_number_log(db, old_cert)
@@ -909,7 +912,21 @@ def resync_certificate_number_change(db: Session, old_number: str, new_number: s
             if member and getattr(member, "candidate_id", None):
                 conds.append(_ledger_models.CertificateIssuanceLedger.candidate_id == member.candidate_id)
             from sqlalchemy import or_
-            row = q.filter(or_(*conds)).first() if conds else None
+            if strict and conds:
+                linked_rows = q.filter(or_(*conds)).all()
+                old_matches = [r for r in linked_rows if normalize_certificate_number(r.document_number) == old_cert]
+                if len(old_matches) > 1:
+                    raise ValueError("이전 발급번호의 대장 이력이 중복되어 저장을 중단합니다.")
+                if old_matches:
+                    row = old_matches[0]
+                elif len(linked_rows) == 1 and normalize_certificate_number(linked_rows[0].document_number) in {new_cert, ""}:
+                    row = linked_rows[0]
+                elif linked_rows:
+                    raise ValueError("연결된 발급대장이 여러 건이거나 번호가 달라 저장을 중단합니다.")
+                else:
+                    row = None
+            else:
+                row = q.filter(or_(*conds)).first() if conds else None
             if row and member:
                 if new_cert:
                     dup = db.query(_ledger_models.CertificateIssuanceLedger.id).filter(
@@ -917,6 +934,8 @@ def resync_certificate_number_change(db: Session, old_number: str, new_number: s
                         _ledger_models.CertificateIssuanceLedger.id != row.id,
                         _ledger_models.CertificateIssuanceLedger.deleted_at.is_(None),
                     ).first()
+                    if dup and strict:
+                        raise ValueError("다른 발급대장이 새 번호를 사용하고 있어 전체 저장을 취소합니다.")
                     if not dup:
                         # 26-385(강동규)처럼 괄호로 실제 운전자명이 붙은 원본 표기를 그대로
                         # 대장에도 남겨야, 발급대장 검색(성명/차량번호/자격증명번호)에서
@@ -929,10 +948,15 @@ def resync_certificate_number_change(db: Session, old_number: str, new_number: s
                 row.name = member.name or row.name
                 row.vehicle_number = member.vehicle_number or row.vehicle_number
                 row.region = member.region or row.region
-        db.commit()
+        if commit:
+            db.commit()
+        else:
+            db.flush()
     except Exception:
+        if strict:
+            raise
         db.rollback()
-        # 번호이력 동기화 자체는 이미 완료되었으므로 발급대장 보조동기화 실패로 회원 저장을 깨지 않는다.
+        # 기존 호출과의 호환성을 위해 strict=False에서는 재동기화 시도를 유지.
         if new_cert:
             sync_certificate_number_usage(db, new_cert, linked_table, linked_id, target_name, vehicle_number)
     return new_cert
@@ -1166,11 +1190,12 @@ def _mgmt_number_in_use(db: Session, mgmt_num: str) -> bool:
         return False
     if check_mgmt_dup(db, models.LicenseHolder, mgmt_num):
         return True
-    if db.query(models.Candidate).filter(
-        models.Candidate.management_number == mgmt_num,
-        models.Candidate.deleted_at.is_(None),
-    ).first() is not None:
-        return True
+    from app.services.member_integrity import mgmt_key
+    key = mgmt_key(mgmt_num)
+    for (val,) in db.query(models.Candidate.management_number).filter(
+        models.Candidate.deleted_at.is_(None)).all():
+        if mgmt_key(val) == key:
+            return True
     return False
 
 
@@ -1180,15 +1205,11 @@ def lock_transfer_number_sequence(db: Session):
     (같은 db 세션의 트랜잭션이 commit/rollback 될 때 자동 해제됨)
     SQLite: 별도 처리 없이 통과 (단일 파일 기반이라 충돌 가능성 낮음, 개발환경 전용)
     """
-    try:
-        bind = db.get_bind()
-        if bind is not None and bind.dialect.name == "postgresql":
-            from sqlalchemy import text
-            # 임의의 고정 키로 advisory lock (신규/양도양수 관리번호 발급 공통)
-            db.execute(text("SELECT pg_advisory_xact_lock(hashtext('transfer_member_number_seq'))"))
-    except Exception:
-        # 잠금 실패 시에도 진행 (완전 차단하지 않음) - 아래 중복 체크가 최종 방어선
-        pass
+    bind = db.get_bind()
+    if bind is not None and bind.dialect.name == "postgresql":
+        from sqlalchemy import text
+        # 잠금을 못 얻었으면 안전하지 않으므로 실패시 중단한다.
+        db.execute(text("SELECT pg_advisory_xact_lock(hashtext('transfer_member_number_seq'))"))
 
 
 def get_last_issued_management_number(db: Session, mgmt_type: str) -> Optional[str]:
@@ -1225,7 +1246,7 @@ def issue_management_number_only(db: Session, mgmt_type: str,
     # 방어적 재확인 (advisory lock이 동작하지 않는 환경 대비 최종 방어선)
     tries = 0
     prefix = f"{'신' if mgmt_type == 'new' else '양'}{_get_yy()}-"
-    _dup_check = check_mgmt_dup if mgmt_type == 'new' else (lambda db_, model_, m: _mgmt_number_in_use(db_, m))
+    _dup_check = lambda db_, model_, m: _mgmt_number_in_use(db_, m)
     while _dup_check(db, models.LicenseHolder, mgmt) and tries < 30:
         try:
             n = int(mgmt.split("-")[1]) + 1
@@ -1288,14 +1309,16 @@ def validate_management_number_format(value: str) -> None:
 def check_mgmt_dup(db: Session, model: Type, mgmt_num: str, exclude_id: int = None) -> bool:
     if not mgmt_num:
         return False
-    q = db.query(model).filter(model.management_number == mgmt_num)
-    # 폐업/양도/이관 번호는 취소/삭제된 과거 번호까지 영구 점유한다.
-    # 회원 등 다른 관리번호는 기존대로 활성 행만 중복검사한다.
-    if model is not models.Closure:
-        q = q.filter(model.deleted_at.is_(None))
-    if exclude_id:
-        q = q.filter(model.id != exclude_id)
-    return q.first() is not None
+    # 폐업/양도/이관 번호는 과거까지 영구 점유하는 기존 규칙을 유지.
+    if model is models.Closure:
+        q = db.query(model.id).filter(model.management_number == mgmt_num)
+        if exclude_id is not None:
+            q = q.filter(model.id != exclude_id)
+        return q.first() is not None
+    from app.services.member_integrity import mgmt_key
+    key = mgmt_key(mgmt_num)
+    rows = db.query(model.id, model.management_number).filter(model.deleted_at.is_(None)).all()
+    return any(rid != exclude_id and mgmt_key(value) == key for rid, value in rows)
 
 
 # ===== CANDIDATE → MEMBER REGISTRATION =====
@@ -1326,9 +1349,16 @@ def register_candidate_as_member(db: Session, candidate_id: int,
         cand = q.first()
         if not cand:
             raise ValueError("예정자를 찾을 수 없습니다.")
-        if cand.is_registered:
-            raise ValueError("이미 등록 처리된 예정자입니다.")
-
+        if cand.is_registered or cand.member_id:
+            raise ValueError("이미 등록 처리되거나 회원에 연결된 예정자입니다.")
+        from app.services import member_integrity
+        member_integrity.lock_registration(db)
+        member_integrity.assert_registration_safe(
+            db,
+            {"name": cand.name, "vehicle_number": cand.vehicle_number,
+             "certificate_number": cand.certificate_number, "resident_number": cand.resident_number},
+            management_number, candidate_id=cand.id,
+        )
         cat = detect_category(cand.vehicle_number)
         # 등록완료 모달 입력값 우선, 없으면 예정자 저장 시 입력한 가입일자 이어받기
         final_membership_date = membership_date or getattr(cand, 'membership_date', '') or ''
@@ -1470,6 +1500,15 @@ def register_transfer_as_member(db: Session, transfer_id: int,
     tr = get_by_id(db, models.TransferLedger, transfer_id)
     if not tr:
         raise ValueError("양도양수 기록을 찾을 수 없습니다.")
+    if tr.member_id or getattr(tr, "transferee_member_id", None):
+        raise ValueError("양도양수 기록이 이미 회원에 연결돼 있습니다. 기존 회원을 확인하세요.")
+    from app.services import member_integrity
+    member_integrity.lock_registration(db)
+    member_integrity.assert_registration_safe(
+        db, {"name": tr.transferee, "vehicle_number": tr.vehicle_number,
+             "certificate_number": tr.certificate_number, "resident_number": tr.resident_number},
+        management_number,
+    )
     cat = detect_category(tr.vehicle_number)
     # 가입일자(membership_date)가 있으면 가입, 없으면 미가입
     from app.excel_utils import normalize_membership_status
@@ -1857,7 +1896,16 @@ def process_domestic_transfer(db: Session, *, transferor_member_id: int,
             mgmt = getattr(transferee_candidate, 'management_number', None) or None
             ledger_fqn = _resolve_link_fqn(transferee_candidate)
         else:
-            # 신규 생성 - 관리번호 발급 (동시성 잠금, 최댓값+1, 중복 재확인)
+            # 기존 회원·예정자와 충돌하면 자동 생성하지 않고 연결 대상을 관리자에게 확인받는다.
+            from app.services import member_integrity
+            member_integrity.lock_registration(db)
+            member_integrity.assert_registration_safe(
+                db, {"name": transferee_fields.get("name"),
+                     "resident_number": transferee_fields.get("resident_number"),
+                     "vehicle_number": transferee_fields.get("vehicle_number") or transferor.vehicle_number,
+                     "certificate_number": transfer_fields.get("certificate_number")},
+                management_number or "",
+            )
             lock_transfer_number_sequence(db)
             mgmt = management_number or get_next_transfer_member_number(db)
             if _mgmt_number_in_use(db, mgmt):

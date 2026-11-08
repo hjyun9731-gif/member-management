@@ -154,7 +154,7 @@ def preview_certificate_relink(db: Session, ledger_id: int, target_type: str, ta
     if target is None or target.deleted_at is not None:
         reasons.append("연결 대상이 없거나 삭제됐습니다.")
     if not reasons:
-        if target_type == "candidate" and target.is_registered:
+        if target_type == "candidate" and (target.is_registered or target.member_id):
             reasons.append("회원 전환 완료 예정자는 재연결 대상이 아닙니다.")
         rn, tn = _cert(row.document_number), _cert(target.certificate_number)
         if not rn or not tn or rn != tn:
