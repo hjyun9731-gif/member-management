@@ -1179,7 +1179,12 @@ def get_next_transfer_member_number(db: Session) -> str:
         models.Candidate.management_number.like(f"{prefix}%"),
         models.Candidate.deleted_at.is_(None)
     ).all()
-    max_n = max(_max_suffix(lh_items, prefix), _max_suffix(cand_items, prefix))
+    transfer_items = db.query(models.TransferLedger).filter(
+        models.TransferLedger.management_number.like(f"{prefix}%"),
+        models.TransferLedger.deleted_at.is_(None)
+    ).all()
+    max_n = max(_max_suffix(lh_items, prefix), _max_suffix(cand_items, prefix),
+                _max_suffix(transfer_items, prefix))
     return f"{prefix}{max_n + 1}"
 
 
@@ -1229,7 +1234,11 @@ def get_last_issued_management_number(db: Session, mgmt_type: str) -> Optional[s
             models.Candidate.management_number.like(f"{prefix}%"),
             models.Candidate.deleted_at.is_(None)
         ).all()
-        n = max(n, _max_suffix(cand_items, prefix))
+        transfer_items = db.query(models.TransferLedger).filter(
+            models.TransferLedger.management_number.like(f"{prefix}%"),
+            models.TransferLedger.deleted_at.is_(None)
+        ).all()
+        n = max(n, _max_suffix(cand_items, prefix), _max_suffix(transfer_items, prefix))
     return f"{prefix}{n}" if n > 0 else None
 
 
@@ -1351,6 +1360,8 @@ def register_candidate_as_member(db: Session, candidate_id: int,
             raise ValueError("예정자를 찾을 수 없습니다.")
         if cand.is_registered or cand.member_id:
             raise ValueError("이미 등록 처리되거나 회원에 연결된 예정자입니다.")
+        if not str(cand.vehicle_number or "").strip():
+            raise ValueError("차량번호가 없는 예정자는 아직 회원 등록을 완료할 수 없습니다. 예정자 정보를 먼저 보완하세요.")
         from app.services import member_integrity
         member_integrity.lock_registration(db)
         member_integrity.assert_registration_safe(
@@ -1502,8 +1513,12 @@ def register_transfer_as_member(db: Session, transfer_id: int,
         raise ValueError("양도양수 기록을 찾을 수 없습니다.")
     if tr.member_id or getattr(tr, "transferee_member_id", None):
         raise ValueError("양도양수 기록이 이미 회원에 연결돼 있습니다. 기존 회원을 확인하세요.")
+    if not str(tr.vehicle_number or "").strip():
+        raise ValueError("차량번호 없는 임시 양도양수 기록은 회원으로 등록할 수 없습니다. 정보를 보완하세요.")
     from app.services import member_integrity
     member_integrity.lock_registration(db)
+    if check_mgmt_dup(db, models.TransferLedger, management_number, exclude_id=transfer_id):
+        raise ValueError("관리번호가 다른 양도양수대장에 이미 사용 중입니다. 해당 기록을 먼저 확인하세요.")
     member_integrity.assert_registration_safe(
         db, {"name": tr.transferee, "vehicle_number": tr.vehicle_number,
              "certificate_number": tr.certificate_number, "resident_number": tr.resident_number},

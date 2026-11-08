@@ -386,6 +386,19 @@ async def get_transfer(tid: int, db: Session = Depends(get_db), _=Depends(get_cu
 @router.post("")
 async def create_transfer(data: dict, db: Session = Depends(get_db), _=Depends(get_current_user)):
     normalize_in_dict_or_400(data)  # 화물운송종사자격증 번호 형식 검증/정규화
+    if data.get("management_number") and not (data.get("transferee_member_id") or data.get("member_id")):
+        from app.services import member_integrity
+        member_integrity.lock_registration(db)
+        try:
+            crud.validate_management_number_format(data["management_number"])
+            conflicts = member_integrity.management_conflicts(db, data["management_number"])
+            if crud.check_mgmt_dup(db, models.TransferLedger, data["management_number"]):
+                conflicts.append("기존 양도양수대장")
+            if conflicts:
+                raise ValueError("관리번호 중복: " + ", ".join(conflicts))
+        except ValueError as exc:
+            db.rollback()
+            raise HTTPException(409, str(exc))
     # 이미 다른 대상이 쓰는 자격증명발급번호면 저장하지 않는다 (409).
     guard_certificate_number(
         db, data.get("certificate_number"),
@@ -465,6 +478,14 @@ async def issue_certificate_number(body: IssueCertificateNumberBody,
         return {"certificate_number": number}
     except ValueError as e:
         raise HTTPException(400, str(e))
+
+
+@router.post("/similar-records")
+async def similar_transfer_records(body: dict,
+                                   db: Session = Depends(get_db), _=Depends(get_current_user)):
+    from app.services.similar_records import find_similar
+    return find_similar(db, **{key: str(body.get(key) or "") for key in
+                               ("management_number", "name", "approval_date", "region")})
 
 
 @router.post("/check-transferee-duplicate")
