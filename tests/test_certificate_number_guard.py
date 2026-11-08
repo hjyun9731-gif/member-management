@@ -26,6 +26,12 @@ def client():
     s.add(models.LicenseHolder(id=1, name="박영수", vehicle_number="강원80배2222", region="강릉", certificate_number="26-100", management_number="신26-1"))
     s.add(models.LicenseHolder(id=2, name="최민수", vehicle_number="강원80자3333", region="원주", certificate_number="26-200", management_number="신26-2"))
     s.commit(); s.close()
+    # Explicit fixture IDs do not advance PostgreSQL SERIAL sequences.
+    if engine.dialect.name == "postgresql":
+        from sqlalchemy import text
+        with engine.begin() as conn:
+            for table in ("candidates", "license_holders"):
+                conn.execute(text(f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), (SELECT MAX(id) FROM {table}))"))
     app = FastAPI()
     app.include_router(CL.router)
     app.include_router(CA.router, prefix="/api/candidates")

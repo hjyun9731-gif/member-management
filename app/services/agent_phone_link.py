@@ -28,6 +28,8 @@ def link_known_current_agent(db, member, *contact_values):
         models.MemberAgent.status == "현재",
         models.MemberAgent.deleted_at.is_(None),
     ).all()
+    if sum(r.member_id == member.id for r in current) != 1:
+        return "review_required"
     matches = [r for r in current if re.sub(r"\D", "", r.mobile or "") == number]
     if any(r.member_id != member.id for r in matches):
         return "review_required"

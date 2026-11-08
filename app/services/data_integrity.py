@@ -13,11 +13,12 @@ from datetime import date
 from collections import defaultdict
 from typing import Dict, Iterable, List, Optional
 
-from sqlalchemy import inspect
+from sqlalchemy import inspect, literal
 from sqlalchemy.orm import Session
 
 from app import models
 from app.services import contact_parser as cp
+from app.services.member_integrity import mgmt_key
 from app.services.certificate_number_rules import canonical_number
 from app.certificate_ledger_models import CertificateIssuanceLedger
 
@@ -91,15 +92,16 @@ def check_contacts(db: Session) -> List[dict]:
         fields = [getattr(model, c) for c in cols if hasattr(model, c)]
         names = [c for c in cols if hasattr(model, c)]
         base = [model.id, model.name if hasattr(model, "name") else model.transferee if hasattr(model, "transferee") else model.id,
-                model.vehicle_number, model.region]
+                model.vehicle_number, model.region,
+                model.status if hasattr(model, "status") else literal("")]
         mgmt = model.management_number if hasattr(model, "management_number") else None
         cat = model.category if hasattr(model, "category") else None
         q = db.query(*base, *( [mgmt] if mgmt is not None else []), *([cat] if cat is not None else []), *fields)
         q = q.filter(model.deleted_at.is_(None))
         for row in _batched(q):
             vals = list(row)
-            rec = {"id": vals[0], "name": vals[1], "vehicle_number": vals[2], "region": vals[3]}
-            i = 4
+            rec = {"id": vals[0], "name": vals[1], "vehicle_number": vals[2], "region": vals[3], "status": vals[4]}
+            i = 5
             if mgmt is not None:
                 rec["management_number"] = vals[i]; i += 1
             if cat is not None:
@@ -137,10 +139,7 @@ _MGMT_OK = re.compile(r"^(신|양)\d{2}-\d+$")
 
 def normalize_mgmt(value) -> str:
     """관리번호 비교용 정규화(비교에만 사용, 저장값을 바꾸지 않는다)."""
-    s = str(value or "").strip()
-    s = re.sub(r"[\s.·,;]+$", "", s)       # 끝의 마침표/공백/구분자
-    s = re.sub(r"\s+", "", s)
-    return s
+    return mgmt_key(value)
 
 
 def _members(db: Session):
@@ -197,14 +196,19 @@ def check_mgmt_numbers(db: Session, members: List[dict]) -> List[dict]:
 def diagnose_mgmt_number(db: Session, number: str) -> dict:
     """관리번호 한 건의 점유 현황(읽기 전용). 삭제 여부와 폐업 상태를 구분해서 보여준다."""
     norm = normalize_mgmt(number)
-    variants = {number, norm, norm + ".", norm + " "}
+    # 등록 차단과 동일한 정규화를 전체 이력에 적용. IN 나열은 내부 공백·
+    # 앞자리 0·전각 표기를 놓칠 수 있다. 저장값은 변경하지 않는다.
+    def matching(model, field):
+        ids = [rid for rid, value in db.query(model.id, field)
+               if norm and normalize_mgmt(value) == norm]
+        return db.query(model).filter(model.id.in_(ids)).all()
     L, C, T, Z = models.LicenseHolder, models.Candidate, models.TransferLedger, models.Closure
 
     def status_of(r):
         return "삭제됨" if r.deleted_at else (getattr(r, "status", None) or "활성")
 
     holders = []
-    for r in db.query(L).filter(L.management_number.in_(variants)).all():
+    for r in matching(L, L.management_number):
         holders.append({"table": "license_holders", "id": r.id, "management_number": r.management_number,
                         "name": r.name, "vehicle_number": r.vehicle_number, "status": status_of(r),
                         "deleted": bool(r.deleted_at), "registration_type": r.registration_type,
@@ -212,14 +216,14 @@ def diagnose_mgmt_number(db: Session, number: str) -> dict:
                         "candidate_id": r.candidate_id, "transfer_ledger_id": r.transfer_ledger_id,
                         "closure_id": r.closure_id,
                         "blocks_new_registration": r.deleted_at is None})
-    for r in db.query(C).filter(C.management_number.in_(variants)).all():
+    for r in matching(C, C.management_number):
         holders.append({"table": "candidates", "id": r.id, "management_number": r.management_number,
                         "name": r.name, "vehicle_number": r.vehicle_number,
                         "status": "삭제됨" if r.deleted_at else ("등록완료" if r.is_registered else "예정"),
                         "deleted": bool(r.deleted_at), "member_id": r.member_id,
                         "certificate_number": r.certificate_number,
                         "blocks_new_registration": r.deleted_at is None})
-    for r in db.query(T).filter(T.management_number.in_(variants)).all():
+    for r in matching(T, T.management_number):
         holders.append({"table": "transfer_ledger", "id": r.id, "management_number": r.management_number,
                         "name": r.transferee, "vehicle_number": r.vehicle_number, "status": status_of(r),
                         "deleted": bool(r.deleted_at), "transferor": r.transferor,
@@ -227,7 +231,7 @@ def diagnose_mgmt_number(db: Session, number: str) -> dict:
                         "transferee_member_id": r.transferee_member_id, "member_id": r.member_id,
                         "process_date": r.process_date,
                         "blocks_new_registration": False})
-    for r in db.query(Z).filter(Z.original_management_number.in_(variants)).all():
+    for r in matching(Z, Z.original_management_number):
         holders.append({"table": "closures", "id": r.id, "management_number": r.original_management_number,
                         "name": r.name, "vehicle_number": r.vehicle_number, "status": status_of(r),
                         "deleted": bool(r.deleted_at), "closure_type": r.closure_type,

@@ -12,7 +12,7 @@ from app import models
 def mgmt_key(value):
     s = unicodedata.normalize("NFKC", str(value or ""))
     # 오입력된 관리번호의 뒤쪽 마침표·공백과 내부 공백을 비교할 때만 무시.
-    s = re.sub(r"\s+", "", s).rstrip(".")
+    s = re.sub(r"\s+", "", s).rstrip(".·,;")
     if re.fullmatch(r"[신양]\d{2}-\d+", s):
         h, n = s.split("-", 1)
         return f"{h}-{int(n)}"

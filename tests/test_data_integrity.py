@@ -6,7 +6,7 @@ _TMP = os.path.join(tempfile.gettempdir(), "mm_data_integrity_test.db")
 # 다른 테스트 모듈과 같은 프로세스에서 엔진을 공유하므로 setdefault 만 사용하고,
 # 아래 픽스처가 시작/종료 시 관련 테이블을 비워 다른 테스트에 영향을 남기지 않는다.
 os.environ.setdefault("DATABASE_URL", f"sqlite:///{_TMP}")
-assert "postgres" not in os.environ["DATABASE_URL"], "정합성 테스트는 운영/PostgreSQL DB에서 실행하지 않는다"
+# conftest validates a disposable local database before importing the app.
 
 import pytest
 from fastapi.testclient import TestClient

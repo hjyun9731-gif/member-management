@@ -4434,6 +4434,8 @@ async function renderDataIntegrity(){
         <select id="diCode"><option value="">오류유형 전체</option>${Object.entries(names).map(([k,v])=>`<option value="${k}">${k} ${e_(v)} (${(s.by_code[k]?.['오류 확정']||0)+(s.by_code[k]?.['확인 필요']||0)})</option>`).join('')}</select>
         <select id="diSev"><option value="">판정 전체</option><option>오류 확정</option><option>확인 필요</option></select>
         <select id="diCat"><option value="">개인/택배</option><option>개인</option><option>택배</option></select>
+        <input id="diRegion" placeholder="소속지역" style="width:90px">
+        <select id="diStatus"><option value="">상태 전체</option><option value="active">활성</option><option value="closed">폐업</option><option value="pending">대기</option></select>
         <input id="diName" placeholder="성명" style="width:90px"><input id="diMgmt" placeholder="관리번호" style="width:100px"><input id="diVeh" placeholder="차량번호" style="width:110px">
         <button class="btn bp btn-sm" id="diSearch">검색</button>
       </div>
@@ -4471,7 +4473,7 @@ async function renderDataIntegrity(){
       </section>
       <div id="diList" style="padding:0 12px 12px"></div></div>`;
   const q=()=>{const g=id=>document.getElementById(id).value.trim();
-    return {code:g('diCode'),severity:g('diSev'),category:g('diCat'),name:g('diName'),management_number:g('diMgmt'),vehicle_number:g('diVeh')};};
+    return {code:g('diCode'),severity:g('diSev'),category:g('diCat'),region:g('diRegion'),status:g('diStatus'),name:g('diName'),management_number:g('diMgmt'),vehicle_number:g('diVeh')};};
   const load=async(page=1)=>{
     DI_ST.page=page;DI_ST.f=q();
     const p=new URLSearchParams({page,page_size:DI_ST.size});Object.entries(DI_ST.f).forEach(([k,v])=>v&&p.set(k,v));
@@ -4567,7 +4569,7 @@ async function renderDataIntegrity(){
   };
   document.getElementById('diSearch').onclick=()=>load(1);
   document.getElementById('diRefresh').onclick=async()=>{await api('GET','/api/admin/data-integrity/summary?refresh=true').catch(()=>null);renderDataIntegrity();};
-  document.getElementById('diCsv').onclick=()=>{const f=q();const p=new URLSearchParams();if(f.code)p.set('code',f.code);if(f.severity)p.set('severity',f.severity);dl('/api/admin/data-integrity/export?'+p,'data_integrity.csv');};
+  document.getElementById('diCsv').onclick=()=>{const f=q();const p=new URLSearchParams();Object.entries(f).forEach(([k,v])=>v&&p.set(k,v));dl('/api/admin/data-integrity/export?'+p,'data_integrity.csv');};
   document.getElementById('diDiag').onclick=async()=>{
     const n=document.getElementById('diNum').value.trim();if(!n)return;
     const d=await api('GET','/api/admin/data-integrity/mgmt-number?number='+encodeURIComponent(n)).catch(()=>null);

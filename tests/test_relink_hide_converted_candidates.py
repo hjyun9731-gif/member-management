@@ -1,7 +1,7 @@
 """전환된 예정자는 재연결 검색에서 제외하되 회원 및 미전환 예정자는 유지."""
 import asyncio
 
-from sqlalchemy import create_engine
+from db_support import create_test_engine as create_engine
 from sqlalchemy.orm import Session
 
 from app.database import Base

@@ -1,0 +1,46 @@
+name: Integrity regression (SQLite and PostgreSQL)
+on:
+  pull_request:
+  push:
+    branches:
+      - 'review/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        database: [sqlite, postgresql]
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mm_test_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      MM_TEST_POSTGRES_URL: ${{ matrix.database == 'postgresql' && 'postgresql://postgres:postgres@127.0.0.1:5432/mm_test_ci' || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m pip install -r requirements.txt 'pytest>=8,<10'
+      - run: python -m pytest -q --junitxml=integrity-${{ matrix.database }}.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integrity-${{ matrix.database }}
+          path: integrity-${{ matrix.database }}.xml

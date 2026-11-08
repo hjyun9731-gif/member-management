@@ -1,7 +1,7 @@
 """합성 데이터로 등록, 대리인, 발급 이력 무결성을 재검증한다 (운영 DB 무접속)."""
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import create_engine
+from db_support import create_test_engine as create_engine
 from sqlalchemy.orm import Session
 from app.database import Base
 from app import models, crud, certificate_ledger_models as clm
