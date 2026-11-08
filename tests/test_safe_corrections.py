@@ -1,6 +1,6 @@
 """DB 접근 없는 합성 데이터로 운영 정정 API의 검증·보호 검증."""
 import pytest
-from sqlalchemy import create_engine
+from db_support import create_test_engine as create_engine
 from sqlalchemy.orm import Session
 from app.database import Base
 from app import models, certificate_ledger_models as clm

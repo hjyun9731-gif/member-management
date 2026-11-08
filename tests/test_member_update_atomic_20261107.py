@@ -2,7 +2,7 @@
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from db_support import create_test_engine as create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 

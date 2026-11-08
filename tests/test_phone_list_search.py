@@ -4,7 +4,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine
+from db_support import create_test_engine as create_engine
 from sqlalchemy.orm import Session
 from app import crud, models
 from app.database import Base

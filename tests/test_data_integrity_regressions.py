@@ -3,7 +3,7 @@
 실제 Railway DB와 회원 개인정보를 사용하지 않는다. 각 테스트는 독립 SQLite 메모리 DB.
 """
 import pytest
-from sqlalchemy import create_engine
+from db_support import create_test_engine as create_engine
 from sqlalchemy.orm import Session
 
 from app import crud, models

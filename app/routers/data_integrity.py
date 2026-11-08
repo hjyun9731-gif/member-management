@@ -95,11 +95,13 @@ def parse_contact_api(value: str = Query(""), _=Depends(require_admin)):
 @router.get("/export")
 def export_csv(
     code: Optional[str] = None, severity: Optional[str] = None,
+    category: Optional[str] = None, region: Optional[str] = None, status: Optional[str] = None,
+    management_number: Optional[str] = None, vehicle_number: Optional[str] = None, name: Optional[str] = None,
     db: Session = Depends(get_db), _=Depends(require_admin),
 ):
     """관리자 전용 CSV. 주민등록번호는 서비스 단계에서 이미 마스킹되어 있다."""
     data = _scan(db, False)
-    rows = _filter(data["findings"], code, severity, None, None, None, None, None, None)
+    rows = _filter(data["findings"], code, severity, category, region, status, management_number, vehicle_number, name)
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["오류유형", "판정", "대상자", "관리번호", "차량번호", "테이블", "레코드ID", "필드", "현재값", "문제내용", "권장처리"])

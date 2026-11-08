@@ -1,6 +1,6 @@
 """운영 DB 비접속 합성 데이터 테스트: 관리번호 중복, 동명이인, 대리인 안전 연결."""
 import pytest
-from sqlalchemy import create_engine
+from db_support import create_test_engine as create_engine
 from sqlalchemy.orm import Session
 
 from app.database import Base
