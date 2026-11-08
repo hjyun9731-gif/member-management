@@ -949,7 +949,7 @@ function navigate(cat,sub){
 }
 
 // ===== PUBLIC NOTICE: FOUR-FIELD SIMILAR RECORD CHECK =====
-// 관리번호·이름·인가일자·지역만 조회. 주민번호/차량번호/연락처 비교 없이 수동 동일인 확인.
+// 이름·인가일자·지역 입력 후 자동 조회. 관리번호는 입력된 경우 추가 비교하며, 주민번호/차량번호/연락처는 조회하지 않음.
 const _similarState = new WeakMap();
 function _similarPayload(form){
   const read=k=>String(form.querySelector(`[name="${k}"]`)?.value||'').trim();
@@ -957,7 +957,7 @@ function _similarPayload(form){
           approval_date:_dateToISO(read('approval_date')),region:read('region')};
 }
 function _similarSignature(payload){return JSON.stringify(payload);}
-function _similarLookupReady(p){return Boolean(p.name && (p.management_number || (p.region && p.approval_date)));}
+function _similarLookupReady(p){return Boolean(p.name && p.approval_date && p.region);}
 function _similarPopup(form, data, payload){
   return new Promise(resolve=>{
     const list=data.matches||[];
@@ -971,16 +971,16 @@ function _similarPopup(form, data, payload){
       <td>${e_(r.region||'-')}</td>
       <td>${e_((r.matched_fields||[]).join('·'))}</td>
     </tr>`).join('');
-    openModal('기존 회원/예정자와 유사한 기록이 발견됐습니다',`
-      <p style="font-size:13px;margin-bottom:12px">공문의 <b>관리번호·이름·인가일자·지역</b>을 기준으로 검색했습니다. 동일인 여부를 직접 확인하세요.</p>
+    openModal('기존 회원·예정자·양도양수 기록 중 유사한 항목이 발견됐습니다',`
+      <p style="font-size:13px;margin-bottom:12px">입력한 <b>성명·인가일자·지역</b>을 기준으로 검색하고, 관리번호가 있으면 함께 비교했습니다. 동일인 여부를 직접 확인하세요.</p>
       <div style="background:#f6f3ff;padding:12px;border-radius:8px;margin-bottom:12px;font-size:13px">
         <b>입력 정보</b> &nbsp; 관리번호 ${e_(payload.management_number||'-')} / 성명 ${e_(payload.name||'-')} / 인가일자 ${e_(payload.approval_date||'-')} / 지역 ${e_(payload.region||'-')}
       </div>
       <div class="tbl-wrap" style="max-height:280px;overflow:auto"><table><thead><tr><th>선택</th><th>구분</th><th>성명</th><th>관리번호</th><th>인가일자</th><th>지역</th><th>일치 항목</th></tr></thead><tbody>${trs}</tbody></table></div>
       ${(data.total||0)>list.length?`<p style="margin-top:8px;font-size:12px;color:#8b6598">유사 기록 총 ${data.total}건 중 상위 ${list.length}건을 표시했습니다.</p>`:''}
-      <p style="margin-top:12px;font-size:12px;color:${hard?'#ad3a3a':'#747183'}">${hard?'관리번호가 이미 사용 중입니다. 동명이인을 선택해도 같은 관리번호로 저장할 수 없습니다.':'이름만 같다면 동명이인일 수 있습니다. 기존 기록은 자동으로 수정·병합되지 않습니다.'}</p>`,
-      `<button class="btn bg btn-sm" id="similarSame">네, 같은 사람입니다 · 기록 열기</button>
-       <button class="btn bo btn-sm" id="similarDifferent" ${hard?'disabled title="관리번호 충돌은 우회할 수 없습니다"':''}>아니요, 동명이인입니다 · 계속 입력</button>
+      <p style="margin-top:12px;font-size:12px;color:${hard?'#ad3a3a':'#747183'}">${hard?'같은 관리번호가 이미 사용 중입니다. 동명이인으로 계속 입력할 수 있지만, 같은 관리번호로는 저장할 수 없습니다.':'이름만 같다면 동명이인일 수 있습니다. 기존 기록은 자동으로 수정·병합되지 않습니다.'}</p>`,
+      `<button class="btn bg btn-sm" id="similarSame">네, 같은 사람입니다 · 기존 기록 열기</button>
+       <button class="btn bo btn-sm" id="similarDifferent">아니요, 동명이인입니다 · 계속 입력</button>
        <button class="btn bo btn-sm" id="similarLater">닫기</button>`,'mlg');
     const finish=(choice, record=null)=>{
       _mr=null;closeModal();resolve({choice,record});
@@ -991,7 +991,7 @@ function _similarPopup(form, data, payload){
       if(!checked){toast('열어볼 기존 기록을 선택하세요','warn');return;}
       finish('same',list[Number(checked.value)]);
     };
-    document.getElementById('similarDifferent').onclick=()=>{if(!hard)finish('different');};
+    document.getElementById('similarDifferent').onclick=()=>finish('different');
     document.getElementById('similarLater').onclick=()=>finish('cancel');
   });
 }
@@ -1000,8 +1000,7 @@ async function _checkSimilarBeforeSave(form, auto=false){
   const payload=_similarPayload(form), sig=_similarSignature(payload);
   const state=_similarState.get(form)||{};
   if(state.accepted===sig)return true;
-  if(auto&&!_similarLookupReady(payload))return true;
-  if(!payload.name && !payload.management_number)return true;
+  if(!_similarLookupReady(payload))return true;
   if(state.pending && state.signature===sig)return state.pending;
   const pending=(async()=>{
     let data;
@@ -1013,8 +1012,10 @@ async function _checkSimilarBeforeSave(form, auto=false){
     if(_similarSignature(_similarPayload(form))!==sig)return false;
     if(!(data.matches||[]).length){_similarState.set(form,{accepted:sig});return true;}
     const result=await _similarPopup(form,data,payload);
-    if(result.choice==='different'&&!data.has_management_conflict){
-      _similarState.set(form,{accepted:sig});return true;
+    if(result.choice==='different'){
+      _similarState.set(form,{accepted:sig});
+      if(data.has_management_conflict)toast('동명이인으로 계속 입력할 수 있지만, 같은 관리번호로는 저장할 수 없어. 관리번호를 확인해줘.','warn');
+      return true;
     }
     if(result.choice==='same'&&result.record){
       const r=result.record;
@@ -1031,20 +1032,36 @@ async function _checkSimilarBeforeSave(form, auto=false){
     if(latest?.pending===pending)_similarState.set(form,{});
   }
 }
+const _similarTimers = new WeakMap();
+function _scheduleSimilarRecordCheck(form, event){
+  if(event?.isComposing)return;
+  const previous=_similarTimers.get(form);
+  if(previous)clearTimeout(previous);
+  const timer=setTimeout(()=>{
+    _similarTimers.delete(form);
+    if(!form.isConnected||document.getElementById('modalBg')?.style?.display?.includes('flex'))return;
+    const payload=_similarPayload(form);
+    if(!_similarLookupReady(payload))return;
+    _checkSimilarBeforeSave(form,true).catch(()=>{});
+  },450);
+  _similarTimers.set(form,timer);
+}
 function _bindSimilarRecordCheck(form){
   if(!form||form.dataset.similarCheckBound)return;
   form.dataset.similarCheckBound='1';
-  form.addEventListener('reset',()=>_similarState.delete(form));
+  form.addEventListener('reset',()=>{
+    const timer=_similarTimers.get(form);
+    if(timer)clearTimeout(timer);
+    _similarTimers.delete(form);
+    _similarState.delete(form);
+  });
   for(const field of ['management_number','name','approval_date','region']){
     const input=form.querySelector(`[name="${field}"]`);
-    if(input)input.addEventListener('change',()=>{
-      if(form.isConnected&&!document.getElementById('modalBg')?.style?.display?.includes('flex')){
-        _checkSimilarBeforeSave(form,true).catch(()=>{});
-      }
-    });
+    if(input){
+      input.addEventListener('input',event=>_scheduleSimilarRecordCheck(form,event));
+      input.addEventListener('change',event=>_scheduleSimilarRecordCheck(form,event));
+    }
   }
-  const btn=form.querySelector('.similar-check-manual');
-  if(btn)btn.onclick=()=>_checkSimilarBeforeSave(form,false);
 }
 
 // ===== CANDIDATES =====
@@ -1071,10 +1088,9 @@ async function renderCandidateSection(){
       <div class="card-hd"><div class="card-hd-l"><span class="card-ico">✏️</span><span class="card-ttl">예정자 입력</span></div></div>
       <div class="card-bd"><form id="candForm">
         ${sec('기본정보',`
-        ${fi('management_number','관리번호 (공문)', '')} ${fi('name','성명')}
+        ${fi('management_number','관리번호', '')} ${fi('name','성명')}
         ${fi('approval_date','인가일자', '')}
         <div class="fi"><label>지역</label>${regionEditable('region','')}</div>
-        <div class="fi cs4"><button type="button" class="btn bp btn-sm similar-check-manual">기존 개인·택배회원 / 예정자 중복 확인</button></div>
         ${fi('vehicle_number','차량번호')}
         ${frn('resident_number','주민등록번호')}
         `,'👤','sky')}
@@ -1290,11 +1306,10 @@ async function renderTransferSection(){
       <div class="card-hd"><div class="card-hd-l"><span class="card-ico">✏️</span><span class="card-ttl">양도양수 등록 (타 지역→강원도 전입)</span></div></div>
       <div class="card-bd"><form id="trSecForm">
         ${sec('기본정보',`
-        ${fi('management_number','관리번호 (공문)','')}
+        ${fi('management_number','관리번호','')}
         ${fi('name','양수자(성명)','')}
         ${fi('approval_date','인가일자','')}
         <div class="fi"><label>지역</label>${regionEditable('region','')}</div>
-        <div class="fi cs4"><button type="button" class="btn bp btn-sm similar-check-manual">기존 개인·택배회원 / 예정자 중복 확인</button></div>
         ${fi('vehicle_number','차량번호','')}
         ${fi('transferor','양도인(성명)','')}
         ${frn('resident_number','양수자 주민등록번호','')}
