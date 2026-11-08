@@ -3,7 +3,7 @@
 // 온라인 상태에서는 항상 최신 코드/데이터를 사용하고, 앱 셸(정적 파일)만
 // 오프라인·저속망 대비용으로 캐시에 보관한다. /api/ 요청은 절대 캐시하지 않는다.
 
-const CACHE_VERSION = 'assoc-shell-v3-20261008';
+const CACHE_VERSION = 'assoc-shell-v4-20261108-similar-popup-auto';
 const SHELL_FILES = [
   '/',
   '/login',
