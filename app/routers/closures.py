@@ -368,7 +368,7 @@ async def create_closure(data: dict, db: Session = Depends(get_db),
     # 같으면(같은 대상) 중복으로 보지 않는다 — guard_certificate_number의 기본 동작.
     guard_certificate_number(
         db, data.get("certificate_number"),
-        name=str(data.get("name") or ""), vehicle_number=str(data.get("vehicle_number") or ""))
+        closure_workflow=True, name=str(data.get("name") or ""), vehicle_number=str(data.get("vehicle_number") or ""))
     return _fmt(crud.create_item(db, models.Closure, data))
 
 
@@ -389,7 +389,7 @@ async def update_closure(cid: int, data: dict, db: Session = Depends(get_db),
     if "certificate_number" in data and canonical_number(data.get("certificate_number")) != canonical_number(c.certificate_number):
         guard_certificate_number(
             db, data.get("certificate_number"), closure_id=c.id,
-            name=str(data.get("name") or c.name or ""),
+            closure_workflow=True, name=str(data.get("name") or c.name or ""),
             vehicle_number=str(data.get("vehicle_number") or c.vehicle_number or ""))
     return _fmt(crud.update_item(db, c, data))
 

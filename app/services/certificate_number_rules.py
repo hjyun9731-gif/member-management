@@ -152,8 +152,11 @@ def is_exempt(hit: dict, ctx: SubjectContext) -> bool:
         ):
             return True
 
-    # 연결고리가 없어도 성명+차량번호가 모두 같으면 같은 대상의 다른 기록으로 본다
-    # (기존 certificate_number_reservation._same_subject 와 같은 기준).
+    # 회원·예정자끼리는 성명+차량번호가 같더라도 독립된 레코드일 수 있다.
+    # 신원 확인 없이 자동으로 같은 사람으로 취급해 발급번호 중복을 통과시키지 않는다.
+    if src in {"license_holders", "candidates"}:
+        return False
+    # 폐업·양도 대장처럼 ID 연결이 없는 레거시 문서는 기존 업무 호환성 보존.
     return same_subject(hit.get("name"), hit.get("vehicle_number"), ctx.name, ctx.vehicle_number)
 
 

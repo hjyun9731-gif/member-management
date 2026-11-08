@@ -692,12 +692,16 @@ async def register_member(tid: int, body: RegisterMemberBody,
     t = crud.get_by_id(db, models.TransferLedger, tid)
     if not t:
         raise HTTPException(404, "양도양수 기록을 찾을 수 없습니다.")
-    if t.member_id:
+    if t.member_id or getattr(t, "transferee_member_id", None):
         raise HTTPException(400, "이미 회원으로 등록된 기록입니다.")
     # 관리번호 동시발급 방지: advisory lock 획득 후 번호 생성/중복확인/저장까지 한 트랜잭션에서 처리
     crud.lock_transfer_number_sequence(db)
     mgmt = body.management_number or crud.get_next_transfer_member_number(db)
     if crud.check_mgmt_dup(db, models.LicenseHolder, mgmt) or crud._mgmt_number_in_use(db, mgmt):
         raise HTTPException(400, f"관리번호 {mgmt}가 이미 존재합니다.")
-    member = crud.register_transfer_as_member(db, tid, mgmt)
+    try:
+        member = crud.register_transfer_as_member(db, tid, mgmt)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(409, str(exc)) from exc
     return {"ok": True, "management_number": mgmt, "member_id": member.id, "category": member.category}

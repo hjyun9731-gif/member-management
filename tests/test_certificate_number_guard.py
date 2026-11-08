@@ -26,6 +26,12 @@ def client():
     s.add(models.LicenseHolder(id=1, name="박영수", vehicle_number="강원80배2222", region="강릉", certificate_number="26-100", management_number="신26-1"))
     s.add(models.LicenseHolder(id=2, name="최민수", vehicle_number="강원80자3333", region="원주", certificate_number="26-200", management_number="신26-2"))
     s.commit(); s.close()
+    # Explicit fixture IDs do not advance PostgreSQL SERIAL sequences.
+    if engine.dialect.name == "postgresql":
+        from sqlalchemy import text
+        with engine.begin() as conn:
+            for table in ("candidates", "license_holders"):
+                conn.execute(text(f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), (SELECT MAX(id) FROM {table}))"))
     app = FastAPI()
     app.include_router(CL.router)
     app.include_router(CA.router, prefix="/api/candidates")
@@ -108,10 +114,16 @@ def test_ledger_number_edit_blocked(client):
     assert client.put(f"/api/certificate-ledger/{lid}", json={"document_number": "26-301"}).status_code == 200
 
 
-def test_same_person_linked_records_are_not_duplicates(client):
-    # 예정자 홍길동(26-425)이 회원으로 전환되어도(candidate_id 연결) 같은 사람 번호는 허용
+def test_direct_member_create_with_candidate_id_requires_conversion_route(client):
+    # 예정자 연결이 있는 경우에는 임의 신규등록으로 중복 회원을 만들지 말고
+    # 기존 예정자 등록완료 경로를 사용해야 한다.
     r = client.post("/api/members", json={"name": "홍길동", "vehicle_number": "강원80자1234", "certificate_number": "26-425", "candidate_id": 1})
-    assert r.status_code == 200, r.text
+    assert r.status_code == 409, r.text
+    assert "예정자 등록완료" in r.json()["detail"]
+    # 기존 예정자 기록은 회원 전환 전까지 변경되지 않는다.
+    with SessionLocal() as s:
+        c = s.get(models.Candidate, 1)
+        assert c.member_id is None and not c.is_registered
 
 
 def test_existing_duplicates_reported_not_modified(client):
@@ -164,3 +176,21 @@ def test_ledger_list_fast_path_pagination(client):
     assert len(j["items"]) == 3
     j2 = client.get("/api/certificate-ledger", params={"limit": 3, "page": 2}).json()
     assert [i["document_number"] for i in j2["items"]][0] != "26-907"
+
+
+def test_closure_rejects_ambiguous_same_name_vehicle_certificate(client):
+    """이름+차량이 같은 회원 두 명이면 폐업에서도 자동 동일인 판단 금지."""
+    with SessionLocal() as db:
+        db.add(models.LicenseHolder(id=15, name="박영수", vehicle_number="강원80배2222",
+                                    certificate_number="26-100", management_number="신26-15"))
+        db.commit()
+    r = client.post("/api/closures", json={"name": "박영수", "vehicle_number": "강원80배2222",
+                                           "closure_type": "폐업", "certificate_number": "26-100"})
+    assert r.status_code == 409, r.text
+
+
+def test_member_creation_never_uses_closure_exception(client):
+    """폐업 업무 예외가 신규 회원 등록 경로로 전파되면 안 된다."""
+    r = client.post("/api/members", json={"name": "박영수", "vehicle_number": "강원80배2222",
+                                          "certificate_number": "26-100"})
+    assert r.status_code == 409, r.text
