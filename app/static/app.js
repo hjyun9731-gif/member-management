@@ -1087,9 +1087,9 @@ async function renderCandidateSection(){
       <div class="card-hd"><div class="card-hd-l"><span class="card-ico">✏️</span><span class="card-ttl">예정자 입력</span></div></div>
       <div class="card-bd"><form id="candForm">
         ${sec('기본정보',`
-        ${fi('name','성명')}
         <div class="fi"><label>지역</label>${regionEditable('region','')}</div>
         ${fi('vehicle_number','차량번호')}
+        ${fi('name','성명')}
         ${frn('resident_number','주민등록번호')}
         `,'👤','sky')}
         ${sec('연락처·주소',`
