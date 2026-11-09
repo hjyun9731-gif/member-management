@@ -18,5 +18,5 @@ def test_static_cache_version_changes_with_popup_ui():
     root = Path(__file__).resolve().parents[1]
     index = (root / "app" / "static" / "index.html").read_text(encoding="utf-8")
     worker = (root / "app" / "static" / "sw.js").read_text(encoding="utf-8")
-    assert "v=20261108-similar-popup-auto" in index
-    assert "assoc-shell-v4-20261108-similar-popup-auto" in worker
+    assert "v=20261109-management-number-restore" in index
+    assert "assoc-shell-v4-20261109-management-number-restore" in worker
