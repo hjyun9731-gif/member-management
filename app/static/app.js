@@ -948,13 +948,12 @@ function navigate(cat,sub){
   }[sub]||(() => document.getElementById('content').innerHTML='<p style="padding:20px">준비 중</p>'))();
 }
 
-// ===== PUBLIC NOTICE: FOUR-FIELD SIMILAR RECORD CHECK =====
-// 이름·인가일자·지역 입력 후 자동 조회. 관리번호는 입력된 경우 추가 비교하며, 주민번호/차량번호/연락처는 조회하지 않음.
+// ===== SIMILAR RECORD CHECK (NAME + APPROVAL DATE + REGION) =====
+// 인가일자가 존재하는 화면에서 성명·인가일자·지역으로 조회. 초기 예정자 입력에는 인가일자 없음.
 const _similarState = new WeakMap();
 function _similarPayload(form){
   const read=k=>String(form.querySelector(`[name="${k}"]`)?.value||'').trim();
-  return {management_number:read('management_number'),name:read('name'),
-          approval_date:_dateToISO(read('approval_date')),region:read('region')};
+  return {name:read('name'),approval_date:_dateToISO(read('approval_date')),region:read('region')};
 }
 function _similarSignature(payload){return JSON.stringify(payload);}
 function _similarLookupReady(p){return Boolean(p.name && p.approval_date && p.region);}
@@ -972,9 +971,9 @@ function _similarPopup(form, data, payload){
       <td>${e_((r.matched_fields||[]).join('·'))}</td>
     </tr>`).join('');
     openModal('기존 회원·예정자·양도양수 기록 중 유사한 항목이 발견됐습니다',`
-      <p style="font-size:13px;margin-bottom:12px">입력한 <b>성명·인가일자·지역</b>을 기준으로 검색하고, 관리번호가 있으면 함께 비교했습니다. 동일인 여부를 직접 확인하세요.</p>
+      <p style="font-size:13px;margin-bottom:12px">입력한 <b>성명·인가일자·지역</b>을 기준으로 검색했습니다. 동일인 여부를 직접 확인하세요.</p>
       <div style="background:#f6f3ff;padding:12px;border-radius:8px;margin-bottom:12px;font-size:13px">
-        <b>입력 정보</b> &nbsp; 관리번호 ${e_(payload.management_number||'-')} / 성명 ${e_(payload.name||'-')} / 인가일자 ${e_(payload.approval_date||'-')} / 지역 ${e_(payload.region||'-')}
+        <b>입력 정보</b> &nbsp; 성명 ${e_(payload.name||'-')} / 인가일자 ${e_(payload.approval_date||'-')} / 지역 ${e_(payload.region||'-')}
       </div>
       <div class="tbl-wrap" style="max-height:280px;overflow:auto"><table><thead><tr><th>선택</th><th>구분</th><th>성명</th><th>관리번호</th><th>인가일자</th><th>지역</th><th>일치 항목</th></tr></thead><tbody>${trs}</tbody></table></div>
       ${(data.total||0)>list.length?`<p style="margin-top:8px;font-size:12px;color:#8b6598">유사 기록 총 ${data.total}건 중 상위 ${list.length}건을 표시했습니다.</p>`:''}
@@ -1055,7 +1054,7 @@ function _bindSimilarRecordCheck(form){
     _similarTimers.delete(form);
     _similarState.delete(form);
   });
-  for(const field of ['management_number','name','approval_date','region']){
+  for(const field of ['name','approval_date','region']){
     const input=form.querySelector(`[name="${field}"]`);
     if(input){
       input.addEventListener('input',event=>_scheduleSimilarRecordCheck(form,event));
@@ -1088,8 +1087,7 @@ async function renderCandidateSection(){
       <div class="card-hd"><div class="card-hd-l"><span class="card-ico">✏️</span><span class="card-ttl">예정자 입력</span></div></div>
       <div class="card-bd"><form id="candForm">
         ${sec('기본정보',`
-        ${fi('management_number','관리번호', '')} ${fi('name','성명')}
-        ${fi('approval_date','인가일자', '')}
+        ${fi('name','성명')}
         <div class="fi"><label>지역</label>${regionEditable('region','')}</div>
         ${fi('vehicle_number','차량번호')}
         ${frn('resident_number','주민등록번호')}
@@ -1240,8 +1238,6 @@ window.editCandidate=async(id)=>{
   }catch(e){toast('서버 연결 오류','err');return;}
   if(!r)return;
   openModal('예정자 수정',`<form id="cEditForm"><div class="fg">
-    ${fi('management_number','관리번호',r.management_number||'')}
-    ${fi('approval_date','인가일자',r.approval_date||'')}
     <div class="fi"><label>지역</label>${regionEditable('region',r.region||'')}</div>
     ${fi('vehicle_number','차량번호',r.vehicle_number||'')} ${fi('name','성명',r.name||'')}
     ${frn('resident_number','주민등록번호',r.resident_number||'')}
@@ -1268,10 +1264,7 @@ window.editCandidate=async(id)=>{
 };
 
 window.registerCandidate=async(cid,vn,name)=>{
-  const [nn,cand]=await Promise.all([
-    api('GET','/api/members/next-new-number').catch(()=>null),
-    api('GET',`/api/candidates/${cid}`).catch(()=>null),
-  ]);
+  const cand=await api('GET',`/api/candidates/${cid}`).catch(()=>null);
   const existingMemDate=cand?.membership_date||'';
   const existingApprDate=cand?.approval_date||'';
   openModal('신규등록 처리',`
@@ -1280,7 +1273,6 @@ window.registerCandidate=async(cid,vn,name)=>{
     <div class="fg2 mt8">
       <div class="fi"><label>인가일자 <span class="req">*</span></label><input class="fc fmt-date" id="regApprDate" value="${e_(_isoToYY(existingApprDate))}" placeholder="00.00.00"></div>
       <div class="fi"><label>가입일자 <span style="font-size:11px;color:var(--c-text-3)">(없으면 미가입)</span></label><input class="fc fmt-date" id="regMemDate" value="${e_(_isoToYY(existingMemDate))}" placeholder="00.00.00"></div>
-      <div class="fi"><label>관리번호</label><input class="fc" id="regMgmtNum" value="${e_(cand?.management_number||nn?.next_number||'')}"></div>
     </div>`,
     `<button class="btn bg btn-sm" id="_rC">등록 완료</button><button class="btn bo btn-sm" onclick="closeModal()">취소</button>`,'msm');
   document.getElementById('_rC').onclick=async()=>{
@@ -1289,8 +1281,7 @@ window.registerCandidate=async(cid,vn,name)=>{
     const md=_dateToISO(document.getElementById('regMemDate').value.trim());
     const r=await api('POST',`/api/candidates/${cid}/register`,{
       approval_date:ad,
-      membership_date:md,
-      management_number:document.getElementById('regMgmtNum').value.trim()
+      membership_date:md
     }).catch(()=>null);
     if(r){toast(`${r.category}회원 등록 완료 (${r.management_number}) - ${md?'가입':'미가입'}`);closeModal();renderCandidateSection();}
   };
@@ -1306,7 +1297,6 @@ async function renderTransferSection(){
       <div class="card-hd"><div class="card-hd-l"><span class="card-ico">✏️</span><span class="card-ttl">양도양수 등록 (타 지역→강원도 전입)</span></div></div>
       <div class="card-bd"><form id="trSecForm">
         ${sec('기본정보',`
-        ${fi('management_number','관리번호','')}
         ${fi('name','양수자(성명)','')}
         ${fi('approval_date','인가일자','')}
         <div class="fi"><label>지역</label>${regionEditable('region','')}</div>
@@ -1346,7 +1336,6 @@ async function renderTransferSection(){
     if(!await _checkSimilarBeforeSave(form))return;
     const fd=_normFormDates(Object.fromEntries(new FormData(form)));
     if(!fd.name||!fd.region||!fd.approval_date){toast('양수자 성명·지역·인가일자를 입력하세요','warn');return;}
-    const nn=fd.vehicle_number?await api('GET','/api/members/next-transfer-number').catch(()=>null):null;
     const tl={
       receipt_date:fd.receipt_date||new Date().toISOString().slice(0,10),
       region:fd.region||'',vehicle_number:fd.vehicle_number,
@@ -1368,14 +1357,13 @@ async function renderTransferSection(){
       agent_certificate_number:fd.agent_certificate_number||'',
       agent_start_date:fd.agent_start_date||'',memo:fd.memo};
     // 차량번호가 아직 없으면 대장만 먼저 저장하고 회원을 자동 생성하지 않는다.
-    if(!fd.vehicle_number && fd.management_number)tl.management_number=fd.management_number;
     const trRec=await api('POST','/api/transfer-ledger',tl).catch(()=>null);
     if(!trRec)return;
     if(!fd.vehicle_number){
       toast('양도양수대장 임시저장 완료. 차량정보 확인 후 회원등록을 진행하세요.');
       form.reset();return;
     }
-    const mr=await api('POST',`/api/transfer-ledger/${trRec.id}/register-member`,{management_number:fd.management_number||nn?.next_number||''}).catch(()=>null);
+    const mr=await api('POST',`/api/transfer-ledger/${trRec.id}/register-member`,{}).catch(()=>null);
     if(mr){toast(`${mr.category}회원 등록 완료 (${mr.management_number})`);form.reset();}
     else toast('대장은 저장됐지만 회원등록은 완료되지 않았습니다. 대장 기록을 확인하세요.','warn');
   };
